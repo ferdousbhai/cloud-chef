@@ -17,11 +17,9 @@ import { authClient } from '~/lib/auth-client';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { classNames } from '~/utils/classNames';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
-import { EnhancePromptButton } from './EnhancePromptButton.client';
 import { getMessageInputPrimaryActionLabel, useMessageInputController } from './useMessageInputController';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
-import { PromptRefinementDialog } from './PromptRefinementDialog.client';
 import { PromptPrefillContext } from './prompt-prefill';
 
 interface MessageInputProps {
@@ -78,13 +76,6 @@ export const MessageInput = memo(function MessageInput({
         <Button variant="neutral" onClick={() => void controller.signIn()} size="xs" className="text-xs font-normal">
           <span>Connect Cloudflare</span>
         </Button>
-      )}
-      {hasActiveSession && (
-        <EnhancePromptButton
-          isEnhancing={controller.isEnhancing}
-          disabled={disabled || isStreaming || sendMessageInProgress || input.trim().length === 0}
-          onClick={controller.enhancePrompt}
-        />
       )}
       <Button
         // A closed composer still stops a running turn: only sending waits for it to open.
@@ -162,15 +153,6 @@ export const MessageInput = memo(function MessageInput({
           </div>
         </>
       ) : null}
-      {controller.refinement && (
-        <PromptRefinementDialog
-          key={controller.refinement.questions.map((question) => question.id).join(':')}
-          questions={controller.refinement.questions}
-          isLoading={controller.isEnhancing}
-          onSubmit={(answers) => void controller.answerRefinementQuestions(answers)}
-          onCancel={controller.cancelRefinement}
-        />
-      )}
     </>
   );
 });

@@ -122,7 +122,7 @@ Workers AI without a token from the broker; in a shared account (`CLOUDCHEF_SHAR
 each time it is admitted, whether the agent's direct `cloudflare_request` tool is offered, which only the
 organization's active admins get, so a demoted admin loses it at once.
 The same answer carries the person's own AI Gateway content-logging choice (`user.ai_gateway_content_logging`,
-set in Settings), which the runtime asks for before every builder turn, title, and prompt enhancement in any
+set in Settings), which the runtime asks for before every builder turn and title in any
 account: model requests always go through the account's default gateway, logged (and labelled with chat and
 person) only when that answer says so. An unreachable control plane or a missing answer means unlogged, and no
 organization setting overrides a person's opt-out. A member's

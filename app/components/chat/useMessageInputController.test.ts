@@ -4,7 +4,6 @@ import {
   getMessageInputPrimaryAction,
   getMessageInputPrimaryActionLabel,
   preservePromptForAuthentication,
-  replacePromptIfUnchanged,
   submitMessageInput,
 } from './useMessageInputController';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
@@ -95,18 +94,6 @@ describe('clearPromptIfUnchanged', () => {
 
     expect(clearPromptIfUnchanged('sent input', submittedRevision)).toBe(false);
     expect(messageInputStore.get()).toBe('sent input');
-  });
-});
-
-describe('replacePromptIfUnchanged', () => {
-  it('does not overwrite input changed away and back while prompt enhancement was in flight', () => {
-    setMessageInput('original input');
-    const sourceRevision = getMessageInputRevision();
-    setMessageInput('temporary edit');
-    setMessageInput('original input');
-
-    expect(replacePromptIfUnchanged('original input', sourceRevision, 'enhanced original')).toBe(false);
-    expect(messageInputStore.get()).toBe('original input');
   });
 });
 

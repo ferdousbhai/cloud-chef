@@ -63,7 +63,6 @@ import {
 } from '../../app/lib/cloudflare/data/projects.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
-import { userRuntimeEnhancePromptAction } from '../../app/server-handlers/enhance-prompt';
 import { builderModelCatalogResponse } from '../../app/lib/.server/llm/workers-ai-model-catalog';
 import { readAccountModelSettings } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import {
@@ -3073,12 +3072,6 @@ async function handleUserRequest(
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/chats/messages') {
     response = await userRuntimeInitialMessagesAction({
-      request,
-      env: sharedEnv,
-      userId: capability.subject,
-    });
-  } else if (request.method === 'POST' && url.pathname === '/v1/enhance-prompt') {
-    response = await userRuntimeEnhancePromptAction({
       request,
       env: sharedEnv,
       userId: capability.subject,

@@ -1,33 +1,19 @@
 import { useStore } from '@nanostores/react';
 import { useSearch } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, useState, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
+import { useCallback, useEffect, useRef, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
 import { toast } from 'sonner';
-import { showWorkersPaidRequiredToast } from '~/lib/workers-paid.client';
 import { captureException } from '~/lib/telemetry.client';
-import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { takePendingSubmit } from '~/lib/stores/pending-submit';
-import { isAuthenticated, useCloudChefAuthKind } from '~/lib/stores/userId';
+import { useCloudChefAuthKind } from '~/lib/stores/userId';
 import { debounce } from '~/utils/debounce';
 import { PENDING_PROMPT_STORAGE_KEY } from '~/utils/constants';
 import {
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
 } from '~/lib/cloudflare/authorization-recovery';
-import {
-  promptRefinementResultSchema,
-  type PromptRefinementAnswer,
-  type PromptRefinementQuestion,
-} from '~/lib/prompt-refinement';
-import { z } from 'zod';
 import { messageOf } from '~/lib/json-request';
-
-/** Failure envelope returned by the prompt-enhancement endpoint. */
-const enhanceFailureSchema = z.looseObject({
-  code: z.literal('workers_paid_required').optional().catch(undefined),
-  error: z.string().optional().catch(undefined),
-});
 
 interface MessageInputControllerOptions {
   isStreaming: boolean;
@@ -38,13 +24,6 @@ interface MessageInputControllerOptions {
   disabled?: boolean;
 }
 
-interface PromptRefinementSession {
-  sourceInput: string;
-  sourceRevision: number;
-  answers: PromptRefinementAnswer[];
-  questions: PromptRefinementQuestion[];
-}
-
 export function useMessageInputController({
   isStreaming,
   onStop,
@@ -52,9 +31,6 @@ export function useMessageInputController({
   prefillEnabled = true,
   disabled = false,
 }: MessageInputControllerOptions) {
-  const [isEnhancing, setIsEnhancing] = useState(false);
-  const [refinement, setRefinement] = useState<PromptRefinementSession | null>(null);
-  const enhanceRequestRef = useRef<AbortController | null>(null);
   const authKind = useCloudChefAuthKind();
   const input = useStore(messageInputStore);
   const search = useSearch({ from: '__root__' });
@@ -66,13 +42,6 @@ export function useMessageInputController({
 
     setMessageInput(search.prefill || readPendingPrompt() || '');
   }, [prefillEnabled, search.prefill]);
-
-  useEffect(
-    () => () => {
-      enhanceRequestRef.current?.abort();
-    },
-    [],
-  );
 
   const send = useCallback(
     async (prompt = messageInputStore.get()) => {
@@ -163,113 +132,12 @@ export function useMessageInputController({
     cachePrompt(event.target.value);
   }, []);
 
-  const requestPromptRefinement = useCallback(
-    async (
-      sourceInput: string,
-      sourceRevision: number,
-      answers: PromptRefinementAnswer[],
-      controller: AbortController,
-    ) => {
-      const response = await fetchUserRuntime('/v1/enhance-prompt', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: sourceInput.trim(), answers }),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        const payload = enhanceFailureSchema.safeParse(await response.json().catch(() => null)).data;
-        if (payload?.code === 'workers_paid_required') {
-          showWorkersPaidRequiredToast();
-          return;
-        }
-        throw new Error(payload?.error || 'Failed to refine the build plan. Please try again.');
-      }
-      const result = promptRefinementResultSchema.safeParse(await response.json());
-      if (!result.success) {
-        throw new Error('CloudChef returned an invalid plan refinement response.');
-      }
-      if (controller.signal.aborted) {
-        return;
-      }
-      if (result.data.kind === 'complete') {
-        setRefinement(null);
-        replacePromptIfUnchanged(sourceInput, sourceRevision, result.data.enhancedPrompt);
-        return;
-      }
-      if (!isPromptUnchanged(sourceInput, sourceRevision)) {
-        return;
-      }
-      setRefinement({ sourceInput, sourceRevision, answers, questions: result.data.questions });
-    },
-    [],
-  );
-
-  /** Runs one refinement request in place of any still in flight; one replaced or cancelled ends quietly. */
-  const runRefinementRequest = useCallback(async (request: (controller: AbortController) => Promise<void>) => {
-    enhanceRequestRef.current?.abort();
-    const controller = new AbortController();
-    enhanceRequestRef.current = controller;
-    try {
-      setIsEnhancing(true);
-      await request(controller);
-    } catch (error) {
-      if (isAbortError(error)) {
-        return;
-      }
-      captureException('Failed to enhance prompt', error, { level: 'error' });
-      toast.error(messageOf(error, 'Failed to refine the build plan. Please try again.'));
-    } finally {
-      if (enhanceRequestRef.current === controller) {
-        enhanceRequestRef.current = null;
-        setIsEnhancing(false);
-      }
-    }
-  }, []);
-
-  const enhancePrompt = useCallback(() => {
-    const sourceInput = messageInputStore.get();
-    const sourceRevision = getMessageInputRevision();
-    return runRefinementRequest(async (controller) => {
-      if (!isAuthenticated()) {
-        throw new Error('Not authenticated');
-      }
-      setRefinement(null);
-      await requestPromptRefinement(sourceInput, sourceRevision, [], controller);
-    });
-  }, [requestPromptRefinement, runRefinementRequest]);
-
-  const answerRefinementQuestions = useCallback(
-    async (roundAnswers: PromptRefinementAnswer[]) => {
-      if (!refinement || isEnhancing) {
-        return;
-      }
-      const answers = [...refinement.answers, ...roundAnswers];
-      await runRefinementRequest((controller) =>
-        requestPromptRefinement(refinement.sourceInput, refinement.sourceRevision, answers, controller),
-      );
-    },
-    [isEnhancing, refinement, requestPromptRefinement, runRefinementRequest],
-  );
-
-  const cancelRefinement = useCallback(() => {
-    const controller = enhanceRequestRef.current;
-    enhanceRequestRef.current = null;
-    controller?.abort();
-    setIsEnhancing(false);
-    setRefinement(null);
-  }, []);
-
   return {
-    answerRefinementQuestions,
     authKind,
-    cancelRefinement,
-    enhancePrompt,
     handleChange,
     handleKeyDown,
     input,
-    isEnhancing,
     primaryAction,
-    refinement,
     runPrimaryAction,
     signIn,
   };
@@ -343,33 +211,14 @@ export function getMessageInputPrimaryActionLabel(
   return isStreaming ? 'Send guidance' : 'Send';
 }
 
-function isPromptUnchanged(sourceInput: string, expectedRevision: number): boolean {
-  return expectedRevision === getMessageInputRevision() && messageInputStore.get() === sourceInput;
-}
-
-export function replacePromptIfUnchanged(
-  sourceInput: string,
-  expectedRevision: number,
-  enhancedPrompt: string,
-): boolean {
-  if (!isPromptUnchanged(sourceInput, expectedRevision)) {
-    return false;
-  }
-  setMessageInput(enhancedPrompt);
-  return true;
-}
-
 export function clearPromptIfUnchanged(sourceInput: string, expectedRevision: number): boolean {
-  if (!replacePromptIfUnchanged(sourceInput, expectedRevision, '')) {
+  if (expectedRevision !== getMessageInputRevision() || messageInputStore.get() !== sourceInput) {
     return false;
   }
+  setMessageInput('');
   cachePrompt.cancel();
   storePendingPrompt('');
   return true;
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
 }
 
 const cachePrompt = debounce(function cachePrompt(prompt: string) {
