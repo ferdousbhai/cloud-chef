@@ -98,4 +98,14 @@ describe('latestLinkedPublishView', () => {
     expect(latestLinkedPublishView(messages, NOW)?.title).toBe('Preview ready');
     expect(latestLinkedPublishView([], NOW)).toBeNull();
   });
+
+  it("reads a command's push to the project as a publish, and nothing from a command that didn't push", () => {
+    const pushed = publish(
+      { command: 'git push', exitCode: 0, stdout: '', stderr: '', push: toolSuccess('x', data({ live: true })) },
+      'exec',
+    );
+    expect(linkedPublishView(pushed, NOW)).toMatchObject({ kind: 'building', title: 'Publishing…' });
+    expect(linkedPublishView(publish({ command: 'ls', exitCode: 0, stdout: '', stderr: '' }, 'exec'), NOW)).toBeNull();
+    expect(latestLinkedPublishView([{ id: 'a', role: 'assistant', parts: [pushed] }], NOW)?.title).toBe('Publishing…');
+  });
 });

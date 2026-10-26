@@ -78,6 +78,16 @@ function webUrl(value: string | null | undefined): string | null {
  * publish). `now` decides whether a `pending` build is still followed.
  */
 export function linkedPublishView(invocation: CloudChefToolInvocation, now: number): LinkedPublishView | null {
+  if (invocation.toolName === 'exec') {
+    // A command that pushed to the project's repository carries what it pushed as a publish does.
+    const push =
+      invocation.state === 'output-available' ? execPushSchema.safeParse(invocation.output).data?.push : null;
+    if (!push || !isCloudChefToolResult(push)) {
+      return null;
+    }
+    const data = linkedPublishDataSchema.safeParse(push.data).data;
+    return data ? builtView(data, now) : null;
+  }
   if (invocation.toolName !== 'publish' && invocation.toolName !== 'publish_preview') {
     return null;
   }
@@ -118,6 +128,13 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
         }
       : notSent(live, output.summary);
   }
+  return builtView(data, now);
+}
+
+const execPushSchema = z.looseObject({ push: z.unknown() });
+
+/** How a change that reached the repository reads, from where its build is. */
+function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
   const committed = data.live ? 'Sent to go live' : 'Sent for a preview';
   const links = { previewUrl: webUrl(data.previewUrl), detailsUrl: webUrl(data.detailsUrl) };
   // An output saved before `startedAt` existed can't say whether its build is still followed, so it isn't.

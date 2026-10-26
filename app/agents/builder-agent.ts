@@ -147,6 +147,7 @@ import {
   ProjectRepositoryError,
   workspaceFileMode,
 } from '~/lib/.server/cloudflare/project-repository';
+import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import type { LinkedProjectModelToolContext } from '~/lib/.server/llm/linked-project-model-tools';
@@ -816,6 +817,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         linkedProject,
         appProject: linkedProject ? undefined : this.appProjectToolContext(),
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
+        pushResult: (toolCallId) => this.gitPushResult(toolCallId),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
         onSettled: (report) => {
@@ -1885,6 +1887,42 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (heldBack.length) {
       watch.heldBack = heldBack.slice(0, LINKED_HELD_BACK_LIMIT);
     }
+    return this.followLinkedBuild(watch);
+  }
+
+  /**
+   * What the command `toolCallId` pushed to a team project's repository, reported as a publish is: its
+   * default branch (it goes live) or else the last branch pushed (a preview), with its build followed in the
+   * background. Nothing for a CloudChef app's pushes, or a command that pushed no branch.
+   */
+  private async gitPushResult(toolCallId: string): Promise<CloudChefToolResult | undefined> {
+    const linked = await this.workspace.linkedProject();
+    if (!linked) {
+      return undefined;
+    }
+    const branches = (await this.workspace.takeGitPushes()).filter(
+      (push) => push.ref.startsWith('refs/heads/') && push.newOid !== ZERO_OID,
+    );
+    const pushed = branches.findLast((push) => push.ref === `refs/heads/${linked.defaultBranch}`) ?? branches.at(-1);
+    if (!pushed) {
+      return undefined;
+    }
+    const branch = pushed.ref.slice('refs/heads/'.length);
+    const live = branch === linked.defaultBranch;
+    return this.followLinkedBuild({
+      toolCallId,
+      orgProjectId: linked.orgProjectId,
+      sha: pushed.newOid,
+      branch,
+      where: live ? `and pushed to ${branch}` : `and pushed to the branch ${branch}`,
+      live,
+      startedAt: Date.now(),
+      defaultBranch: linked.defaultBranch,
+    });
+  }
+
+  /** Starts following a commit's build in the background; the result replaces the call's output when it reports. */
+  private async followLinkedBuild(watch: LinkedBuildWatch): Promise<CloudChefToolResult> {
     try {
       await this.startFiber(
         LINKED_BUILD_FIBER,

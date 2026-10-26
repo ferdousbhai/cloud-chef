@@ -14,7 +14,7 @@ import {
 } from 'cloudchef-agent/model-tool-inputs';
 import { parseDependencyCommand } from 'cloudchef-agent/tools/dependency-command';
 import { rejectedWorkspaceCommand } from 'cloudchef-agent/workspace-boundary';
-import { toolFailure } from 'cloudchef-agent/tool-result';
+import { toolFailure, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import { isWorkspaceToolOperationIndeterminateError, type BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type { Tool } from 'cloudchef-agent/tool';
@@ -28,6 +28,11 @@ import { isRecord } from 'cloudchef-agent/utils/isRecord';
 /** What a builder turn lends its workspace tools: validation progress, and keeping the turn alive while one runs. */
 export type BuilderOperationContext = {
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
+  /**
+   * What a finished command pushed to the project's repository, as a publish reports it (its build followed
+   * in the background, like a publish's), or nothing when it pushed nothing the chat shows.
+   */
+  pushResult?: (toolCallId: string) => Promise<CloudChefToolResult | undefined>;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -55,7 +60,7 @@ export function createWorkersAiTools(
     grep: projectSearchTool(workspace),
     write: abortAwareWriteTool(workspace),
     edit: fileEditTool(workspace),
-    exec: streamingExecTool(workspace),
+    exec: streamingExecTool(workspace, operationContext),
     validate: canonicalValidationTool(linkedProject !== undefined),
   };
 
@@ -204,6 +209,8 @@ type ExecToolReport = {
   /** The command left the project over its limits: what is over, and how to get back within them. */
   workspaceLimits?: string;
   error?: string;
+  /** What the command pushed to the project's repository, and its build: the chat shows it as a publish. */
+  push?: CloudChefToolResult;
 };
 
 /**
@@ -237,7 +244,7 @@ function canonicalValidationTool(linked: boolean): Tool {
   };
 }
 
-function streamingExecTool(workspace: BuilderWorkspaceApi): Tool {
+function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOperationContext): Tool {
   return {
     description: EXEC_TOOL_DESCRIPTION,
     inputSchema: MODEL_TOOL_INPUT_SCHEMAS.exec,
@@ -259,6 +266,10 @@ function streamingExecTool(workspace: BuilderWorkspaceApi): Tool {
       };
       if (result.exitCode !== 0) {
         report.error = `Command exited with code ${result.exitCode}.`;
+      }
+      const push = await context.pushResult?.(options.toolCallId);
+      if (push) {
+        report.push = push;
       }
       return report;
     },

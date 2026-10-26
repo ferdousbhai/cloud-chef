@@ -2230,6 +2230,19 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     });
   }
 
+  /** The refs the container's pushes updated since this was last asked, oldest first; each is given once. */
+  takeGitPushes(): RefUpdate[] {
+    return this.ctx.storage.transactionSync(() => {
+      const rows = [
+        ...this.ctx.storage.sql.exec<{ ref: string; old_oid: string; new_oid: string }>(
+          'SELECT ref, old_oid, new_oid FROM cloudchef_git_pushes ORDER BY id',
+        ),
+      ];
+      this.ctx.storage.sql.exec('DELETE FROM cloudchef_git_pushes');
+      return rows.map((row) => ({ ref: row.ref, oldOid: row.old_oid, newOid: row.new_oid }));
+    });
+  }
+
   linkedProject(): BuilderWorkspaceLinkedProject | null {
     const row = first(
       this.ctx.storage.sql.exec<{

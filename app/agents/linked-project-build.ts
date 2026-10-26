@@ -178,6 +178,7 @@ export async function watchLinkedBuild(args: {
 }
 
 const pendingOutputSchema = z.looseObject({ data: z.looseObject({ build: z.literal('pending') }) });
+const execReportSchema = z.looseObject({ push: z.unknown() });
 
 /**
  * The transcript with the watched publish's output replaced by `output`, or null when there is nothing to
@@ -192,6 +193,14 @@ export function withLinkedBuildResult(
   options: { onlyFailed?: boolean } = {},
 ): CloudChefMessage[] | null {
   return replaceToolCallPart(messages, toolCallId, (part, invocation) => {
+    if (invocation.toolName === 'exec') {
+      // A command that pushed keeps its own output; only what it pushed takes the build's result.
+      const report = execReportSchema.safeParse(part.output).data;
+      if (invocation.state !== 'output-available' || !report || !pendingOutputSchema.safeParse(report.push).success) {
+        return null;
+      }
+      return options.onlyFailed ? null : { ...part, output: { ...report, push: output } };
+    }
     if (invocation.toolName !== 'publish_preview' && invocation.toolName !== 'publish') {
       return null;
     }

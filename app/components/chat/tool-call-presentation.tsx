@@ -91,6 +91,9 @@ export function toolTitle(
     case 'edit':
       return editTitle(invocation, status);
     case 'exec': {
+      if (publish) {
+        return publishTitle(publish);
+      }
       const args = MODEL_TOOL_INPUT_SCHEMAS.exec.safeParse(invocation.input);
       return titleRow(
         args.success
@@ -131,16 +134,7 @@ export function toolTitle(
     case 'publish_preview':
     case 'publish':
       if (publish) {
-        return titleRow(
-          publish.title,
-          publish.building ? (
-            <Spinner />
-          ) : publishFailed(publish) ? (
-            <Cross2Icon className="text-content-secondary" />
-          ) : (
-            <CheckIcon className="text-content-secondary" />
-          ),
-        );
+        return publishTitle(publish);
       }
       return titleRow(
         invocation.toolName === 'publish' ? 'Publishing' : 'Making a preview',
@@ -151,6 +145,20 @@ export function toolTitle(
     default:
       return invocation.toolName;
   }
+}
+
+/** A publish's title as its build stands: building, built, or failed. */
+function publishTitle(publish: LinkedPublishView): ReactNode {
+  return titleRow(
+    publish.title,
+    publish.building ? (
+      <Spinner />
+    ) : publishFailed(publish) ? (
+      <Cross2Icon className="text-content-secondary" />
+    ) : (
+      <CheckIcon className="text-content-secondary" />
+    ),
+  );
 }
 
 const editedPathSchema = z.looseObject({ path: z.string() });

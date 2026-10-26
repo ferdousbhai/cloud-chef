@@ -60,6 +60,15 @@ export const ToolUseContents = memo(function ToolUseContents({
   if (invocation.toolName === 'publish' || invocation.toolName === 'publish_preview') {
     return publish ? <PublishContents view={publish} /> : <StructuredResultTool invocation={invocation} />;
   }
+  if (invocation.toolName === 'exec' && publish) {
+    // A command that pushed to the project: what became of the push first, then the command itself.
+    return (
+      <>
+        <PublishContents view={publish} />
+        <StructuredResultTool invocation={invocation} />
+      </>
+    );
+  }
   if (
     invocation.toolName === 'read' ||
     invocation.toolName === 'write' ||

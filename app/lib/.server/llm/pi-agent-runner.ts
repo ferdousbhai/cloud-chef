@@ -65,6 +65,7 @@ import {
   type ModelTurnUsage,
 } from './workers-ai-telemetry';
 import { createPiToolBundle } from './pi-tools-adapter';
+import type { BuilderOperationContext } from './workers-ai-tools';
 import { createBuilderSkillContext } from './builder-skills';
 import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
 import { logProviderFailure } from './provider-error-logging';
@@ -110,6 +111,7 @@ export interface PiAgentOptions {
   /** Set when the workspace is a CloudChef app. */
   appProject?: AppProjectModelToolContext;
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
+  pushResult?: BuilderOperationContext['pushResult'];
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
   onSettled: (report: BuilderTurnReport) => void;
@@ -189,6 +191,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     linkedProject,
     appProject,
     onValidationStage,
+    pushResult,
     runWithKeepAlive,
     steering,
     onSettled,
@@ -229,7 +232,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       skillContext,
       piTools: createPiToolBundle(
         workspace,
-        { onValidationStage, runWithKeepAlive },
+        { onValidationStage, pushResult, runWithKeepAlive },
         skillContext.reader,
         cloudflareApi,
         linkedProject,

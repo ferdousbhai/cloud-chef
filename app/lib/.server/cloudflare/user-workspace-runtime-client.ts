@@ -37,6 +37,7 @@ import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-r
 import { z } from 'zod';
 import { isMutationReceipt } from '@cloudchef/user-workspace-runtime/mutation-receipt';
 import { stableJson } from '~/lib/stable-json';
+import type { RefUpdate } from '~/lib/.server/cloudflare/git-proxy';
 type ProjectWorkspaceStub = DurableObjectStub<ProjectWorkspaceRpc>;
 
 /** Sent after a command's result when it left the project over its limits. */
@@ -685,6 +686,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
 
   async setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void> {
     await (await this.#stub()).setGitRepository(value);
+  }
+
+  async takeGitPushes(): Promise<RefUpdate[]> {
+    return (await this.#stub()).takeGitPushes();
   }
 
   hasSuccessfulValidation(revision: string): Promise<boolean> {

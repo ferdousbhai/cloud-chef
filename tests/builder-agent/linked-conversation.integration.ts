@@ -55,6 +55,7 @@ async function linkedWorkspace(
     linkedProject: async () => linked,
     setLinkedProject: async (value) => setLinkedProject(value),
     setGitRepository: async () => undefined,
+    takeGitPushes: async () => [],
     listFiles: () => [file],
     readFile: async (path) => {
       const bytes = new TextEncoder().encode('changed');
@@ -381,3 +382,44 @@ const READY_STATE = {
   totalBytes: 7,
   seeding: false,
 };
+
+describe("a team project's git push", () => {
+  /** What the agent reports for a command that ran in the workspace (`pushResult` for exec). */
+  function pushResult(harness: BuilderAgentHarness, toolCallId: string): Promise<CloudChefToolResult | undefined> {
+    // eslint-disable-next-line dot-notation
+    return harness.agent['gitPushResult'](toolCallId);
+  }
+
+  it('reports a push to main as publishing it, and to a branch as a preview, once each', async () => {
+    const pushes = [
+      { ref: 'refs/heads/feature', oldOid: '0'.repeat(40), newOid: 'a'.repeat(40) },
+      { ref: 'refs/heads/main', oldOid: BASE, newOid: 'b'.repeat(40) },
+    ];
+    const harness = await harnessWith({
+      ...(await linkedWorkspace()),
+      takeGitPushes: async () => pushes.splice(0),
+    });
+    const live = await pushResult(harness, 'call-push');
+    expect(live?.data).toMatchObject({ branch: 'main', commit: 'b'.repeat(40), live: true });
+    expect(live?.summary).toContain('pushed to main');
+    // Taken once: a later command that pushed nothing reports nothing.
+    expect(await pushResult(harness, 'call-later')).toBeUndefined();
+
+    pushes.push({ ref: 'refs/heads/feature', oldOid: 'a'.repeat(40), newOid: 'c'.repeat(40) });
+    expect((await pushResult(harness, 'call-branch'))?.data).toMatchObject({ branch: 'feature', live: false });
+  });
+
+  it("reports nothing for a CloudChef app's pushes, or a branch deleted", async () => {
+    const app = await harnessWith({
+      ...(await linkedWorkspace()),
+      linkedProject: async () => null,
+      takeGitPushes: async () => [{ ref: 'refs/heads/main', oldOid: BASE, newOid: 'b'.repeat(40) }],
+    });
+    expect(await pushResult(app, 'call-1')).toBeUndefined();
+    const deleted = await harnessWith({
+      ...(await linkedWorkspace()),
+      takeGitPushes: async () => [{ ref: 'refs/heads/old', oldOid: BASE, newOid: '0'.repeat(40) }],
+    });
+    expect(await pushResult(deleted, 'call-1')).toBeUndefined();
+  });
+});

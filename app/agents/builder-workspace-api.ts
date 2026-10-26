@@ -1,4 +1,5 @@
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import type { RefUpdate } from '~/lib/.server/cloudflare/git-proxy';
 import type { CreateAIToolsOptions } from '@cloudflare/computer/tools';
 import type { DeploymentProjectProfile } from '~/lib/.server/cloudflare/deployment-project-profile';
 import type { PreparedDeploymentArtifact } from '~/lib/.server/cloudflare/deployment-artifact';
@@ -302,6 +303,7 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
+  takeGitPushes(): Promise<RefUpdate[]>;
 }
 
 /**
@@ -362,6 +364,8 @@ export interface BuilderWorkspaceApi {
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   /** Records the repository git in the workspace pushes to and fetches from. */
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
+  /** The refs git in the workspace pushed since this was last asked, each given once. */
+  takeGitPushes(): Promise<RefUpdate[]>;
   prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
   deleteProject(): Promise<void>;
 }

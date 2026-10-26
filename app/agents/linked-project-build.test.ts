@@ -1,6 +1,6 @@
+import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
-import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import {
   LINKED_BUILD_POLL_MS,
   linkedBuildSettledResult,
@@ -44,8 +44,11 @@ async function watched(args: Parameters<typeof watchLinkedBuild>[0]) {
   return status;
 }
 
+/** A command's output in the transcript, with what it pushed, if anything. */
+type CommandReport = { command: string; exitCode: number; stdout: string; stderr: string; push?: CloudChefToolResult };
+
 function transcript(
-  output: CloudChefToolResult,
+  output: CloudChefToolResult | CommandReport,
   toolName = 'publish_preview',
   toolCallId = 'call-1',
 ): CloudChefMessage[] {
@@ -232,6 +235,18 @@ describe("a team project's publish", () => {
       deadline: 3 * LINKED_BUILD_POLL_MS,
     });
     expect(status).toBeNull();
+  });
+
+  it("puts a pushed build's result in its command's output, keeping what the command printed", () => {
+    const started = linkedBuildStartedResult(watch);
+    const settled = linkedBuildSettledResult(watch, built);
+    const report = { command: 'git push', exitCode: 0, stdout: 'pushed', stderr: '', push: started };
+    const before = transcript(report, 'exec');
+    const after = withLinkedBuildResult(before, 'call-1', settled);
+    expect(after?.[1]?.parts[1]?.output).toEqual({ ...report, push: settled });
+    // Settled once; a command that pushed nothing is never touched.
+    expect(withLinkedBuildResult(after ?? [], 'call-1', settled)).toBeNull();
+    expect(withLinkedBuildResult(transcript({ ...report, push: undefined }, 'exec'), 'call-1', settled)).toBeNull();
   });
 
   it("puts the result in place of that one call's waiting output, once", () => {
