@@ -1,10 +1,6 @@
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { base64ToBytes, bytesToBase64, sha256Hex } from '~/lib/hex-digest';
-import type {
-  ProjectRepositories,
-  RepositoryFileInput,
-  RepositoryTreeFile,
-} from '~/lib/.server/cloudflare/project-repository';
+import type { ProjectRepositories, RepositoryFileInput } from '~/lib/.server/cloudflare/project-repository';
 import { ProjectRefusalError } from '~/lib/.server/cloudflare/linked-project-client';
 import { MAIN_BRANCH } from '~/lib/.server/cloudflare/project-repository';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
@@ -13,7 +9,6 @@ import { gitignoreMatcher, isNeverPublished } from './linked-project-ignore';
 import type {
   BuilderWorkspaceClientChange,
   BuilderWorkspaceFileInput,
-  BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
 } from '@cloudchef/user-workspace-runtime/protocol';
 
@@ -25,37 +20,12 @@ export function isExcludedProjectPath(path: string): boolean {
   return EXCLUDED_ROOTS.has(path.split('/')[0] ?? '');
 }
 
-/** One file change against the base commit: new or changed bytes, or `null` to delete it. */
-type LinkedChange = { path: string; bytes: Uint8Array | null; executable: boolean };
-
-/** A new key for a workspace's own branch (see `BuilderWorkspaceLinkedProject.branchKey`). */
-function newLinkedBranchKey(): string {
-  return crypto.randomUUID().replaceAll('-', '').slice(0, 12);
-}
-
-/**
- * The workspace's own branch: the member's email's name part, made safe for git, then the workspace's key.
- * Without a key (a workspace opened before each had its own branch), the member's one branch.
- */
-export function memberBranch(email: string | null, userId: string, branchKey: string | undefined): string {
-  const name = (email?.split('@')[0] ?? 'member')
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  const member = `cloudchef/${name || 'member'}-${userId
-    .slice(0, 6)
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '0')}`;
-  return branchKey ? `${member}-${branchKey}` : member;
-}
-
 /** The project a workspace is seeded from: the control plane's record of it, with its repository. */
 type SeedProject = { orgProjectId: string; name: string; repo: string };
 
 /**
- * Seeds a workspace from main of a project's repository, and records the commit and each file's hash, so
- * later changes can be told from what the repository has. Files go in as they are read: a repository never
- * sits in the agent's memory whole.
+ * Seeds a workspace from main of a project's repository, and records the commit, which git in the workspace
+ * starts from. Files go in as they are read: a repository never sits in the agent's memory whole.
  */
 export async function seedLinkedWorkspace(
   workspace: Pick<
@@ -80,12 +50,12 @@ export async function seedLinkedWorkspace(
       MAIN_BRANCH,
       (path) => !isExcludedProjectPath(path),
     );
-    const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = [];
+    let fileCount = 0;
     let totalBytes = 0;
     async function* entries(): AsyncGenerator<BuilderWorkspaceFileInput> {
       for await (const file of files) {
         const executable = file.mode === '100755';
-        manifest.push({ path: file.path, sha256: await sha256Hex(file.bytes), executable });
+        fileCount += 1;
         totalBytes += file.bytes.length;
         // The repository's mode goes in with the file, so the workspace's own modes are the repository's.
         yield {
@@ -106,103 +76,12 @@ export async function seedLinkedWorkspace(
       name: project.name,
       defaultBranch: MAIN_BRANCH,
       baseCommit: commit.hash,
-      baseManifest: manifest,
-      branchKey: newLinkedBranchKey(),
-      workspaceModes: true,
     });
-    return await workspace.commitSeed(seedId, { fileCount: manifest.length, totalBytes });
+    return await workspace.commitSeed(seedId, { fileCount, totalBytes });
   } catch (error) {
     await workspace.abortSeed(seedId).catch(() => undefined);
     throw error;
   }
-}
-
-/**
- * The workspace's changes against its base commit: every file whose content or executable bit differs or
- * is new, and every file that's gone. As in git, a new file the project's `.gitignore` files ignore is left
- * out (one the repository already has is sent whether or not it is ignored), and local secrets
- * (`isNeverPublished`) never go, either way: those edited, removed, or new and not ignored come back as
- * `heldBack`, for the model to tell the person. Also returns the workspace's own manifest, which becomes
- * the base once the changes are merged.
- */
-export async function linkedWorkspaceChanges(
-  workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'>,
-  linked: BuilderWorkspaceLinkedProject,
-): Promise<{
-  changes: LinkedChange[];
-  manifest: BuilderWorkspaceLinkedProject['baseManifest'];
-  heldBack: string[];
-}> {
-  const base = new Map(linked.baseManifest.map((file) => [file.path, file]));
-  await workspace.refresh();
-  const current = workspace.listFiles().filter((file) => !isExcludedProjectPath(projectPath(file.path)));
-  const ignored = gitignoreMatcher(await workspaceGitignores(workspace, current));
-  const changes: LinkedChange[] = [];
-  const heldBack: string[] = [];
-  // A secret the repository has stays as it has it: neither its edit nor its removal is sent.
-  const manifest: BuilderWorkspaceLinkedProject['baseManifest'] = linked.baseManifest.filter((file) =>
-    isNeverPublished(file.path),
-  );
-  const present = new Set<string>();
-  for (const file of current) {
-    const path = projectPath(file.path);
-    const before = base.get(path);
-    if (!before && ignored(path)) {
-      continue;
-    }
-    if (isNeverPublished(path)) {
-      present.add(path);
-      if (before?.sha256 !== file.sha256) {
-        heldBack.push(path);
-      }
-      continue;
-    }
-    present.add(path);
-    // A workspace seeded before it kept the repository's modes holds every file as non-executable, so
-    // there an executable at the base stays one: only a workspace with the modes can tell a removed bit.
-    const executable = (file.mode & 0o111) !== 0 || (!linked.workspaceModes && before?.executable === true);
-    manifest.push({ path, sha256: file.sha256, executable });
-    if (before?.sha256 === file.sha256 && (before.executable ?? false) === executable) {
-      continue;
-    }
-    const read = await workspace.readFile(file.path);
-    changes.push({ path, bytes: read.bytes, executable });
-  }
-  for (const path of base.keys()) {
-    if (present.has(path)) {
-      continue;
-    }
-    if (isNeverPublished(path)) {
-      heldBack.push(path);
-    } else {
-      changes.push({ path, bytes: null, executable: false });
-    }
-  }
-  return { changes, manifest, heldBack };
-}
-
-/**
- * The whole tree a commit of the workspace writes: the base commit's tree with the changes applied.
- * Files the change leaves alone are named by the blob the repository already has, so only changed
- * files are sent.
- */
-export function linkedCommitTree(
-  base: readonly RepositoryTreeFile[],
-  changes: readonly LinkedChange[],
-): RepositoryFileInput[] {
-  const tree = new Map<string, RepositoryFileInput>(
-    base
-      .filter((file) => file.mode === '100644' || file.mode === '100755')
-      .map((file) => [file.path, { path: file.path, mode: file.mode === '100755' ? 0o755 : 0o644, oid: file.oid }]),
-  );
-  for (const change of changes) {
-    if (change.bytes === null) {
-      tree.delete(change.path);
-    } else {
-      tree.set(change.path, { path: change.path, mode: change.executable ? 0o755 : 0o644, bytes: change.bytes });
-    }
-  }
-  return [...tree.values()];
 }
 
 /**

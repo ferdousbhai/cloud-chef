@@ -6,14 +6,7 @@ import type {
   BuilderWorkspaceState,
   BuilderWorkspaceSyncEntry,
 } from '@cloudchef/user-workspace-runtime/protocol';
-import {
-  linkedCommitTree,
-  linkedWorkspaceChanges,
-  memberBranch,
-  revertChanges,
-  seedLinkedWorkspace,
-  workspaceCommitFiles,
-} from './linked-project-workspace';
+import { revertChanges, seedLinkedWorkspace, workspaceCommitFiles } from './linked-project-workspace';
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { fakeArtifacts } from '~/test/fake-artifacts';
 import { sha256Hex } from '~/lib/hex-digest';
@@ -80,10 +73,9 @@ async function repository(files: Record<string, string>, executable: string[] = 
 }
 
 const project = { orgProjectId: 'project-1', name: 'Ada site', repo: 't-project-1' };
-const text = (bytes: Uint8Array | null) => (bytes === null ? null : new TextDecoder().decode(bytes));
 
 describe('seedLinkedWorkspace', () => {
-  it("seeds main of the project's repository and records its commit and file hashes", async () => {
+  it("seeds main of the project's repository and records its commit", async () => {
     const { repositories, commit } = await repository({
       'README.md': 'hello',
       // Build output a repository might commit stays out, as the workspace's own record does.
@@ -101,13 +93,6 @@ describe('seedLinkedWorkspace', () => {
         name: 'Ada site',
         defaultBranch: 'main',
         baseCommit: commit,
-        baseManifest: [
-          { path: 'README.md', sha256: await sha256Hex('hello'), executable: false },
-          { path: 'src/app.ts', sha256: await sha256Hex('export {}'), executable: false },
-        ],
-        // Its own branch, and modes the workspace now holds as the repository's.
-        branchKey: expect.stringMatching(/^[a-z0-9]{12}$/),
-        workspaceModes: true,
       },
     ]);
     expect(appended.flat().map((entry) => entry.mode)).toEqual([0o644, 0o644]);
@@ -139,154 +124,12 @@ describe('seedLinkedWorkspace', () => {
       repository: 't-project-1',
       defaultBranch: 'main',
       baseCommit: COMMIT,
-      baseManifest: [],
     });
     await seedLinkedWorkspace(seeded.workspace, repositories, project);
     expect(seeded.appended).toEqual([]);
   });
 });
 
-describe('linkedCommitTree', () => {
-  it("is the base commit's tree with the changes applied, naming unchanged files by their blob", async () => {
-    const { repositories, commit } = await repository({ 'README.md': 'hello', 'old.txt': 'gone', 'run.sh': '#!' }, [
-      'run.sh',
-    ]);
-    const { files } = await repositories.readTreeAt('t-project-1', commit);
-    const tree = linkedCommitTree(files, [
-      { path: 'src/new.ts', bytes: new TextEncoder().encode('new'), executable: false },
-      { path: 'old.txt', bytes: null, executable: false },
-    ]);
-    expect(tree.map((file) => [file.path, file.mode, 'oid' in file ? 'kept' : 'sent'])).toEqual([
-      ['README.md', 0o644, 'kept'],
-      ['run.sh', 0o755, 'kept'],
-      ['src/new.ts', 0o644, 'sent'],
-    ]);
-  });
-});
-
-describe('memberBranch', () => {
-  it("names the conversation's branch after the member and its key", () => {
-    expect(memberBranch('Sara.Ng@example.com', 'User_12345', 'k3y4chat0001')).toBe(
-      'cloudchef/sara-ng-user01-k3y4chat0001',
-    );
-    expect(memberBranch(null, 'abcdef99', undefined)).toBe('cloudchef/member-abcdef');
-  });
-});
-
-describe('linkedWorkspaceChanges', () => {
-  it('sends changed, new and deleted files, and nothing the repository already has', async () => {
-    const contents = new Map([
-      ['/home/project/README.md', 'hello'],
-      ['/home/project/src/app.ts', 'export const changed = 1;'],
-      ['/home/project/src/new.ts', 'new'],
-      ['/home/project/node_modules/x/index.js', 'ignored'],
-    ]);
-    const files: BuilderWorkspaceFileMetadata[] = [];
-    for (const [path, content] of contents) {
-      files.push({
-        path,
-        encoding: 'utf8',
-        size: content.length,
-        mode: path.endsWith('new.ts') ? 0o755 : 0o644,
-        sha256: await sha256Hex(content),
-        revision: 1,
-      });
-    }
-    const workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'> = {
-      refresh: async () => state,
-      listFiles: () => files,
-      readFile: async (path) => {
-        const bytes = new TextEncoder().encode(contents.get(path) ?? '');
-        return { path, bytes, encoding: 'utf8', size: bytes.length, mode: 0o644, sha256: '', revision: 1 };
-      },
-    };
-    const { changes, manifest } = await linkedWorkspaceChanges(workspace, {
-      orgProjectId: 'project-1',
-      repository: 'ada/site',
-      defaultBranch: 'main',
-      baseCommit: COMMIT,
-      baseManifest: [
-        { path: 'README.md', sha256: await sha256Hex('hello'), executable: true },
-        { path: 'src/app.ts', sha256: await sha256Hex('export {}') },
-        { path: 'old.txt', sha256: await sha256Hex('gone') },
-      ],
-    });
-    // The repository's executable bit carries over, since the workspace keeps no modes of its own.
-    expect(manifest.find((file) => file.path === 'README.md')).toMatchObject({ executable: true });
-    expect(manifest.map((file) => file.path)).toEqual(['README.md', 'src/app.ts', 'src/new.ts']);
-    expect(changes.map((change) => ({ ...change, bytes: text(change.bytes) }))).toEqual([
-      { path: 'src/app.ts', bytes: 'export const changed = 1;', executable: false },
-      { path: 'src/new.ts', bytes: 'new', executable: true },
-      { path: 'old.txt', bytes: null, executable: false },
-    ]);
-  });
-
-  it("sends a change of executable bit alone, either way, once the workspace holds the repository's modes", async () => {
-    const files: BuilderWorkspaceFileMetadata[] = [
-      {
-        path: '/home/project/run.sh',
-        encoding: 'utf8',
-        size: 2,
-        mode: 0o644,
-        sha256: await sha256Hex('#!'),
-        revision: 1,
-      },
-      {
-        path: '/home/project/tool.sh',
-        encoding: 'utf8',
-        size: 2,
-        mode: 0o755,
-        sha256: await sha256Hex('#?'),
-        revision: 1,
-      },
-      {
-        path: '/home/project/same.sh',
-        encoding: 'utf8',
-        size: 2,
-        mode: 0o755,
-        sha256: await sha256Hex('ok'),
-        revision: 1,
-      },
-    ];
-    const contents = new Map([
-      ['/home/project/run.sh', '#!'],
-      ['/home/project/tool.sh', '#?'],
-      ['/home/project/same.sh', 'ok'],
-    ]);
-    const workspace: Pick<BuilderWorkspaceApi, 'refresh' | 'listFiles' | 'readFile'> = {
-      refresh: async () => state,
-      listFiles: () => files,
-      readFile: async (path) => {
-        const bytes = new TextEncoder().encode(contents.get(path) ?? '');
-        return { path, bytes, encoding: 'utf8', size: bytes.length, mode: 0o644, sha256: '', revision: 1 };
-      },
-    };
-    const linked: BuilderWorkspaceLinkedProject = {
-      orgProjectId: 'project-1',
-      repository: 'ada/site',
-      defaultBranch: 'main',
-      baseCommit: COMMIT,
-      baseManifest: [
-        { path: 'run.sh', sha256: await sha256Hex('#!'), executable: true },
-        { path: 'tool.sh', sha256: await sha256Hex('#?'), executable: false },
-        { path: 'same.sh', sha256: await sha256Hex('ok'), executable: true },
-      ],
-      workspaceModes: true,
-    };
-    const { changes } = await linkedWorkspaceChanges(workspace, linked);
-    expect(changes.map((change) => ({ ...change, bytes: text(change.bytes) }))).toEqual([
-      { path: 'run.sh', bytes: '#!', executable: false },
-      { path: 'tool.sh', bytes: '#?', executable: true },
-    ]);
-    // A workspace seeded before it kept modes can't tell a removed bit from one it never had.
-    const legacy = await linkedWorkspaceChanges(workspace, { ...linked, workspaceModes: undefined });
-    expect(legacy.changes.map((change) => ({ ...change, bytes: text(change.bytes) }))).toEqual([
-      { path: 'tool.sh', bytes: '#?', executable: true },
-    ]);
-  });
-});
-
-/** A workspace holding `contents` (project-relative path to text), for publishing. */
 async function publishingWorkspace(contents: Record<string, string>) {
   const files: BuilderWorkspaceFileMetadata[] = [];
   for (const [path, content] of Object.entries(contents)) {
@@ -310,82 +153,7 @@ async function publishingWorkspace(contents: Record<string, string>) {
   return workspace;
 }
 
-describe('what a publish leaves out', () => {
-  it("leaves out new files the project's .gitignore files ignore, and local secrets either way", async () => {
-    const workspace = await publishingWorkspace({
-      '.gitignore': 'coverage/\nbuild/\n.env.ignored\n',
-      'packages/api/.gitignore': 'generated/\n',
-      'src/app.ts': 'export const changed = 1;',
-      'coverage/index.html': 'report',
-      'build/out.js': 'bundle',
-      'packages/api/generated/client.ts': 'generated',
-      'packages/api/src/index.ts': 'api',
-      'build/tracked.js': 'tracked, changed',
-      '.env': 'SECRET=1',
-      '.dev.vars': 'TOKEN=1',
-      'apps/web/.env.local': 'SECRET=2',
-      '.env.example': 'SECRET=',
-      'config/.env.production': 'PUBLIC_URL=https://changed.example',
-      'config/.env.test': 'UNCHANGED=1',
-      '.env.sample': 'SECRET=',
-      '.envrc': 'use flake',
-      '.env.ignored': 'SECRET=3',
-    });
-    const linked: BuilderWorkspaceLinkedProject = {
-      orgProjectId: 'project-1',
-      repository: 'ada/site',
-      defaultBranch: 'main',
-      baseCommit: COMMIT,
-      baseManifest: [
-        { path: '.gitignore', sha256: await sha256Hex('coverage/\nbuild/\n.env.ignored\n') },
-        { path: 'src/app.ts', sha256: await sha256Hex('export {}') },
-        // Already in the repository: ignored now, but git still tracks it, so its change goes.
-        { path: 'build/tracked.js', sha256: await sha256Hex('tracked') },
-        // A secret the repository committed stays as it is there, edited or removed.
-        { path: 'config/.env.production', sha256: await sha256Hex('PUBLIC_URL=https://example') },
-        { path: '.dev.vars.staging', sha256: await sha256Hex('TOKEN=0') },
-        { path: 'config/.env.test', sha256: await sha256Hex('UNCHANGED=1') },
-        // Files that only begin like a secret are ordinary ones: their edits go.
-        { path: '.envrc', sha256: await sha256Hex('use nix') },
-      ],
-      workspaceModes: true,
-    };
-
-    const { changes, manifest, heldBack } = await linkedWorkspaceChanges(workspace, linked);
-
-    expect(changes.map((change) => [change.path, change.bytes === null ? 'delete' : 'write'])).toEqual([
-      ['packages/api/.gitignore', 'write'],
-      ['src/app.ts', 'write'],
-      ['packages/api/src/index.ts', 'write'],
-      ['build/tracked.js', 'write'],
-      ['.env.example', 'write'],
-      ['.env.sample', 'write'],
-      ['.envrc', 'write'],
-    ]);
-    // What was left out that the person may have meant to send: edited, removed, or new and not ignored.
-    expect(heldBack).toEqual([
-      '.env',
-      '.dev.vars',
-      'apps/web/.env.local',
-      'config/.env.production',
-      '.dev.vars.staging',
-    ]);
-    expect(manifest.map((file) => file.path).sort()).toEqual([
-      '.dev.vars.staging',
-      '.env.example',
-      '.env.sample',
-      '.envrc',
-      '.gitignore',
-      'build/tracked.js',
-      'config/.env.production',
-      'config/.env.test',
-      'packages/api/.gitignore',
-      'packages/api/src/index.ts',
-      'src/app.ts',
-    ]);
-    expect(manifest.find((file) => file.path === 'config/.env.production')).toEqual(linked.baseManifest[3]);
-  });
-
+describe('workspaceCommitFiles', () => {
   it("leaves what a CloudChef app's .gitignore ignores, and local secrets, out of its commits", async () => {
     const entries: BuilderWorkspaceSyncEntry[] = Object.entries({
       '.gitignore': '*.local\ncoverage\n',

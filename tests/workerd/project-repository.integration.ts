@@ -7,26 +7,22 @@ import { fakeArtifacts } from '~/test/fake-artifacts';
  * over git's HTTP: this runs that in workerd, with nodejs_compat as the runtime is deployed, rather than Node.
  */
 describe('project repositories in workerd', () => {
-  it('commits, merges and archives', async () => {
+  it('commits and archives', async () => {
     const artifacts = fakeArtifacts();
     const repositories = new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
     const author = { name: 'Sara', email: 'sara@example.com' };
     await artifacts.create('t-1');
     const base = await artifacts.commitDirect('t-1', 'main', { 'a.txt': '1\n2\n3\n' });
-    await artifacts.commitDirect('t-1', 'main', { 'a.txt': 'one\n2\n3\n' });
-    const branch = await repositories.commitFiles({
+    const committed = await repositories.commitFiles({
       repo: 't-1',
-      branch: 'cloudchef/sara-1',
+      branch: 'main',
       parent: base,
-      replaces: null,
       files: [{ path: 'a.txt', mode: 0o644, bytes: new TextEncoder().encode('1\n2\nthree\n') }],
       message: 'Mine',
       author,
     });
-    expect('commit' in branch).toBe(true);
-    const merged = await repositories.mergeIntoMain({ repo: 't-1', branch: 'cloudchef/sara-1', author });
-    expect('commit' in merged).toBe(true);
-    expect(await artifacts.filesAt('t-1', 'main')).toEqual({ 'a.txt': 'one\n2\nthree\n' });
+    expect('commit' in committed).toBe(true);
+    expect(await artifacts.filesAt('t-1', 'main')).toEqual({ 'a.txt': '1\n2\nthree\n' });
     const { stream } = await repositories.archiveZip('t-1', 'main', 'site');
     expect((await new Response(stream).arrayBuffer()).byteLength).toBeGreaterThan(22);
   });

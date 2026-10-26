@@ -38,9 +38,6 @@ async function linkedWorkspace(
     name: 'Ada site',
     defaultBranch: 'main',
     baseCommit: BASE,
-    baseManifest: [{ path: 'README.md', sha256: await sha256Hex('hello'), executable: false }],
-    branchKey: 'k3y4chat0001',
-    workspaceModes: true,
   };
   const file: BuilderWorkspaceFileMetadata = {
     path: '/home/project/README.md',

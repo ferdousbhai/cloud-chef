@@ -1,7 +1,6 @@
 import { GITHUB_ACCESS_FIX } from '~/lib/github-return-messages';
 import * as isogit from 'isomorphic-git';
 import { createFsFromVolume, Volume } from 'memfs';
-import diff3Merge from 'diff3';
 import { z } from 'zod';
 import { abortableSleep } from '~/lib/abortable-sleep';
 import { bytesToHex } from '~/lib/hex-digest';
@@ -46,10 +45,6 @@ const IMPORT_MAX_PACK_BYTES = 1024 * 1024 * 1024;
 /** A new repository or fork is ready within seconds to minutes; it is followed this long. */
 const READY_WAIT_MS = 5 * 60_000;
 const READY_POLL_MS = 1_000;
-/** How far back a merge looks for where a branch left main; past that, the two are unrelated. */
-const MERGE_BASE_SEARCH_LIMIT = 1_000;
-/** Pushes that met a branch moved by someone else are redone this many times before giving up. */
-const MERGE_ATTEMPTS = 3;
 
 export type RepositoryAuthor = { name: string; email: string };
 
@@ -58,7 +53,7 @@ export type RepositoryFileInput =
   { path: string; mode: number; bytes: Uint8Array } | { path: string; mode: number; oid: string };
 
 /** A file in a commit's tree. `mode` is git's (`100644`, `100755`, `120000` …), `oid` its blob. */
-export type RepositoryTreeFile = { path: string; mode: string; oid: string };
+type RepositoryTreeFile = { path: string; mode: string; oid: string };
 
 /** A regular file of a commit, read. */
 type RepositoryFile = RepositoryTreeFile & { bytes: Uint8Array<ArrayBuffer> };
@@ -382,73 +377,6 @@ export class ProjectRepositories {
         throw new Error(`The repository refused the commit (${result.reason}).`);
       }
       return { commit };
-    } finally {
-      await this.#revokePushToken(args.repo, remote);
-    }
-  }
-
-  /**
-   * Merges `branch` into main: a fast-forward when main hasn't moved since the branch left it, otherwise a
-   * three-way merge (file by file, and line by line within a text file both sides changed). Changes that
-   * overlap make `{ conflict: true }`, and main is left as it was.
-   */
-  async mergeIntoMain(args: {
-    repo: string;
-    branch: string;
-    author: RepositoryAuthor;
-    message?: string;
-  }): Promise<{ commit: string } | { conflict: true }> {
-    const branchRef = `refs/heads/${args.branch}`;
-    const remote = await this.#pushRemote(args.repo);
-    try {
-      for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt += 1) {
-        const refs = await readRemoteRefs(this.#fetch, remote);
-        const theirs = refs.get(branchRef);
-        if (!theirs) {
-          throw new ProjectRepositoryError(`The branch ${args.branch} is not in the repository.`, 'not_found');
-        }
-        const ours = refs.get(MAIN_REF) ?? null;
-        if (ours === theirs) {
-          return { commit: ours };
-        }
-        const base = ours ? await this.#withRepo(args.repo, (handle) => mergeBase(handle, ours, theirs)) : null;
-        if (ours && base === theirs) {
-          // Main already holds everything on the branch.
-          return { commit: ours };
-        }
-        let target: string;
-        let pack: Uint8Array;
-        const store = await objectStore();
-        if (!ours || base === ours) {
-          target = theirs;
-          pack = await packObjects(store, []);
-        } else if (!base) {
-          return { conflict: true };
-        } else {
-          const merged = await this.#withRepo(args.repo, (handle) => mergeTrees(handle, store, base, ours, theirs));
-          if (!merged) {
-            return { conflict: true };
-          }
-          target = await writeCommit(store, {
-            tree: merged.root,
-            parents: [ours, theirs],
-            message: args.message ?? `Merge ${args.branch}`,
-            author: args.author,
-          });
-          pack = await packObjects(store, [...merged.written, target]);
-        }
-        const result = await updateRemoteRef(
-          this.#fetch,
-          remote,
-          { ref: MAIN_REF, oldOid: ours ?? ZERO_OID, newOid: target },
-          pack,
-        );
-        if (result.ok) {
-          return { commit: target };
-        }
-        // Main moved while this merge was written: merge again onto where it is now.
-      }
-      return { conflict: true };
     } finally {
       await this.#revokePushToken(args.repo, remote);
     }
@@ -825,123 +753,6 @@ async function packObjects(store: ObjectStore, oids: string[]): Promise<Uint8Arr
     throw new Error('The commit could not be packed.');
   }
   return packfile;
-}
-
-/**
- * Where `theirs` left `ours`: the first of its ancestors (breadth first) that main holds, looking at main's
- * first-parent chain and every parent of those commits, which is where CloudChef's merges put a branch's
- * commit and where every workspace's base commit is. Null when none is within reach.
- */
-async function mergeBase(handle: ArtifactsRepo, ours: string, theirs: string): Promise<string | null> {
-  const main = new Set<string>();
-  for (const commit of await handle.log({ ref: ours, limit: MERGE_BASE_SEARCH_LIMIT })) {
-    main.add(commit.hash);
-    for (const parent of commit.parents) {
-      main.add(parent);
-    }
-  }
-  const queue = [theirs];
-  const seen = new Set<string>();
-  while (queue.length > 0 && seen.size < MERGE_BASE_SEARCH_LIMIT) {
-    const hash = queue.shift()!;
-    if (main.has(hash)) {
-      return hash;
-    }
-    if (seen.has(hash)) {
-      continue;
-    }
-    seen.add(hash);
-    const commit = await handle.readCommit(hash);
-    queue.push(...(commit?.parents ?? []));
-  }
-  return null;
-}
-
-/** The three-way merge of two commits' trees, or null when their changes overlap. */
-async function mergeTrees(
-  handle: ArtifactsRepo,
-  store: ObjectStore,
-  base: string,
-  ours: string,
-  theirs: string,
-): Promise<{ root: string; written: string[] } | null> {
-  const [baseCommit, oursCommit, theirsCommit] = await Promise.all(
-    [base, ours, theirs].map(async (hash) => {
-      const commit = await handle.readCommit(hash);
-      if (!commit) {
-        throw new ProjectRepositoryError('A commit in the merge could not be read.', 'not_found');
-      }
-      return commit;
-    }),
-  );
-  const [baseTree, oursTree, theirsTree] = await Promise.all(
-    [baseCommit!, oursCommit!, theirsCommit!].map((commit) => flattenTree(handle, commit.treeHash)),
-  );
-  const merged = new Map<string, { mode: string; oid: string }>();
-  const written: string[] = [];
-  const paths = new Set([...baseTree!.files.keys(), ...oursTree!.files.keys(), ...theirsTree!.files.keys()]);
-  const same = (a?: RepositoryTreeFile, b?: RepositoryTreeFile) => a?.oid === b?.oid && a?.mode === b?.mode;
-  for (const path of paths) {
-    const o = baseTree!.files.get(path);
-    const a = oursTree!.files.get(path);
-    const b = theirsTree!.files.get(path);
-    // Both sides agree, or only one changed it (a deletion included): that side's version stands.
-    const pick = same(a, b) ? a : same(o, a) ? b : same(o, b) ? a : null;
-    if (pick !== null) {
-      if (pick) {
-        merged.set(path, pick);
-      }
-      continue;
-    }
-    if (!o || !a || !b || a.mode !== b.mode) {
-      return null;
-    }
-    const text = await mergeText(handle, o.oid, a.oid, b.oid);
-    if (text === null) {
-      return null;
-    }
-    const oid = await isogit.writeBlob({ ...store, blob: text });
-    written.push(oid);
-    merged.set(path, { mode: a.mode, oid });
-  }
-  const trees = await writeTrees(store, merged, new Set([...oursTree!.trees, ...theirsTree!.trees]));
-  return { root: trees.root, written: [...written, ...trees.written] };
-}
-
-const LINES = /^.*(\r?\n|$)/gm;
-
-/** A text file both sides changed, merged line by line; null when it isn't text or the changes overlap. */
-async function mergeText(
-  handle: ArtifactsRepo,
-  base: string,
-  ours: string,
-  theirs: string,
-): Promise<Uint8Array | null> {
-  const texts: string[] = [];
-  for (const oid of [ours, base, theirs]) {
-    const blob = await handle.readBlob(oid);
-    if (!blob) {
-      return null;
-    }
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    if (bytes.includes(0)) {
-      return null;
-    }
-    try {
-      texts.push(new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes));
-    } catch {
-      return null;
-    }
-  }
-  const [a, o, b] = texts.map((text) => text.match(LINES) ?? []);
-  let merged = '';
-  for (const block of diff3Merge(a!, o!, b!)) {
-    if ('conflict' in block) {
-      return null;
-    }
-    merged += block.ok.join('');
-  }
-  return new TextEncoder().encode(merged);
 }
 
 /** Why an import could not read its source, in words for the person importing. */

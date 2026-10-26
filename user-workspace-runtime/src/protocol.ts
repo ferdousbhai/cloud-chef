@@ -14,8 +14,7 @@ export type BuilderWorkspaceEncoding = 'utf8' | 'base64';
 
 /**
  * A workspace opened from a project the control plane keeps (a team's, or one imported from GitHub): which
- * project, and the commit of its repository it was opened from, with each file's SHA-256 then, so its
- * changes can be told from what the repository already has.
+ * project, and the commit of its repository it was opened from, which git in the workspace starts from.
  */
 export type BuilderWorkspaceLinkedProject = {
   orgProjectId: string;
@@ -25,23 +24,6 @@ export type BuilderWorkspaceLinkedProject = {
   name?: string;
   defaultBranch: string;
   baseCommit: string;
-  /**
-   * Project-relative paths and SHA-256s of the files at `baseCommit`, and which are executable there:
-   * the repository's modes are carried here to commit them back unchanged.
-   */
-  baseManifest: { path: string; sha256: string; executable?: boolean }[];
-  /**
-   * Names this workspace's own branch (`cloudchef/<member>-<branchKey>`), so two of a member's chats on
-   * a project never overwrite each other's branch; every conversation in a chat shares its workspace, and
-   * so its branch. Absent on workspaces opened before each had its own branch, which use the member's one
-   * branch.
-   */
-  branchKey?: string;
-  /**
-   * The workspace's file modes are the repository's: it was seeded with them, so a file's executable bit
-   * is read from the workspace alone and a mode-only change is a change. Absent on workspaces seeded before.
-   */
-  workspaceModes?: boolean;
 };
 
 export type BuilderWorkspaceFileInput = {

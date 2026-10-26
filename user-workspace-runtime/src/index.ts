@@ -2129,43 +2129,25 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   setLinkedProject(value: BuilderWorkspaceLinkedProject): void {
-    if (
-      !/^[0-9a-f]{40}$/.test(value.baseCommit) ||
-      value.baseManifest.length > BUILDER_WORKSPACE_MAX_FILES ||
-      (value.branchKey !== undefined && !/^[a-z0-9]{8,32}$/.test(value.branchKey))
-    ) {
+    if (!/^[0-9a-f]{40}$/.test(value.baseCommit)) {
       throw new Error('Linked project state is invalid.');
     }
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO cloudchef_linked_project
-           (singleton, org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes,
-            project_name, updated_at)
-         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
-           repository = excluded.repository, default_branch = excluded.default_branch,
-           base_commit = excluded.base_commit, branch_key = excluded.branch_key,
-           workspace_modes = excluded.workspace_modes, project_name = excluded.project_name,
-           updated_at = excluded.updated_at`,
-        value.orgProjectId,
-        value.repository,
-        value.defaultBranch,
-        value.baseCommit,
-        value.branchKey ?? null,
-        value.workspaceModes ? 1 : 0,
-        value.name ?? null,
-        Date.now(),
-      );
-      this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
-      for (const file of value.baseManifest) {
-        this.ctx.storage.sql.exec(
-          'INSERT INTO cloudchef_linked_manifest (path, sha256, executable) VALUES (?, ?, ?)',
-          file.path,
-          file.sha256,
-          file.executable ? 1 : 0,
-        );
-      }
-    });
+    // branch_key, workspace_modes and cloudchef_linked_manifest held what publishing diffed against before
+    // git did; nothing writes them now.
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cloudchef_linked_project
+         (singleton, org_project_id, repository, default_branch, base_commit, project_name, updated_at)
+       VALUES (1, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET org_project_id = excluded.org_project_id,
+         repository = excluded.repository, default_branch = excluded.default_branch,
+         base_commit = excluded.base_commit, project_name = excluded.project_name, updated_at = excluded.updated_at`,
+      value.orgProjectId,
+      value.repository,
+      value.defaultBranch,
+      value.baseCommit,
+      value.name ?? null,
+      Date.now(),
+    );
   }
 
   setGitRepository(value: BuilderWorkspaceGitRepository): void {
@@ -2250,35 +2232,21 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         repository: string;
         default_branch: string;
         base_commit: string;
-        branch_key: string | null;
-        workspace_modes: number;
         project_name: string | null;
       }>(
-        `SELECT org_project_id, repository, default_branch, base_commit, branch_key, workspace_modes, project_name
+        `SELECT org_project_id, repository, default_branch, base_commit, project_name
          FROM cloudchef_linked_project WHERE singleton = 1`,
       ),
     );
     if (!row) {
       return null;
     }
-    const files = [
-      ...this.ctx.storage.sql.exec<{ path: string; sha256: string; executable: number }>(
-        'SELECT path, sha256, executable FROM cloudchef_linked_manifest ORDER BY path',
-      ),
-    ];
     const linked: BuilderWorkspaceLinkedProject = {
       orgProjectId: row.org_project_id,
       repository: row.repository,
       defaultBranch: row.default_branch,
       baseCommit: row.base_commit,
-      baseManifest: files.map((file) => ({ path: file.path, sha256: file.sha256, executable: file.executable === 1 })),
     };
-    if (row.branch_key !== null) {
-      linked.branchKey = row.branch_key;
-    }
-    if (row.workspace_modes === 1) {
-      linked.workspaceModes = true;
-    }
     if (row.project_name !== null) {
       linked.name = row.project_name;
     }
