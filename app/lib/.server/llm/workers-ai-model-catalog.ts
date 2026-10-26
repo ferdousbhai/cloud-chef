@@ -46,11 +46,21 @@ const UNCHECKED_SETTINGS_MESSAGE =
   'CloudChef could not check which models this account allows just now. Try again in a moment.';
 
 /**
+ * How long after Cloudflare adds a model it stays on offer. Newer ones have overtaken it by then, so
+ * it is no longer worth choosing; CloudChef's own default stays whatever its age.
+ */
+const STALE_MODEL_AGE_MS = 183 * 24 * 60 * 60 * 1000;
+
+/**
  * Read the current account-visible catalog through its AI binding, never control-plane credentials,
  * keeping the models that can drive the builder: native, function calling, a large enough window,
- * and listed by Pi, since a model Pi does not list would be spoken to with a guessed request shape.
+ * listed by Pi, since a model Pi does not list would be spoken to with a guessed request shape, and
+ * added in the last six months (or undated).
  */
-export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalogBinding): Promise<BuilderModel[]> {
+export async function readWorkersAiBuilderModelCatalog(
+  binding: WorkersAiCatalogBinding,
+  now: number = Date.now(),
+): Promise<BuilderModel[]> {
   let catalog: AiModelsSearchObject[];
   try {
     catalog = await binding.models({
@@ -94,6 +104,9 @@ export async function readWorkersAiBuilderModelCatalog(binding: WorkersAiCatalog
     }
     const createdAt = catalogEntryCreatedAt(entry);
     if (createdAt !== undefined) {
+      if (entry.name !== CLOUDFLARE_WORKERS_AI_MODEL && Date.parse(createdAt) < now - STALE_MODEL_AGE_MS) {
+        continue;
+      }
       model.createdAt = createdAt;
     }
     models.set(entry.name, model);

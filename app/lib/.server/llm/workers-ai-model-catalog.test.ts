@@ -118,10 +118,28 @@ describe('Workers AI live model catalog', () => {
       ]),
     };
 
-    const models = await readWorkersAiBuilderModelCatalog(binding);
+    const models = await readWorkersAiBuilderModelCatalog(binding, Date.parse('2026-10-26T00:00:00Z'));
 
     expect(models[0]?.createdAt).toBe(new Date('2026-08-26 00:00:00.000').toISOString());
     expect(models[1]).not.toHaveProperty('createdAt');
+  });
+
+  it('leaves out models Cloudflare added more than six months ago, but never its own default', async () => {
+    const binding = {
+      models: vi.fn(async () => [
+        model('@cf/deepseek-ai/deepseek-v4-pro-0813', { createdAt: '2026-08-13 17:15:08.489' }),
+        model('@cf/openai/gpt-oss-120b', { createdAt: '2025-08-05 10:27:29.131' }),
+        model('@cf/moonshotai/kimi-k2.6', {
+          createdAt: '2026-04-20 01:40:35.001',
+          properties: [...eligibleProperties, { property_id: 'context_window', value: '262144' }],
+        }),
+        model(CLOUDFLARE_WORKERS_AI_MODEL, { createdAt: '2025-01-01 00:00:00.000' }),
+      ]),
+    };
+
+    const models = await readWorkersAiBuilderModelCatalog(binding, Date.parse('2026-10-26T00:00:00Z'));
+
+    expect(models.map(({ id }) => id)).toEqual(['@cf/deepseek-ai/deepseek-v4-pro-0813', CLOUDFLARE_WORKERS_AI_MODEL]);
   });
 
   it('takes the pinned default from discovery rather than the reviewed literal, and offers the rest', () => {

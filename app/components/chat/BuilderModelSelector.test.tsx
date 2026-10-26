@@ -95,7 +95,7 @@ describe('BuilderModelSelector', () => {
       item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
     );
     expect(alternative?.textContent).toContain('New');
-    expect(alternative?.textContent).toContain('added Aug 26');
+    expect(alternative?.textContent).toContain('added Aug 26, 2026');
     // The pinned default keeps the top row even though the other model is newer.
     expect(document.querySelectorAll('[role="menuitemradio"]')[0]?.textContent).toContain('GLM 5.3 Flash');
     expect(builderNewModelsStore.get()).toEqual([]);
@@ -277,7 +277,7 @@ describe('BuilderModelSelector', () => {
     const row = [...document.querySelectorAll<HTMLElement>('#builder-provider-models [role="menuitemradio"]')].find(
       (item) => item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
     );
-    expect(row?.querySelector('.line-clamp-2')?.textContent).toBe('added Aug 26');
+    expect(row?.querySelector('.line-clamp-2')?.textContent).toBe('added Aug 26, 2026');
   });
 
   it('pins only the default when no other recent model remains', async () => {

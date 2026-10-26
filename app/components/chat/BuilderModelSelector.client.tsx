@@ -56,7 +56,12 @@ function formatModelAddedDate(model: BuilderModel): string | null {
   if (published === Number.NEGATIVE_INFINITY) {
     return null;
   }
-  return new Date(published).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return new Date(published).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 export function BuilderModelSelector({ disabled = false }: { disabled?: boolean }) {
