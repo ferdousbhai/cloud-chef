@@ -16,6 +16,11 @@ import {
   runtimeProjectStatusAction,
 } from './runtime-projects';
 import { listMyProjectsAction } from './projects';
+import {
+  runtimeDeploymentClaimAction,
+  runtimeDeploymentCredentialAction,
+  runtimeDeploymentReportAction,
+} from './runtime-deployments';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -112,6 +117,7 @@ describe('a runtime opening a project', () => {
       defaultBranch: 'main',
       role: 'edit',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
+      deploysWith: 'workers_builds',
       importSource: {
         url: 'https://github.com/ada/site.git',
         branch: 'master',
@@ -149,6 +155,7 @@ describe('a runtime opening a project', () => {
       defaultBranch: 'main',
       role: 'view',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
+      deploysWith: 'workers_builds',
     });
     // Admins own every team project.
     const owned = await runtimeOpenProjectAction({
@@ -584,5 +591,127 @@ describe('the projects home', () => {
       siteUrl: 'https://blog.example.com',
       siteFrameable: false,
     });
+  });
+});
+
+describe('a runtime deploying a project CloudChef deploys itself', () => {
+  const UPLOAD = '77777777-7777-4777-8777-777777777777';
+  async function uploaded() {
+    const fixture = await setup();
+    fixture.database.exec(`
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with, created_at)
+        VALUES ('${UPLOAD}', 'team-connection', '33333333-3333-4333-8333-333333333333', 'Glossary', 't-${UPLOAD}',
+          'zip', 'cloudchef', 1);
+    `);
+    fixture.database
+      .prepare(`INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES (?, ?, 'edit', 1)`)
+      .run(UPLOAD, fixture.sara.userId);
+    return fixture;
+  }
+  const call = async (
+    action: (args: { request: Request; env: Env }) => Promise<Response>,
+    runtime: Awaited<ReturnType<typeof setup>>['runtime'],
+    env: Env,
+    path: string,
+    body: Record<string, string | boolean>,
+  ) => {
+    const response = await action({
+      request: await runtime(`/api/cloudflare/runtime-projects/deployments/${path}`, body),
+      env,
+    });
+    return { status: response.status, body: z.record(z.string(), z.unknown()).parse(await response.json()) };
+  };
+
+  it('claims each commit once, reports its steps, and records a live deploy of main as the site', async () => {
+    const { env, runtime, database } = await uploaded();
+    stubSites();
+    const first = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+      orgProjectId: UPLOAD,
+      branch: 'main',
+      commit: COMMIT,
+    });
+    expect(first).toMatchObject({ status: 200, body: { claimed: true, kind: 'production', state: 'queued' } });
+    const again = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+      orgProjectId: UPLOAD,
+      branch: 'main',
+      commit: COMMIT,
+    });
+    expect(again.body).toMatchObject({ claimed: false, deploymentId: first.body.deploymentId });
+
+    const deploymentId = String(first.body.deploymentId);
+    for (const state of ['building', 'deploying'] as const) {
+      expect(
+        (
+          await call(runtimeDeploymentReportAction, runtime, env, 'report', {
+            orgProjectId: UPLOAD,
+            deploymentId,
+            state,
+          })
+        ).body,
+      ).toEqual({ outcome: 'recorded' });
+    }
+    const done = await call(runtimeDeploymentReportAction, runtime, env, 'report', {
+      orgProjectId: UPLOAD,
+      deploymentId,
+      state: 'succeeded',
+      url: 'https://glossary.team.workers.dev',
+      workerName: 'glossary',
+    });
+    expect(done.body).toEqual({ outcome: 'recorded' });
+    expect(
+      database
+        .prepare('SELECT site_url, site_frameable, deploy_worker_name FROM org_projects WHERE id = ?')
+        .get(UPLOAD),
+    ).toEqual({ site_url: 'https://glossary.team.workers.dev', site_frameable: 0, deploy_worker_name: 'glossary' });
+
+    // The build watch reads CloudChef's own status, as it reads Workers Builds'.
+    const status = await runtimeProjectStatusAction({
+      request: await runtime('/api/cloudflare/runtime-projects/status', { orgProjectId: UPLOAD, commit: COMMIT }),
+      env,
+    });
+    expect(await status.json()).toEqual({
+      state: 'succeeded',
+      pipeline: 'cloudchef',
+      url: 'https://glossary.team.workers.dev',
+    });
+  });
+
+  it('hands out the account authorization only while its claimed deploy step runs, and never for Workers Builds projects', async () => {
+    const { env, runtime } = await uploaded();
+    const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+      orgProjectId: UPLOAD,
+      branch: 'main',
+      commit: COMMIT,
+    });
+    const deploymentId = String(claimed.body.deploymentId);
+    expect(
+      (
+        await call(runtimeDeploymentCredentialAction, runtime, env, 'credential', {
+          orgProjectId: UPLOAD,
+          deploymentId,
+        })
+      ).status,
+    ).toBe(409);
+    await call(runtimeDeploymentReportAction, runtime, env, 'report', {
+      orgProjectId: UPLOAD,
+      deploymentId,
+      state: 'deploying',
+    });
+    // Now it is resolved from the account's authorization (the fixture's can't be decrypted, so it is unavailable).
+    expect(
+      (
+        await call(runtimeDeploymentCredentialAction, runtime, env, 'credential', {
+          orgProjectId: UPLOAD,
+          deploymentId,
+        })
+      ).status,
+    ).toBe(503);
+
+    const workersBuilds = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+      orgProjectId: BLOG,
+      branch: 'main',
+      commit: COMMIT,
+    });
+    expect(workersBuilds.status).toBe(403);
   });
 });

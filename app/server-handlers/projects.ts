@@ -31,6 +31,7 @@ import {
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { installedRepositories } from './github-projects';
 import { signedIn } from './signed-in';
+import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 
 /**
  * Projects kept in Cloudflare Artifacts: a person's own and their team's. GitHub is only where one may be
@@ -69,17 +70,44 @@ export function listMyProjectsAction({
     if (session.context) {
       await findMissingSites(env, openAccount, session.context.connectionId, projects);
     }
+    // What the card says of a project CloudChef deploys: its newest deploy of main, however it went.
+    const deployments = new Map(
+      await Promise.all(
+        projects
+          .filter((project) => project.deploysWith === 'cloudchef')
+          .map(
+            async (project) =>
+              [
+                project.id,
+                (await latestDeployments(env.DB, project.id)).find((row) => row.kind === 'production') ?? null,
+              ] as const,
+          ),
+      ),
+    );
     return Response.json(
       {
-        projects: projects.map(({ id, name, repo, role, importSource, siteUrl, siteFrameable }) => ({
-          id,
-          name,
-          repo,
-          role,
-          importRepoFullName: importSource?.fullName ?? null,
-          siteUrl,
-          siteFrameable,
-        })),
+        projects: projects.map(({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith }) => {
+          const deployment = deployments.get(id);
+          return {
+            id,
+            name,
+            repo,
+            role,
+            importRepoFullName: importSource?.fullName ?? null,
+            siteUrl,
+            siteFrameable,
+            deploysWith,
+            deployment: deployment
+              ? {
+                  id: deployment.id,
+                  state: deployment.state,
+                  failureStage: deployment.failureStage,
+                  reason: deployment.reason,
+                  updatedAt: deployment.updatedAt,
+                }
+              : null,
+          };
+        }),
       },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
@@ -99,8 +127,12 @@ async function findMissingSites(
   connectionId: string,
   projects: Project[],
 ): Promise<void> {
+  // A project CloudChef deploys itself records its site when it deploys; only Workers Builds' are looked up.
   const missing = projects.filter(
-    (project) => project.repo !== null && (!project.siteUrl || project.siteFrameable === null),
+    (project) =>
+      project.deploysWith === 'workers_builds' &&
+      project.repo !== null &&
+      (!project.siteUrl || project.siteFrameable === null),
   );
   if (missing.length === 0) {
     return;

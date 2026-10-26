@@ -28,6 +28,7 @@ import {
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { importedProjectRepo, nativeProjectRepo } from '~/lib/.server/cloudflare/project-repository';
 import { registerGitHubImport } from './projects';
+import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
@@ -87,7 +88,7 @@ export async function runtimeOpenProjectAction(args: {
     return opened;
   }
   const { project, identity, connection } = opened;
-  if (project.repo !== null && !project.siteUrl) {
+  if (project.repo !== null && !project.siteUrl && project.deploysWith === 'workers_builds') {
     // The projects home shows the live site from the first open, not only once the agent asks about a build.
     await withWorkersBuilds(args, connection, project, async () => json(null, 200)).catch(() => undefined);
   }
@@ -98,6 +99,7 @@ export async function runtimeOpenProjectAction(args: {
     defaultBranch: project.defaultBranch,
     role: project.role,
     member: await memberIdentity(args.env.DB, identity.userId),
+    deploysWith: project.deploysWith,
   };
   if (project.repo !== null || project.role !== 'edit') {
     return json(answer, 200);
@@ -380,6 +382,9 @@ export async function runtimeProjectStatusAction(args: {
     return opened;
   }
   const { project, body, connection } = opened;
+  if (project.deploysWith === 'cloudchef') {
+    return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
+  }
   return withWorkersBuilds(args, connection, project, async (api, worker) =>
     worker
       ? json(await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit }), 200)
@@ -402,6 +407,13 @@ export async function runtimeProjectSiteAction(args: {
     return opened;
   }
   const { project, connection } = opened;
+  if (project.deploysWith === 'cloudchef') {
+    const previews = (await latestDeployments(args.env.DB, project.id))
+      .filter((deployment) => deployment.kind === 'preview' && deployment.state === 'succeeded' && deployment.url)
+      .map((deployment) => new URL(deployment.url!).origin);
+    const live = project.siteUrl ? [new URL(project.siteUrl).origin] : [];
+    return json({ origins: [...new Set([...live, ...previews])] }, 200);
+  }
   return withWorkersBuilds(args, connection, project, async (api, worker, readProduction) => {
     if (!worker) {
       return json({ origins: [] }, 200);
@@ -415,6 +427,49 @@ export async function runtimeProjectSiteAction(args: {
 }
 
 type ProjectWorker = NonNullable<Awaited<ReturnType<typeof findProjectWorker>>>;
+
+/**
+ * A commit's build as CloudChef reports it for a project it deploys itself, in the words Workers Builds' status
+ * uses, so the runtime's build watch follows both alike. `pipeline` and `reason` say whose build it is and why it
+ * didn't go live.
+ */
+type CloudchefBuildStatus = {
+  state: string;
+  pipeline: 'cloudchef';
+  reason?: string;
+  url?: string;
+  previewUrl?: string;
+};
+
+async function cloudchefBuildStatus(db: D1Database, projectId: string, commit: string): Promise<CloudchefBuildStatus> {
+  const deployment = await deploymentOfCommit(db, { projectId, commit });
+  if (!deployment) {
+    return { state: 'none', pipeline: 'cloudchef' };
+  }
+  const state =
+    deployment.state === 'succeeded'
+      ? 'succeeded'
+      : deployment.state === 'failed'
+        ? 'failed'
+        : deployment.state === 'queued'
+          ? 'queued'
+          : deployment.state === 'building' || deployment.state === 'deploying'
+            ? 'building'
+            : 'none';
+  const status: CloudchefBuildStatus = {
+    state,
+    pipeline: 'cloudchef',
+  };
+  if (deployment.reason) {
+    status.reason = deployment.reason;
+  }
+  if (deployment.url && deployment.kind === 'production') {
+    status.url = deployment.url;
+  } else if (deployment.url) {
+    status.previewUrl = deployment.url;
+  }
+  return status;
+}
 
 /**
  * The project's Worker in Workers Builds (found once, then remembered), the account's API to ask about it,
@@ -599,7 +654,7 @@ async function sendProductionRequest(
  * the member may still view or edit the project, and the project belongs to the connection (the account)
  * the runtime runs for.
  */
-async function openProject<T extends z.infer<typeof projectSchema>>(
+export async function openProject<T extends z.infer<typeof projectSchema>>(
   args: { request: Request; env: Env },
   schema: z.ZodType<T>,
 ): Promise<
@@ -608,6 +663,7 @@ async function openProject<T extends z.infer<typeof projectSchema>>(
       body: T;
       connection: CloudflareConnection;
       identity: { userId: string };
+      credentialHandle: string;
     }
   | Response
 > {
@@ -619,17 +675,17 @@ async function openProject<T extends z.infer<typeof projectSchema>>(
   if (authenticated instanceof Response) {
     return authenticated;
   }
-  const { body, identity, connection } = authenticated;
+  const { body, identity, connection, credentialHandle } = authenticated;
   const project = await findAccessibleProject(args.env.DB, body.orgProjectId, identity.userId);
   if (!project || project.connectionId !== connection.id) {
     return json({ error: 'This project is not available to you.' }, 403);
   }
-  return { project, body, connection, identity };
+  return { project, body, connection, identity, credentialHandle };
 }
 
 const INVALID_REQUEST = 'Invalid workspace runtime project request.';
 
 /** A JSON answer to the runtime. */
-function json<Answer>(body: Answer, status: number): Response {
+export function json<Answer>(body: Answer, status: number): Response {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }

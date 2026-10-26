@@ -44,6 +44,10 @@ export type Project = {
   siteUrl: string | null;
   /** Whether the live site lets CloudChef show it in a frame; null until checked. */
   siteFrameable: boolean | null;
+  /** Who builds and deploys it: Workers Builds watching its repository, or CloudChef itself (an upload). */
+  deploysWith: 'workers_builds' | 'cloudchef';
+  /** The Worker CloudChef deploys it as, once known. */
+  deployWorkerName: string | null;
 };
 
 /** A team project as its admins manage it: who else may view or edit it. */
@@ -164,13 +168,16 @@ type ProjectRow = {
   workers_builds_script_tag: string | null;
   site_url: string | null;
   site_frameable: number | null;
+  deploys_with: 'workers_builds' | 'cloudchef';
+  deploy_worker_name: string | null;
   default_branch: string;
   created_from: ProjectCreatedFrom;
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
   projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
-  projects.site_url, projects.site_frameable, projects.default_branch, projects.created_from`;
+  projects.site_url, projects.site_frameable, projects.default_branch, projects.created_from,
+  projects.deploys_with, projects.deploy_worker_name`;
 
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
@@ -301,8 +308,9 @@ export async function addUploadedProject(
 ): Promise<void> {
   const inserted = await db
     .prepare(
-      `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, 'zip', ?, ?)
+      `INSERT INTO org_projects
+         (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, 'zip', 'cloudchef', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(args.projectId, args.scope.connectionId, args.scope.orgId, args.name, args.repo, args.actorId, Date.now())
@@ -456,6 +464,8 @@ function toProject(row: ProjectRow): Project {
     workersBuildsScriptTag: row.workers_builds_script_tag,
     siteUrl: row.site_url,
     siteFrameable: row.site_frameable === null ? null : row.site_frameable === 1,
+    deploysWith: row.deploys_with,
+    deployWorkerName: row.deploy_worker_name,
   };
 }
 

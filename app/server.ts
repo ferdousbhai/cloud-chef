@@ -39,6 +39,12 @@ import {
   runtimeRequestProductionAction,
 } from './server-handlers/runtime-projects';
 import {
+  runtimeDeploymentClaimAction,
+  runtimeDeploymentCredentialAction,
+  runtimeDeploymentReportAction,
+  runtimeDeploymentRetryAction,
+} from './server-handlers/runtime-deployments';
+import {
   completeGitHubInstallAction,
   disconnectGitHubAction,
   GITHUB_RETURN_PATH,
@@ -155,6 +161,10 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/status': ['POST', runtimeProjectStatusAction],
     '/api/cloudflare/runtime-projects/site': ['POST', runtimeProjectSiteAction],
     '/api/cloudflare/runtime-projects/request-production': ['POST', runtimeRequestProductionAction],
+    '/api/cloudflare/runtime-projects/deployments/claim': ['POST', runtimeDeploymentClaimAction],
+    '/api/cloudflare/runtime-projects/deployments/retry': ['POST', runtimeDeploymentRetryAction],
+    '/api/cloudflare/runtime-projects/deployments/report': ['POST', runtimeDeploymentReportAction],
+    '/api/cloudflare/runtime-projects/deployments/credential': ['POST', runtimeDeploymentCredentialAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
     [GITHUB_RETURN_PATH]: ['GET', completeGitHubInstallAction],
     '/api/organizations': ['GET', listOrganizationsAction],

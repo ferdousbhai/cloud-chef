@@ -21,6 +21,7 @@ const controlPlaneTables = [
   'organization_usage_daily',
   'organizations',
   'production_requests',
+  'project_deployments',
   'user',
   'user_computer_runtimes',
 ];

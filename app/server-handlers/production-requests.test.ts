@@ -160,6 +160,8 @@ describe('production requests', () => {
           importRepoFullName: null,
           siteUrl: null,
           siteFrameable: null,
+          deploysWith: 'workers_builds',
+          deployment: null,
         },
       ],
     });
