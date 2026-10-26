@@ -409,13 +409,16 @@ describe("a team project's git push", () => {
     expect((await pushResult(harness, 'call-branch'))?.data).toMatchObject({ branch: 'feature', live: false });
   });
 
-  it("reports nothing for a CloudChef app's pushes, or a branch deleted", async () => {
+  it("tells a CloudChef app's agent its push to main goes live when the turn ends, and reports no branch deleted", async () => {
     const app = await harnessWith({
       ...(await linkedWorkspace()),
       linkedProject: async () => null,
       takeGitPushes: async () => [{ ref: 'refs/heads/main', oldOid: BASE, newOid: 'b'.repeat(40) }],
     });
-    expect(await pushResult(app, 'call-1')).toBeUndefined();
+    const pushed = await pushResult(app, 'call-1');
+    expect(pushed?.summary).toContain('publishes it to the live site when this turn ends');
+    // A CloudChef app's publish card is its deployment, not a team project's build.
+    expect(pushed?.data).toBeUndefined();
     const deleted = await harnessWith({
       ...(await linkedWorkspace()),
       takeGitPushes: async () => [{ ref: 'refs/heads/old', oldOid: BASE, newOid: '0'.repeat(40) }],

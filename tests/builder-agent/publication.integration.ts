@@ -45,6 +45,7 @@ async function publicationHarness(
     checkpoint?: () => BuilderWorkspaceCheckpoint | Promise<BuilderWorkspaceCheckpoint>;
     refresh?: BuilderWorkspaceApi['refresh'];
     build?: Pick<BuilderWorkspaceApi, 'validate' | 'hasSuccessfulValidation'>;
+    workspaceMatchesMain?: boolean;
   } = {},
 ) {
   const checkpoint = options.checkpoint ?? (() => CHECKPOINT);
@@ -67,6 +68,7 @@ async function publicationHarness(
     },
     workspace,
     publisher: options.publisher,
+    workspaceMatchesMain: options.workspaceMatchesMain,
   });
   return { ...harness, deleteProject };
 }
@@ -119,6 +121,19 @@ describe('BuilderAgent automatic publication', () => {
     expect(deploy.mock.calls[0]?.[0]).toMatchObject({ validatedRevision: CHECKPOINT.revision });
     expect(harness.agent.state.productionUrl).toBe('https://app.example.workers.dev');
     expect(harness.agent.state.publicationPending).toBe(false);
+  });
+
+  it("holds back a push to main while the workspace holds changes main doesn't, and tells the model why", async () => {
+    const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({ status: 'succeeded', id: 'deployment-1' }));
+    const harness = await publicationHarness({ publisher: { deploy }, workspaceMatchesMain: false });
+
+    await finishChangingTurn(harness);
+
+    await eventually(() => Boolean(harness.agent.state.heldPublication));
+    expect(deploy).not.toHaveBeenCalled();
+    expect(harness.agent.state.publicationPending).toBe(false);
+    // eslint-disable-next-line dot-notation
+    expect(harness.agent['publicationFailure']()).toContain("the workspace holds changes that main doesn't");
   });
 
   it('records a deployment that went live as production, and tells the model about a step after it that failed', async () => {

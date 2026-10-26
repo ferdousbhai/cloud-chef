@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { fakeArtifacts } from '~/test/fake-artifacts';
 import { crc32 } from './zip-archive';
 import {
+  filesMatchTree,
   importedProjectRepo,
   nativeProjectRepo,
   ProjectRepositories,
@@ -413,3 +414,27 @@ function readZip(zip: Uint8Array) {
   }
   return entries;
 }
+
+describe('filesMatchTree', () => {
+  const text = (value: string) => new TextEncoder().encode(value);
+  // git hash-object of "hello\n" and "bye\n".
+  const HELLO = 'ce013625030ba8dba906f756967f9e9ca394464a';
+  const BYE = 'b023018cabc396e7692c70bbf5784a93d3f738ab';
+
+  it('holds when the regular files, their contents and executable bits match, whatever links the tree has', async () => {
+    const tree = [
+      { path: 'a.txt', mode: '100644', oid: HELLO },
+      { path: 'run.sh', mode: '100755', oid: BYE },
+      { path: 'CLAUDE.md', mode: '120000', oid: 'd'.repeat(40) },
+    ];
+    const files = [
+      { path: 'a.txt', mode: 0o644, bytes: text('hello\n') },
+      { path: 'run.sh', mode: 0o755, bytes: text('bye\n') },
+    ];
+    expect(await filesMatchTree(files, tree)).toBe(true);
+    expect(await filesMatchTree([files[0]!, { ...files[1]!, mode: 0o644 }], tree)).toBe(false);
+    expect(await filesMatchTree([files[0]!, { ...files[1]!, bytes: text('changed\n') }], tree)).toBe(false);
+    expect(await filesMatchTree([files[0]!], tree)).toBe(false);
+    expect(await filesMatchTree([...files, { path: 'new.txt', mode: 0o644, bytes: text('x') }], tree)).toBe(false);
+  });
+});

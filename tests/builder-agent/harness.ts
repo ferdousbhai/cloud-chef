@@ -229,6 +229,11 @@ export async function builderAgentHarness(
     cloudflareIdentity?: boolean;
     publisher?: Partial<BuilderPublisher>;
     artifacts?: FakeArtifacts;
+    /**
+     * Whether a CloudChef app's workspace holds exactly what its main does, which its publication needs:
+     * yes unless a test says otherwise, so a turn that owes a publication publishes.
+     */
+    workspaceMatchesMain?: boolean;
   } = {},
 ) {
   const artifacts = options.artifacts ?? fakeArtifacts();
@@ -262,6 +267,7 @@ export async function builderAgentHarness(
     // before any call reaches it, with a fake of every member the exercised path calls.
     const ownWorkspace = fakeWorkspace(options.newWorkspace?.() ?? options.workspace);
     Reflect.set(agent, 'workspace', ownWorkspace);
+    Reflect.set(agent, 'workspaceMatchesMain', async () => options.workspaceMatchesMain ?? true);
     // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
     Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
     // SAFETY: as above, for the account's repositories: the real client, over a fake Artifacts.

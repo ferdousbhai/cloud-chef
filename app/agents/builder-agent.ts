@@ -145,6 +145,7 @@ import {
   nativeProjectRepo,
   ProjectRepositories,
   ProjectRepositoryError,
+  filesMatchTree,
   workspaceFileMode,
 } from '~/lib/.server/cloudflare/project-repository';
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
@@ -347,6 +348,11 @@ export type BuilderAgentState = {
    */
   publicationPending?: boolean;
   /**
+   * Why the last turn's push to main did not go live: the workspace held changes main doesn't. Told to the
+   * model at its next turn, and cleared once a publication starts.
+   */
+  heldPublication?: string | null;
+  /**
    * The revision whose automatic publication last failed. Waking the
    * agent does not publish it again, since it would only fail the same way; the next turn's end does.
    */
@@ -418,6 +424,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     productionRevision: null,
     productionUrl: null,
     publicationPending: false,
+    heldPublication: null,
     failedPublicationRevision: null,
     publication: null,
     upgradeWaiting: false,
@@ -462,6 +469,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private startingTurns = 0;
   /** Publishes to the project's repository under way: a closed conversation waits for them before the newer one starts. */
   private readonly runningLinkedPublishes = new Set<Promise<CloudChefToolResult>>();
+  /** Whether the running turn pushed this CloudChef app's main, which its end then publishes. */
+  private mainPushedInTurn = false;
   /** Editor saves under way, from before their closed check: a closed conversation waits for them too. */
   private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
   /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
@@ -727,6 +736,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       await this.advanceTranscriptCheckpoint(transcript);
       turn = createBuilderTurn(options?.requestId);
+      this.mainPushedInTurn = false;
       this.setState({
         ...this.state,
         activeTurn: turn,
@@ -820,10 +830,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         pushResult: (toolCallId) => this.gitPushResult(toolCallId),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
-        onSettled: (report) => {
+        onSettled: () => {
           settleSteering();
-          // A team project publishes through Workers Builds, when the agent publishes to it.
-          if (report.changedProject && !linkedProject && !this.state.publicationPending) {
+          // A CloudChef app's production serves main: a turn that pushed main publishes it. A team project
+          // publishes through Workers Builds, when the agent pushes or publishes to it.
+          if (this.mainPushedInTurn && !linkedProject && !this.state.publicationPending) {
             this.setState({ ...this.state, publicationPending: true });
           }
         },
@@ -946,11 +957,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     const validatedSnapshot = await this.refreshDeploymentReadiness();
-    // A turn that changed a CloudChef app, or one before it whose publication never reached production,
+    // A turn that pushed a CloudChef app's main, or one before it whose publication never reached production,
     // publishes it however the turn ended: the deployment builds the exact revision (unless the model
     // already validated it) and publishes it to production. A team project previews and deploys through
-    // Workers Builds, when the agent publishes to it.
-    if (this.state.publicationPending || (status === 'completed' && validatedSnapshot)) {
+    // Workers Builds, when the agent pushes or publishes to it.
+    if (this.state.publicationPending) {
       await this.publishLatestRevision(validatedSnapshot);
     }
   }
@@ -1890,6 +1901,38 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return this.followLinkedBuild(watch);
   }
 
+  /** Whether this CloudChef app's workspace holds exactly what main of its repository does. */
+  private async workspaceMatchesMain(): Promise<boolean> {
+    const transcript = this.transcriptBinding;
+    const read = transcript ? await workspaceCommitFiles(this.workspace).catch(() => null) : null;
+    if (!transcript || !read) {
+      return false;
+    }
+    const main = await this.repositories()
+      .readTreeAt(nativeProjectRepo(transcript.chatInitialId), MAIN_BRANCH)
+      .catch(() => null);
+    return main !== null && (await filesMatchTree(read.files, main.files));
+  }
+
+  /**
+   * A CloudChef app's push to main: its turn publishes it when it ends, which the model is told, with what
+   * stops that while the workspace holds changes main doesn't.
+   */
+  private async appPushResult(): Promise<CloudChefToolResult | undefined> {
+    const pushes = await this.workspace.takeGitPushes();
+    if (!pushes.some((push) => push.ref === `refs/heads/${MAIN_BRANCH}` && push.newOid !== ZERO_OID)) {
+      return undefined;
+    }
+    this.mainPushedInTurn = true;
+    return (await this.workspaceMatchesMain())
+      ? toolSuccess('Pushed to main: CloudChef publishes it to the live site when this turn ends.')
+      : toolSuccess(
+          "Pushed to main, but the workspace holds changes main doesn't (not committed, or committed but not " +
+            'pushed). Only what main holds goes live, and only once the workspace matches it: commit and push ' +
+            'them before the turn ends, or the live site stays as it is.',
+        );
+  }
+
   /**
    * What the command `toolCallId` pushed to a team project's repository, reported as a publish is: its
    * default branch (it goes live) or else the last branch pushed (a preview), with its build followed in the
@@ -1898,7 +1941,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async gitPushResult(toolCallId: string): Promise<CloudChefToolResult | undefined> {
     const linked = await this.workspace.linkedProject();
     if (!linked) {
-      return undefined;
+      return this.appPushResult();
     }
     const branches = (await this.workspace.takeGitPushes()).filter(
       (push) => push.ref.startsWith('refs/heads/') && push.newOid !== ZERO_OID,
@@ -2312,13 +2355,29 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       return;
     }
+    // Production serves main: a workspace holding changes main doesn't would put live what no version holds.
+    if (!(await this.workspaceMatchesMain())) {
+      this.setState({
+        ...this.state,
+        publicationPending: false,
+        heldPublication:
+          "main was pushed, but the workspace holds changes that main doesn't (not committed, or committed but " +
+          'not pushed), so nothing went live. Commit and push them to main to publish.',
+      });
+      return;
+    }
     const failedBefore = this.state.failedPublicationRevision === snapshot.revision;
     if (options.resume && failedBefore) {
       // It failed to publish already and nothing has changed it since: the next turn's end tries again.
       return;
     }
-    if (!this.state.publicationPending || failedBefore) {
-      this.setState({ ...this.state, publicationPending: true, failedPublicationRevision: null });
+    if (!this.state.publicationPending || failedBefore || this.state.heldPublication) {
+      this.setState({
+        ...this.state,
+        publicationPending: true,
+        failedPublicationRevision: null,
+        heldPublication: null,
+      });
     }
     await this.scheduleAutomaticDeployment(snapshot, 0, epoch);
   }
@@ -2888,6 +2947,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    * carries for a step after it went live, for the model to act on.
    */
   private publicationFailure(): string | null {
+    if (this.state.heldPublication) {
+      return this.state.heldPublication;
+    }
     const deployment = this.state.deployment;
     if (deployment?.status === 'failed' && deployment.error) {
       return `the production deployment of the latest changes failed. ${deployment.error}`;

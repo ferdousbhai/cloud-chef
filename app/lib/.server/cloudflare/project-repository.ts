@@ -137,6 +137,30 @@ async function gitBlobOid(bytes: Uint8Array): Promise<string> {
   return bytesToHex(await crypto.subtle.digest('SHA-1', concatBytes([header, bytes])));
 }
 
+/**
+ * Whether a commit's tree holds exactly these files, with the same contents and executable bits. Only its
+ * regular files count: a workspace holds no symbolic links or submodules, so those are left as they are.
+ */
+export async function filesMatchTree(
+  files: readonly RepositoryFileInput[],
+  tree: readonly RepositoryTreeFile[],
+): Promise<boolean> {
+  const regular = new Map(
+    tree.filter((file) => file.mode === '100644' || file.mode === '100755').map((file) => [file.path, file]),
+  );
+  if (regular.size !== files.length) {
+    return false;
+  }
+  for (const file of files) {
+    const committed = regular.get(file.path);
+    const oid = 'oid' in file ? file.oid : await gitBlobOid(file.bytes);
+    if (!committed || committed.oid !== oid || (committed.mode === '100755') !== ((file.mode & 0o111) !== 0)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 type Dependencies = {
   /** How git's HTTP requests are sent; the global fetch unless a test gives another. */
   fetch?: GitFetch;
