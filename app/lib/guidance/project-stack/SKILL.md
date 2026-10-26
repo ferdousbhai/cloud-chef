@@ -15,6 +15,7 @@ When a generated app needs a framework, use TanStack Start on Cloudflare Workers
 - Configuration lives in `cloudflare.project.json`, whose d1, r2, and kv entries validation and deployment require; `cloudflare.config.ts` is regenerated from it by `pnpm run typecheck`.
 - Every deployment of the app goes to the same Worker, address, database, bucket, and namespace, so their data carries over, whichever of the chat's conversations deploys it. Each `migrations/` file applies once to each database, to the data already there, and a deployment refuses a migration edited after it deployed. `migrations/0001_app_data.sql` is the starter's placeholder, applied with the first deployment.
 - `pnpm run verify:stack` checks the project's shape and toolchain with `scripts/lib/project-policy/`: required packages, Node and pnpm pins, the reviewed `pnpm-workspace.yaml` build and override policy, and no Vite build-time environment values (other than Vite's own build flags) in source, since Vite writes them into the published browser files.
+- `public/llms.txt`, served at `/llms.txt`, tells AI agents and tools what the app is: a `#` title, a `>` summary of what it does and who it's for, then `##` sections linking its main pages and any public API endpoints. Write one for an app with pages, and keep it current as the app changes. A Worker-only app has no `public/`.
 - In the Worker, `process.env` holds the Worker's text and JSON variables and its secrets, as `env` does (`nodejs_compat` at the template's compatibility date).
 
 ## AI in the app
