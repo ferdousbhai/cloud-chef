@@ -239,6 +239,9 @@ export function gitSetupScript(): string {
     'if [ -n "$start" ]; then',
     '  g update-ref "refs/heads/$branch" "$start"',
     '  g read-tree HEAD',
+    // The workspace keeps only regular files: a symbolic link or submodule the project has is marked as not
+    // here, so git doesn't show it as removed and a commit never removes it.
+    `  g ls-files -s | while IFS="$(printf '\\t')" read -r meta path; do case "$meta" in 120000*|160000*) printf '%s\\n' "$path";; esac; done | g update-index --skip-worktree --stdin`,
     '  if g rev-parse -q --verify "refs/remotes/origin/$branch" >/dev/null; then',
     '    g branch -q --set-upstream-to="origin/$branch" "$branch"',
     '  fi',

@@ -119,6 +119,26 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     );
   });
 
+  it("leaves a symbolic link the workspace can't hold as it is, rather than showing it removed", () => {
+    const seed = join(root, 'seed');
+    git(seed, 'init', '-q', '-b', 'main');
+    write(join(seed, 'AGENTS.md'), 'notes\n');
+    execFileSync('ln', ['-s', 'AGENTS.md', join(seed, 'CLAUDE.md')]);
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-q', '-m', 'notes');
+    git(root, 'clone', '-q', '--bare', seed, join(root, 'remote.git'));
+    write(join(root, 'project', 'AGENTS.md'), 'notes\n');
+    answerWith(null);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    expect(run(wrapped, ['status', '--porcelain'], project).stdout).toBe('');
+    write(join(project, 'b.txt'), 'new\n');
+    run(wrapped, ['add', '-A'], project);
+    expect(run(wrapped, ['commit', '-q', '-am', 'b'], project).status).toBe(0);
+    expect(run(wrapped, ['ls-tree', '--name-only', 'HEAD'], project).stdout.split('\n')).toContain('CLAUDE.md');
+  });
+
   it('starts from main when the workspace names no commit, and from nothing for an empty repository', () => {
     const { head } = remoteAheadOfWorkspace();
     answerWith(null);
