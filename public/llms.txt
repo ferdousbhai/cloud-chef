@@ -1,0 +1,25 @@
+# CloudChef
+
+> CloudChef is where people build and manage their own web projects on Cloudflare by chatting with an AI agent, and share them through teams. Most people using it are not developers: they describe what they want, the agent writes and changes the code, and CloudChef publishes the site. Everything runs in the person's own Cloudflare account, which they connect once; CloudChef holds no customer workloads of its own.
+
+## How it works
+
+- Sign in, then connect a Cloudflare account. CloudChef sets up a workspace in that account where the agent works on each project.
+- A project is a git repository in the account's Cloudflare Artifacts. Its history is a list of versions people can restore, copy, clone or download as a ZIP at any time.
+- A new project starts from a message in the chat, an upload of a ZIP of existing code, or a one-time import of a GitHub repository.
+- The agent publishes a project to the person's Cloudflare account. A team project is built and deployed by Cloudflare Workers Builds; previews come from branches.
+- Teams share projects: an admin brings the Cloudflare account and decides which AI models the team may use; members can be given view or edit access to each project.
+- Models run through the account's own Workers AI and AI Gateway, with the account's own provider keys where it adds them.
+
+## Pages
+
+- [Home](https://cloudchef.build/): start a project or open one
+- [Privacy](https://cloudchef.build/privacy): what CloudChef stores and where
+- [Terms](https://cloudchef.build/terms)
+- [Support](https://cloudchef.build/support)
+- [Security](https://cloudchef.build/security): reporting a vulnerability
+
+## Optional
+
+- [Source code](https://github.com/ferdousbhai/cloud-chef)
+- [Third-party licenses](https://cloudchef.build/THIRD_PARTY_LICENSES.txt)
