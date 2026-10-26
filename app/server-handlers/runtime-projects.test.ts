@@ -14,6 +14,7 @@ import {
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
 } from './runtime-projects';
+import { listMyProjectsAction } from './projects';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -489,5 +490,31 @@ describe('a runtime asking for a draft to become a team project', () => {
     expect((await ask(runtime, 'p-draft-chat-2', env)).status).toBe(400);
     expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(201);
     expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(200);
+  });
+});
+
+describe('the projects home', () => {
+  it("finds a published project's live address the first time it lists it, and remembers it", async () => {
+    const { env, database, sara } = await setup();
+    database.exec(
+      `UPDATE org_projects SET artifact_repo = 'p-mine', workers_builds_script_tag = '${TAG}' WHERE id = '${OWN}'`,
+    );
+    const list = async (openAccount = workersBuilds().openAccount) => {
+      const response = await listMyProjectsAction({
+        request: new Request('https://cloudchef.build/api/org-projects', { headers: { cookie: sara.cookie } }),
+        env,
+        openAccount,
+      });
+      return z
+        .object({ projects: z.array(z.object({ id: z.string(), siteUrl: z.string().nullable() })) })
+        .parse(await response.json())
+        .projects.find((project) => project.id === OWN);
+    };
+    expect(await list()).toEqual({ id: OWN, siteUrl: 'https://blog.example.com' });
+    // Remembered: a later list doesn't ask Cloudflare again.
+    expect(await list(workersBuilds({ failing: true }).openAccount)).toEqual({
+      id: OWN,
+      siteUrl: 'https://blog.example.com',
+    });
   });
 });

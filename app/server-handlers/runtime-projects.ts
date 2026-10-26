@@ -9,6 +9,7 @@ import {
   openWorkersBuildsAccountApi,
   previewOrigins,
   productionOrigins,
+  recordProjectWorker,
   projectBuildStatus,
   type OpenWorkersBuildsAccountApi,
   type WorkersBuildsAccountApi,
@@ -18,8 +19,6 @@ import {
   findAccessibleProject,
   listGitHubInstallations,
   recordImportedRepo,
-  recordProjectSiteUrl,
-  recordWorkersBuildsScriptTag,
   removeProject,
   requireProjectScope,
   type Project,
@@ -393,22 +392,9 @@ async function withWorkersBuilds(
 ): Promise<Response> {
   try {
     const api = await (args.openAccount ?? openWorkersBuildsAccountApi)(args.env, connection);
-    const worker = await findProjectWorker(api, project);
     let production: Promise<string[]> | undefined;
     const readProduction = (found: ProjectWorker) => (production ??= productionOrigins(api, found));
-    if (worker && worker.tag !== project.workersBuildsScriptTag) {
-      await recordWorkersBuildsScriptTag(args.env.DB, project.id, worker.tag);
-    }
-    if (worker && (!project.siteUrl || worker.tag !== project.workersBuildsScriptTag)) {
-      // The projects home shows the site; a site that can't be read now is looked for on the next call.
-      const [siteUrl] = await readProduction(worker).catch((error: Error) => {
-        console.warn({ event: 'project_site_unreadable', message: error.message });
-        return [];
-      });
-      if (siteUrl) {
-        await recordProjectSiteUrl(args.env.DB, project.id, siteUrl);
-      }
-    }
+    const worker = await recordProjectWorker(args.env.DB, api, project, readProduction);
     return await answer(api, worker, readProduction);
   } catch (error) {
     if (error instanceof CloudflareAccountApiError) {

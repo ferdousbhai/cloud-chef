@@ -1,4 +1,8 @@
-import type { Project } from '~/lib/cloudflare/data/org-projects.server';
+import {
+  recordProjectSiteUrl,
+  recordWorkersBuildsScriptTag,
+  type Project,
+} from '~/lib/cloudflare/data/org-projects.server';
 import type { CloudflareConnection } from './cloudflare-connection-repository';
 import { openConnectionAccountApi } from './connection-account-api';
 import type {
@@ -237,4 +241,35 @@ export async function projectWorkersBuildsConnection(
       ? 'github'
       : 'none';
   return { source, worker, triggers };
+}
+
+/**
+ * Finds the project's Worker in Workers Builds and records what the projects home shows of it: its tag,
+ * and its live address while none is known or the Worker changed. A site that can't be read now is looked
+ * for again next time.
+ */
+export async function recordProjectWorker(
+  db: D1Database,
+  api: WorkersBuildsAccountApi,
+  project: Project,
+  readProduction: (worker: ProjectWorker) => Promise<string[]> = (found) => productionOrigins(api, found),
+): Promise<ProjectWorker | null> {
+  const worker = await findProjectWorker(api, project);
+  if (!worker) {
+    return null;
+  }
+  if (worker.tag !== project.workersBuildsScriptTag) {
+    await recordWorkersBuildsScriptTag(db, project.id, worker.tag);
+  }
+  if (!project.siteUrl || worker.tag !== project.workersBuildsScriptTag) {
+    const [siteUrl] = await readProduction(worker).catch((error: Error) => {
+      console.warn({ event: 'project_site_unreadable', message: error.message });
+      return [];
+    });
+    if (siteUrl) {
+      await recordProjectSiteUrl(db, project.id, siteUrl);
+      project.siteUrl = siteUrl;
+    }
+  }
+  return worker;
 }

@@ -10,6 +10,7 @@ import {
   openWorkersBuildsAccountApi,
   PRODUCTION_BRANCH,
   projectWorkersBuildsConnection,
+  recordProjectWorker,
   WORKERS_BUILDS_CONNECT_URL,
   type OpenWorkersBuildsAccountApi,
 } from '~/lib/.server/cloudflare/workers-builds';
@@ -52,11 +53,22 @@ const declineSchema = z.strictObject({
 });
 
 /** The projects this person may view or edit in the account they are working in now, with their role. */
-export function listMyProjectsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+export function listMyProjectsAction({
+  request,
+  env,
+  openAccount = openWorkersBuildsAccountApi,
+}: {
+  request: Request;
+  env: Env;
+  openAccount?: OpenWorkersBuildsAccountApi;
+}): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const projects = session.context
       ? await listAccessibleProjects(env.DB, session.context.connectionId, session.user.id)
       : [];
+    if (session.context) {
+      await findMissingSites(env, openAccount, session.context.connectionId, projects);
+    }
     return Response.json(
       {
         projects: projects.map(({ id, name, repo, role, origin, importSource, siteUrl }) => ({
@@ -72,6 +84,36 @@ export function listMyProjectsAction({ request, env }: { request: Request; env: 
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   });
+}
+
+/** How long the list waits for live addresses it doesn't know yet; past it, they are looked for next time. */
+const SITE_LOOKUP_MS = 4_000;
+
+/**
+ * Looks up the live address of projects that have code but no known address yet, so the projects home
+ * shows a published site before anyone has opened a chat on it. Best effort, and bounded in time.
+ */
+async function findMissingSites(
+  env: Env,
+  openAccount: OpenWorkersBuildsAccountApi,
+  connectionId: string,
+  projects: Project[],
+): Promise<void> {
+  const missing = projects.filter((project) => project.repo !== null && !project.siteUrl);
+  if (missing.length === 0) {
+    return;
+  }
+  const lookup = (async () => {
+    const connection = await findActiveCloudflareConnection(env.DB, connectionId);
+    if (!connection) {
+      return;
+    }
+    const api = await openAccount(env, connection);
+    await Promise.all(missing.map((project) => recordProjectWorker(env.DB, api, project).catch(() => null)));
+  })().catch((error: Error) => {
+    console.warn({ event: 'project_sites_unreadable', message: error.message });
+  });
+  await Promise.race([lookup, new Promise((resolve) => setTimeout(resolve, SITE_LOOKUP_MS))]);
 }
 
 /** What an import names: a repository by its address, and optionally the project's name. */
