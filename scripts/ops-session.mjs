@@ -13,7 +13,7 @@
  * - AI Gateway logs filed under the chat (`metadata.chat`): every model request, and the conversation
  *   as the latest request and response carried it (user messages, assistant text, tool calls and errors)
  * - for a chat on a project: its Artifacts repository (or the GitHub repository it is still to be imported
- *   from), and the latest Workers Builds builds of its Worker for main and the member's branches
+ *   from), and the latest Workers Builds builds of its Worker
  *
  * Everything goes through the operator's existing `cf` login. Every D1 statement is a `SELECT`, and every
  * `cf` command is on a read-only allowlist. No secret is read or printed; conversation content appears
@@ -59,18 +59,6 @@ export function parseTarget(value) {
 /** The workspace D1 database a runtime Worker is provisioned with (`workspaceRuntimeNames`). */
 export function workspaceDatabaseName(workerName) {
   return String(workerName).replace(/^cloudchef-workspace-/, 'cloudchef-data-');
-}
-
-/** The member's own branch on a team project, as `app/lib/member-branch.ts` names it (without a workspace key). */
-export function memberBranch(email, userId) {
-  const name = (String(email ?? '').split('@')[0] || 'member')
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return `cloudchef/${name || 'member'}-${String(userId)
-    .slice(0, 6)
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '0')}`;
 }
 
 function d1Args(databaseId, sql, params = []) {
@@ -547,7 +535,7 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
 
   let project = null;
   if (chat.org_project_id) {
-    project = await readProject({ cf, controlPlaneDatabaseId, projectId: chat.org_project_id, owner, accountId, note });
+    project = await readProject({ cf, controlPlaneDatabaseId, projectId: chat.org_project_id, accountId, note });
   }
 
   return {
@@ -573,7 +561,7 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
 /** What a project was made from (`org_projects.created_from`), in words. */
 const CREATED_FROM = { github: 'imported from GitHub', zip: 'uploaded as a ZIP', draft: 'an approved draft' };
 
-async function readProject({ cf, controlPlaneDatabaseId, projectId, owner, accountId, note }) {
+async function readProject({ cf, controlPlaneDatabaseId, projectId, accountId, note }) {
   const project = (
     await select(
       cf,
@@ -586,12 +574,10 @@ async function readProject({ cf, controlPlaneDatabaseId, projectId, owner, accou
   if (!project) {
     return { project: null };
   }
-  const member = owner ? memberBranch(owner.email, owner.id) : null;
   if (!project.workers_builds_script_tag) {
-    return { project, branch: member, builds: null };
+    return { project, builds: null };
   }
-  // Production builds from main and the member's branches (each conversation has its own, `<member>-<key>`);
-  // the chat's own key isn't kept in D1, so all of the member's are shown.
+  // The latest builds of every branch: main is production, and the agent names its preview branches itself.
   const builds = note(
     `Workers Builds for ${project.name}`,
     await attemptRead(async () => {
@@ -615,11 +601,10 @@ async function readProject({ cf, controlPlaneDatabaseId, projectId, owner, accou
           at: row.created_on ?? null,
           message: bounded(String(row.build_trigger_metadata?.commit_message ?? '').split('\n')[0], 120),
         }))
-        .filter((build) => build.branch === 'main' || (member !== null && build.branch.startsWith(member)))
         .slice(0, BUILDS_SHOWN);
     }),
   );
-  return { project, branch: member, builds };
+  return { project, builds };
 }
 
 function time(value) {
@@ -719,12 +704,12 @@ export function renderSession(session) {
       push('');
     }
     if (session.project?.project) {
-      const { project, branch, builds } = session.project;
+      const { project, builds } = session.project;
       const repository = project.artifact_repo
         ? `Artifacts repository ${project.artifact_repo}`
         : `not imported yet (from ${project.import_repo_full_name ?? 'unknown'} ${project.import_branch ?? ''})`.trimEnd();
       const source = CREATED_FROM[project.created_from] ?? `made from ${project.created_from ?? 'unknown'}`;
-      push(`Project ${project.name} (${source}): ${repository}; member branch ${branch ?? 'unknown'}`);
+      push(`Project ${project.name} (${source}): ${repository}`);
       if (!project.workers_builds_script_tag) {
         push('  no Workers Builds Worker found for it yet');
       }
@@ -747,7 +732,7 @@ const USAGE = `Usage: pnpm run ops:session -- <chat id | user email | user id> [
 Reconstructs a member's most recent session (or the named chat) from production, read-only:
 control-plane D1, the workspace's own D1, the workspace Worker's Workers Logs, AI Gateway logs
 filed under the chat, and, for a project, its repository and its Worker's latest Workers Builds
-builds of main and the member's branches.
+builds of its branches.
 Reads through the operator's own cf login.
 
   --json   emit the structured session instead of the terminal one

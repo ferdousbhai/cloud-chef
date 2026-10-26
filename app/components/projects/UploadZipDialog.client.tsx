@@ -6,8 +6,8 @@ import { TextInput } from '@ui/TextInput';
 import { uploadProject } from '~/lib/cloudflare/projects.client';
 import { messageOf } from '~/lib/json-request';
 
-/** What a ZIP may be: a project's files may add up to 64 MB in a workspace (`BUILDER_WORKSPACE_MAX_TOTAL_BYTES`). */
-const MAX_ZIP_BYTES = 64 * 1024 * 1024;
+/** The largest ZIP the runtime takes (`MAX_UPLOAD_BYTES` in projects.server.ts), checked before it is sent. */
+const MAX_ZIP_BYTES = 24 * 1024 * 1024;
 
 /**
  * Makes a new project, in the account the person is working in (theirs, or the team's), from a ZIP of its
@@ -77,7 +77,7 @@ export function UploadZipDialog({
         </label>
         {tooLarge ? (
           <p className="text-xs text-bolt-elements-icon-error">
-            This ZIP is larger than 64 MB. Leave out folders that can be made again, such as node_modules.
+            This ZIP is larger than 24 MB. Leave out folders that can be made again, such as node_modules.
           </p>
         ) : null}
         <label className="grid gap-1">
@@ -91,7 +91,7 @@ export function UploadZipDialog({
         </label>
         <p className="rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-xs text-content-secondary">
           The files in the ZIP become the project&apos;s first version; if they are all inside one folder, the project
-          starts from inside it. Only the files come along, not earlier versions of them. Up to 64 MB.
+          starts from inside it. Only the files come along, not earlier versions of them. Up to 24 MB.
         </p>
         {error !== null ? (
           <p role="alert" className="text-sm text-bolt-elements-icon-error [overflow-wrap:anywhere]">

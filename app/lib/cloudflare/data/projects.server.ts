@@ -25,7 +25,6 @@ import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body
 import {
   BUILDER_WORKSPACE_MAX_FILE_BYTES,
   BUILDER_WORKSPACE_MAX_FILES,
-  BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
 import { internalErrorResponse } from './http.server';
@@ -280,8 +279,13 @@ export async function importProject(
   return result;
 }
 
-/** The largest ZIP that may be uploaded: what a project's files may add up to in a workspace. */
-const MAX_UPLOAD_BYTES = BUILDER_WORKSPACE_MAX_TOTAL_BYTES;
+/**
+ * The largest ZIP that may be uploaded, and what its files may add up to. The ZIP, its files and the commit
+ * made of them are all held in the runtime's memory at once (128 MB), so these stay well below a workspace's
+ * own limits.
+ */
+const MAX_UPLOAD_BYTES = 24 * 1024 * 1024;
+const MAX_UPLOADED_FILES_BYTES = 48 * 1024 * 1024;
 
 /**
  * `POST /v1/projects/upload?name=<project name>`, the body a ZIP of a codebase: a new project of the account
@@ -323,11 +327,24 @@ export async function userRuntimeProjectUploadAction(
               'unavailable',
             );
           }
-          await registerUploadedProject(args.env, identity, { orgProjectId: projectId, name, repo });
         } catch (error) {
-          // Not kept as a project, so its code isn't kept either.
           await store.deleteRepo(repo).catch(() => undefined);
           throw error;
+        }
+        try {
+          await registerUploadedProject(args.env, identity, { orgProjectId: projectId, name, repo });
+        } catch (error) {
+          if (error instanceof ProjectRefusalError) {
+            // Refused, so not kept as a project, and its code isn't kept either.
+            await store.deleteRepo(repo).catch(() => undefined);
+            throw error;
+          }
+          // No answer, or a failure after the project may have been kept: its code stays, so a project
+          // that was kept is never left without it.
+          throw new ProjectUnavailableError(
+            "CloudChef couldn't confirm the project was added. Reload the projects page: if it's there, it's " +
+              'ready; if not, upload the ZIP again.',
+          );
         }
       })(),
     );
@@ -361,7 +378,7 @@ async function readUploadedFiles(request: Request) {
     return await extractZip(archive, {
       maxFiles: BUILDER_WORKSPACE_MAX_FILES,
       maxFileBytes: BUILDER_WORKSPACE_MAX_FILE_BYTES,
-      maxTotalBytes: BUILDER_WORKSPACE_MAX_TOTAL_BYTES,
+      maxTotalBytes: MAX_UPLOADED_FILES_BYTES,
     });
   } catch (error) {
     if (error instanceof ZipReadError) {

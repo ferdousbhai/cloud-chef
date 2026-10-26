@@ -211,6 +211,8 @@ describe("a team project's git push", () => {
     });
     const pushed = await pushResult(app, 'call-1');
     expect(pushed?.summary).toContain('publishes it to the live site when this turn ends');
+    // Owed at once, in the agent's state, so a restart before the turn ends still publishes it.
+    expect(app.agent.state.publicationPending).toBe(true);
     // A CloudChef app's publish card is its deployment, not a team project's build.
     expect(pushed?.data).toBeUndefined();
     const deleted = await harnessWith({

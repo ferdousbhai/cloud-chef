@@ -120,7 +120,12 @@ function readCentralDirectory(archive: Uint8Array, view: DataView): CentralEntry
     const external = view.getUint32(at + 38, true);
     const nameBytes = archive.subarray(at + 46, at + 46 + nameLength);
     // Names not marked UTF-8 are CP437 by the format, but every current tool writes ASCII or UTF-8.
-    const name = new TextDecoder('utf-8', { fatal: (flags & FLAG_UTF8) !== 0 }).decode(nameBytes);
+    let name: string;
+    try {
+      name = new TextDecoder('utf-8', { fatal: (flags & FLAG_UTF8) !== 0 }).decode(nameBytes);
+    } catch {
+      throw new ZipReadError('The ZIP has a file whose name can’t be read. Make the ZIP again.', 'invalid');
+    }
     if ((flags & FLAG_ENCRYPTED) !== 0) {
       throw new ZipReadError('The ZIP is password-protected. Upload one without a password.', 'invalid');
     }
@@ -159,11 +164,24 @@ function skipped(entry: CentralEntry): boolean {
   if (entry.name.startsWith('/') || /^[A-Za-z]:/.test(entry.name) || segments.some(unsafeSegment)) {
     throw new ZipReadError(`The ZIP has a file outside its own folder (${quoted(entry.name)}).`, 'invalid');
   }
-  return segments[0] === '__MACOSX' || segments.includes('.git') || segments.at(-1) === '.DS_Store';
+  // A control character is no name git can keep.
+  if ([...entry.name].some((char) => char.charCodeAt(0) < 0x20 || char.charCodeAt(0) === 0x7f)) {
+    throw new ZipReadError(`The ZIP has a file whose name git can’t keep (${quoted(entry.name)}).`, 'invalid');
+  }
+  return segments[0] === '__MACOSX' || segments.some(isGitFolder) || segments.at(-1) === '.DS_Store';
 }
 
 function unsafeSegment(segment: string): boolean {
   return segment === '' || segment === '.' || segment === '..';
+}
+
+/**
+ * git's own folder by any of the names git itself refuses in a tree: any case, trailing dots or spaces, and
+ * the short name Windows gives it.
+ */
+function isGitFolder(segment: string): boolean {
+  const name = segment.toLowerCase().replace(/[. ]+$/, '');
+  return name === '.git' || /^git~\d+$/.test(name);
 }
 
 /** `name/` when every path is inside the folder `name`, otherwise nothing. */

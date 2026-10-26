@@ -126,6 +126,14 @@ const IN_PROGRESS = new Set(['CREATE_IN_PROGRESS', 'FORK_IN_PROGRESS']);
 
 /** Git's mode for a workspace file: executable or not. */
 function gitFileMode(mode: number): string {
+  // A symbolic link or submodule a commit carries over from its parent's tree keeps its kind.
+  const kind = mode & 0o170000;
+  if (kind === 0o120000) {
+    return '120000';
+  }
+  if (kind === 0o160000) {
+    return '160000';
+  }
   return (mode & 0o111) !== 0 ? '100755' : '100644';
 }
 

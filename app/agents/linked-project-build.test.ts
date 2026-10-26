@@ -8,7 +8,6 @@ import {
   linkedBuildStartedResult,
   linkedBuildUnfollowedResult,
   linkedBuildWatchSchema,
-  linkedHeldBackNote,
   watchLinkedBuild,
   withLinkedBuildResult,
   type LinkedBuildStatus,
@@ -115,32 +114,6 @@ describe("a team project's publish", () => {
         detailsUrl: null,
       }).summary,
     ).toContain('reported no build');
-  });
-
-  it('names the local secrets it left out in every result, so the model can tell the person', () => {
-    const heldBack = ['.env', 'config/.env.production'];
-    const withSecrets: LinkedBuildWatch = { ...watch, heldBack };
-    expect(linkedBuildWatchSchema.parse(withSecrets)).toEqual(withSecrets);
-    for (const result of [
-      linkedBuildStartedResult(withSecrets),
-      linkedBuildSettledResult(withSecrets, built),
-      linkedBuildSettledResult(withSecrets, {
-        state: 'failure',
-        previewUrl: null,
-        detailsUrl: null,
-      }),
-      linkedBuildSettledResult(withSecrets, pending),
-      linkedBuildSettledResult(withSecrets, {
-        state: 'none',
-        previewUrl: null,
-        detailsUrl: null,
-      }),
-      linkedBuildUnfollowedResult(withSecrets),
-    ]) {
-      expect(result.summary).toContain('Secret settings files are never sent: .env, config/.env.production.');
-    }
-    expect(linkedBuildStartedResult(watch).summary).not.toContain('never sent');
-    expect(linkedHeldBackNote(['a', 'b', 'c', 'd', 'e', 'f', 'g'])).toContain(': a, b, c, d, e and 2 more.');
   });
 
   it('reads the status until the build finishes, riding out an unreadable read', async () => {

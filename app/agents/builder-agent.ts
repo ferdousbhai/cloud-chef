@@ -141,6 +141,7 @@ import {
   ProjectRepositoryError,
   filesMatchTree,
   workspaceFileMode,
+  type RepositoryFileInput,
 } from '~/lib/.server/cloudflare/project-repository';
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
@@ -460,8 +461,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   /** Chat requests between stopping the automatic publications and recording their turn as active. */
   private startingTurns = 0;
   /** Publishes to the project's repository under way: a closed conversation waits for them before the newer one starts. */
-  /** Whether the running turn pushed this CloudChef app's main, which its end then publishes. */
-  private mainPushedInTurn = false;
   /** Editor saves under way, from before their closed check: a closed conversation waits for them too. */
   private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
   /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
@@ -727,7 +726,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
       await this.advanceTranscriptCheckpoint(transcript);
       turn = createBuilderTurn(options?.requestId);
-      this.mainPushedInTurn = false;
       this.setState({
         ...this.state,
         activeTurn: turn,
@@ -741,6 +739,10 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       }
     }
     const publicationFailure = this.publicationFailure();
+    if (this.state.heldPublication) {
+      // Said once: a later turn that pushed nothing to main has nothing held to be told about.
+      this.setState({ ...this.state, heldPublication: null });
+    }
     const turnContext = withNotes(requestedTurnContext, [
       publicationFailure &&
         `CloudChef publication status: ${publicationFailure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`,
@@ -822,11 +824,6 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         steering,
         onSettled: () => {
           settleSteering();
-          // A CloudChef app's production serves main: a turn that pushed main publishes it. A team project
-          // publishes through Workers Builds, when the agent pushes or publishes to it.
-          if (this.mainPushedInTurn && !linkedProject && !this.state.publicationPending) {
-            this.setState({ ...this.state, publicationPending: true });
-          }
         },
         onModelUsage: (usage) => this.reportModelUsage(usage),
         compaction: {
@@ -1747,17 +1744,25 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return linked ? { repository: linked.name ?? linked.repository, defaultBranch: linked.defaultBranch } : undefined;
   }
 
-  /** Whether this CloudChef app's workspace holds exactly what main of its repository does. */
+  /**
+   * Whether this CloudChef app's workspace holds exactly what main of its repository does, as git would see
+   * it: a file main tracks counts whatever `.gitignore` says, and installed or built output never does.
+   */
   private async workspaceMatchesMain(): Promise<boolean> {
     const transcript = this.transcriptBinding;
-    const read = transcript ? await workspaceCommitFiles(this.workspace).catch(() => null) : null;
-    if (!transcript || !read) {
+    const main = transcript
+      ? await this.repositories()
+          .readTreeAt(nativeProjectRepo(transcript.chatInitialId), MAIN_BRANCH)
+          .catch(() => null)
+      : null;
+    if (!main) {
       return false;
     }
-    const main = await this.repositories()
-      .readTreeAt(nativeProjectRepo(transcript.chatInitialId), MAIN_BRANCH)
-      .catch(() => null);
-    return main !== null && (await filesMatchTree(read.files, main.files));
+    const tracked = main.files.filter((file) => !isExcludedProjectPath(file.path));
+    const read = await workspaceCommitFiles(this.workspace, new Set(tracked.map((file) => file.path))).catch(
+      () => null,
+    );
+    return read !== null && (await filesMatchTree(read.files, tracked));
   }
 
   /**
@@ -1769,7 +1774,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!pushes.some((push) => push.ref === `refs/heads/${MAIN_BRANCH}` && push.newOid !== ZERO_OID)) {
       return undefined;
     }
-    this.mainPushedInTurn = true;
+    // Owed from the moment main moved, in the agent's durable state: the turn's end publishes it, and so does
+    // an agent that restarted before it could. A team project publishes through Workers Builds instead.
+    if (!this.state.publicationPending) {
+      this.setState({ ...this.state, publicationPending: true });
+    }
     return (await this.workspaceMatchesMain())
       ? toolSuccess('Pushed to main: CloudChef publishes it to the live site when this turn ends.')
       : toolSuccess(
@@ -2721,12 +2730,19 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (checkpoint.revision !== args.revision) {
       return null;
     }
-    const read = await workspaceCommitFiles(this.workspace);
+    const repositories = this.repositories();
+    const repo = nativeProjectRepo(transcript.chatInitialId);
+    // What main holds that the workspace can't: files it tracks stay saved whatever `.gitignore` says, and its
+    // symbolic links and submodules, which no workspace holds, go on as they are.
+    const main = (await repositories.head(repo)) ? await repositories.readTreeAt(repo, MAIN_BRANCH) : null;
+    const tracked = new Set(main?.files.map((file) => file.path) ?? []);
+    const links: RepositoryFileInput[] = (main?.files ?? [])
+      .filter((file) => file.mode === '120000' || file.mode === '160000')
+      .map((file) => ({ path: file.path, mode: Number.parseInt(file.mode, 8), oid: file.oid }));
+    const read = await workspaceCommitFiles(this.workspace, tracked);
     if (!read || read.targetRevision !== checkpoint.workspaceRevision) {
       return null;
     }
-    const repositories = this.repositories();
-    const repo = nativeProjectRepo(transcript.chatInitialId);
     const author = await commitAuthor(this.env);
     // Two commits can race for main (a publish's and a production request's): the loser goes again on top.
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -2735,7 +2751,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         repo,
         branch: MAIN_BRANCH,
         parent,
-        files: read.files,
+        files: [...read.files, ...links],
         message: args.message,
         author,
       });

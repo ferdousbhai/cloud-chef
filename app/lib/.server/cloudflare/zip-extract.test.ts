@@ -57,4 +57,13 @@ describe('reading an uploaded ZIP', () => {
     damaged[30 + 'a.txt'.length] ^= 0xff;
     expect(await refusal(damaged)).toBeInstanceOf(ZipReadError);
   });
+
+  it("leaves out git's folder by any name git refuses, and refuses names git can't keep", async () => {
+    const files = await extractZip(
+      await zip({ 'a.txt': 'a', '.GIT/config': 'x', '.git /HEAD': 'x', 'git~1/HEAD': 'x', 'sub/.Git./x': 'x' }),
+      limits,
+    );
+    expect(files.map((file) => file.path)).toEqual(['a.txt']);
+    await expect(extractZip(await zip({ 'a\u0001b.txt': 'x' }), limits)).rejects.toMatchObject({ code: 'invalid' });
+  });
 });

@@ -197,8 +197,8 @@ becoming `main`, and reports the repository (`/runtime-projects/imported`, recor
 The runtime reads and writes the repository itself, through its Artifacts binding in the same account. Its calls
 to the control plane (`app/server-handlers/runtime-projects.ts`) are authenticated like the credential broker, and
 each re-checks the member's role and that the project belongs to the connection the runtime runs for. A member's
-changes go to their own branch (`cloudchef/<member>-<key>`, `app/lib/member-branch.ts`), and publishing merges it
-into `main`.
+changes reach the repository as their agent pushes them with git: a branch it names for a preview, `main` to
+publish.
 
 CloudChef never builds or deploys a project kept in Artifacts. Workers Builds, connected to the repository,
 deploys `main` (the only production branch Artifacts supports) and builds other branches into Previews. The
@@ -241,7 +241,7 @@ it checks the person's access on each request, adds a short-lived Artifacts toke
 deleting main or pushing anything but branches and tags, and records the refs a push updated. A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
-change set (refused while a turn runs), commits them as `Revert to <short commit>`, and the ordinary publication
+change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication
 follows. A fork copies the repository to the new chat's own `p-<id>` (main moved back to the chosen commit) and the
 new chat's workspace seeds from it. A team project's workspace seeds from its main (importing it first, when the
 control plane gives an import source); a push of a branch makes a preview and a push of main publishes, each shown

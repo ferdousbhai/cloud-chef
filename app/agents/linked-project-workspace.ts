@@ -86,11 +86,13 @@ export async function seedLinkedWorkspace(
 
 /**
  * The workspace as a commit of it holds it, read page by page from its own sync feed, and the revision it
- * was read at: every file but installed and built output, local secrets, and what its `.gitignore` files
- * ignore (every file is new to a commit made this way). Null when the workspace kept changing under the read.
+ * was read at: every file but installed and built output, and, unless the repository already tracks them,
+ * local secrets and what its `.gitignore` files ignore. Null when the workspace kept changing under the read.
  */
 export async function workspaceCommitFiles(
   workspace: Pick<BuilderWorkspaceApi, 'getSyncPage'>,
+  /** Paths the repository already tracks, which stay whatever `.gitignore` or the secrets rule say, as in git. */
+  tracked: ReadonlySet<string> = new Set(),
 ): Promise<{ files: RepositoryFileInput[]; targetRevision: number } | null> {
   const feed = await readWholeSyncFeed((request) => workspace.getSyncPage(request));
   if (!feed) {
@@ -100,7 +102,7 @@ export async function workspaceCommitFiles(
   const gitignores: { path: string; content: string }[] = [];
   for (const entry of feed.files) {
     const path = projectPath(entry.path);
-    if (isExcludedProjectPath(path) || isNeverPublished(path)) {
+    if (isExcludedProjectPath(path) || (isNeverPublished(path) && !tracked.has(path))) {
       continue;
     }
     const bytes = entry.encoding === 'base64' ? base64ToBytes(entry.content) : new TextEncoder().encode(entry.content);
@@ -110,7 +112,10 @@ export async function workspaceCommitFiles(
     files.push({ path, mode: entry.mode ?? 0o644, bytes });
   }
   const ignored = gitignoreMatcher(gitignores);
-  return { files: files.filter((file) => !ignored(file.path)), targetRevision: feed.targetRevision };
+  return {
+    files: files.filter((file) => tracked.has(file.path) || !ignored(file.path)),
+    targetRevision: feed.targetRevision,
+  };
 }
 
 /**

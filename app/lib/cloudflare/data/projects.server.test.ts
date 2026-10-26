@@ -306,6 +306,16 @@ describe('uploading a ZIP as a new project', () => {
     expect(await artifacts.get(repo).catch(() => null)).toBeFalsy();
   });
 
+  it('keeps the code when the control plane gives no clear answer, since the project may have been added', async () => {
+    const { env, artifacts, store } = await setup();
+    const calls = registration(503);
+    const response = await upload(env, store, await archive());
+    expect(response.ok).toBe(false);
+    expect(JSON.stringify(await response.json())).toContain('Reload the projects page');
+    const repo = calls.find((call) => call.route === 'runtime-projects/register-upload')?.body.repo ?? '';
+    expect(await artifacts.filesAt(repo, 'main')).toEqual({ 'index.html': '<h1>Bread</h1>', 'run.sh': 'echo' });
+  });
+
   it("refuses a file that isn't a ZIP before anything is made", async () => {
     const { env, store } = await setup();
     const calls = registration(201);

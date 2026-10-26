@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   collectSession,
   conversationFromGateway,
-  memberBranch,
   parseArguments,
   parseTarget,
   readWorkspaceEvents,
@@ -256,7 +255,7 @@ describe('ops:session reconstruction', () => {
       user: { id: USER },
       chat: { id: CHAT, workerName: WORKER, accountId: ACCOUNT, orgName: "Sara's sites" },
       gateway: { requests: [{ id: 'log-1', tokensIn: 100 }] },
-      project: { branch: 'cloudchef/sara-b86c65', project: { artifact_repo: 't-project-1' } },
+      project: { project: { artifact_repo: 't-project-1' } },
       unknown: [],
     });
     // Only its own request: the other matched the chat id under another key.
@@ -278,11 +277,12 @@ describe('ops:session reconstruction', () => {
     expect(body).toMatchObject({ dry: true, view: 'events' });
     expect(body.timeframe.from).toBeLessThan(Date.parse('2026-10-20T12:59:00.000Z'));
     expect(body.timeframe.to).toBeGreaterThan(AT);
-    // The project's Worker's builds, read in the runtime's account: main and only this member's branches.
+    // The project's Worker's builds, read in the runtime's account: every branch, newest first.
     const builds = production.calls.find((call) => call.args.slice(0, 2).join(' ') === 'builds list');
     expect(builds).toMatchObject({ accountId: ACCOUNT });
     expect(session.project?.builds?.map((build: { branch: string }) => build.branch)).toEqual([
       'cloudchef/sara-b86c65-k3y4chat0001',
+      'cloudchef/someone-else-1a2b3c',
       'main',
     ]);
 
@@ -293,9 +293,7 @@ describe('ops:session reconstruction', () => {
     expect(text).toContain('[tool error] grep: not a directory: src/x.ts');
     expect(text).toContain('[assistant] Done now.');
     expect(text).toContain('WARN log [BuilderAgent] Recovering interrupted CloudChef chat turn');
-    expect(text).toContain(
-      'Project Site (imported from GitHub): Artifacts repository t-project-1; member branch cloudchef/sara-b86c65',
-    );
+    expect(text).toContain('Project Site (imported from GitHub): Artifacts repository t-project-1');
     expect(text).toContain('da130d3 2026-10-20T13:40:15Z cloudchef/sara-b86c65-k3y4chat0001: success Bold the intro');
     expect(text).not.toContain('system prompt');
   });
@@ -323,7 +321,7 @@ describe('ops:session reconstruction', () => {
       { source: `Workers Logs for ${WORKER}`, reason: 'Authentication error [code: 10000]' },
     ]);
     expect(renderSession(session)).toContain(`Unknown: Workers Logs for ${WORKER}: Authentication error`);
-    expect(session.project).toMatchObject({ branch: 'cloudchef/sara-b86c65', project: { name: 'Site' } });
+    expect(session.project).toMatchObject({ project: { name: 'Site' } });
   });
 
   it('reports a person it cannot find', async () => {
@@ -375,9 +373,7 @@ describe('ops:session pieces', () => {
     expect(conversationFromGateway({ messages: [] }, null).entries).toEqual([]);
   });
 
-  it('names the workspace database and member branch as the product does', () => {
+  it('names the workspace database as the product does', () => {
     expect(workspaceDatabaseName(WORKER)).toBe('cloudchef-data-c2dec2a4e30e0871');
-    expect(memberBranch('Sara.Adolf+x@example.com', 'B86C65EB-805d')).toBe('cloudchef/sara-adolf-x-b86c65');
-    expect(memberBranch(undefined, '!!!abc')).toBe('cloudchef/member-000abc');
   });
 });

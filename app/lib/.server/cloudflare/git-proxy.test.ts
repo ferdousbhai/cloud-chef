@@ -164,6 +164,17 @@ describe('the workspace git proxy', () => {
     expect(revoked).toEqual(['token-write']);
   });
 
+  it('records a push before git has read the whole answer, so the command that pushed sees it', async () => {
+    const { deps, recorded } = harness({ answer: () => report(['unpack ok', 'ok refs/heads/main']) });
+    const slow = deps.recordPush;
+    deps.recordPush = async (update) => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await slow(update);
+    };
+    await (await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), deps)).arrayBuffer();
+    expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }]);
+  });
+
   it('sends a gzip push on decoded, without its encoding', async () => {
     const { deps, sent, recorded, settled } = harness({ answer: () => report(['unpack ok', 'ok refs/heads/main']) });
     const response = await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`], { gzip: true }), deps);

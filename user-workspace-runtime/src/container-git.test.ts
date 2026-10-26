@@ -173,6 +173,9 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     expect(refused.status).not.toBe(0);
     expect(refused.stderr).toContain('Secrets belong in Cloudflare');
 
+    // Taking a secret out of the commit, as the advice says, works.
+    expect(run(wrapped, ['restore', '--staged', '.dev.vars'], project).status).toBe(0);
+    run(wrapped, ['add', '-f', '.dev.vars'], project);
     const sneaked = run(wrapped, ['commit', '-q', '--no-verify', '-m', 'secret'], project);
     expect(sneaked.status).toBe(0);
     const push = run(wrapped, ['push', '-q', 'origin', 'HEAD:refs/heads/feature'], project);
@@ -195,5 +198,22 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     const rewrite = run(wrapped, ['push', '-q', '--force', 'origin', 'main'], project);
     expect(rewrite.status).not.toBe(0);
     expect(rewrite.stderr).toContain("main can't be rewritten");
+  });
+
+  it('lets a commit remove a secret file the repository already tracks', () => {
+    const seed = join(root, 'seed');
+    git(seed, 'init', '-q', '-b', 'main');
+    write(join(seed, '.env'), 'SECRET=1\n');
+    git(seed, 'add', '.');
+    git(seed, 'commit', '-q', '-m', 'oops');
+    git(root, 'clone', '-q', '--bare', seed, join(root, 'remote.git'));
+    write(join(root, 'project', '.env'), 'SECRET=1\n');
+    answerWith(null);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    expect(run(wrapped, ['rm', '-q', '--cached', '.env'], project).status).toBe(0);
+    expect(run(wrapped, ['commit', '-q', '-m', 'Remove the secret'], project).status).toBe(0);
+    expect(run(wrapped, ['push', '-q', 'origin', 'main'], project).status).toBe(0);
   });
 });

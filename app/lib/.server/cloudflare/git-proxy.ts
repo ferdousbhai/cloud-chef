@@ -232,26 +232,33 @@ function forwardGitRequest(
 }
 
 /**
- * Passes `response` on while keeping up to MAX_REPORT_BYTES of it, which `report` receives once it has
- * all been sent.
+ * Passes `response` on while keeping up to MAX_REPORT_BYTES of it, and holds its last chunk back until
+ * `report` has had all of it: git finishes only once that chunk arrives, so what `report` records is there
+ * before the command that pushed returns.
  */
-function observedResponse(response: Response, report: (bytes: Uint8Array) => void): Response {
+function observedResponse(response: Response, report: (bytes: Uint8Array) => Promise<void>): Response {
   if (!response.body) {
-    report(new Uint8Array());
     return response;
   }
   const kept: Uint8Array[] = [];
   let total = 0;
+  let held: Uint8Array | null = null;
   const observer = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       if (total < MAX_REPORT_BYTES) {
         kept.push(chunk.subarray(0, MAX_REPORT_BYTES - total));
         total += chunk.length;
       }
-      controller.enqueue(chunk);
+      if (held) {
+        controller.enqueue(held);
+      }
+      held = chunk;
     },
-    flush() {
-      report(concatBytes(kept));
+    async flush(controller) {
+      await report(concatBytes(kept));
+      if (held) {
+        controller.enqueue(held);
+      }
     },
   });
   return new Response(response.body.pipeThrough(observer), response);
@@ -340,20 +347,25 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     deps.waitUntil(revoke());
     throw error;
   }
-  return observedResponse(response, (answer) => {
-    deps.waitUntil(
-      (async () => {
-        await revoke();
-        if (updates.length > 0 && response.ok) {
-          const report = readPushReport(answer);
-          for (const update of updates) {
-            if (report.unpack === 'ok' && report.refs.get(update.ref)?.ok) {
-              await deps.recordPush(update);
-            }
-          }
+  if (!response.body) {
+    deps.waitUntil(revoke());
+    return response;
+  }
+  return observedResponse(response, async (answer) => {
+    deps.waitUntil(revoke());
+    if (updates.length === 0 || !response.ok) {
+      return;
+    }
+    try {
+      const report = readPushReport(answer);
+      for (const update of updates) {
+        if (report.unpack === 'ok' && report.refs.get(update.ref)?.ok) {
+          await deps.recordPush(update);
         }
-      })().catch((error) => console.error('Unable to record a git push', error)),
-    );
+      }
+    } catch (error) {
+      console.error('Unable to record a git push', error);
+    }
   });
 }
 

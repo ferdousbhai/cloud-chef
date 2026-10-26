@@ -266,13 +266,13 @@ function gitExcludes(): string[] {
   ];
 }
 
-/** Refuses a commit that adds, changes or removes a secret file, even one the repository already has. */
+/** Refuses a commit that adds or changes a secret file, even one the repository already has; removing one is fine. */
 export function gitPreCommitHook(): string {
   return [
     '#!/bin/sh',
-    `found="$(git diff --cached --name-only | grep -E ${shellQuote(SECRET_FILE_PATTERN)} | grep -vE ${shellQuote(SECRET_EXAMPLE_PATTERN)} || true)"`,
+    `found="$(git diff --cached --name-only --diff-filter=ACMR | grep -E ${shellQuote(SECRET_FILE_PATTERN)} | grep -vE ${shellQuote(SECRET_EXAMPLE_PATTERN)} || true)"`,
     '[ -z "$found" ] && exit 0',
-    `printf 'Not saved, a secret file: %s\\n%s Take it out of this commit with git rm --cached <file>.\\n' "$found" ${shellQuote(SECRETS_ADVICE)} >&2`,
+    `printf 'Not saved, a secret file: %s\\n%s Take it out of this commit with git restore --staged <file>.\\n' "$found" ${shellQuote(SECRETS_ADVICE)} >&2`,
     'exit 1',
     '',
   ].join('\n');
@@ -295,9 +295,9 @@ export function gitPrePushHook(): string {
     '    continue',
     '  fi',
     '  if [ "$remote_oid" = "$zero" ]; then',
-    '    files="$(git log --format= --name-only "$local_oid" --not --remotes=origin)"',
+    '    files="$(git log --format= --name-only --diff-filter=ACMR "$local_oid" --not --remotes=origin)"',
     '  else',
-    '    files="$(git log --format= --name-only "$remote_oid..$local_oid")"',
+    '    files="$(git log --format= --name-only --diff-filter=ACMR "$remote_oid..$local_oid")"',
     '  fi',
     `  found="$(printf '%s\\n' "$files" | grep -E ${shellQuote(SECRET_FILE_PATTERN)} | grep -vE ${shellQuote(SECRET_EXAMPLE_PATTERN)} | sort -u || true)"`,
     '  if [ -n "$found" ]; then',
