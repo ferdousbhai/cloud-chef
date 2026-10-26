@@ -79,19 +79,15 @@ export function Header() {
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {chat.started && (
-            <>
-              <Suspense fallback={null}>
-                <div className="hidden lg:block">
-                  <DownloadButton />
-                </div>
-              </Suspense>
-              <Suspense fallback={null}>
-                <div className="mr-1">
-                  <HeaderActionButtons />
-                </div>
-              </Suspense>
-            </>
+            <Suspense fallback={null}>
+              <div className="hidden lg:block">
+                <DownloadButton />
+              </div>
+            </Suspense>
           )}
+          <Suspense fallback={null}>
+            <HeaderActionButtons />
+          </Suspense>
           <ThemeSwitch
             className={chat.started ? 'hidden lg:inline-flex' : '!size-11 !min-h-11 sm:!size-auto sm:!min-h-9'}
           />

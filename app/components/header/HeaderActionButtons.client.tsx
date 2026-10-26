@@ -10,16 +10,26 @@ import { classNames } from '~/utils/classNames';
 
 export function HeaderActionButtons() {
   const showWorkbench = useStore(workbenchStore.showWorkbench);
-  const { showChat } = useStore(chatStore);
+  const { started, showChat } = useStore(chatStore);
   const isSmallViewport = useViewport();
   const canHideChat = showWorkbench || !showChat;
 
+  // Before a chat starts there is nothing to switch to, unless the project's code is already open, as a
+  // team project's first screen opens it: a small screen then needs the way to its preview and back.
+  if (!started && !showWorkbench) {
+    return null;
+  }
+
   if (isSmallViewport) {
-    return <SmallScreenSurfaceSwitcher showChat={showChat} showWorkbench={showWorkbench} />;
+    return (
+      <div className="mr-1">
+        <SmallScreenSurfaceSwitcher showChat={showChat} showWorkbench={showWorkbench} />
+      </div>
+    );
   }
 
   return (
-    <div className="flex">
+    <div className="mr-1 flex">
       <div className="flex overflow-hidden">
         <Button
           disabled={!canHideChat}
