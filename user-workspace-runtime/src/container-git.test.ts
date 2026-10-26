@@ -3,7 +3,14 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { gitPreCommitHook, gitPrePushHook, gitSetupScript, gitWrapperScript } from './container-toolchain';
+import {
+  GIT_SAVE_HOOKS,
+  gitPreCommitHook,
+  gitPrePushHook,
+  gitSaveHook,
+  gitSetupScript,
+  gitWrapperScript,
+} from './container-toolchain';
 
 /**
  * The container's git scripts run for real, with the system's git, against a local bare repository standing
@@ -59,10 +66,14 @@ beforeEach(() => {
   mkdirSync(join(root, 'git', 'hooks'));
   write(join(root, 'git', 'hooks', 'pre-commit'), at(gitPreCommitHook()), true);
   write(join(root, 'git', 'hooks', 'pre-push'), at(gitPrePushHook()), true);
+  for (const hook of GIT_SAVE_HOOKS) {
+    write(join(root, 'git', 'hooks', hook), at(gitSaveHook()), true);
+  }
 });
 
 afterEach(() => {
-  rmSync(root, { recursive: true, force: true });
+  // A save still running in the background gives up once its folders are gone.
+  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 /** A remote whose main has moved past `base`, the commit the workspace's files match. */
@@ -82,20 +93,52 @@ function remoteAheadOfWorkspace() {
   return { base, head };
 }
 
-/** A stand-in for the proxy's workspace answer, as the setup script asks curl for it. */
-function answerWith(base: string | null): void {
+const SAVED = 'refs/cloudchef/workspaces/w1';
+
+/**
+ * A stand-in for the proxy, as the scripts ask curl for it: the workspace answer, based on `base` until a
+ * branch and commit are reported, which it then keeps as the proxy does.
+ */
+function answerWith(base: string | null, branch = 'main'): void {
+  write(join(root, 'base'), `${branch} ${base ?? '-'}\n`);
   write(
     join(root, 'bin', 'curl'),
     [
       '#!/bin/sh',
       `printf '%s\\n' "$*" >> '${join(root, 'curl.log')}'`,
-      'while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done',
-      `printf 'main ${base ?? '-'}\\nAda Lovelace\\nada@example.com\\n' > "$out"`,
+      'data=""',
+      'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift;; --data-binary) data="$2"; shift;; esac; shift; done',
+      `if [ -n "$data" ]; then printf '%s\\n' "$data" > '${join(root, 'base')}'; exit 0; fi`,
+      `{ cat '${join(root, 'base')}'; printf 'Ada Lovelace\\nada@example.com\\n${SAVED}\\n'; } > "$out"`,
       'printf 200',
       '',
     ].join('\n'),
     true,
   );
+}
+
+/** Waits for the save hook, which runs in the background, to leave `done` true. */
+async function eventually(done: () => boolean): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!done()) {
+    if (Date.now() > deadline) {
+      throw new Error('The branches were not saved in time.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+/** What the stand-in remote's `ref` is, or null. */
+function remoteRef(ref: string): string | null {
+  const result = spawnSync(
+    '/usr/bin/git',
+    ['--git-dir', join(root, 'remote.git'), 'rev-parse', '-q', '--verify', ref],
+    {
+      env,
+      encoding: 'utf8',
+    },
+  );
+  return result.status === 0 ? result.stdout.trim() : null;
 }
 
 // The container has both; a machine without them can't run these scripts at all.
@@ -140,11 +183,18 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     expect(run(wrapped, ['ls-tree', '--name-only', 'HEAD'], project).stdout.split('\n')).toContain('CLAUDE.md');
   });
 
-  it('starts from main when the workspace names no commit, and from nothing for an empty repository', () => {
+  it('starts from main when the workspace names no commit, or one the repository lacks, and from nothing for an empty repository', () => {
     const { head } = remoteAheadOfWorkspace();
     answerWith(null);
     write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
     expect(run(join(root, 'bin', 'git'), ['rev-parse', 'HEAD'], join(root, 'project')).stdout).toBe(head);
+
+    rmSync(join(root, 'git', 'project.git'), { recursive: true });
+    answerWith('c'.repeat(40), 'gone');
+    expect(run(join(root, 'bin', 'git'), ['rev-parse', 'HEAD'], join(root, 'project')).stdout).toBe(head);
+    expect(run(join(root, 'bin', 'git'), ['symbolic-ref', '--short', 'HEAD'], join(root, 'project')).stdout).toBe(
+      'main',
+    );
 
     rmSync(join(root, 'git', 'project.git'), { recursive: true });
     rmSync(join(root, 'remote.git'), { recursive: true });
@@ -221,5 +271,69 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     expect(run(wrapped, ['rm', '-q', '--cached', '.env'], project).status).toBe(0);
     expect(run(wrapped, ['commit', '-q', '-m', 'Remove the secret'], project).status).toBe(0);
     expect(run(wrapped, ['push', '-q', 'origin', 'main'], project).status).toBe(0);
+  });
+
+  it('keeps commits not yet pushed, with their messages and branches, when the container restarts', async () => {
+    const { base, head: originMain } = remoteAheadOfWorkspace();
+    answerWith(base);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    run(wrapped, ['add', 'b.txt'], project);
+    expect(run(wrapped, ['commit', '-q', '-m', 'Add b'], project).status).toBe(0);
+    const onMain = run(wrapped, ['rev-parse', 'HEAD'], project).stdout;
+    run(wrapped, ['branch', 'stale'], project);
+    expect(run(wrapped, ['switch', '-q', '-c', 'feature'], project).status).toBe(0);
+    write(join(project, 'c.txt'), 'c\n');
+    run(wrapped, ['add', 'c.txt'], project);
+    expect(run(wrapped, ['commit', '-q', '-m', 'Add c'], project).status).toBe(0);
+    await eventually(() => remoteRef(`${SAVED}/stale`) === onMain);
+    // A branch deleted here goes from the saved ones at the next save.
+    run(wrapped, ['branch', '-q', '-D', 'stale'], project);
+    expect(run(wrapped, ['commit', '-q', '--amend', '-m', 'Add c, amended'], project).status).toBe(0);
+    const onFeature = run(wrapped, ['rev-parse', 'HEAD'], project).stdout;
+    await eventually(
+      () =>
+        remoteRef(`${SAVED}/feature`) === onFeature &&
+        remoteRef(`${SAVED}/stale`) === null &&
+        readFileSync(join(root, 'base'), 'utf8') === `feature ${onFeature}\n`,
+    );
+    // Nothing was pushed: main and the project's own branches are as they were.
+    expect(remoteRef('refs/heads/main')).toBe(originMain);
+    expect(remoteRef('refs/heads/feature')).toBeNull();
+
+    // The container restarts: its disk, and the history on it, are gone; the files are kept.
+    rmSync(join(root, 'git', 'project.git'), { recursive: true });
+    const status = run(wrapped, ['status', '--porcelain'], project);
+    expect(status.status).toBe(0);
+    expect(status.stdout).toBe('');
+    expect(run(wrapped, ['symbolic-ref', '--short', 'HEAD'], project).stdout).toBe('feature');
+    expect(run(wrapped, ['rev-parse', 'HEAD'], project).stdout).toBe(onFeature);
+    expect(run(wrapped, ['log', '-1', '--format=%s'], project).stdout).toBe('Add c, amended');
+    expect(run(wrapped, ['log', '-1', '--format=%s', 'main'], project).stdout).toBe('Add b');
+    expect(run(wrapped, ['branch', '--format=%(refname:short)'], project).stdout.split('\n')).toEqual([
+      'feature',
+      'main',
+    ]);
+    expect(run(wrapped, ['rev-parse', '--abbrev-ref', 'main@{upstream}'], project).stdout).toBe('origin/main');
+    expect(run(wrapped, ['for-each-ref', 'refs/cloudchef'], project).stdout).toBe('');
+  });
+
+  it('never fails or holds up a commit when its branches cannot be saved', () => {
+    remoteAheadOfWorkspace();
+    answerWith(null);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    run(wrapped, ['status'], project);
+    rmSync(join(root, 'remote.git'), { recursive: true });
+    write(join(root, 'bin', 'curl'), '#!/bin/sh\nexit 7\n', true);
+    run(wrapped, ['add', 'b.txt'], project);
+    const started = Date.now();
+    const commit = run(wrapped, ['commit', '-q', '-m', 'Add b'], project);
+    expect(commit.status).toBe(0);
+    expect(commit.stderr).toBe('');
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(run(wrapped, ['log', '-1', '--format=%s'], project).stdout).toBe('Add b');
   });
 });

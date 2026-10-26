@@ -145,6 +145,7 @@ export function containerToolchainBootstrapCommand(accountId: string): string {
       [GIT_SETUP, gitSetupScript()],
       [`${GIT_HOOKS}/pre-commit`, gitPreCommitHook()],
       [`${GIT_HOOKS}/pre-push`, gitPrePushHook()],
+      ...GIT_SAVE_HOOKS.map((hook) => [`${GIT_HOOKS}/${hook}`, gitSaveHook()]),
     ].flatMap(([path, script]) => [
       `printf %s ${shellQuote(script)} > ${shellQuote(path)}`,
       `chmod 0755 ${shellQuote(path)}`,
@@ -155,8 +156,8 @@ export function containerToolchainBootstrapCommand(accountId: string): string {
 /**
  * git for the project. Its history lives on the container's own disk, outside `/home`, which the
  * workspace stores durably whole: the project's files are kept, and a new container sets up the history
- * again from the project's repository on first use. The remote is the runtime's git proxy, so nothing
- * here holds a credential.
+ * again from the project's repository on first use, with the branches the save hook kept there. The remote
+ * is the runtime's git proxy, so nothing here holds a credential.
  */
 export const GIT_WRAPPER = '/usr/local/bin/git';
 const REAL_GIT = '/usr/bin/git';
@@ -208,9 +209,10 @@ export function gitWrapperScript(): string {
 }
 
 /**
- * Sets up the project's history once per container, under a lock: fetched through the proxy and based on
- * the commit the workspace's files match, so `git status` shows exactly what changed since. Only the index
- * is written; the files are already there.
+ * Sets up the project's history once per container, under a lock: fetched through the proxy, with the
+ * branches the last container saved (commits not yet pushed among them), and based on the commit the
+ * workspace's files match, so `git status` shows exactly what changed since. Only the index is written; the
+ * files are already there.
  */
 export function gitSetupScript(): string {
   return [
@@ -233,6 +235,8 @@ export function gitSetupScript(): string {
     'commit="${base#* }"',
     'name="$(sed -n 2p "$answer")"',
     'email="$(sed -n 3p "$answer")"',
+    'saved="$(sed -n 4p "$answer")"',
+    '[ -n "$saved" ]',
     'staging="$(mktemp -d "$root/.setup.XXXXXX")"',
     `g() { GIT_DIR="$staging" GIT_WORK_TREE=${shellQuote(WORK_DIR)} ${shellQuote(REAL_GIT)} "$@"; }`,
     'g init -q -b main',
@@ -242,12 +246,26 @@ export function gitSetupScript(): string {
     `g config core.hooksPath ${shellQuote(GIT_HOOKS)}`,
     'g config pull.rebase true',
     'g config push.autoSetupRemote true',
-    'g fetch -q origin',
-    'if [ "$commit" != - ] && g cat-file -e "$commit^{commit}" 2>/dev/null; then',
+    'g config cloudchef.saved "$saved"',
+    // The branches the last container saved come back as they were, each following origin's where it has one.
+    'g fetch -q origin "+refs/heads/*:refs/remotes/origin/*" "+$saved/*:refs/cloudchef/saved/*"',
+    'g for-each-ref --format="%(refname)" refs/cloudchef/saved/ | while read -r ref; do',
+    '  name="${ref#refs/cloudchef/saved/}"',
+    '  g update-ref "refs/heads/$name" "$ref"',
+    '  g update-ref -d "$ref"',
+    '  if g rev-parse -q --verify "refs/remotes/origin/$name" >/dev/null; then',
+    '    g branch -q --set-upstream-to="origin/$name" "$name"',
+    '  fi',
+    'done',
+    // Where the last container was: its branch, at the commit it reported unless the branch saved since is newer.
+    'tip="$(g rev-parse -q --verify "refs/heads/$branch" || true)"',
+    'if [ "$commit" != - ] && g cat-file -e "$commit^{commit}" 2>/dev/null && { [ -z "$tip" ] || g merge-base --is-ancestor "$tip" "$commit"; }; then',
     '  start="$commit"',
+    'elif [ -n "$tip" ]; then',
+    '  start="$tip"',
     'elif start="$(g rev-parse -q --verify "refs/remotes/origin/$branch")"; then',
     '  :',
-    'elif start="$(g rev-parse -q --verify refs/remotes/origin/main)"; then',
+    'elif start="$(g rev-parse -q --verify refs/heads/main || g rev-parse -q --verify refs/remotes/origin/main)"; then',
     '  branch=main',
     'else',
     '  start=""',
@@ -292,6 +310,32 @@ export function gitPreCommitHook(): string {
     '[ -z "$found" ] && exit 0',
     `printf 'Not saved, a secret file: %s\\n%s Take it out of this commit with git restore --staged <file>.\\n' "$found" ${shellQuote(SECRETS_ADVICE)} >&2`,
     'exit 1',
+    '',
+  ].join('\n');
+}
+
+/** The hooks after which the branches are saved: whatever moves a branch or the branch checked out. */
+export const GIT_SAVE_HOOKS = ['post-commit', 'post-rewrite', 'post-merge', 'post-checkout'] as const;
+
+/**
+ * Saves every branch to the workspace's own refs in the project's repository (a branch deleted here goes
+ * there too), then tells the git proxy the branch and commit checked out, so git in the next container
+ * has its commits back, pushed or not. It runs in the background, one save at a time, and never fails or
+ * slows what ran it; a save that fails is made whole by the next one. The pre-push hook checks it as any push.
+ */
+export function gitSaveHook(): string {
+  const real = shellQuote(REAL_GIT);
+  return [
+    '#!/bin/sh',
+    `saved="$(${real} config --get cloudchef.saved || true)"`,
+    '[ -n "$saved" ] || exit 0',
+    '(',
+    '  flock 8',
+    `  ${real} push -q --force --prune origin "refs/heads/*:$saved/*" || exit 0`,
+    `  branch="$(${real} symbolic-ref -q --short HEAD)" && commit="$(${real} rev-parse -q --verify HEAD)" || exit 0`,
+    `  curl -fsS -o /dev/null -X POST --data-binary "$branch $commit" ${shellQuote(`http://${GIT_PROXY_HOST}${GIT_BASE_PATH}`)} || true`,
+    `) 8>${shellQuote(`${GIT_ROOT}/.save-lock`)} </dev/null >/dev/null 2>&1 &`,
+    'exit 0',
     '',
   ].join('\n');
 }

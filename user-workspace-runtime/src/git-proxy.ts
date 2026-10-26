@@ -1,7 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { BuilderWorkspaceGitRepository } from '../../app/agents/builder-workspace-api';
 import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { handleGitProxyRequest } from '../../app/lib/.server/cloudflare/git-proxy';
+import { handleGitProxyRequest, workspaceRefsPrefix } from '../../app/lib/.server/cloudflare/git-proxy';
 import { commitAuthor, openProject, ProjectAccessError } from '../../app/lib/.server/cloudflare/linked-project-client';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type { ProjectWorkspace } from './index';
@@ -70,6 +70,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
         }),
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+      workspaceRefs: workspaceRefsPrefix(this.ctx.props.workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
         const project: { orgProjectId: string } | null = deployed;
