@@ -154,6 +154,7 @@ import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'c
 import { z } from 'zod';
 import type { DeploymentExecution } from '~/server-handlers/deployments';
 import { toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import { reviewDomainChange } from './cloudflare-domain-review';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
@@ -2062,6 +2063,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         truncated: outcome.truncated,
       };
     }
+    const review = await reviewDomainChange(request, (path) =>
+      this.readCloudflareJson(identity, path, options.abortSignal),
+    );
+    if ('refusal' in review) {
+      return cloudflareRequestFailure(identity.accountId, review.refusal);
+    }
     if (!this.transcriptBinding || !builderTranscriptBindingsEqual(this.transcriptBinding, transcript)) {
       throw new Error('The transcript changed before the Cloudflare request proposal was stored.');
     }
@@ -2079,7 +2086,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       accountId: record.accountId,
       request: record.request,
       proposalSha256: record.proposalSha256,
-      riskNote: CLOUDFLARE_EXECUTION_RISK_NOTE,
+      riskNote: review.warning ? `${review.warning} ${CLOUDFLARE_EXECUTION_RISK_NOTE}` : CLOUDFLARE_EXECUTION_RISK_NOTE,
       expiresAt: record.expiresAt,
     };
   }
@@ -2097,6 +2104,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   ): Promise<RuntimeConnectionIdentity | null> {
     const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
     return identity && sameCloudflareConnectionIdentity(identity, expectedIdentity) ? identity : null;
+  }
+
+  /** A read of the account's API by its path below `/client/v4`, parsed; null when it fails. */
+  private async readCloudflareJson(
+    identity: RuntimeConnectionIdentity,
+    path: string,
+    signal = new AbortController().signal,
+  ): Promise<unknown> {
+    try {
+      const outcome = await this.createCloudflareApiClient(identity).send(
+        { method: 'GET', url: `https://api.cloudflare.com/client/v4${path}` },
+        signal,
+      );
+      return outcome.status === 'success' ? JSON.parse(outcome.content) : null;
+    } catch {
+      return null;
+    }
   }
 
   private createCloudflareApiClient(identity: RuntimeConnectionIdentity): CloudflareApiClient {

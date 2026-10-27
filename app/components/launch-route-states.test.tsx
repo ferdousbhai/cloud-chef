@@ -39,7 +39,12 @@ describe('launch route states', () => {
   it('gives a project that needs Cloudflare approved again the button that does it', () => {
     const html = renderToStaticMarkup(
       <ProjectLoadError
-        error={new UserRuntimeSessionError('CloudChef needs updated Cloudflare permissions.', 'cloudflare_reauthorization_required')}
+        error={
+          new UserRuntimeSessionError(
+            'CloudChef needs updated Cloudflare permissions.',
+            'cloudflare_reauthorization_required',
+          )
+        }
         onRetry={vi.fn()}
       />,
     );
