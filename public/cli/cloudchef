@@ -1,0 +1,1116 @@
+#!/usr/bin/env bash
+# cloudchef: work on CloudChef projects from your own computer, the way gh works with GitHub.
+# Needs only bash (3.2 or later), curl and git. Install: curl -fsSL https://cloudchef.build/install.sh | bash
+set -o pipefail
+
+CLOUDCHEF_VERSION="0.1.0"
+HOST="${CLOUDCHEF_HOST:-https://cloudchef.build}"
+HOST="${HOST%/}"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cloudchef"
+TOKEN_FILE="$CONFIG_DIR/token"
+CONFIG_FILE="$CONFIG_DIR/config"
+DEFAULT_CLONE_DIR="~/cloudflare"
+TAB="$(printf '\t')"
+NL='
+'
+
+# ---------- output ----------
+
+die() {
+  printf 'cloudchef: %s\n' "$*" >&2
+  exit 1
+}
+
+note() {
+  printf '%s\n' "$*" >&2
+}
+
+# ---------- small helpers ----------
+
+# The host's name without the scheme, as people say it (cloudchef.build).
+host_display() {
+  local h="${HOST#*://}"
+  printf '%s' "${h%%/*}"
+}
+
+json_escape() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$TAB/\\t}"
+  s="${s//$NL/\\n}"
+  printf '%s' "$s"
+}
+
+# json_field KEY JSON: the first scalar value of KEY anywhere in JSON (strings unescaped simply; null is empty).
+# Only for the few flat fields this tool reads; it is not a JSON parser.
+json_field() {
+  local key="$1" raw bs q
+  bs="$(printf '\001')"
+  q="$(printf '\002')"
+  raw="$(printf '%s' "$2" | tr '\n\r' '  ' |
+    sed -e "s/\\\\\\\\/$bs/g" -e "s/\\\\\"/$q/g" |
+    grep -oE "\"$key\"[[:space:]]*:[[:space:]]*(\"[^\"]*\"|[^],}\"[:space:]]+)" | head -n 1)"
+  [ -n "$raw" ] || return 0
+  raw="${raw#*:}"
+  raw="$(printf '%s' "$raw" | sed -e 's/^[[:space:]]*//')"
+  case "$raw" in
+    \"*)
+      raw="${raw#\"}"
+      raw="${raw%\"}"
+      ;;
+    null) raw="" ;;
+  esac
+  printf '%s' "$raw" | sed -e 's#\\/#/#g' -e 's/\\n/ /g' -e 's/\\t/ /g' -e "s/$q/\"/g" -e "s/$bs/\\\\/g"
+}
+
+urlencode() {
+  local s="$1" out="" c i
+  local LC_ALL=C
+  for ((i = 0; i < ${#s}; i++)); do
+    c="${s:i:1}"
+    case "$c" in
+      [a-zA-Z0-9.~_-]) out="$out$c" ;;
+      *) out="$out$(printf '%%%02X' "'$c")" ;;
+    esac
+  done
+  printf '%s' "$out"
+}
+
+# A folder-safe form of a name: lowercase, anything outside [a-z0-9._-] becomes '-', repeats collapse, ends trimmed.
+folder_safe() {
+  local s
+  s="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]' |
+    LC_ALL=C sed -e 's/[^a-z0-9._-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')"
+  case "$s" in
+    "" | . | ..) s="project" ;;
+  esac
+  printf '%s' "$s"
+}
+
+expand_home() {
+  case "$1" in
+    "~") printf '%s' "$HOME" ;;
+    "~/"*) printf '%s/%s' "$HOME" "${1#"~/"}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+open_url() {
+  local url="$1" opener="${CLOUDCHEF_BROWSER:-}"
+  if [ -z "$opener" ]; then
+    if command -v open >/dev/null 2>&1 && [ "$(uname -s)" = "Darwin" ]; then
+      opener=open
+    elif command -v xdg-open >/dev/null 2>&1; then
+      opener=xdg-open
+    else
+      return 0
+    fi
+  fi
+  ($opener "$url" >/dev/null 2>&1 &) 2>/dev/null
+  return 0
+}
+
+print_table() {
+  # stdin: tab-separated rows, the first being the header.
+  if command -v column >/dev/null 2>&1; then
+    column -t -s "$TAB"
+  else
+    awk -F '\t' '{ rows[NR] = $0; for (i = 1; i <= NF; i++) if (length($i) > w[i]) w[i] = length($i); if (NF > n) n = NF }
+      END { for (r = 1; r <= NR; r++) { c = split(rows[r], f, "\t"); line = "";
+        for (i = 1; i <= c; i++) line = line (i < c ? sprintf("%-" w[i] "s  ", f[i]) : f[i]); print line } }'
+  fi
+}
+
+# ---------- config ----------
+
+config_get() {
+  [ -f "$CONFIG_FILE" ] || return 0
+  grep -E "^$1=" "$CONFIG_FILE" | tail -n 1 | sed -e "s/^$1=//"
+}
+
+config_set() {
+  local tmp
+  (umask 077 && mkdir -p "$CONFIG_DIR") || die "Could not create $CONFIG_DIR."
+  tmp="$CONFIG_FILE.tmp.$$"
+  { [ -f "$CONFIG_FILE" ] && grep -vE "^$1=" "$CONFIG_FILE"; printf '%s=%s\n' "$1" "$2"; } >"$tmp" &&
+    mv "$tmp" "$CONFIG_FILE" || die "Could not write $CONFIG_FILE."
+}
+
+clone_base() {
+  local base="${CLOUDCHEF_CLONE_DIR:-}"
+  [ -n "$base" ] || base="$(config_get clone-dir)"
+  [ -n "$base" ] || base="$DEFAULT_CLONE_DIR"
+  expand_home "$base"
+}
+
+# ---------- token ----------
+
+read_token() {
+  if [ -n "${CLOUDCHEF_TOKEN:-}" ]; then
+    printf '%s' "$CLOUDCHEF_TOKEN"
+  elif [ -f "$TOKEN_FILE" ]; then
+    tr -d ' \n\r' <"$TOKEN_FILE"
+  fi
+}
+
+require_token() {
+  TOKEN="$(read_token)"
+  [ -n "$TOKEN" ] || die "Not logged in. Run: cloudchef auth login"
+}
+
+# ---------- HTTP ----------
+
+# http METHOD PATH [curl args...]: sets HTTP_STATUS and HTTP_BODY. Sends the token when TOKEN is set; the token goes to
+# curl on stdin (-K -), never on its command line.
+http() {
+  local method="$1" path="$2" out
+  shift 2
+  out="$( ([ -z "${TOKEN:-}" ] || printf 'header = "Authorization: Bearer %s"\n' "$TOKEN") |
+    curl -sS -K - -X "$method" -H "User-Agent: cloudchef-cli/$CLOUDCHEF_VERSION" -w "${NL}%{http_code}" "$@" "$HOST$path")" ||
+    die "Could not reach $HOST."
+  HTTP_STATUS="${out##*"$NL"}"
+  HTTP_BODY="${out%"$NL"*}"
+}
+
+http_ok() {
+  case "$HTTP_STATUS" in
+    2??) return 0 ;;
+  esac
+  local message
+  message="$(json_field error "$HTTP_BODY")"
+  if [ "$HTTP_STATUS" = "401" ]; then
+    die "${message:-Not logged in.} Run: cloudchef auth login"
+  fi
+  [ -n "$message" ] || message="$(printf '%s' "$HTTP_BODY" | head -c 300)"
+  die "${message:-The server answered HTTP $HTTP_STATUS.} (HTTP $HTTP_STATUS)"
+}
+
+# api_get PATH: an authenticated GET whose body lands in HTTP_BODY, failing on any non-2xx answer.
+api_get() {
+  require_token
+  http GET "$1"
+  http_ok
+}
+
+api_post_json() {
+  require_token
+  http POST "$1" -H "Content-Type: application/json" --data-binary "$2"
+  http_ok
+}
+
+# ---------- projects ----------
+
+projects_tsv() {
+  api_get "/api/command-line/projects?format=tsv"
+  PROJECTS_TSV="$HTTP_BODY"
+}
+
+# The project id of the current directory's CloudChef git remote, if it has one.
+remote_project_id() {
+  local url id
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  git remote -v 2>/dev/null | while read -r _ url _; do
+    case "$url" in
+      "$HOST/git/"*) ;;
+      *) continue ;;
+    esac
+    id="${url#"$HOST/git/"}"
+    id="${id%.git}"
+    id="${id%/}"
+    printf '%s\n' "$id"
+    break
+  done
+}
+
+# resolve_project [PROJECT]: sets P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID. PROJECT is a name, ACCOUNT/NAME, or an
+# id; without one, the current directory's CloudChef git remote.
+resolve_project() {
+  local want="$1" from_remote="" want_account="" want_name="" matches="" count=0 choices=""
+  local name account role state site id
+  if [ -z "$want" ]; then
+    want="$(remote_project_id)"
+    [ -n "$want" ] || die "Name a project, or run this inside a clone of one. See: cloudchef repo list"
+    from_remote=1
+  fi
+  projects_tsv
+  case "$want" in
+    */*)
+      want_account="${want%%/*}"
+      want_name="${want#*/}"
+      ;;
+  esac
+  # An exact id wins.
+  while IFS="$TAB" read -r name account role state site id; do
+    [ -n "$id" ] || continue
+    if [ "$id" = "$want" ]; then
+      P_NAME="$name" P_ACCOUNT="$account" P_ROLE="$role" P_STATE="$state" P_SITE="$site" P_ID="$id"
+      return 0
+    fi
+  done <<EOF
+$PROJECTS_TSV
+EOF
+  [ -z "$from_remote" ] || die "This folder's CloudChef project ($want) isn't one you can use any more."
+  while IFS="$TAB" read -r name account role state site id; do
+    [ -n "$id" ] && [ "$id" != "id" ] || continue
+    if [ -n "$want_account" ]; then
+      [ "$account" = "$want_account" ] && [ "$name" = "$want_name" ] || continue
+    else
+      [ "$name" = "$want" ] || continue
+    fi
+    count=$((count + 1))
+    matches="$name$TAB$account$TAB$role$TAB$state$TAB$site$TAB$id"
+    choices="$choices  $account/$name$NL"
+  done <<EOF
+$PROJECTS_TSV
+EOF
+  if [ "$count" -eq 0 ]; then
+    die "No project named \"$want\". See: cloudchef repo list"
+  elif [ "$count" -gt 1 ]; then
+    die "Several accounts have a project named \"$want\". Name one as ACCOUNT/NAME:$NL${choices%"$NL"}"
+  fi
+  IFS="$TAB" read -r P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID <<EOF
+$matches
+EOF
+}
+
+git_url() {
+  printf '%s/git/%s.git' "$HOST" "$1"
+}
+
+dash_to_empty() {
+  [ "$1" = "-" ] || printf '%s' "$1"
+}
+
+# ---------- runs ----------
+
+runs_tsv() {
+  api_get "/api/command-line/runs?project=$(urlencode "$1")&format=tsv"
+  RUNS_TSV="$HTTP_BODY"
+}
+
+# find_run RUN_ID|"" : sets R_STATE R_KIND R_BRANCH R_COMMIT R_UPDATED R_ID from RUNS_TSV (the newest without an id).
+find_run() {
+  local want="$1" state kind branch commit updated id
+  R_ID=""
+  while IFS="$TAB" read -r state kind branch commit updated id; do
+    [ -n "$id" ] && [ "$id" != "id" ] || continue
+    if [ -z "$want" ] || [ "$id" = "$want" ]; then
+      R_STATE="$state" R_KIND="$kind" R_BRANCH="$branch" R_COMMIT="$commit" R_UPDATED="$updated" R_ID="$id"
+      return 0
+    fi
+  done <<EOF
+$RUNS_TSV
+EOF
+  return 1
+}
+
+# find_run_for_commit COMMIT: the newest run of that commit.
+find_run_for_commit() {
+  local want="$1" state kind branch commit updated id
+  while IFS="$TAB" read -r state kind branch commit updated id; do
+    [ -n "$id" ] && [ "$id" != "id" ] || continue
+    if [ "${commit:0:7}" = "${want:0:7}" ]; then
+      R_STATE="$state" R_KIND="$kind" R_BRANCH="$branch" R_COMMIT="$commit" R_UPDATED="$updated" R_ID="$id"
+      return 0
+    fi
+  done <<EOF
+$RUNS_TSV
+EOF
+  return 1
+}
+
+is_finished() {
+  case "$1" in
+    succeeded | failed | not_deployable) return 0 ;;
+  esac
+  return 1
+}
+
+# ---------- help ----------
+
+usage() {
+  case "$1" in
+    "")
+      cat <<EOF
+Work on CloudChef projects from your own computer.
+
+Usage: cloudchef <command> <subcommand> [flags]
+
+Auth
+  auth login           Sign in from the browser and set up git
+  auth status          Show who you're signed in as
+  auth logout          Remove the token from this computer
+  auth token           Print the token
+  auth setup-git       Let git sign in to CloudChef through cloudchef
+
+Projects
+  repo list            List the projects you can use
+  repo view [PROJECT]  Show a project
+  repo clone PROJECT   Clone a project
+  repo create NAME     Upload a folder as a new project
+
+Publishes
+  run list [PROJECT]   List a project's publishes and previews
+  run view [RUN_ID]    Show a publish, or its log with --log
+  run watch [RUN_ID]   Wait for a publish to finish
+  run rerun [RUN_ID]   Publish the same commit again
+
+More
+  browse [PROJECT]     Open a project's site
+  api PATH             Make an authenticated request to the CloudChef API
+  config               Read and change settings (clone-dir)
+  skill install        Install the cloudchef skill for Claude Code
+  help [COMMAND]       Show help for a command
+  --version            Show the version
+
+PROJECT is a project name, ACCOUNT/NAME, or a project id. Inside a clone it defaults to that project.
+Environment: CLOUDCHEF_HOST (default https://cloudchef.build), CLOUDCHEF_TOKEN, CLOUDCHEF_CLONE_DIR.
+EOF
+      ;;
+    auth)
+      cat <<EOF
+Usage: cloudchef auth <login|status|logout|token|setup-git|git-credential>
+
+  login           Sign in from the browser; saves a token and sets up git
+  status          Show who you're signed in as
+  logout          Remove the token from this computer
+  token           Print the token (never paste it anywhere public)
+  setup-git       Let git sign in to $(host_display) through cloudchef
+  git-credential  The git credential helper (git runs it; you don't need to)
+EOF
+      ;;
+    "auth login") echo "Usage: cloudchef auth login${NL}${NL}Shows a code, opens $HOST in the browser to approve this computer, saves the token to $TOKEN_FILE, and sets up git." ;;
+    "auth status") echo "Usage: cloudchef auth status${NL}${NL}Shows who the token belongs to." ;;
+    "auth logout") echo "Usage: cloudchef auth logout${NL}${NL}Deletes $TOKEN_FILE. Revoke the token in CloudChef too: Settings → Command line." ;;
+    "auth token") echo "Usage: cloudchef auth token${NL}${NL}Prints the token. Keep it secret." ;;
+    "auth setup-git") echo "Usage: cloudchef auth setup-git${NL}${NL}Sets cloudchef as git's credential helper for $HOST in your global git config." ;;
+    "auth git-credential") echo "Usage: cloudchef auth git-credential <get|store|erase>${NL}${NL}The git credential helper protocol. Answers only for $HOST." ;;
+    repo)
+      cat <<EOF
+Usage: cloudchef repo <list|view|clone|create>
+
+  list [--json]                                   List the projects you can use
+  view [PROJECT] [--json] [--web]                 Show a project
+  clone PROJECT [DIR] [-- GIT_FLAGS]              Clone a project
+  create NAME [--account ACCOUNT] [--source DIR]  Upload a folder as a new project
+EOF
+      ;;
+    "repo list") echo "Usage: cloudchef repo list [--json]${NL}${NL}Lists the projects you can view or edit, in every account you use." ;;
+    "repo view") echo "Usage: cloudchef repo view [PROJECT] [--json] [--web]${NL}${NL}Shows a project's account, your role, its git address, site and last publish.${NL}--web opens the projects page." ;;
+    "repo clone")
+      cat <<EOF
+Usage: cloudchef repo clone PROJECT [DIR] [-- GIT_FLAGS]
+
+Clones a project. Without DIR it goes to <clone-dir>/<account>/<project>, where clone-dir is
+\$CLOUDCHEF_CLONE_DIR, else \`cloudchef config get clone-dir\`, else ~/cloudflare.
+Now: $(clone_base)
+EOF
+      ;;
+    "repo create")
+      cat <<EOF
+Usage: cloudchef repo create NAME [--account ACCOUNT] [--source DIR]
+
+Uploads the committed files of DIR (default: the current folder) as a new project, which then publishes.
+Outside a git repository, every file not ignored by .gitignore is uploaded. The project starts with a
+fresh history; in a git repository a "cloudchef" remote is added for it.
+--account names the account to create it in (default: your own).
+EOF
+      ;;
+    run)
+      cat <<EOF
+Usage: cloudchef run <list|view|watch|rerun>
+
+  list [PROJECT] [--json]                       A project's publishes and previews, newest first
+  view [RUN_ID] [--project PROJECT] [--log]     Show a publish, or print its log
+  watch [RUN_ID] [--project PROJECT] [-i SECS]  Wait for a publish to finish; exits 1 unless it succeeded
+  rerun [RUN_ID] [--project PROJECT]            Publish the same commit again
+EOF
+      ;;
+    "run list") echo "Usage: cloudchef run list [PROJECT] [--json]" ;;
+    "run view") echo "Usage: cloudchef run view [RUN_ID] [--project PROJECT] [--log]${NL}${NL}Without RUN_ID, the newest publish." ;;
+    "run watch") echo "Usage: cloudchef run watch [RUN_ID] [--project PROJECT] [--interval SECONDS]${NL}${NL}Waits for a publish to finish (inside a clone: the publish of its current commit) and${NL}exits 0 if it succeeded, 1 if not." ;;
+    "run rerun") echo "Usage: cloudchef run rerun [RUN_ID] [--project PROJECT]${NL}${NL}Without RUN_ID, the newest publish." ;;
+    browse) echo "Usage: cloudchef browse [PROJECT] [--no-browser]${NL}${NL}Opens the project's site (or the projects page when it has none). --no-browser prints the address." ;;
+    api) echo "Usage: cloudchef api PATH [-X METHOD] [-d DATA]${NL}${NL}Requests $HOST/PATH with your token and prints the answer. -d sends JSON and defaults the method to POST." ;;
+    config)
+      cat <<EOF
+Usage: cloudchef config <get|set|list>
+
+  get KEY        Print a setting
+  set KEY VALUE  Change a setting
+  list           Print every setting
+
+Settings (kept in $CONFIG_FILE):
+  clone-dir  Where repo clone puts projects (default ~/cloudflare); CLOUDCHEF_CLONE_DIR overrides it
+EOF
+      ;;
+    skill | "skill install") echo "Usage: cloudchef skill install [--dir DIR]${NL}${NL}Writes the cloudchef agent skill to ~/.claude/skills/cloudchef/SKILL.md (or DIR/cloudchef/SKILL.md)." ;;
+    *) return 1 ;;
+  esac
+}
+
+wants_help() {
+  local a
+  for a in "$@"; do
+    case "$a" in
+      -h | --help) return 0 ;;
+      --) return 1 ;;
+    esac
+  done
+  return 1
+}
+
+need_value() {
+  [ "$2" -ge 2 ] || die "$1 needs a value."
+}
+
+# ---------- auth ----------
+
+cmd_auth_login() {
+  local label body device user_code verify interval expires token email
+  label="$(hostname 2>/dev/null || uname -n) (cloudchef CLI)"
+  TOKEN=""
+  http POST /api/command-line/login -H "Content-Type: application/json" --data-binary "{\"label\":\"$(json_escape "$label")\"}"
+  http_ok
+  body="$HTTP_BODY"
+  device="$(json_field deviceCode "$body")"
+  user_code="$(json_field userCode "$body")"
+  verify="$(json_field verificationUriComplete "$body")"
+  [ -n "$verify" ] || verify="$(json_field verificationUri "$body")"
+  interval="$(json_field interval "$body")"
+  expires="$(json_field expiresIn "$body")"
+  [ -n "$device" ] || die "The server didn't start a sign-in."
+  case "$interval" in '' | *[!0-9]*) interval=5 ;; esac
+  case "$expires" in '' | *[!0-9]*) expires=900 ;; esac
+
+  printf 'Your one-time code: %s\n' "$user_code"
+  printf 'Open %s\n' "$verify"
+  printf 'and approve this computer. Waiting...\n'
+  open_url "$verify"
+
+  local deadline=$((SECONDS + expires))
+  while :; do
+    sleep "$interval"
+    http POST /api/command-line/login/poll -H "Content-Type: application/json" \
+      --data-binary "{\"deviceCode\":\"$(json_escape "$device")\"}"
+    case "$HTTP_STATUS" in
+      200) break ;;
+      428)
+        [ "$SECONDS" -lt "$deadline" ] || die "The code expired. Run cloudchef auth login again."
+        ;;
+      *)
+        local message
+        message="$(json_field error "$HTTP_BODY")"
+        die "${message:-Sign-in failed (HTTP $HTTP_STATUS).}"
+        ;;
+    esac
+  done
+  token="$(json_field token "$HTTP_BODY")"
+  email="$(json_field email "$HTTP_BODY")"
+  [ -n "$token" ] || die "The server didn't send a token."
+  (
+    umask 077
+    mkdir -p "$CONFIG_DIR" && printf '%s\n' "$token" >"$TOKEN_FILE" && chmod 600 "$TOKEN_FILE"
+  ) || die "Could not save the token to $TOKEN_FILE."
+  cmd_auth_setup_git >/dev/null
+  printf 'Logged in as %s\n' "${email:-your CloudChef account}"
+}
+
+cmd_auth_status() {
+  local token source email
+  token="$(read_token)"
+  if [ -z "$token" ]; then
+    printf 'Not logged in to %s. Run: cloudchef auth login\n' "$(host_display)"
+    return 1
+  fi
+  if [ -n "${CLOUDCHEF_TOKEN:-}" ]; then source="CLOUDCHEF_TOKEN"; else source="$TOKEN_FILE"; fi
+  TOKEN="$token"
+  http GET /api/command-line/user
+  if [ "$HTTP_STATUS" = "401" ]; then
+    printf 'Not logged in to %s: the token in %s was revoked or has expired. Run: cloudchef auth login\n' "$(host_display)" "$source"
+    return 1
+  fi
+  http_ok
+  email="$(json_field email "$HTTP_BODY")"
+  printf 'Logged in to %s as %s\n' "$(host_display)" "$email"
+  printf 'Token: %s\n' "$source"
+}
+
+cmd_auth_logout() {
+  if [ -f "$TOKEN_FILE" ]; then
+    rm -f "$TOKEN_FILE" || die "Could not remove $TOKEN_FILE."
+    printf 'Logged out: removed %s.\n' "$TOKEN_FILE"
+  else
+    printf 'No token saved on this computer.\n'
+  fi
+  [ -z "${CLOUDCHEF_TOKEN:-}" ] || printf 'CLOUDCHEF_TOKEN is still set in this shell.\n'
+  printf 'Revoke the token in CloudChef too: Settings → Command line.\n'
+}
+
+cmd_auth_token() {
+  require_token
+  printf '%s\n' "$TOKEN"
+}
+
+# The command git runs: plain `cloudchef` when that is this script on PATH, else this script's own path.
+self_command() {
+  local self dir
+  dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+  self="$dir/$(basename "$0")"
+  if [ "$(command -v cloudchef 2>/dev/null)" = "$self" ]; then
+    printf 'cloudchef'
+  else
+    printf "'%s'" "$self"
+  fi
+}
+
+cmd_auth_setup_git() {
+  local key="credential.$HOST"
+  git config --global "$key.helper" "" &&
+    git config --global --add "$key.helper" "!$(self_command) auth git-credential" &&
+    git config --global "$key.username" cloudchef ||
+    die "Could not update your global git config."
+  printf 'git now signs in to %s through cloudchef.\n' "$(host_display)"
+}
+
+cmd_auth_git_credential() {
+  local op="$1" line protocol="" host="" token want_protocol want_host
+  while IFS= read -r line; do
+    [ -n "$line" ] || break
+    case "$line" in
+      protocol=*) protocol="${line#protocol=}" ;;
+      host=*) host="${line#host=}" ;;
+    esac
+  done
+  [ "$op" = "get" ] || return 0
+  want_protocol="${HOST%%://*}"
+  want_host="$(host_display)"
+  [ "$protocol" = "$want_protocol" ] && [ "$host" = "$want_host" ] || return 0
+  token="$(read_token)"
+  [ -n "$token" ] || return 0
+  printf 'protocol=%s\nhost=%s\nusername=cloudchef\npassword=%s\n' "$protocol" "$host" "$token"
+}
+
+cmd_auth() {
+  local sub="$1"
+  [ $# -gt 0 ] && shift
+  if [ -z "$sub" ] || [ "$sub" = "-h" ] || [ "$sub" = "--help" ]; then usage auth; return 0; fi
+  if wants_help "$@"; then usage "auth $sub" || usage auth; return 0; fi
+  case "$sub" in
+    login) cmd_auth_login ;;
+    status) cmd_auth_status ;;
+    logout) cmd_auth_logout ;;
+    token) cmd_auth_token ;;
+    setup-git) cmd_auth_setup_git ;;
+    git-credential) cmd_auth_git_credential "$@" ;;
+    *) die "Unknown command: auth $sub. See: cloudchef help auth" ;;
+  esac
+}
+
+# ---------- repo ----------
+
+cmd_repo_list() {
+  local json=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      *) die "Unknown argument: $1. See: cloudchef repo list --help" ;;
+    esac
+    shift
+  done
+  if [ -n "$json" ]; then
+    api_get /api/command-line/projects
+    printf '%s\n' "$HTTP_BODY"
+    return 0
+  fi
+  projects_tsv
+  if ! printf '%s\n' "$PROJECTS_TSV" | grep -q "$TAB"; then
+    printf 'No projects yet.\n'
+    return 0
+  fi
+  {
+    printf 'NAME\tACCOUNT\tROLE\tLAST PUBLISH\tSITE\tID\n'
+    printf '%s\n' "$PROJECTS_TSV" | awk -F '\t' 'NF >= 6 && $6 != "id"'
+  } | print_table
+}
+
+project_json() {
+  local site state
+  site="$(dash_to_empty "$P_SITE")"
+  state="$(dash_to_empty "$P_STATE")"
+  printf '{"id":"%s","name":"%s","account":"%s","role":"%s","gitUrl":"%s","siteUrl":%s,"lastPublishState":%s}\n' \
+    "$(json_escape "$P_ID")" "$(json_escape "$P_NAME")" "$(json_escape "$P_ACCOUNT")" "$(json_escape "$P_ROLE")" \
+    "$(json_escape "$(git_url "$P_ID")")" \
+    "$([ -n "$site" ] && printf '"%s"' "$(json_escape "$site")" || printf null)" \
+    "$([ -n "$state" ] && printf '"%s"' "$(json_escape "$state")" || printf null)"
+}
+
+cmd_repo_view() {
+  local project="" json="" web=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json) json=1 ;;
+      --web | -w) web=1 ;;
+      -*) die "Unknown flag: $1. See: cloudchef repo view --help" ;;
+      *) [ -z "$project" ] || die "Too many arguments."; project="$1" ;;
+    esac
+    shift
+  done
+  if [ -n "$web" ]; then
+    printf 'Opening %s/\n' "$HOST"
+    open_url "$HOST/"
+    return 0
+  fi
+  resolve_project "$project"
+  if [ -n "$json" ]; then
+    project_json
+    return 0
+  fi
+  printf 'name:          %s\n' "$P_NAME"
+  printf 'account:       %s\n' "$P_ACCOUNT"
+  printf 'role:          %s\n' "$P_ROLE"
+  printf 'git:           %s\n' "$(git_url "$P_ID")"
+  printf 'site:          %s\n' "$P_SITE"
+  printf 'last publish:  %s\n' "$P_STATE"
+  printf 'id:            %s\n' "$P_ID"
+}
+
+cmd_repo_clone() {
+  local project="" dir=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --) shift; break ;;
+      -*) die "Unknown flag: $1. Pass git clone flags after --." ;;
+      *)
+        if [ -z "$project" ]; then project="$1"
+        elif [ -z "$dir" ]; then dir="$1"
+        else die "Too many arguments."
+        fi
+        ;;
+    esac
+    shift
+  done
+  [ -n "$project" ] || die "Name the project to clone. See: cloudchef repo list"
+  resolve_project "$project"
+  if [ -n "$dir" ]; then
+    dir="$(expand_home "$dir")"
+  else
+    dir="$(clone_base)/$(folder_safe "$P_ACCOUNT")/$(folder_safe "$P_NAME")"
+  fi
+  mkdir -p "$(dirname "$dir")" || die "Could not create $(dirname "$dir")."
+  git clone "$@" "$(git_url "$P_ID")" "$dir" || exit 1
+  printf 'Cloned %s into %s\n' "$P_NAME" "$dir"
+}
+
+cmd_repo_create() {
+  local name="" account="" source="" source_given="" is_repo="" tmp zip query id gitUrl top abs
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --account) need_value "$1" $#; account="$2"; shift ;;
+      --account=*) account="${1#--account=}" ;;
+      --source) need_value "$1" $#; source="$2"; source_given=1; shift ;;
+      --source=*) source="${1#--source=}"; source_given=1 ;;
+      -*) die "Unknown flag: $1. See: cloudchef repo create --help" ;;
+      *) [ -z "$name" ] || die "Too many arguments."; name="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$name" ] || die "Name the new project: cloudchef repo create NAME"
+  [ -n "$source" ] || source="."
+  source="$(expand_home "$source")"
+  [ -d "$source" ] || die "No folder $source."
+  abs="$(cd "$source" && pwd -P)" || die "Can't open $source."
+  require_token
+
+  top="$(git -C "$abs" rev-parse --show-toplevel 2>/dev/null)" && top="$(cd "$top" && pwd -P)"
+  [ "$top" = "$abs" ] && is_repo=1
+  if [ -z "$source_given" ]; then
+    note "Uploading the current folder ($abs). Use --source DIR to upload another."
+  fi
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/cloudchef.XXXXXX")" || die "Could not make a temporary folder."
+  trap 'rm -rf "$tmp"' EXIT
+  zip="$tmp/upload.zip"
+  if [ -n "$is_repo" ]; then
+    git -C "$abs" rev-parse --verify -q HEAD >/dev/null ||
+      die "$abs is a git repository with no commits yet. Commit your files first."
+    if [ -n "$(git -C "$abs" status --porcelain 2>/dev/null)" ]; then
+      note "Only committed files are uploaded; this folder has changes that aren't committed."
+    fi
+    git -C "$abs" archive --format=zip -o "$zip" HEAD || die "Could not make the upload."
+  else
+    (
+      export GIT_DIR="$tmp/index.git"
+      git init -q &&
+        git --work-tree="$abs" add -A &&
+        git -c user.name=cloudchef -c user.email=cli@cloudchef.build -c commit.gpgsign=false \
+          --work-tree="$abs" commit -q --no-verify -m "Upload" >/dev/null &&
+        git archive --format=zip -o "$zip" HEAD
+    ) || die "Could not make the upload (is $abs empty?)."
+  fi
+
+  query="name=$(urlencode "$name")"
+  [ -z "$account" ] || query="$query&account=$(urlencode "$account")"
+  note "Uploading $(wc -c <"$zip" | tr -d ' ') bytes..."
+  http POST "/api/command-line/projects/create?$query" -H "Content-Type: application/zip" --data-binary "@$zip"
+  http_ok
+  id="$(json_field id "$HTTP_BODY")"
+  gitUrl="$(json_field gitUrl "$HTTP_BODY")"
+  [ -n "$id" ] || die "The server didn't say which project it made."
+  [ -n "$gitUrl" ] || gitUrl="$(git_url "$id")"
+  printf 'Created %s (%s). It is publishing now.\n' "$(json_field name "$HTTP_BODY")" "$id"
+  printf 'git: %s\n' "$gitUrl"
+
+  if [ -n "$is_repo" ]; then
+    if git -C "$abs" remote get-url cloudchef >/dev/null 2>&1; then
+      printf 'This repository already has a "cloudchef" remote; point it here with:\n  git remote set-url cloudchef %s\n' "$gitUrl"
+    else
+      git -C "$abs" remote add cloudchef "$gitUrl" && printf 'Added the git remote "cloudchef".\n'
+    fi
+    printf 'The project starts with a fresh history. To join it to yours:\n'
+    printf '  git pull cloudchef main --allow-unrelated-histories\n'
+  else
+    local where
+    where="$(clone_base)"
+    if (resolve_project "$id" >/dev/null 2>&1); then
+      resolve_project "$id"
+      where="$where/$(folder_safe "$P_ACCOUNT")/$(folder_safe "$P_NAME")"
+    fi
+    printf 'To work on it with git: cloudchef repo clone %s  (clones into %s)\n' "$id" "$where"
+  fi
+  printf 'Follow the publish: cloudchef run watch --project %s\n' "$id"
+}
+
+cmd_repo() {
+  local sub="$1"
+  [ $# -gt 0 ] && shift
+  if [ -z "$sub" ] || [ "$sub" = "-h" ] || [ "$sub" = "--help" ]; then usage repo; return 0; fi
+  if wants_help "$@"; then usage "repo $sub" || usage repo; return 0; fi
+  case "$sub" in
+    list | ls) cmd_repo_list "$@" ;;
+    view) cmd_repo_view "$@" ;;
+    clone) cmd_repo_clone "$@" ;;
+    create) cmd_repo_create "$@" ;;
+    *) die "Unknown command: repo $sub. See: cloudchef help repo" ;;
+  esac
+}
+
+# ---------- run ----------
+
+# parse_run_args ARGS: sets RUN_ARG PROJECT_ARG LOG_FLAG JSON_FLAG INTERVAL.
+parse_run_args() {
+  RUN_ARG="" PROJECT_ARG="" LOG_FLAG="" JSON_FLAG="" INTERVAL=5
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project | -p) need_value "$1" $#; PROJECT_ARG="$2"; shift ;;
+      --project=*) PROJECT_ARG="${1#--project=}" ;;
+      --log) LOG_FLAG=1 ;;
+      --json) JSON_FLAG=1 ;;
+      --interval | -i) need_value "$1" $#; INTERVAL="$2"; shift ;;
+      --interval=*) INTERVAL="${1#--interval=}" ;;
+      -*) die "Unknown flag: $1" ;;
+      *) [ -z "$RUN_ARG" ] || die "Too many arguments."; RUN_ARG="$1" ;;
+    esac
+    shift
+  done
+  case "$INTERVAL" in '' | *[!0-9]*) die "--interval needs a number of seconds." ;; esac
+}
+
+cmd_run_list() {
+  parse_run_args "$@"
+  [ -z "$LOG_FLAG" ] || die "run list has no --log; use run view --log."
+  resolve_project "${PROJECT_ARG:-$RUN_ARG}"
+  if [ -n "$JSON_FLAG" ]; then
+    api_get "/api/command-line/runs?project=$(urlencode "$P_ID")"
+    printf '%s\n' "$HTTP_BODY"
+    return 0
+  fi
+  runs_tsv "$P_ID"
+  if ! find_run ""; then
+    printf 'No publishes of %s yet.\n' "$P_NAME"
+    return 0
+  fi
+  {
+    printf 'STATE\tKIND\tBRANCH\tCOMMIT\tUPDATED\tID\n'
+    printf '%s\n' "$RUNS_TSV" | awk -F '\t' 'NF >= 6 && $6 != "id" { $4 = substr($4, 1, 7); print }' OFS='\t'
+  } | print_table
+}
+
+need_run() {
+  runs_tsv "$P_ID"
+  if ! find_run "$1"; then
+    [ -n "$1" ] && die "No publish $1 of $P_NAME. See: cloudchef run list --project $P_ID"
+    die "No publishes of $P_NAME yet."
+  fi
+}
+
+cmd_run_view() {
+  parse_run_args "$@"
+  resolve_project "$PROJECT_ARG"
+  need_run "$RUN_ARG"
+  if [ -n "$LOG_FLAG" ]; then
+    api_get "/api/command-line/log?project=$(urlencode "$P_ID")&deployment=$(urlencode "$R_ID")"
+    printf '%s' "$HTTP_BODY"
+    case "$HTTP_BODY" in *"$NL") ;; "") ;; *) printf '\n' ;; esac
+    return 0
+  fi
+  printf 'project:  %s\n' "$P_NAME"
+  printf 'state:    %s\n' "$R_STATE"
+  printf 'kind:     %s\n' "$R_KIND"
+  printf 'branch:   %s\n' "$R_BRANCH"
+  printf 'commit:   %s\n' "${R_COMMIT:0:7}"
+  printf 'updated:  %s\n' "$R_UPDATED"
+  printf 'id:       %s\n' "$R_ID"
+  if [ "$R_STATE" = "failed" ]; then
+    printf '\nRead its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_ID"
+  fi
+}
+
+cmd_run_watch() {
+  local head="" last="" waited=0 found
+  parse_run_args "$@"
+  resolve_project "$PROJECT_ARG"
+  # Inside a clone of the project, wait for the publish of its current commit, which may not have started yet.
+  if [ -z "$RUN_ARG" ] && [ "$(remote_project_id)" = "$P_ID" ]; then
+    head="$(git rev-parse HEAD 2>/dev/null)"
+  fi
+  while :; do
+    runs_tsv "$P_ID"
+    found=""
+    if [ -n "$RUN_ARG" ]; then
+      find_run "$RUN_ARG" && found=1
+      [ -n "$found" ] || die "No publish $RUN_ARG of $P_NAME."
+    elif [ -n "$head" ]; then
+      if find_run_for_commit "$head"; then
+        found=1
+      elif [ "$waited" -ge 120 ]; then
+        note "No publish of ${head:0:7} has started after ${waited}s; watching the newest publish instead."
+        head=""
+        continue
+      else
+        [ "$last" = "waiting" ] || printf 'Waiting for a publish of %s to start...\n' "${head:0:7}"
+        last="waiting"
+      fi
+    else
+      find_run "" && found=1
+      [ -n "$found" ] || die "No publishes of $P_NAME yet."
+    fi
+    if [ -n "$found" ]; then
+      if [ "$R_STATE" != "$last" ]; then
+        printf '%s  %s  %s %s %s\n' "$(date +%H:%M:%S)" "$R_STATE" "$R_KIND" "$R_BRANCH" "${R_COMMIT:0:7}"
+        last="$R_STATE"
+      fi
+      if is_finished "$R_STATE"; then
+        if [ "$R_STATE" = "succeeded" ]; then
+          [ "$R_KIND" != "production" ] || [ "$(dash_to_empty "$P_SITE")" = "" ] || printf 'Live at %s\n' "$P_SITE"
+          return 0
+        fi
+        printf 'Read its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_ID"
+        return 1
+      fi
+    fi
+    sleep "$INTERVAL"
+    waited=$((waited + INTERVAL))
+    [ "$INTERVAL" -gt 0 ] || waited=$((waited + 1))
+  done
+}
+
+cmd_run_rerun() {
+  local id
+  parse_run_args "$@"
+  resolve_project "$PROJECT_ARG"
+  need_run "$RUN_ARG"
+  api_post_json /api/command-line/runs/rerun \
+    "{\"project\":\"$(json_escape "$P_ID")\",\"deployment\":\"$(json_escape "$R_ID")\"}"
+  id="$(json_field id "$HTTP_BODY")"
+  printf 'Started publish %s of %s (%s). Follow it: cloudchef run watch %s --project %s\n' \
+    "$id" "$P_NAME" "${R_COMMIT:0:7}" "$id" "$P_ID"
+}
+
+cmd_run() {
+  local sub="$1"
+  [ $# -gt 0 ] && shift
+  if [ -z "$sub" ] || [ "$sub" = "-h" ] || [ "$sub" = "--help" ]; then usage run; return 0; fi
+  if wants_help "$@"; then usage "run $sub" || usage run; return 0; fi
+  case "$sub" in
+    list | ls) cmd_run_list "$@" ;;
+    view) cmd_run_view "$@" ;;
+    watch) cmd_run_watch "$@" ;;
+    rerun) cmd_run_rerun "$@" ;;
+    *) die "Unknown command: run $sub. See: cloudchef help run" ;;
+  esac
+}
+
+# ---------- browse, api, config, skill ----------
+
+cmd_browse() {
+  local project="" print_only="" url
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h | --help) usage browse; return 0 ;;
+      -n | --no-browser) print_only=1 ;;
+      -*) die "Unknown flag: $1" ;;
+      *) project="$1" ;;
+    esac
+    shift
+  done
+  resolve_project "$project"
+  url="$(dash_to_empty "$P_SITE")"
+  [ -n "$url" ] || url="$HOST/"
+  if [ -n "$print_only" ]; then
+    printf '%s\n' "$url"
+  else
+    printf 'Opening %s\n' "$url"
+    open_url "$url"
+  fi
+}
+
+cmd_api() {
+  local path="" method="" data="" have_data=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -h | --help) usage api; return 0 ;;
+      -X | --method) need_value "$1" $#; method="$2"; shift ;;
+      -d | --data) need_value "$1" $#; data="$2"; have_data=1; shift ;;
+      -*) die "Unknown flag: $1" ;;
+      *) [ -z "$path" ] || die "Too many arguments."; path="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$path" ] || die "Name a path, like: cloudchef api /api/command-line/projects"
+  case "$path" in /*) ;; *) path="/$path" ;; esac
+  [ -n "$method" ] || { [ -n "$have_data" ] && method=POST || method=GET; }
+  require_token
+  if [ -n "$have_data" ]; then
+    http "$method" "$path" -H "Content-Type: application/json" --data-binary "$data"
+  else
+    http "$method" "$path"
+  fi
+  printf '%s' "$HTTP_BODY"
+  case "$HTTP_BODY" in *"$NL") ;; "") ;; *) printf '\n' ;; esac
+  case "$HTTP_STATUS" in
+    2??) return 0 ;;
+    401) die "HTTP 401. Run: cloudchef auth login" ;;
+    *) die "HTTP $HTTP_STATUS" ;;
+  esac
+}
+
+config_key_ok() {
+  case "$1" in
+    clone-dir) return 0 ;;
+  esac
+  die "Unknown setting: $1. See: cloudchef config --help"
+}
+
+cmd_config() {
+  local sub="$1" value
+  [ $# -gt 0 ] && shift
+  if [ -z "$sub" ] || wants_help "$sub" "$@"; then usage config; return 0; fi
+  case "$sub" in
+    get)
+      [ $# -eq 1 ] || die "Usage: cloudchef config get KEY"
+      config_key_ok "$1"
+      value="$(config_get "$1")"
+      printf '%s\n' "${value:-$DEFAULT_CLONE_DIR}"
+      ;;
+    set)
+      [ $# -eq 2 ] || die "Usage: cloudchef config set KEY VALUE"
+      config_key_ok "$1"
+      case "$2" in *"$NL"*) die "A setting is one line." ;; esac
+      config_set "$1" "$2"
+      ;;
+    list)
+      value="$(config_get clone-dir)"
+      printf 'clone-dir=%s\n' "${value:-$DEFAULT_CLONE_DIR}"
+      ;;
+    *) die "Unknown command: config $sub. See: cloudchef help config" ;;
+  esac
+}
+
+skill_text() {
+  cat <<'CLOUDCHEF_SKILL_END'
+---
+name: cloudchef
+description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote ending in /git/<project id>.git on a CloudChef host.
+---
+
+# CloudChef
+
+CloudChef keeps each project as a git repository and publishes it to the project owner's Cloudflare account. The
+`cloudchef` command works with CloudChef the way `gh` works with GitHub. Run `cloudchef help` for every command.
+
+## Projects are git repositories
+
+- `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), last publish, site.
+- `cloudchef repo clone NAME` clones one into `~/cloudflare/<account>/<project>` (change the folder with
+  `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Use `ACCOUNT/NAME` when two
+  accounts have a project with the same name.
+- Git signs in through `cloudchef` (set up by `cloudchef auth login`), so plain `git pull` and `git push` work.
+- Pushing to `main` publishes the project to its live site.
+- Pushing any other branch builds a preview of that branch and leaves the live site alone.
+- With the view role you can clone and pull but not push.
+- `cloudchef repo create NAME` uploads the committed files of the current folder as a new project. The project starts
+  with a fresh history; `git pull cloudchef main --allow-unrelated-histories` joins it to your local one.
+
+## After a push
+
+1. `cloudchef run watch` waits for the publish of what you pushed. It exits 0 when the publish succeeded and 1 when it
+   failed.
+2. When it failed, `cloudchef run view --log` prints the publish log. Find the error, fix it, commit, push, and watch
+   again.
+3. `cloudchef run rerun` publishes the same commit again, for failures the code didn't cause (a timeout, a service
+   outage).
+4. `cloudchef browse` opens the live site.
+
+Run these inside the clone. Elsewhere, name the project: `cloudchef run watch NAME`.
+
+## Secrets
+
+- API keys and other secrets belong in Cloudflare (the project's Worker secrets), never in files in the repository.
+- `.env` and `.dev.vars` files aren't pushed; keep them listed in `.gitignore`.
+- Never print, log, commit, or paste the CloudChef token (`cloudchef auth token`, `~/.config/cloudchef/token`, or
+  `CLOUDCHEF_TOKEN`). Git gets it from `cloudchef` by itself.
+CLOUDCHEF_SKILL_END
+}
+
+cmd_skill() {
+  local sub="$1" dir="$HOME/.claude/skills"
+  [ $# -gt 0 ] && shift
+  if [ -z "$sub" ] || wants_help "$sub" "$@"; then usage skill; return 0; fi
+  [ "$sub" = "install" ] || die "Unknown command: skill $sub. See: cloudchef help skill"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir) need_value "$1" $#; dir="$(expand_home "$2")"; shift ;;
+      --dir=*) dir="$(expand_home "${1#--dir=}")" ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+    shift
+  done
+  mkdir -p "$dir/cloudchef" && skill_text >"$dir/cloudchef/SKILL.md" || die "Could not write $dir/cloudchef/SKILL.md."
+  printf 'Installed the cloudchef skill: %s\n' "$dir/cloudchef/SKILL.md"
+}
+
+# ---------- main ----------
+
+main() {
+  local cmd="$1"
+  [ $# -gt 0 ] && shift
+  case "$cmd" in
+    "" | -h | --help) usage "" ;;
+    help)
+      if [ $# -eq 0 ]; then usage ""; else usage "$*" || usage "$1" || die "No help for: $*"; fi
+      ;;
+    --version | version) printf 'cloudchef %s\n' "$CLOUDCHEF_VERSION" ;;
+    auth) cmd_auth "$@" ;;
+    repo) cmd_repo "$@" ;;
+    run) cmd_run "$@" ;;
+    browse) cmd_browse "$@" ;;
+    api) cmd_api "$@" ;;
+    config) cmd_config "$@" ;;
+    skill) cmd_skill "$@" ;;
+    *) die "Unknown command: $cmd. See: cloudchef help" ;;
+  esac
+}
+
+main "$@"
