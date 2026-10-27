@@ -198,8 +198,9 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(deletionRequests).toBe(0);
   const cards = page.locator('section.app-card');
-  // Account, Cloudflare account, Models, AI request logs, Teams and Your data: every card is measured below.
-  await expect(cards).toHaveCount(6);
+  // Account, Cloudflare account, Command line, Models, AI request logs, Teams and Your data: every card is
+  // measured below.
+  await expect(cards).toHaveCount(7);
   // Classic scrollbars can leave only 310 CSS pixels inside a 320px window.
   for (const width of [1280, 320, 310]) {
     await page.setViewportSize({ width, height: 800 });

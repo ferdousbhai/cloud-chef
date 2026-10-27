@@ -101,19 +101,22 @@ export function CommandLineCard() {
       description="Work on your projects from your own computer, with your own tools such as Claude Code. Pushing main publishes, just like from the workspace."
     >
       <ol className="mt-3 grid list-decimal gap-1.5 pl-5 text-sm text-content-secondary">
-        <li>Make a token below and copy it.</li>
         <li>
-          Clone a project with the address its <span className="text-content-primary">Clone</span> menu shows, such as{' '}
-          <code className="font-mono text-xs">git clone https://cloudchef.build/git/&lt;project&gt;.git</code>. When git
-          asks, use any user name and the token as the password.
+          Install it: <code className="font-mono text-xs">curl -fsSL https://cloudchef.build/install.sh | bash</code>
         </li>
         <li>
-          Your projects and how their publishes went:{' '}
-          <code className="font-mono text-xs [overflow-wrap:anywhere]">
-            curl -H &quot;Authorization: Bearer &lt;token&gt;&quot; https://cloudchef.build/api/command-line/projects
-          </code>
+          Sign in: <code className="font-mono text-xs">cloudchef auth login</code>
+        </li>
+        <li>
+          See your projects and get one: <code className="font-mono text-xs">cloudchef repo list</code>,{' '}
+          <code className="font-mono text-xs">cloudchef repo clone &lt;project&gt;</code>. Pushing main publishes;{' '}
+          <code className="font-mono text-xs">cloudchef run watch</code> follows it.
         </li>
       </ol>
+      <p className="mt-3 text-xs text-content-tertiary">
+        Each sign-in makes a token, listed below. For scripts or CI, make one here and use it as the git password or set
+        it as CLOUDCHEF_TOKEN.
+      </p>
 
       {created !== null ? (
         <div className="mt-3 grid gap-2 rounded-md border border-bolt-elements-borderColor p-3 text-sm" role="status">

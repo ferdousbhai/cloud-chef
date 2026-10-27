@@ -17,6 +17,7 @@ import { Route as SettingsRouteImport } from './routes/settings';
 import { Route as SupportRouteImport } from './routes/support';
 import { Route as TermsRouteImport } from './routes/terms';
 import { Route as ChatIdRouteImport } from './routes/chat.$id';
+import { Route as LoginDeviceRouteImport } from './routes/login.device';
 import { Route as SignInIndexRouteImport } from './routes/sign-in.index';
 import { Route as SignInEmailRouteImport } from './routes/sign-in.email';
 
@@ -60,6 +61,11 @@ const ChatIdRoute = ChatIdRouteImport.update({
   path: '/chat/$id',
   getParentRoute: () => rootRouteImport,
 } as any);
+const LoginDeviceRoute = LoginDeviceRouteImport.update({
+  id: '/login/device',
+  path: '/login/device',
+  getParentRoute: () => rootRouteImport,
+} as any);
 const SignInIndexRoute = SignInIndexRouteImport.update({
   id: '/sign-in/',
   path: '/sign-in/',
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/chat/$id': typeof ChatIdRoute;
+  '/login/device': typeof LoginDeviceRoute;
   '/sign-in/email': typeof SignInEmailRoute;
   '/sign-in/': typeof SignInIndexRoute;
 }
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/chat/$id': typeof ChatIdRoute;
+  '/login/device': typeof LoginDeviceRoute;
   '/sign-in/email': typeof SignInEmailRoute;
   '/sign-in': typeof SignInIndexRoute;
 }
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/chat/$id': typeof ChatIdRoute;
+  '/login/device': typeof LoginDeviceRoute;
   '/sign-in/email': typeof SignInEmailRoute;
   '/sign-in/': typeof SignInIndexRoute;
 }
@@ -119,6 +128,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/chat/$id'
+    | '/login/device'
     | '/sign-in/email'
     | '/sign-in/';
   fileRoutesByTo: FileRoutesByTo;
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/chat/$id'
+    | '/login/device'
     | '/sign-in/email'
     | '/sign-in';
   id:
@@ -143,6 +154,7 @@ export interface FileRouteTypes {
     | '/support'
     | '/terms'
     | '/chat/$id'
+    | '/login/device'
     | '/sign-in/email'
     | '/sign-in/';
   fileRoutesById: FileRoutesById;
@@ -156,6 +168,7 @@ export interface RootRouteChildren {
   SupportRoute: typeof SupportRoute;
   TermsRoute: typeof TermsRoute;
   ChatIdRoute: typeof ChatIdRoute;
+  LoginDeviceRoute: typeof LoginDeviceRoute;
   SignInEmailRoute: typeof SignInEmailRoute;
   SignInIndexRoute: typeof SignInIndexRoute;
 }
@@ -218,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/login/device': {
+      id: '/login/device';
+      path: '/login/device';
+      fullPath: '/login/device';
+      preLoaderRoute: typeof LoginDeviceRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     '/sign-in/': {
       id: '/sign-in/';
       path: '/sign-in';
@@ -244,6 +264,7 @@ const rootRouteChildren: RootRouteChildren = {
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   ChatIdRoute: ChatIdRoute,
+  LoginDeviceRoute: LoginDeviceRoute,
   SignInEmailRoute: SignInEmailRoute,
   SignInIndexRoute: SignInIndexRoute,
 };

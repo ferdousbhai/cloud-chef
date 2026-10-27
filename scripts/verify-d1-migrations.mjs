@@ -58,6 +58,8 @@ const migrationPolicies = [
       '0040_cloudchef_deploys.sql': '998feb5f942e5a9f2a74357ff9d67525e0ab2fdb3e9645eb3b12fa32abdce31b',
       '0041_deployment_steps.sql': '4d1c4b47b31c56d9c91cfbcec195a4c0144ad160c6bae65fa265c89176cd64c5',
       '0042_command_line_tokens.sql': '502949c032ecb59a7ec1aa2b2673f52bbba6786ae81ea88a5b154151d59400ff',
+      '0043_command_line_logins.sql': 'd23f910c28ed098dafe79f204f1a5c337205f123765e2ac10ee6c298b752f113',
+      '0044_usernames_and_project_names.sql': '7afddbde67bc6c0e772baa8c1913efbb1729f702d3111a8d5f376183d3240314',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

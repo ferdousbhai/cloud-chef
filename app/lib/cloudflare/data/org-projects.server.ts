@@ -48,6 +48,8 @@ export type Project = {
   deploysWith: 'workers_builds' | 'cloudchef';
   /** The Worker CloudChef deploys it as, once known. */
   deployWorkerName: string | null;
+  /** `<author's username>/<slug>`, its address (cloudchef.build/<fullName>.git); null until its author has a username. */
+  fullName: string | null;
 };
 
 /** A team project as its admins manage it: who else may view or edit it. */
@@ -172,12 +174,15 @@ type ProjectRow = {
   deploy_worker_name: string | null;
   default_branch: string;
   created_from: ProjectCreatedFrom;
+  slug: string | null;
+  owner_username: string | null;
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
   projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
   projects.site_url, projects.site_frameable, projects.default_branch, projects.created_from,
-  projects.deploys_with, projects.deploy_worker_name`;
+  projects.deploys_with, projects.deploy_worker_name, projects.slug,
+  (SELECT username FROM "user" WHERE "user".id = projects.created_by) AS owner_username`;
 
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
@@ -259,6 +264,53 @@ export async function findAccessibleProject(
   return row ? { ...toProject(row), role: row.role } : null;
 }
 
+/** A project's name in addresses (`<username>/<slug>`): lowercase letters, digits and single dashes. */
+export function projectSlug(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60)
+      .replace(/-+$/, '') || 'project'
+  );
+}
+
+/** The address name for a new project of `authorId` called `name`: its slug, or with -2, -3… when that is theirs. */
+async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
+  const slug = projectSlug(name);
+  const { results } = await db
+    .prepare(`SELECT slug FROM org_projects WHERE created_by = ? AND (slug = ?2 OR slug LIKE ?2 || '-%')`)
+    .bind(authorId, slug)
+    .all<{ slug: string }>();
+  const taken = new Set(results.map((row) => row.slug));
+  let candidate = slug;
+  for (let suffix = 2; taken.has(candidate); suffix += 1) {
+    candidate = `${slug}-${suffix}`;
+  }
+  return candidate;
+}
+
+/** The project `<username>/<slug>` with `userId`'s role on it, if they may view or edit it now. */
+export async function findAccessibleProjectByFullName(
+  db: D1Database,
+  fullName: { owner: string; slug: string },
+  userId: string,
+): Promise<(Project & { role: ProjectRole }) | null> {
+  const row = await db
+    .prepare(
+      `SELECT * FROM (
+         SELECT ${PROJECT_COLUMNS}, ${ROLE.replaceAll('?2', '?3')} AS role FROM org_projects AS projects
+         WHERE projects.slug = ?2 AND projects.created_by = (SELECT id FROM "user" WHERE username = ?1)
+       ) WHERE role IS NOT NULL`,
+    )
+    .bind(fullName.owner, fullName.slug, userId)
+    .first<ProjectRow & { role: ProjectRole }>();
+  return row ? { ...toProject(row), role: row.role } : null;
+}
+
 /**
  * A project imported from GitHub, to be imported into Artifacts by the first member who opens it.
  * Returns its id; refused when the repository is a project of the scope already.
@@ -275,9 +327,9 @@ export async function importProject(
   const id = crypto.randomUUID();
   const inserted = await db
     .prepare(
-      `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
-         created_from, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'github', ?, ?)
+      `INSERT INTO org_projects (id, connection_id, org_id, name, slug, import_repo_id, import_repo_full_name,
+         import_branch, created_from, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'github', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(
@@ -285,6 +337,7 @@ export async function importProject(
       args.scope.connectionId,
       args.scope.orgId,
       args.name,
+      await freeSlug(db, args.actorId, args.name),
       args.source.repoId,
       args.source.fullName,
       args.source.branch,
@@ -309,11 +362,20 @@ export async function addUploadedProject(
   const inserted = await db
     .prepare(
       `INSERT INTO org_projects
-         (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, 'zip', 'cloudchef', ?, ?)
+         (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'zip', 'cloudchef', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
-    .bind(args.projectId, args.scope.connectionId, args.scope.orgId, args.name, args.repo, args.actorId, Date.now())
+    .bind(
+      args.projectId,
+      args.scope.connectionId,
+      args.scope.orgId,
+      args.name,
+      await freeSlug(db, args.actorId, args.name),
+      args.repo,
+      args.actorId,
+      Date.now(),
+    )
     .run();
   if (inserted.meta.changes !== 1) {
     throw new OrganizationError('That project is here already.', 409);
@@ -466,6 +528,7 @@ function toProject(row: ProjectRow): Project {
     siteFrameable: row.site_frameable === null ? null : row.site_frameable === 1,
     deploysWith: row.deploys_with,
     deployWorkerName: row.deploy_worker_name,
+    fullName: row.owner_username && row.slug ? `${row.owner_username}/${row.slug}` : null,
   };
 }
 
@@ -601,6 +664,11 @@ export async function approveProductionRequest(
   // The repository may be a project already (its draft was approved before and sent again): then that
   // project is the one the request approves into.
   const repositoryProject = `(SELECT id FROM org_projects WHERE connection_id = ${connection} AND artifact_repo = ${request})`;
+  const title = await db
+    .prepare('SELECT title FROM production_requests WHERE id = ?')
+    .bind(args.requestId)
+    .first<{ title: string }>();
+  const slug = await freeSlug(db, args.actorId, title?.title ?? '');
   const [approved] = await db.batch([
     db
       .prepare(
@@ -612,12 +680,13 @@ export async function approveProductionRequest(
       .bind(args.requestId, args.actorId, now, args.orgId),
     db
       .prepare(
-        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_by, created_at)
-         SELECT ?4, ${connection}, ?3, title, repo, 'draft', ?5, ?2 FROM production_requests
+        `INSERT INTO org_projects
+           (id, connection_id, org_id, name, slug, artifact_repo, created_from, created_by, created_at)
+         SELECT ?4, ${connection}, ?3, title, ?6, repo, 'draft', ?5, ?2 FROM production_requests
          WHERE id = ?1 AND ${approvedNow}
          ON CONFLICT DO NOTHING`,
       )
-      .bind(args.requestId, now, args.orgId, newProjectId, args.actorId),
+      .bind(args.requestId, now, args.orgId, newProjectId, args.actorId, slug),
     db
       .prepare(
         `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)

@@ -103,3 +103,85 @@ export async function commandLineTokenUser(db: D1Database, token: string): Promi
   }
   return row.user_id;
 }
+
+/** How long the command line waits for the person to approve its sign-in. */
+const LOGIN_LIFETIME_MS = 10 * 60 * 1_000;
+/** Letters a person reads and types without confusing them (no 0/O, 1/I/L). */
+const USER_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+
+/** A short code to approve in the browser, in two groups of four: `WDJB-MJHT`, as gh shows it. */
+function userCode(): string {
+  const letters = Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => USER_CODE_ALPHABET[byte % 31]);
+  return `${letters.slice(0, 4).join('')}-${letters.slice(4).join('')}`;
+}
+
+/** Makes a code shown on a screen comparable to one typed in: capitals, one dash. */
+function normalizeUserCode(code: string): string {
+  const letters = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return letters.length === 8 ? `${letters.slice(0, 4)}-${letters.slice(4)}` : '';
+}
+
+/** A sign-in for the command line to wait on: the code it keeps, and the code the person approves. */
+export async function startCommandLineLogin(
+  db: D1Database,
+  label: string,
+): Promise<{ deviceCode: string; userCode: string; expiresAt: number }> {
+  const now = Date.now();
+  await db.prepare('DELETE FROM command_line_logins WHERE expires_at <= ?').bind(now).run();
+  const deviceCode = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const code = userCode();
+  const expiresAt = now + LOGIN_LIFETIME_MS;
+  await db
+    .prepare(
+      `INSERT INTO command_line_logins (id, device_code_hash, user_code, label, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), await sha256Hex(deviceCode), code, label, now, expiresAt)
+    .run();
+  return { deviceCode, userCode: code, expiresAt };
+}
+
+/** What a sign-in waiting for approval is for, so the person sees what they approve; null when there is none. */
+export async function pendingCommandLineLogin(db: D1Database, code: string): Promise<{ label: string } | null> {
+  return db
+    .prepare('SELECT label FROM command_line_logins WHERE user_code = ? AND user_id IS NULL AND expires_at > ?')
+    .bind(normalizeUserCode(code), Date.now())
+    .first<{ label: string }>();
+}
+
+/** The person approves the sign-in showing `code`; whether there was one waiting. */
+export async function approveCommandLineLogin(db: D1Database, code: string, userId: string): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE command_line_logins SET user_id = ? WHERE user_code = ? AND user_id IS NULL AND expires_at > ?')
+    .bind(userId, normalizeUserCode(code), Date.now())
+    .run();
+  return result.meta.changes > 0;
+}
+
+/**
+ * The command line asks whether its sign-in was approved: once it was, its token, made now and handed over once
+ * (the sign-in is removed with it); `pending` while it waits; `expired` when there's none to wait for.
+ */
+export async function pollCommandLineLogin(
+  db: D1Database,
+  deviceCode: string,
+): Promise<{ token: string; userId: string } | 'pending' | 'expired'> {
+  const hash = await sha256Hex(deviceCode);
+  const row = await db
+    .prepare('SELECT id, label, user_id FROM command_line_logins WHERE device_code_hash = ? AND expires_at > ?')
+    .bind(hash, Date.now())
+    .first<{ id: string; label: string; user_id: string | null }>();
+  if (!row) {
+    return 'expired';
+  }
+  if (!row.user_id) {
+    return 'pending';
+  }
+  // Taken once: only the poll that removes it makes the token.
+  const taken = await db.prepare('DELETE FROM command_line_logins WHERE id = ?').bind(row.id).run();
+  if (taken.meta.changes === 0) {
+    return 'expired';
+  }
+  const { token } = await createCommandLineToken(db, row.user_id, row.label);
+  return { token, userId: row.user_id };
+}

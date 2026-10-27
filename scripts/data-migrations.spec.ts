@@ -8,6 +8,7 @@ const controlPlaneTables = [
   'cloudflare_connections',
   'cloudflare_credentials',
   'cloudflare_oauth_states',
+  'command_line_logins',
   'command_line_tokens',
   'email_sign_in_tokens',
   'github_approval_states',

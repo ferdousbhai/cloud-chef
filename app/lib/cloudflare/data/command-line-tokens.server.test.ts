@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import {
+  approveCommandLineLogin,
   commandLineTokenUser,
+  pendingCommandLineLogin,
+  pollCommandLineLogin,
+  startCommandLineLogin,
   createCommandLineToken,
   listCommandLineTokens,
   revokeCommandLineToken,
@@ -82,5 +86,46 @@ describe('command-line tokens', () => {
       TooManyCommandLineTokensError,
     );
     await expect(createCommandLineToken(db, 'user-2', 'Theirs')).resolves.toBeTruthy();
+  });
+});
+
+describe('signing in the command line from a browser', () => {
+  it('waits for approval, then hands over a token of the approver once', async () => {
+    const { db } = setup();
+    const { deviceCode, userCode } = await startCommandLineLogin(db, 'laptop (cloudchef CLI)');
+
+    expect(userCode).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    expect(await pollCommandLineLogin(db, deviceCode)).toBe('pending');
+    expect(await pendingCommandLineLogin(db, userCode)).toEqual({ label: 'laptop (cloudchef CLI)' });
+
+    expect(await approveCommandLineLogin(db, userCode.toLowerCase().replace('-', ' '), 'user-1')).toBe(true);
+    const taken = await pollCommandLineLogin(db, deviceCode);
+    expect(taken).toEqual({ token: expect.stringMatching(/^cct_/), userId: 'user-1' });
+    if (taken === 'pending' || taken === 'expired') {
+      throw new Error(`The approved sign-in was ${taken}.`);
+    }
+    expect(await commandLineTokenUser(db, taken.token)).toBe('user-1');
+    expect((await listCommandLineTokens(db, 'user-1')).map((token) => token.label)).toEqual(['laptop (cloudchef CLI)']);
+
+    expect(await pollCommandLineLogin(db, deviceCode)).toBe('expired');
+    expect(await approveCommandLineLogin(db, userCode, 'user-2')).toBe(false);
+  });
+
+  it('lets no one approve or take a sign-in after ten minutes', async () => {
+    const { db } = setup();
+    const { deviceCode, userCode } = await startCommandLineLogin(db, 'laptop');
+
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 11 * 60 * 1_000 });
+
+    expect(await approveCommandLineLogin(db, userCode, 'user-1')).toBe(false);
+    expect(await pollCommandLineLogin(db, deviceCode)).toBe('expired');
+    expect(await pendingCommandLineLogin(db, userCode)).toBeNull();
+  });
+
+  it('knows nothing of a device code it never gave', async () => {
+    const { db } = setup();
+    await startCommandLineLogin(db, 'laptop');
+
+    expect(await pollCommandLineLogin(db, 'made-up-device-code-of-some-length')).toBe('expired');
   });
 });
