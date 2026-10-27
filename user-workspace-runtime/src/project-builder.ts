@@ -91,6 +91,11 @@ const MAX_BUSY_WAITS = 40;
 /** How often a job whose container was lost starts over before it counts as failed. */
 const MAX_RESTARTS = 2;
 const UPGRADE_WAIT_SECONDS = 60;
+/**
+ * A step that starts this soon into a scheduled call runs in the same call; the longest step's timeout and this
+ * stay within the time one call may run.
+ */
+const SAME_CALL_MS = 60_000;
 /** The account's token is asked for again this often while a deploy runs, so a stopped one loses it soon. */
 const TOKEN_REUSE_MS = 20_000;
 const MAX_LOG_CHARACTERS = 64 * 1024;
@@ -199,6 +204,8 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
   #lastStepEndedAt = 0;
   /** The deploy proxy's requests in the running Wrangler command, summed up in the log when it ends. */
   #requests: RequestTally = emptyRequestTally();
+  /** When the scheduled call the next step runs in started, if a step just ended in it. */
+  #callStartedAt: number | null = null;
 
   constructor(ctx: DurableObjectState<{}>, env: BuilderEnv) {
     super(ctx, env);
@@ -328,10 +335,13 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     await this.schedule(0, 'runNext', {});
   }
 
-  /** Runs one step of the oldest unfinished job, then schedules the next. */
+  /** Runs one step of the oldest unfinished job, then the next: in the same call while it is young, else scheduled. */
   async runNext(): Promise<void> {
+    const chained = this.#callStartedAt;
+    const callStartedAt = chained ?? Date.now();
+    this.#callStartedAt = null;
     this.closeGate();
-    if (Date.now() - this.#lastStepEndedAt < 900) {
+    if (chained === null && Date.now() - this.#lastStepEndedAt < 900) {
       // Another call already ran a step in this scheduled run; the next goes in a run of its own.
       await this.schedule(1, 'runNext', {});
       return;
@@ -412,6 +422,11 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       outcome.next,
       job.deploymentId,
     );
+    if (Date.now() - callStartedAt < SAME_CALL_MS) {
+      this.#callStartedAt = callStartedAt;
+      await this.runNext();
+      return;
+    }
     await this.schedule(1, 'runNext', {});
   }
 
@@ -859,9 +874,9 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       CLOUDFLARE_ACCOUNT_ID: this.env.CLOUDFLARE_ACCOUNT_ID,
       WRANGLER_SEND_METRICS: 'false',
       WRANGLER_OUTPUT_FILE_PATH: WRANGLER_OUTPUT,
-      // Wrangler's own debug log, read into the deploy's log when it fails without saying why on screen.
+      // Wrangler's own log, which has its debug lines too, read into the deploy's log when it fails without saying
+      // why on screen.
       WRANGLER_LOG_PATH: WRANGLER_LOG_DIR,
-      WRANGLER_LOG: 'debug',
       // The project's history is gone; no git Wrangler runs finds any other.
       GIT_DIR: '/nonexistent',
       GIT_CEILING_DIRECTORIES: '/',
@@ -1233,7 +1248,7 @@ function seconds(ms: number): string {
 /** How many requests Wrangler sent Cloudflare through the deploy proxy, how long they took, and the slowest. */
 function requestTallyLine(tally: RequestTally): string {
   const slowest = tally.slowest ? `, slowest ${tally.slowest.line} in ${seconds(tally.slowest.ms)}` : '';
-  return `[${tally.count} requests to Cloudflare, ${seconds(tally.ms)} in all${slowest}]\n`;
+  return `\n[${tally.count} requests to Cloudflare, ${seconds(tally.ms)} in all${slowest}]\n`;
 }
 
 /** A request's body read in full, or null for none. */
