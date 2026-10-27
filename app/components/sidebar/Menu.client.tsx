@@ -207,7 +207,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             onNavigate={onClose}
           />
           <div className="flex items-baseline justify-between gap-3 px-1 pb-2 pt-1">
-            <h2 className="text-xs font-black tracking-widest text-content-secondary uppercase">Projects</h2>
+            <h2 className="text-xs font-bold tracking-widest text-content-secondary uppercase">Projects</h2>
             <span className="text-xs tabular-nums text-content-tertiary">
               {list.length} {list.length === 1 ? 'project' : 'projects'}
             </span>

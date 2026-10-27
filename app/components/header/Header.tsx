@@ -70,7 +70,7 @@ export function Header() {
               'flex items-center gap-2 rounded-md text-content-primary no-underline hover:text-content-primary hover:no-underline',
               { 'max-[479px]:hidden': showSidebarIcon && chat.started },
             )}
-            nameClassName="cloudchef-brand-name font-display text-lg font-black leading-none text-content-primary"
+            nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
           />
         </div>
         {chat.started && (

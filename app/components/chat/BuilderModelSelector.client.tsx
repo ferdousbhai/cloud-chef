@@ -451,7 +451,7 @@ function ProviderMark({ provider }: { provider: BuilderProvider }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] bg-bolt-elements-background-depth-3 px-1 text-[9px] font-semibold leading-none text-content-secondary"
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm bg-bolt-elements-background-depth-3 px-1 text-[9px] font-semibold leading-none text-content-secondary"
     >
       {provider === 'workers' ? 'CF' : GATEWAY_PROVIDERS[provider].mark}
     </span>

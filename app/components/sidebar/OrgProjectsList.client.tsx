@@ -90,7 +90,7 @@ export function OrgProjectsList({
 
   return (
     <section aria-label={heading} className="pb-3">
-      <h2 className="px-1 pb-2 text-xs font-black tracking-widest text-content-secondary uppercase">{heading}</h2>
+      <h2 className="px-1 pb-2 text-xs font-bold tracking-widest text-content-secondary uppercase">{heading}</h2>
       <div className="space-y-1.5">
         {shown.map((project) => (
           <button

@@ -193,9 +193,7 @@ function RootErrorComponent({ error, reset }: { error: unknown; reset: () => voi
   }, [error]);
 
   if (typeof window !== 'undefined' && isDynamicImportError(error) && !hasRecoveredDynamicImportForCurrentBuild()) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-content-secondary">Refreshing…</div>
-    );
+    return <div className="flex min-h-dvh items-center justify-center text-sm text-content-secondary">Refreshing…</div>;
   }
 
   return <ErrorDisplay error={error} resetErrorBoundary={reset} />;
