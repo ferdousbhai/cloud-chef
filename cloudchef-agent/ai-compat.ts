@@ -35,8 +35,12 @@ export function messageText(message: Pick<CloudChefMessage, 'parts'>): string {
   return message.parts.map((part) => (part.type === 'text' && typeof part.text === 'string' ? part.text : '')).join('');
 }
 
+/**
+ * A tool call, as the browser assembles it from the stream (`dynamic-tool`) or as the agent stores it: the Agents SDK
+ * builds the saved message with each call's part typed by its tool (`tool-<name>`), whether or not it was dynamic.
+ */
 export function isToolPart(part: CloudChefPart): boolean {
-  return part.type === 'dynamic-tool';
+  return part.type === 'dynamic-tool' || part.type.startsWith('tool-');
 }
 
 export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation | null {
@@ -47,7 +51,12 @@ export function getToolInvocation(part: CloudChefPart): CloudChefToolInvocation 
   const invocation: CloudChefToolInvocation = {
     ...part,
     type: 'dynamic-tool',
-    toolName: typeof fields.toolName === 'string' ? fields.toolName : '',
+    toolName:
+      typeof fields.toolName === 'string'
+        ? fields.toolName
+        : part.type.startsWith('tool-')
+          ? part.type.slice('tool-'.length)
+          : '',
     toolCallId: typeof fields.toolCallId === 'string' ? fields.toolCallId : '',
     state: toolInvocationState(fields.state),
   };
