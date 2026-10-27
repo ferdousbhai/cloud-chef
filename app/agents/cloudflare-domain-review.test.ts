@@ -49,6 +49,19 @@ describe('reviewDomainChange', () => {
     });
   });
 
+  it('reviews an attach sent to the older records address the same way', async () => {
+    const review = await reviewDomainChange(
+      { ...attach('alberta.ferdousbhai.com', 'alberta-plan-glossary'), url: `${DOMAINS}/records` },
+      reads(),
+    );
+    expect(review).toEqual({
+      warning: expect.stringContaining('alberta.ferdousbhai.com will show the Worker alberta-plan-glossary'),
+    });
+    expect(
+      await reviewDomainChange({ ...attach('cloudchef.build', 'x'), url: `${DOMAINS}/records` }, reads()),
+    ).toHaveProperty('refusal');
+  });
+
   it('says when approving moves an address away from the Worker it shows now', async () => {
     const read = reads([
       [

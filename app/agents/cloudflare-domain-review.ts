@@ -41,9 +41,12 @@ async function readAs<T>(read: DomainReviewRead, path: string, schema: z.ZodType
 
 export async function reviewDomainChange(request: CloudflareApiRequest, read: DomainReviewRead): Promise<DomainReview> {
   const path = new URL(request.url).pathname.replace(/^\/client\/v4/, '').replace(/\/+$/, '');
-  const domains = /^\/accounts\/[^/]+\/workers\/domains(\/[^/]+)?$/.exec(path);
-  if (domains) {
-    return domains[1] ? reviewDomainRemoval(path, read) : reviewDomainAttach(path, request, read);
+  const domains = /^(\/accounts\/[^/]+\/workers\/domains)(\/[^/]+)?$/.exec(path);
+  if (domains?.[1]) {
+    // `/workers/domains/records` is the older address for attaching one; only a DELETE takes one away.
+    return request.method === 'DELETE' && domains[2]
+      ? reviewDomainRemoval(path, read)
+      : reviewDomainAttach(domains[1], request, read);
   }
   if (
     /^\/zones\/[^/]+\/workers\/routes(\/[^/]+)?$/.test(path) ||
