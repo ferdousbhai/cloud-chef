@@ -80,58 +80,63 @@ it('keeps current reasoning visible and older steps in a separate disclosure', a
   expect(container.querySelector('details')?.textContent).not.toContain('Thinking');
 });
 
-it('keeps pending approvals visible even in the compact panel', async () => {
-  const proposal: CloudChefMessage = {
-    id: 'proposal',
-    role: 'assistant',
-    parts: [
-      {
-        type: 'dynamic-tool',
-        toolName: 'cloudflare_request',
-        toolCallId: 'approval-call',
-        state: 'output-available',
-        input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-        output: {
-          kind: 'cloudflare_request_proposal',
-          status: 'awaiting_approval',
-          executionId: 'approval',
+// The browser streams the call as `dynamic-tool`; the agent's saved transcript, which replaces it once the turn
+// pauses for approval, types it by its tool.
+it.each(['dynamic-tool', 'tool-cloudflare_request'])(
+  'keeps pending approvals visible even in the compact panel (%s)',
+  async (type) => {
+    const proposal: CloudChefMessage = {
+      id: 'proposal',
+      role: 'assistant',
+      parts: [
+        {
+          type,
+          toolName: 'cloudflare_request',
           toolCallId: 'approval-call',
-          accountId: 'account',
-          request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-          proposalSha256: 'a'.repeat(64),
-          riskNote: 'Review this action.',
-          expiresAt: Date.now() + 60_000,
-        },
-      },
-    ],
-  };
-  await act(async () =>
-    root.render(
-      <ActivityPanel
-        messages={[proposal]}
-        isStreaming={false}
-        compact
-        cloudflareExecutions={[
-          {
+          state: 'output-available',
+          input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
+          output: {
+            kind: 'cloudflare_request_proposal',
+            status: 'awaiting_approval',
             executionId: 'approval',
             toolCallId: 'approval-call',
             accountId: 'account',
+            request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
             proposalSha256: 'a'.repeat(64),
-            status: 'awaiting_approval',
-            createdAt: Date.now(),
-            decidedAt: null,
-            startedAt: null,
-            completedAt: null,
+            riskNote: 'Review this action.',
             expiresAt: Date.now() + 60_000,
-            outcome: null,
           },
-        ]}
-      />,
-    ),
-  );
-  expect(container.textContent).toContain('Approval needed');
-  expect(container.textContent).toContain('Review this action.');
-});
+        },
+      ],
+    };
+    await act(async () =>
+      root.render(
+        <ActivityPanel
+          messages={[proposal]}
+          isStreaming={false}
+          compact
+          cloudflareExecutions={[
+            {
+              executionId: 'approval',
+              toolCallId: 'approval-call',
+              accountId: 'account',
+              proposalSha256: 'a'.repeat(64),
+              status: 'awaiting_approval',
+              createdAt: Date.now(),
+              decidedAt: null,
+              startedAt: null,
+              completedAt: null,
+              expiresAt: Date.now() + 60_000,
+              outcome: null,
+            },
+          ]}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain('Approval needed');
+    expect(container.textContent).toContain('Review this action.');
+  },
+);
 
 describe('revealing work from the status line', () => {
   const thinking: CloudChefMessage = {

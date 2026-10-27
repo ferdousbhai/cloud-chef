@@ -20,9 +20,28 @@ describe('chat message helpers', () => {
     });
   });
 
-  it('reads only dynamic tool parts as tool calls', () => {
+  it('reads only tool parts as tool calls', () => {
     expect(getToolInvocation({ type: 'text', text: 'Done.' })).toBeNull();
     expect(getToolInvocation({ type: 'data-tool-progress', data: {} })).toBeNull();
+  });
+
+  it('reads a call the agent stored typed by its tool, as the Agents SDK saves every call', () => {
+    // What the agent's saved transcript holds for a call streamed as dynamic: the browser's stream assembly
+    // makes it `dynamic-tool`, but the saved message, which replaces it once the turn ends, does not.
+    const stored = getToolInvocation({
+      type: 'tool-cloudflare_request',
+      toolName: 'cloudflare_request',
+      toolCallId: 'cf-1',
+      state: 'output-available',
+      input: { method: 'PUT', url: 'https://api.cloudflare.com/client/v4/accounts/a/workers/domains' },
+      output: { kind: 'cloudflare_request_proposal' },
+    });
+    expect(stored).toMatchObject({ type: 'dynamic-tool', toolName: 'cloudflare_request', toolCallId: 'cf-1' });
+    expect(stored?.state).toBe('output-available');
+    // A static part may leave its name to its type.
+    expect(getToolInvocation({ type: 'tool-exec', toolCallId: 'exec-3', state: 'input-available' })?.toolName).toBe(
+      'exec',
+    );
   });
 
   it('reads a state it does not know as ended in error, and a missing one as streaming input', () => {
