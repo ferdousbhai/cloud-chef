@@ -60,6 +60,7 @@ const migrationPolicies = [
       '0042_command_line_tokens.sql': '502949c032ecb59a7ec1aa2b2673f52bbba6786ae81ea88a5b154151d59400ff',
       '0043_command_line_logins.sql': 'd23f910c28ed098dafe79f204f1a5c337205f123765e2ac10ee6c298b752f113',
       '0044_usernames_and_project_names.sql': '7afddbde67bc6c0e772baa8c1913efbb1729f702d3111a8d5f376183d3240314',
+      '0045_public_projects_and_copies.sql': 'dc924375bcf203da8aa8cea53ebd8e76c8c50dffd784b4efdb5bf42793a87929',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -105,6 +106,9 @@ const migrationPolicies = [
       // is rebuilt with every row copied. The access grants and production requests step aside first, as in
       // 0033, so dropping it can't cascade to them.
       '0039_uploaded_projects.sql',
+      // Rebuilds org_projects for public projects and copies (created_from's CHECK gains 'copy'), dropping the
+      // `origin` column and rollout triggers 0039 and 0040 left for the release after; its dependents step aside.
+      '0045_public_projects_and_copies.sql',
     ],
   },
   {

@@ -262,11 +262,11 @@ describe('control-plane account export', () => {
                 '["project-1"]', 0);
       INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
         VALUES ('acme-connection', 'acme', 'account-acme', 'active', 1, 1);
-      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_at)
-        VALUES ('project-1', 'acme-connection', 'acme', 'Shop', 'p-shop', 'promoted', 1);
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
+        VALUES ('project-1', 'acme-connection', 'acme', 'Shop', 'p-shop', 'draft', 1);
       INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('project-1', 'user-1', 'view', 7);
-      INSERT INTO org_projects (id, connection_id, name, import_repo_full_name, import_branch, origin, created_at)
-        VALUES ('project-2', 'connection-user-1', 'Mine', 'me/mine', 'main', 'imported', 8);
+      INSERT INTO org_projects (id, connection_id, name, import_repo_full_name, import_branch, created_from, created_at)
+        VALUES ('project-2', 'connection-user-1', 'Mine', 'me/mine', 'main', 'github', 8);
       INSERT INTO production_requests (id, org_id, requested_by, title, note, preview_url, repo, commit_sha, status,
         created_at, draft_id, draft_revision, updated_at)
         VALUES ('request-1', 'acme', 'user-1', 'Site', 'Please', 'https://preview.example', 'p-site', 'abc',

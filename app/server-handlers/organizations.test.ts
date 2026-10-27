@@ -586,8 +586,8 @@ describe('organizations', () => {
     const addProject = async (id: string, repoId: number) => {
       await env.DB.prepare(
         `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
-           origin, created_at)
-         VALUES (?1, (SELECT id FROM cloudflare_connections WHERE org_id = ?2), ?2, ?3, ?4, ?5, 'main', 'imported', 1)`,
+           created_from, created_at)
+         VALUES (?1, (SELECT id FROM cloudflare_connections WHERE org_id = ?2), ?2, ?3, ?4, ?5, 'main', 'github', 1)`,
       )
         .bind(id, orgId, `project-${repoId}`, repoId, `acme/project-${repoId}`)
         .run();
@@ -751,8 +751,8 @@ describe('organizations', () => {
       env,
     });
     database.exec(`
-      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_at)
-        VALUES ('site', 'acme-connection', '${orgId}', 'Site', 'p-site', 'promoted', 1);
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
+        VALUES ('site', 'acme-connection', '${orgId}', 'Site', 'p-site', 'draft', 1);
       INSERT INTO org_project_access (project_id, user_id, granted_at) VALUES ('site', '${sam.userId}', 1);
       INSERT INTO user_computer_runtimes
         (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
@@ -956,8 +956,8 @@ describe('a team’s name and deletion', () => {
       .run();
     database
       .prepare(
-        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, origin, created_at)
-         VALUES ('44444444-4444-4444-8444-444444444444', 'acme-connection', ?, 'Site', 'p-site', 'promoted', 1)`,
+        `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
+         VALUES ('44444444-4444-4444-8444-444444444444', 'acme-connection', ?, 'Site', 'p-site', 'draft', 1)`,
       )
       .run(orgId);
     database

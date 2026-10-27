@@ -24,7 +24,7 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
-export type ProjectCreatedFrom = 'github' | 'zip' | 'draft';
+export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy';
 
 export type Project = {
   id: string;
@@ -50,7 +50,16 @@ export type Project = {
   deployWorkerName: string | null;
   /** `<author's username>/<slug>`, its address (cloudchef.build/<fullName>.git); null until its author has a username. */
   fullName: string | null;
+  /** Public: anyone signed in finds it in Explore, opens its site, reads and copies its code. */
+  visibility: ProjectVisibility;
+  /** The project it is a copy of, while that one is still here. */
+  copiedFrom: string | null;
+  /** Who made it, its author: the owner in its address. */
+  createdBy: string | null;
+  createdAt: number;
 };
+
+export type ProjectVisibility = 'private' | 'public';
 
 /** A team project as its admins manage it: who else may view or edit it. */
 type ManagedProject = Project & { access: { userId: string; role: ProjectRole }[] };
@@ -176,12 +185,17 @@ type ProjectRow = {
   created_from: ProjectCreatedFrom;
   slug: string | null;
   owner_username: string | null;
+  visibility: ProjectVisibility;
+  copied_from: string | null;
+  created_by: string | null;
+  created_at: number;
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
   projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
   projects.site_url, projects.site_frameable, projects.default_branch, projects.created_from,
-  projects.deploys_with, projects.deploy_worker_name, projects.slug,
+  projects.deploys_with, projects.deploy_worker_name, projects.slug, projects.visibility, projects.copied_from,
+  projects.created_by, projects.created_at,
   (SELECT username FROM "user" WHERE "user".id = projects.created_by) AS owner_username`;
 
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
@@ -293,6 +307,76 @@ async function freeSlug(db: D1Database, authorId: string, name: string): Promise
   return candidate;
 }
 
+/**
+ * A project `userId` may read: one they may view or edit, with that role, or else a public one, which anyone signed
+ * in may read (`public`: no role of theirs, so nothing they may change).
+ */
+export async function findReadableProject(
+  db: D1Database,
+  ref: { id: string } | { owner: string; slug: string },
+  userId: string,
+): Promise<(Project & { role: ProjectRole | 'public' }) | null> {
+  const accessible =
+    'id' in ref
+      ? await findAccessibleProject(db, ref.id, userId)
+      : await findAccessibleProjectByFullName(db, ref, userId);
+  if (accessible) {
+    return accessible;
+  }
+  const row = await db
+    .prepare(
+      'id' in ref
+        ? `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects WHERE projects.id = ?1 AND projects.visibility = 'public'`
+        : `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects WHERE projects.slug = ?2 AND projects.visibility = 'public'
+             AND projects.created_by = (SELECT id FROM "user" WHERE username = ?1)`,
+    )
+    .bind(...('id' in ref ? [ref.id] : [ref.owner, ref.slug]))
+    .first<ProjectRow>();
+  return row ? { ...toProject(row), role: 'public' } : null;
+}
+
+/** Public projects, newest first, with their author's name: what Explore shows. */
+export async function listPublicProjects(
+  db: D1Database,
+  limit = 60,
+): Promise<(Project & { authorName: string | null; copiedFromFullName: string | null })[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${PROJECT_COLUMNS},
+         (SELECT name FROM "user" WHERE "user".id = projects.created_by) AS author_name,
+         (SELECT (SELECT username FROM "user" WHERE "user".id = source.created_by) || '/' || source.slug
+            FROM org_projects AS source WHERE source.id = projects.copied_from) AS copied_from_full_name
+       FROM org_projects AS projects
+       WHERE projects.visibility = 'public' AND projects.artifact_repo IS NOT NULL
+       ORDER BY projects.created_at DESC LIMIT ?`,
+    )
+    .bind(limit)
+    .all<ProjectRow & { author_name: string | null; copied_from_full_name: string | null }>();
+  return results.map((row) => ({
+    ...toProject(row),
+    authorName: row.author_name,
+    copiedFromFullName: row.copied_from_full_name,
+  }));
+}
+
+/** Makes one of the projects `userId` manages public or private; false when they don't manage it. */
+export async function setProjectVisibility(
+  db: D1Database,
+  args: { userId: string; projectId: string; visibility: ProjectVisibility },
+): Promise<boolean> {
+  let project: Project;
+  try {
+    project = await requireManagedProject(db, args.userId, args.projectId);
+  } catch (error) {
+    if (error instanceof OrganizationError) {
+      return false;
+    }
+    throw error;
+  }
+  await db.prepare('UPDATE org_projects SET visibility = ? WHERE id = ?').bind(args.visibility, project.id).run();
+  return true;
+}
+
 /** The project `<username>/<slug>` with `userId`'s role on it, if they may view or edit it now. */
 export async function findAccessibleProjectByFullName(
   db: D1Database,
@@ -357,13 +441,21 @@ export async function importProject(
  */
 export async function addUploadedProject(
   db: D1Database,
-  args: { scope: ProjectScope; actorId: string; projectId: string; name: string; repo: string },
+  args: {
+    scope: ProjectScope;
+    actorId: string;
+    projectId: string;
+    name: string;
+    repo: string;
+    /** For a copy, the project it copies; null for an upload. */
+    copiedFrom: string | null;
+  },
 ): Promise<void> {
   const inserted = await db
     .prepare(
-      `INSERT INTO org_projects
-         (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'zip', 'cloudchef', ?, ?)
+      `INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, copied_from,
+         deploys_with, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'cloudchef', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(
@@ -373,6 +465,8 @@ export async function addUploadedProject(
       args.name,
       await freeSlug(db, args.actorId, args.name),
       args.repo,
+      args.copiedFrom ? 'copy' : 'zip',
+      args.copiedFrom,
       args.actorId,
       Date.now(),
     )
@@ -529,6 +623,10 @@ function toProject(row: ProjectRow): Project {
     deploysWith: row.deploys_with,
     deployWorkerName: row.deploy_worker_name,
     fullName: row.owner_username && row.slug ? `${row.owner_username}/${row.slug}` : null,
+    visibility: row.visibility,
+    copiedFrom: row.copied_from,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
   };
 }
 

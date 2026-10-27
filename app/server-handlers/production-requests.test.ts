@@ -157,6 +157,10 @@ describe('production requests', () => {
           name: 'Recipe box',
           repo: 'p-recipe-chat',
           role: 'edit',
+          // The requester's own view of a team project: they may edit it, not change who can see it.
+          fullName: null,
+          visibility: 'private',
+          canManage: false,
           importRepoFullName: null,
           siteUrl: null,
           siteFrameable: null,

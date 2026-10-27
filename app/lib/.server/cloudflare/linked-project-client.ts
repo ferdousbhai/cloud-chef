@@ -196,7 +196,7 @@ export async function registerProjectImport(
 export async function registerUploadedProject(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; name: string; repo: string },
+  body: { orgProjectId: string; name: string; repo: string; copiedFrom?: string },
 ): Promise<void> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/register-upload', body, OPEN_TIMEOUT_MS);
   await readAnswer(response, z.object({ projectId: z.string() }), 'CloudChef could not add the project.');

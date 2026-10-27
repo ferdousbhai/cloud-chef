@@ -52,8 +52,8 @@ describe("switching a project's Workers Builds to Artifacts", () => {
     database
       .prepare(
         `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
-           workers_builds_script_tag, origin, created_at)
-         VALUES (?, 'team-connection', ?, 'ff', 1115484475, 'ada/forbidden-feminine', 'master', ?, 'imported', 1)`,
+           workers_builds_script_tag, created_from, created_at)
+         VALUES (?, 'team-connection', ?, 'ff', 1115484475, 'ada/forbidden-feminine', 'master', ?, 'github', 1)`,
       )
       .run(SITE, ORG, TAG);
     const ask = (cookie: string, openAccount = workersBuilds(GITHUB)) =>

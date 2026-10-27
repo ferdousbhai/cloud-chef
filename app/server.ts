@@ -15,6 +15,11 @@ import {
   listCommandLineTokensAction,
   revokeCommandLineTokenAction,
   setUsernameAction,
+  setVisibilityAction,
+  copyProjectAction,
+  exploreAction,
+  commandLineVisibilityAction,
+  commandLineCopyProjectAction,
 } from './server-handlers/command-line';
 import handler from '@tanstack/react-start/server-entry';
 import { healthAction } from './server-handlers/health';
@@ -220,6 +225,11 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/command-line/runs/rerun': ['POST', commandLineRerunAction],
     '/api/command-line/user': ['GET', commandLineUserAction],
     '/api/profile/username': ['POST', setUsernameAction],
+    '/api/projects/visibility': ['POST', setVisibilityAction],
+    '/api/projects/copy': ['POST', copyProjectAction],
+    '/api/explore': ['GET', exploreAction],
+    '/api/command-line/projects/visibility': ['POST', commandLineVisibilityAction],
+    '/api/command-line/projects/copy': ['POST', commandLineCopyProjectAction],
     '/api/command-line/login': ['POST', commandLineLoginAction],
     '/api/command-line/login/poll': ['POST', commandLineLoginPollAction],
     '/api/command-line/login/describe': ['GET', commandLineLoginDescribeAction],

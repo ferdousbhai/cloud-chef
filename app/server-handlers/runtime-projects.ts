@@ -18,6 +18,7 @@ import {
   abandonImport,
   addUploadedProject,
   findAccessibleProject,
+  findReadableProject,
   listGitHubInstallations,
   recordImportedRepo,
   removeProject,
@@ -57,6 +58,8 @@ const registerUploadSchema = z.strictObject({
   ...projectFields,
   name: z.string().trim().min(1).max(80),
   repo: REPO,
+  /** A copy's source project, which the person must be able to read. */
+  copiedFrom: z.string().uuid().optional(),
 });
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
@@ -299,12 +302,16 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
     if (scope.connectionId !== connection.id) {
       return json({ error: "This workspace can't add projects in that account." }, 403);
     }
+    if (body.copiedFrom && !(await findReadableProject(args.env.DB, { id: body.copiedFrom }, identity.userId))) {
+      return json({ error: 'That project is no longer one you can copy.' }, 403);
+    }
     await addUploadedProject(args.env.DB, {
       scope,
       actorId: identity.userId,
       projectId: body.orgProjectId,
       name: body.name,
       repo: body.repo,
+      copiedFrom: body.copiedFrom ?? null,
     });
     return json({ projectId: body.orgProjectId }, 201);
   });

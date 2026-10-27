@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
+import { findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
 import {
+  commandLineCopyProjectAction,
   commandLineGitAction,
   commandLineProjectsAction,
+  commandLineVisibilityAction,
+  exploreAction,
   isCommandLineGitPath,
   setUsernameAction,
 } from './command-line';
@@ -124,5 +128,102 @@ describe('choosing a username', () => {
     expect((await save('taken')).status).toBe(409);
     expect((await save('settings')).status).toBe(400);
     expect((await save('two words')).status).toBe(400);
+  });
+});
+
+describe('public projects', () => {
+  const SITE = '22222222-2222-4222-8222-222222222222';
+
+  async function world() {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username) VALUES
+        ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 'ada'), ('bo', 'Bo', 'bo@example.com', 1, 1, 1, 'bo');
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1);
+    `);
+    const env = envWith({ DB: db });
+    const bo = (await createCommandLineToken(db, 'bo', 'Laptop')).token;
+    const ada = (await createCommandLineToken(db, 'ada', 'Laptop')).token;
+    return { database, db, env, bo, ada };
+  }
+
+  const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
+  const basic = (token: string) => ({ authorization: `Basic ${btoa(`x:${token}`)}` });
+
+  it('stay private until their owner makes them public, and only their owner can', async () => {
+    const { db, env, bo, ada } = await world();
+    const change = (token: string, visibility: string) =>
+      commandLineVisibilityAction({
+        request: new Request('https://cloudchef.build/api/command-line/projects/visibility', {
+          method: 'POST',
+          headers: { ...bearer(token), 'content-type': 'application/json' },
+          body: JSON.stringify({ project: SITE, visibility }),
+        }),
+        env,
+      });
+
+    expect(await findReadableProject(db, { owner: 'ada', slug: 'site' }, 'bo')).toBeNull();
+    expect((await change(bo, 'public')).status).toBe(403);
+    expect((await change(ada, 'public')).status).toBe(200);
+    expect(await findReadableProject(db, { owner: 'ada', slug: 'site' }, 'bo')).toMatchObject({
+      id: SITE,
+      role: 'public',
+      fullName: 'ada/site',
+    });
+    expect(await findReadableProject(db, { id: SITE }, 'ada')).toMatchObject({ role: 'edit' });
+  });
+
+  it('show in Explore once public, for anyone signed in', async () => {
+    const { database, env, bo } = await world();
+    const explore = () =>
+      exploreAction({ request: new Request('https://cloudchef.build/api/explore', { headers: bearer(bo) }), env });
+
+    expect(await (await explore()).json()).toEqual({ projects: [] });
+    database.exec(`UPDATE org_projects SET visibility = 'public'`);
+    expect(await (await explore()).json()).toEqual({
+      projects: [
+        expect.objectContaining({
+          id: SITE,
+          fullName: 'ada/site',
+          owner: { username: 'ada', name: 'Ada' },
+          copiedFrom: null,
+        }),
+      ],
+    });
+    expect((await exploreAction({ request: new Request('https://cloudchef.build/api/explore'), env })).status).toBe(
+      401,
+    );
+  });
+
+  it('let others clone but never push, and stay hidden while private', async () => {
+    const { database, env, bo } = await world();
+    const git = (path: string, init: RequestInit = {}) =>
+      commandLineGitAction({ request: new Request(`https://cloudchef.build/ada/site.git${path}`, init), env });
+
+    expect((await git('/info/refs?service=git-upload-pack', { headers: basic(bo) })).status).toBe(404);
+    database.exec(`UPDATE org_projects SET visibility = 'public'`);
+    const push = await git('/info/refs?service=git-receive-pack', { headers: basic(bo) });
+    expect(push.status).toBe(403);
+    expect(await push.text()).toContain('Make a copy');
+    const pack = await git('/git-receive-pack', { method: 'POST', headers: basic(bo), body: '0000' });
+    expect(pack.status).toBe(403);
+  });
+
+  it('can be copied only by someone who may read them', async () => {
+    const { env, bo } = await world();
+
+    const copy = await commandLineCopyProjectAction({
+      request: new Request('https://cloudchef.build/api/command-line/projects/copy', {
+        method: 'POST',
+        headers: { ...bearer(bo), 'content-type': 'application/json' },
+        body: JSON.stringify({ project: SITE }),
+      }),
+      env,
+    });
+
+    expect(copy.status).toBe(404);
   });
 });

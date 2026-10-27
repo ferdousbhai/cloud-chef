@@ -86,32 +86,38 @@ export function listMyProjectsAction({
     );
     return Response.json(
       {
-        projects: projects.map(({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith }) => {
-          const deployment = deployments.get(id);
-          return {
-            id,
-            name,
-            repo,
-            role,
-            importRepoFullName: importSource?.fullName ?? null,
-            siteUrl,
-            siteFrameable,
-            deploysWith,
-            deployment: deployment
-              ? {
-                  id: deployment.id,
-                  state: deployment.state,
-                  failureStage: deployment.failureStage,
-                  reason: deployment.reason,
-                  workerName: deployment.workerName,
-                  wantedWorkerName: deployment.wantedWorkerName,
-                  step: deployment.step,
-                  stepStartedAt: deployment.stepStartedAt,
-                  updatedAt: deployment.updatedAt,
-                }
-              : null,
-          };
-        }),
+        projects: projects.map(
+          ({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith, ...rest }) => {
+            const deployment = deployments.get(id);
+            return {
+              id,
+              name,
+              repo,
+              role,
+              fullName: rest.fullName,
+              visibility: rest.visibility,
+              // Its owner (a person's own account) or a team's admin may change who can see it.
+              canManage: session.context?.kind !== 'organization' || session.context.role === 'admin',
+              importRepoFullName: importSource?.fullName ?? null,
+              siteUrl,
+              siteFrameable,
+              deploysWith,
+              deployment: deployment
+                ? {
+                    id: deployment.id,
+                    state: deployment.state,
+                    failureStage: deployment.failureStage,
+                    reason: deployment.reason,
+                    workerName: deployment.workerName,
+                    wantedWorkerName: deployment.wantedWorkerName,
+                    step: deployment.step,
+                    stepStartedAt: deployment.stepStartedAt,
+                    updatedAt: deployment.updatedAt,
+                  }
+                : null,
+            };
+          },
+        ),
       },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );

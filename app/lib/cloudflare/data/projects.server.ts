@@ -374,6 +374,122 @@ export async function userRuntimeProjectUploadAction(
   }
 }
 
+const readAccessSchema = z.strictObject({ orgProjectId: z.string().uuid() });
+
+/**
+ * `POST /v1/projects/read-access`: a short-lived read token for a project of this runtime's account, for git to
+ * read its history with. CloudChef asks for it to make a copy of a project for someone who may read it, a public
+ * one among them; the person this runtime is for may read it (the control plane checks that before it asks).
+ */
+export async function userRuntimeProjectReadAccessAction(
+  args: { request: Request; env: Env },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = readAccessSchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the project.' }, { status: 400 });
+  }
+  try {
+    const identity = runtimeConnectionIdentity(args.env);
+    if (!identity) {
+      throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+    }
+    const project = await openProject(args.env, identity, parsed.data.orgProjectId);
+    if (!project.repo) {
+      throw new DataNotFoundError('That project has no code yet.');
+    }
+    const access = await repositories(args.env).readAccess(project.repo);
+    return Response.json(
+      {
+        url: access.remote,
+        authorization: `Basic ${btoa(`x:${access.token}`)}`,
+        branch: project.defaultBranch,
+        expiresAt: Date.parse(access.expiresAt),
+      },
+      { headers: { 'cache-control': 'no-store' } },
+    );
+  } catch (error) {
+    return internalErrorResponse(error, 'The project could not be read. Try again.');
+  }
+}
+
+const copySchema = z.strictObject({
+  name: z.string().trim().min(1).max(80),
+  copiedFrom: z.string().uuid(),
+  source: z.strictObject({
+    url: z.url({ protocol: /^https$/ }),
+    authorization: z.string().min(1).max(4_096),
+    branch: z.string().min(1).max(256),
+  }),
+});
+
+/**
+ * `POST /v1/projects/copy`: a new project of this runtime's account whose history is another project's, read from
+ * where CloudChef says with the read token it got for it. Kept like an upload (the repository first, then the
+ * project), and built and published from the start.
+ */
+export async function userRuntimeProjectCopyAction(
+  args: { request: Request; env: Env; userId: string },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = copySchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Say what to copy, and the new project’s name.' }, { status: 400 });
+  }
+  const { name, copiedFrom, source } = parsed.data;
+  try {
+    const identity = runtimeConnectionIdentity(args.env);
+    if (!identity) {
+      throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+    }
+    const projectId = crypto.randomUUID();
+    const repo = importedProjectRepo(projectId);
+    const store = repositories(args.env);
+    let commit: string;
+    try {
+      ({ commit } = await withRepositoryErrors(
+        store.importFromUrl({ url: source.url, authorization: source.authorization, branch: source.branch, repo }),
+      ));
+    } catch (error) {
+      await store.deleteRepo(repo).catch(() => undefined);
+      throw error;
+    }
+    await withRepositoryErrors(
+      (async () => {
+        try {
+          await registerUploadedProject(args.env, identity, { orgProjectId: projectId, name, repo, copiedFrom });
+        } catch (error) {
+          if (error instanceof ProjectRefusalError) {
+            // Refused, so not kept as a project, and its copied code isn't kept either.
+            await store.deleteRepo(repo).catch(() => undefined);
+            throw error;
+          }
+          throw new ProjectUnavailableError(
+            "CloudChef couldn't confirm the copy was made. Reload the projects page: if it's there, it's ready.",
+          );
+        }
+      })(),
+    );
+    try {
+      await args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(projectId)).enqueue({
+        orgProjectId: projectId,
+        branch: MAIN_BRANCH,
+        commit,
+      });
+    } catch (error) {
+      console.warn({ event: 'copy_deploy_not_started', message: String(error) });
+    }
+    const { initialId } = await openLinkedChat(args.env.DB, {
+      sessionId: args.userId,
+      id: crypto.randomUUID(),
+      orgProjectId: projectId,
+    });
+    return Response.json({ projectId, initialId }, { status: 201, headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return internalErrorResponse(error, 'The copy could not be made. Try again.');
+  }
+}
+
 /** The uploaded ZIP's files, within a workspace's limits; anything else is said to the person. */
 async function readUploadedFiles(request: Request) {
   let archive: Uint8Array;

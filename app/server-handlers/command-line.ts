@@ -18,9 +18,12 @@ import {
 import { canUseConnection, listWorkspaceContexts } from '~/lib/cloudflare/data/organization-access.server';
 import {
   findAccessibleProject,
-  findAccessibleProjectByFullName,
+  findReadableProject,
   listAccessibleProjects,
+  listPublicProjects,
+  setProjectVisibility,
 } from '~/lib/cloudflare/data/org-projects.server';
+import { getAuthSession } from '~/lib/.server/auth';
 import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import { usableWorkspaceRuntime } from './cloudflare-integration';
@@ -48,19 +51,24 @@ export function isCommandLineGitPath(pathname: string): boolean {
   return GIT_ID_PATH.test(pathname) || GIT_NAME_PATH.test(pathname);
 }
 
-/** The project a git path names, if `userId` may view or edit it, and the git request's own part of the path. */
+/**
+ * The project a git path names, if `userId` may read it (one they may view or edit, or a public one), and the git
+ * request's own part of the path.
+ */
 async function gitTarget(db: D1Database, pathname: string, userId: string) {
   const byId = GIT_ID_PATH.exec(pathname);
   if (byId) {
-    return { project: await findAccessibleProject(db, byId[1]!, userId), rest: byId[2]! };
+    return { project: await findReadableProject(db, { id: byId[1]! }, userId), rest: byId[2]! };
   }
   const byName = GIT_NAME_PATH.exec(pathname);
   return byName
-    ? {
-        project: await findAccessibleProjectByFullName(db, { owner: byName[1]!, slug: byName[2]! }, userId),
-        rest: byName[3]!,
-      }
+    ? { project: await findReadableProject(db, { owner: byName[1]!, slug: byName[2]! }, userId), rest: byName[3]! }
     : null;
+}
+
+/** Whether a git request only reads: a fetch or clone, never a push. */
+function readsOnly(rest: string, search: URLSearchParams): boolean {
+  return rest === 'git-upload-pack' || (rest === 'info/refs' && search.get('service') === 'git-upload-pack');
 }
 
 /** Where a project's git is: by its name when its author has a username, else by its id. */
@@ -144,7 +152,11 @@ export async function commandLineGitAction({ request, env }: { request: Request;
     return new Response('Repository not found.\n', { status: 404 });
   }
   const { project, rest } = target;
-  const runtime = await runtimeFor(request, env, userId, project.connectionId);
+  // Someone with no role on a public project reads it through its author's runtime, so nothing else goes there.
+  if (project.role === 'public' && !readsOnly(rest, new URL(request.url).searchParams)) {
+    return new Response('You can read this project but not push to it. Make a copy to change it.\n', { status: 403 });
+  }
+  const runtime = await readerRuntime(request, env, userId, project);
   if ('refusal' in runtime) {
     return new Response(`${runtime.refusal}\n`, { status: runtime.status });
   }
@@ -188,6 +200,7 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
             account: context.kind === 'organization' ? context.orgName : 'Personal',
             role: project.role,
             gitUrl: gitUrl(origin, project),
+            visibility: project.visibility,
             defaultBranch: project.defaultBranch,
             siteUrl: project.siteUrl,
             publishedBy: project.deploysWith === 'cloudchef' ? 'cloudchef' : 'workers_builds',
@@ -216,6 +229,7 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
         project.siteUrl ?? '-',
         project.id,
         project.fullName ?? '-',
+        project.visibility,
       ]),
     );
   }
@@ -556,4 +570,235 @@ export function setUsernameAction({ request, env }: { request: Request; env: Env
     }
     return Response.json({ username });
   });
+}
+
+type ReadableProject = NonNullable<Awaited<ReturnType<typeof findReadableProject>>>;
+
+/**
+ * A runtime that may read `project` for `userId`: their own in its account when they may view or edit it, else its
+ * author's, for a public one read by someone who has no runtime in that account. It reads only: the caller checks
+ * that nothing else is asked of it.
+ */
+async function readerRuntime(request: Request, env: Env, userId: string, project: ReadableProject) {
+  if (project.role !== 'public') {
+    return runtimeFor(request, env, userId, project.connectionId);
+  }
+  if (!project.createdBy) {
+    return { refusal: 'This project can’t be read now: its author is no longer here.', status: 409 };
+  }
+  const authors = await runtimeFor(request, env, project.createdBy, project.connectionId);
+  return 'refusal' in authors
+    ? { refusal: 'This project can’t be read until its author opens CloudChef again.', status: 503 }
+    : authors;
+}
+
+const copyResultSchema = z.object({ projectId: z.string(), initialId: z.string() });
+const readAccessSchema = z.object({ url: z.string(), authorization: z.string(), branch: z.string() });
+
+/** A copy of `source` (one `userId` may read) as a new project in the account `connectionId` is: its id and chat. */
+async function copyProject(
+  request: Request,
+  env: Env,
+  args: { userId: string; source: ReadableProject; connectionId: string; name: string },
+): Promise<{ projectId: string; initialId: string; fullName: string | null } | { refusal: string; status: number }> {
+  const reader = await readerRuntime(request, env, args.userId, args.source);
+  if ('refusal' in reader) {
+    return reader;
+  }
+  const origin = publicOrigin(request);
+  const readAnswer = await fetch(new URL('/v1/projects/read-access', reader.endpoint), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${reader.token}`, origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ orgProjectId: args.source.id }),
+  });
+  const access = readAccessSchema.safeParse(await readAnswer.json().catch(() => null));
+  if (!readAnswer.ok || !access.success) {
+    return { refusal: 'The project couldn’t be read just now. Try again.', status: 502 };
+  }
+  const target = await runtimeFor(request, env, args.userId, args.connectionId);
+  if ('refusal' in target) {
+    return target;
+  }
+  const copyAnswer = await fetch(new URL('/v1/projects/copy', target.endpoint), {
+    method: 'POST',
+    headers: { authorization: `Bearer ${target.token}`, origin, 'content-type': 'application/json' },
+    body: JSON.stringify({ name: args.name, copiedFrom: args.source.id, source: access.data }),
+  });
+  const copied = copyResultSchema.safeParse(
+    await copyAnswer
+      .clone()
+      .json()
+      .catch(() => null),
+  );
+  if (!copyAnswer.ok || !copied.success) {
+    const failure = z.object({ error: z.string() }).safeParse(await copyAnswer.json().catch(() => null));
+    return {
+      refusal: failure.success ? failure.data.error : 'The copy could not be made. Try again.',
+      status: copyAnswer.ok ? 502 : copyAnswer.status,
+    };
+  }
+  const made = await findAccessibleProject(env.DB, copied.data.projectId, args.userId);
+  return { ...copied.data, fullName: made?.fullName ?? null };
+}
+
+const browserCopySchema = z.strictObject({ projectId: z.string().uuid(), name: z.string().trim().max(80).optional() });
+
+/** `POST /api/projects/copy`: a copy of a project the person may read, in the account they're working in now. */
+export function copyProjectAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, browserCopySchema, 'Choose the project to copy.');
+    if ('response' in body) {
+      return body.response;
+    }
+    if (!session.context) {
+      return Response.json({ error: 'Connect Cloudflare first, to have an account to copy it into.' }, { status: 409 });
+    }
+    const source = await findReadableProject(env.DB, { id: body.data.projectId }, session.user.id);
+    if (!source) {
+      return Response.json({ error: 'That project isn’t one you can copy.' }, { status: 404 });
+    }
+    const copied = await copyProject(request, env, {
+      userId: session.user.id,
+      source,
+      connectionId: session.context.connectionId,
+      name: body.data.name || source.name,
+    });
+    return 'refusal' in copied
+      ? Response.json({ error: copied.refusal }, { status: copied.status })
+      : Response.json(copied, { status: 201 });
+  });
+}
+
+const commandLineCopySchema = z.strictObject({
+  project: z.string().uuid(),
+  name: z.string().trim().max(80).optional(),
+  account: z.string().max(120).optional(),
+});
+
+/** `POST /api/command-line/projects/copy`: `cloudchef repo fork`, into Personal or a named team's account. */
+export async function commandLineCopyProjectAction({
+  request,
+  env,
+}: {
+  request: Request;
+  env: Env;
+}): Promise<Response> {
+  const userId = await tokenUser(request, env);
+  if (!userId) {
+    return Response.json({ error: 'Run cloudchef auth login.' }, { status: 401 });
+  }
+  const body = await readJsonRequest(request, commandLineCopySchema, 'Name the project to copy.');
+  if ('response' in body) {
+    return body.response;
+  }
+  const source = await findReadableProject(env.DB, { id: body.data.project }, userId);
+  if (!source) {
+    return Response.json({ error: 'That project isn’t one you can copy.' }, { status: 404 });
+  }
+  const context = await accountNamed(env, userId, body.data.account ?? 'Personal');
+  if ('error' in context) {
+    return Response.json({ error: context.error }, { status: 404 });
+  }
+  const copied = await copyProject(request, env, {
+    userId,
+    source,
+    connectionId: context.connectionId,
+    name: body.data.name || source.name,
+  });
+  if ('refusal' in copied) {
+    return Response.json({ error: copied.refusal }, { status: copied.status });
+  }
+  return Response.json(
+    {
+      project: {
+        id: copied.projectId,
+        name: body.data.name || source.name,
+        fullName: copied.fullName,
+        gitUrl: gitUrl(publicOrigin(request), { id: copied.projectId, fullName: copied.fullName }),
+      },
+    },
+    { status: 201 },
+  );
+}
+
+/** The account the person calls `name`: Personal, or one of their teams by its name. */
+async function accountNamed(env: Env, userId: string, name: string) {
+  const contexts = await listWorkspaceContexts(env.DB, userId);
+  const context = contexts.find((option) =>
+    option.kind === 'organization' ? option.orgName === name : name === 'Personal',
+  );
+  if (!context) {
+    const names = contexts.map((option) => (option.kind === 'organization' ? option.orgName : 'Personal'));
+    return { error: `No account named ${name}. Yours: ${names.join(', ')}.` };
+  }
+  return context;
+}
+
+const visibilitySchema = z.strictObject({ projectId: z.string().uuid(), visibility: z.enum(['private', 'public']) });
+
+/** `POST /api/projects/visibility`: the owner of a personal project, or a team's admin, makes it public or private. */
+export function setVisibilityAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, visibilitySchema, 'Choose public or private.');
+    if ('response' in body) {
+      return body.response;
+    }
+    return (await setProjectVisibility(env.DB, { userId: session.user.id, ...body.data }))
+      ? Response.json({ visibility: body.data.visibility })
+      : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
+  });
+}
+
+const commandLineVisibilitySchema = z.strictObject({
+  project: z.string().uuid(),
+  visibility: z.enum(['private', 'public']),
+});
+
+/** `POST /api/command-line/projects/visibility`: `cloudchef repo edit --visibility`. */
+export async function commandLineVisibilityAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  const userId = await tokenUser(request, env);
+  if (!userId) {
+    return Response.json({ error: 'Run cloudchef auth login.' }, { status: 401 });
+  }
+  const body = await readJsonRequest(request, commandLineVisibilitySchema, 'Choose public or private.');
+  if ('response' in body) {
+    return body.response;
+  }
+  return (await setProjectVisibility(env.DB, {
+    userId,
+    projectId: body.data.project,
+    visibility: body.data.visibility,
+  }))
+    ? Response.json({ visibility: body.data.visibility })
+    : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
+}
+
+/** `GET /api/explore`: public projects, newest first, for anyone signed in (a session, or a command-line token). */
+export async function exploreAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  const signedInUser = (await getAuthSession(env, request))?.user.id ?? (await tokenUser(request, env));
+  if (!signedInUser) {
+    return Response.json({ error: 'Sign in to explore projects.' }, { status: 401 });
+  }
+  const projects = (await listPublicProjects(env.DB)).map((project) => ({
+    id: project.id,
+    name: project.name,
+    fullName: project.fullName,
+    owner: { username: project.fullName?.split('/')[0] ?? null, name: project.authorName ?? 'Someone' },
+    siteUrl: project.siteUrl,
+    siteFrameable: project.siteFrameable,
+    createdAt: new Date(project.createdAt).toISOString(),
+    copiedFrom: project.copiedFrom ? { fullName: project.copiedFromFullName } : null,
+  }));
+  if (new URL(request.url).searchParams.get('format') === 'tsv') {
+    return tsv(
+      projects.map((project) => [
+        project.fullName ?? '-',
+        project.name,
+        project.owner.name,
+        project.siteUrl ?? '-',
+        project.id,
+      ]),
+    );
+  }
+  return Response.json({ projects }, { headers: { 'Cache-Control': 'no-store' } });
 }

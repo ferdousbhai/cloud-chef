@@ -11,6 +11,7 @@ import {
   projectCloneAccess,
   projectHistory,
   userRuntimeProjectArchiveAction,
+  userRuntimeProjectCopyAction,
   userRuntimeProjectUploadAction,
   withRepositoryErrors,
 } from './projects.server';
@@ -322,5 +323,81 @@ describe('uploading a ZIP as a new project', () => {
     const response = await upload(env, store, 'plain text');
     expect(response.status).toBe(400);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('copying a project into this account', () => {
+  const SOURCE = '33333333-3333-4333-8333-333333333333';
+  const SOURCE_URL = 'https://other-account.artifacts.test/git/cloudchef/t-source.git';
+  const AUTHORIZATION = `Basic ${btoa('x:read-token')}`;
+
+  async function copy(env: Env, store: () => ProjectRepositories, authorization = AUTHORIZATION) {
+    return userRuntimeProjectCopyAction(
+      {
+        request: new Request('https://runtime.test/v1/projects/copy', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'My bakery',
+            copiedFrom: SOURCE,
+            source: { url: SOURCE_URL, authorization, branch: 'main' },
+          }),
+        }),
+        env,
+        userId: OWNER,
+      },
+      store,
+    );
+  }
+
+  function registration(status: number) {
+    const calls: { route: string; body: Record<string, string> }[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const route = url.slice(url.indexOf('/api/cloudflare/') + 16);
+      calls.push({ route, body: JSON.parse(String(init?.body ?? '{}')) });
+      return route === 'runtime-projects/register-upload' && status === 201
+        ? Response.json({ projectId: calls.at(-1)?.body.orgProjectId }, { status })
+        : Response.json({ error: 'That project is no longer one you can copy.' }, { status });
+    });
+    return calls;
+  }
+
+  it('copies the whole history into a new repository and keeps it as a copy of its source', async () => {
+    const { env, artifacts, database, store } = await setup();
+    await artifacts.addSource(SOURCE_URL, { 'index.html': 'one' }, 'main', { authorization: AUTHORIZATION });
+    const head = await artifacts.commitSource(SOURCE_URL, { 'index.html': 'two' }, 'Second version');
+    const calls = registration(201);
+
+    const response = await copy(env, store);
+
+    expect(response.status).toBe(201);
+    const result = z.object({ projectId: z.string(), initialId: z.string() }).parse(await response.json());
+    const repo = `t-${result.projectId}`;
+    expect(await artifacts.head(repo)).toBe(head);
+    expect(await artifacts.filesAt(repo, 'main')).toEqual({ 'index.html': 'two' });
+    expect(calls.find((call) => call.route === 'runtime-projects/register-upload')?.body).toEqual({
+      orgProjectId: result.projectId,
+      name: 'My bakery',
+      repo,
+      copiedFrom: SOURCE,
+    });
+    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+      org_project_id: result.projectId,
+    });
+  });
+
+  it('makes nothing when the source can’t be read, and deletes the copy when it isn’t kept', async () => {
+    const { env, artifacts, store } = await setup();
+    await artifacts.addSource(SOURCE_URL, { 'index.html': 'one' }, 'main', { authorization: AUTHORIZATION });
+
+    const calls = registration(201);
+    expect((await copy(env, store, `Basic ${btoa('x:wrong')}`)).ok).toBe(false);
+    expect(calls.filter((call) => call.route === 'runtime-projects/register-upload')).toEqual([]);
+
+    vi.restoreAllMocks();
+    const refused = registration(403);
+    expect((await copy(env, store)).status).toBe(409);
+    const repo = refused.find((call) => call.route === 'runtime-projects/register-upload')?.body.repo ?? '';
+    expect(await artifacts.get(repo).catch(() => null)).toBeFalsy();
   });
 });

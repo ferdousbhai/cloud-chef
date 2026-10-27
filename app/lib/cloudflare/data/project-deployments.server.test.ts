@@ -30,16 +30,6 @@ const claim = (db: D1Database, branch: string, commit: string, now: number) =>
   claimDeployment(db, { projectId: PROJECT, branch, commit, defaultBranch: 'main', userId: 'ada', now });
 
 describe('project deployments', () => {
-  it('marks an upload, and one the old Worker adds during rollout, as deployed by CloudChef', () => {
-    const { database } = setup();
-    database.exec(`INSERT INTO org_projects (id, connection_id, name, artifact_repo, created_from, created_at)
-      VALUES ('later', 'own', 'Later', 't-later', 'zip', 2)`);
-    expect(database.prepare('SELECT id, deploys_with FROM org_projects ORDER BY id').all()).toEqual([
-      { id: PROJECT, deploys_with: 'cloudchef' },
-      { id: 'later', deploys_with: 'cloudchef' },
-    ]);
-  });
-
   it('claims a commit once, and a newer one of the same branch supersedes it', async () => {
     const { db } = setup();
     const first = await claim(db, 'main', ONE, 1_000);

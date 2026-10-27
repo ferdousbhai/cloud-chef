@@ -66,6 +66,8 @@ import {
   userRuntimeProjectUploadAction,
   userRuntimeProjectDeployLogAction,
   userRuntimeProjectDeployRetryAction,
+  userRuntimeProjectCopyAction,
+  userRuntimeProjectReadAccessAction,
 } from '../../app/lib/cloudflare/data/projects.server';
 import { findChat } from '../../app/lib/cloudflare/data/chat-repository.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
@@ -3123,6 +3125,10 @@ async function handleUserRequest(
     response = await userRuntimeProjectArchiveAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/upload') {
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/read-access') {
+    response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {
+    response = await userRuntimeProjectCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/deploy') {
     response = await userRuntimeProjectDeployRetryAction({ request, env: sharedEnv });
   } else if (request.method === 'GET' && url.pathname === '/v1/projects/deploy-log') {
