@@ -28,18 +28,18 @@ const menuVariants = {
   closed: {
     opacity: 0,
     visibility: 'hidden',
-    left: '-340px',
+    x: '-100%',
     transition: {
-      duration: 0.2,
+      duration: 0.5,
       ease: cubicEasingFn,
     },
   },
   open: {
     opacity: 1,
     visibility: 'initial',
-    left: 0,
+    x: 0,
     transition: {
-      duration: 0.2,
+      duration: 0.5,
       ease: cubicEasingFn,
     },
   },
@@ -161,7 +161,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
       variants={menuVariants}
       style={{ width: 'min(320px, calc(100dvw - 24px))' }}
       className={classNames(
-        'side-menu fixed top-0 flex h-full max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-r-lg',
+        'side-menu fixed left-0 top-0 flex h-full max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-r-lg',
         'bg-[var(--bolt-elements-sidebar-background)] border-r border-border-transparent',
         'shadow-panel text-sm',
         'z-30',

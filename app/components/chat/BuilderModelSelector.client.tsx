@@ -190,7 +190,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
             </span>
           )}
           <ChevronDownIcon
-            className="ml-auto size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180"
+            className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180"
             aria-hidden="true"
           />
         </button>

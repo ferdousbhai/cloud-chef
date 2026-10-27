@@ -44,9 +44,9 @@ button,
   border-radius: var(--cc-radius);
   font-weight: 600;
   transition:
-    transform 120ms ease,
-    background-color 120ms ease,
-    border-color 120ms ease;
+    transform var(--cc-duration-move) var(--cc-ease),
+    background-color var(--cc-duration-fade) var(--cc-ease),
+    border-color var(--cc-duration-fade) var(--cc-ease);
 }
 
 .cc-button:hover:not(:disabled) {
@@ -70,8 +70,9 @@ button,
 .cc-icon-button {
   border-radius: var(--cc-radius);
   transition:
-    color 120ms ease,
-    background-color 120ms ease;
+    color var(--cc-duration-fade) var(--cc-ease),
+    background-color var(--cc-duration-fade) var(--cc-ease),
+    transform var(--cc-duration-move) var(--cc-ease);
 }
 
 .cc-icon-button:hover {
@@ -79,21 +80,26 @@ button,
   color: var(--cc-content-accent);
 }
 
+.cc-icon-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .skip-link {
   position: fixed;
   top: 12px;
   left: 12px;
-  z-index: 9999;
+  z-index: var(--z-index-max);
   border: 1px solid var(--cc-border-selected);
   border-radius: var(--cc-radius);
   background: var(--cc-background-secondary);
   color: var(--cc-content-primary);
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 8px 12px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 600;
   text-decoration: none;
   transform: translateY(calc(-100% - 24px));
-  transition: transform 120ms ease;
+  transition: transform var(--cc-duration-move) var(--cc-ease);
 }
 
 .skip-link:focus-visible {
@@ -127,10 +133,10 @@ button,
   background: var(--cc-background-secondary);
   color: var(--cc-content-secondary);
   transition:
-    border-color 120ms ease,
-    background-color 120ms ease,
-    color 120ms ease,
-    transform 120ms ease;
+    border-color var(--cc-duration-fade) var(--cc-ease),
+    background-color var(--cc-duration-fade) var(--cc-ease),
+    color var(--cc-duration-fade) var(--cc-ease),
+    transform var(--cc-duration-move) var(--cc-ease);
 }
 
 .cloudchef-header__menu-button:hover {
@@ -362,12 +368,17 @@ button,
   font-weight: 500;
   white-space: nowrap;
   transition:
-    color 120ms ease,
-    background-color 120ms ease;
+    color var(--cc-duration-fade) var(--cc-ease),
+    background-color var(--cc-duration-fade) var(--cc-ease),
+    transform var(--cc-duration-move) var(--cc-ease);
 }
 
 .settings-tab:hover {
   color: var(--cc-content-primary);
+}
+
+.settings-tab:active {
+  transform: translateY(1px);
 }
 
 .settings-tab--active {

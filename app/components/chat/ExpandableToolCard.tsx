@@ -15,13 +15,13 @@ export function ExpandableToolCard({
   onToggle: () => void;
 }) {
   return (
-    <div className="tool-call-card flex w-full flex-col overflow-hidden rounded border border-bolt-elements-artifacts-borderColor transition-[border-color] duration-150">
+    <div className="tool-call-card flex w-full flex-col overflow-hidden rounded border border-bolt-elements-artifacts-borderColor transition-[border-color]">
       <motion.button
         type="button"
         aria-expanded={expanded}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.15, ease: cubicEasingFn }}
+        transition={{ duration: 0.3, ease: cubicEasingFn }}
         className="flex min-w-0 items-stretch overflow-hidden bg-bolt-elements-artifacts-background text-content-primary outline-none transition-colors hover:bg-bolt-elements-artifacts-backgroundHover focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
         onClick={onToggle}
       >
@@ -37,7 +37,7 @@ export function ExpandableToolCard({
             initial={{ height: 0 }}
             animate={{ height: 'auto' }}
             exit={{ height: 0 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: 0.3, ease: cubicEasingFn }}
           >
             <div className="bg-bolt-elements-actions-background px-2.5 py-1.5 text-left">{body}</div>
           </motion.div>

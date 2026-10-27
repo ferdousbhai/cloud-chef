@@ -55,7 +55,7 @@ const SliderButton = memo(function SliderButton({
       {selected && (
         <motion.span
           layoutId="pill-tab"
-          transition={{ duration: 0.2, ease: cubicEasingFn }}
+          transition={{ duration: 0.3, ease: cubicEasingFn }}
           className="absolute inset-0 z-0 rounded bg-bolt-elements-item-backgroundAccent"
         ></motion.span>
       )}

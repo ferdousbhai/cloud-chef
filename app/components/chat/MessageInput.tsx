@@ -105,7 +105,7 @@ export const MessageInput = memo(function MessageInput({
     <>
       <div
         className={classNames(
-          'relative z-20 mx-auto w-full transition-all duration-200',
+          'relative z-20 mx-auto w-full transition-all',
           chatStarted ? 'max-w-none' : 'cloudchef-message-input--home max-w-none',
         )}
       >
