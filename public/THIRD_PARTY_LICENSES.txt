@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 725
-Inventory SHA-256: c75f8a251a7b088747a5302b6725b9138c5153aff051e8f6a0d15ef06291b426
+Production packages: 726
+Inventory SHA-256: b586b58cbd63526bb3d8d520e6ff0d657e6c8c6ac71326c077f174b9f26e919f
 
 PACKAGE INVENTORY
 =================
@@ -2358,6 +2358,15 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 39248a57eaac37e120c65bae851c6382bf722fc87c3452bf6a245caef96db739)
+
+@xterm/addon-fit@0.11.0
+Declared license: MIT
+Author: {"name":"The xterm.js authors","url":"https://xtermjs.org/"}
+Repository: https://github.com/xtermjs/xterm.js/tree/master/addons/addon-fit
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f)
 
 @xterm/xterm@6.0.0
 Declared license: MIT
@@ -23145,6 +23154,32 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+----- END VERBATIM CONTENT -----
+
+SHA-256 e256f01188af527e4d06d21d06fbf785ae9c50d4b328bf03cbe0ba7f0aa4228f
+Used by:
+- @xterm/addon-fit@0.11.0:LICENSE
+----- BEGIN VERBATIM CONTENT -----
+Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 
 ----- END VERBATIM CONTENT -----
 
