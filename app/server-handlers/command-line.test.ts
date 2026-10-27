@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
-import { commandLineGitAction, commandLineProjectsAction, isCommandLineGitPath } from './command-line';
+import { createAuthSession } from '~/lib/.server/auth';
+import {
+  commandLineGitAction,
+  commandLineProjectsAction,
+  isCommandLineGitPath,
+  setUsernameAction,
+} from './command-line';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
 
@@ -76,5 +82,47 @@ describe('git from the command line', () => {
     });
     expect(listed.status).toBe(200);
     expect(await listed.json()).toEqual({ projects: [] });
+  });
+});
+
+describe('choosing a username', () => {
+  async function signedInAs(userId: string) {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username)
+        VALUES ('user-1', 'Person', 'person@example.com', 1, 1, 1, NULL),
+               ('user-2', 'Other', 'other@example.com', 1, 1, 1, 'taken');
+    `);
+    const env = envWith({ DB: db });
+    const cookie = (await createAuthSession(env, userId, new Request('https://cloudchef.build/'))).cookie.split(
+      ';',
+    )[0]!;
+    const save = (username: string) =>
+      setUsernameAction({
+        request: new Request('https://cloudchef.build/api/profile/username', {
+          method: 'POST',
+          headers: { cookie, origin: 'https://cloudchef.build', 'content-type': 'application/json' },
+          body: JSON.stringify({ username }),
+        }),
+        env,
+      });
+    return { database, save };
+  }
+
+  it('saves a free one, in lowercase', async () => {
+    const { database, save } = await signedInAs('user-1');
+
+    const answer = await save('Ferdous');
+
+    expect(answer.status).toBe(200);
+    expect(database.prepare(`SELECT username FROM "user" WHERE id = 'user-1'`).get()).toEqual({ username: 'ferdous' });
+  });
+
+  it('refuses one that is taken, kept back, or not an address', async () => {
+    const { save } = await signedInAs('user-1');
+
+    expect((await save('taken')).status).toBe(409);
+    expect((await save('settings')).status).toBe(400);
+    expect((await save('two words')).status).toBe(400);
   });
 });

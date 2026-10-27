@@ -14,6 +14,7 @@ import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
+import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm.client';
 
 const DownloadButton = lazy(() => import('./DownloadButton').then((module) => ({ default: module.DownloadButton })));
 const MobileProjectMenuItems = lazy(() =>
@@ -144,6 +145,7 @@ export function Header() {
           <SidebarMenu isOpen onClose={() => setIsMenuOpen(false)} />
         </Suspense>
       )}
+      {isAuthenticated && <ChooseUsernamePrompt />}
     </>
   );
 }

@@ -2,6 +2,7 @@ import { ExitIcon, PersonIcon } from '@radix-ui/react-icons';
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
 import { Button } from '@ui/Button';
+import { UsernameForm } from './UsernameForm.client';
 
 export function ProfileCard() {
   const user = authClient.useSession().data?.user ?? null;
@@ -31,6 +32,9 @@ export function ProfileCard() {
         <Button variant="neutral" size="sm" onClick={() => void logOut()} icon={<ExitIcon aria-hidden />}>
           Log out
         </Button>
+      </div>
+      <div className="mt-4">
+        <UsernameForm key={user.username ?? ''} initial={user.username ?? ''} />
       </div>
     </section>
   );

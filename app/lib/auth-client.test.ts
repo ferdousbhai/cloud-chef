@@ -146,7 +146,7 @@ describe('a session that could not be checked', () => {
         .mockResolvedValue(
           Response.json({
             session: { id: 's', userId: 'u', expiresAt: 2, createdAt: 1 },
-            user: { id: 'u', name: 'Sam', email: 'sam@acme.com', image: null },
+            user: { id: 'u', name: 'Sam', email: 'sam@acme.com', image: null, username: 'sam' },
             context: null,
             contexts: [],
           }),
@@ -193,7 +193,7 @@ describe('the user a session builds as', () => {
     answer(
       Response.json({
         session: { id: 's', userId: 'u', expiresAt: 2, createdAt: 1 },
-        user: { id: 'u', name: 'Sam', email: 'sam@acme.com', image: null },
+        user: { id: 'u', name: 'Sam', email: 'sam@acme.com', image: null, username: 'sam' },
         context: personal,
         contexts: [personal],
       }),

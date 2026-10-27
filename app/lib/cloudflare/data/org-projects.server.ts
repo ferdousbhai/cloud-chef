@@ -265,7 +265,7 @@ export async function findAccessibleProject(
 }
 
 /** A project's name in addresses (`<username>/<slug>`): lowercase letters, digits and single dashes. */
-export function projectSlug(name: string): string {
+function projectSlug(name: string): string {
   return (
     name
       .toLowerCase()

@@ -13,7 +13,7 @@ const personalContext: WorkspaceContext = {
  */
 export const authSession: CloudflareAuthSession = {
   session: { id: 'e2e-session', userId: 'e2e-user', expiresAt: Date.now() + 86_400_000, createdAt: Date.now() },
-  user: { id: 'e2e-user', name: 'E2E fixture', email: 'e2e@example.invalid', image: null },
+  user: { id: 'e2e-user', name: 'E2E fixture', email: 'e2e@example.invalid', image: null, username: 'e2e' },
   context: personalContext,
   contexts: [personalContext],
 };

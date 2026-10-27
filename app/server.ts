@@ -14,6 +14,7 @@ import {
   isCommandLineGitPath,
   listCommandLineTokensAction,
   revokeCommandLineTokenAction,
+  setUsernameAction,
 } from './server-handlers/command-line';
 import handler from '@tanstack/react-start/server-entry';
 import { healthAction } from './server-handlers/health';
@@ -218,6 +219,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/command-line/runs': ['GET', commandLineRunsAction],
     '/api/command-line/runs/rerun': ['POST', commandLineRerunAction],
     '/api/command-line/user': ['GET', commandLineUserAction],
+    '/api/profile/username': ['POST', setUsernameAction],
     '/api/command-line/login': ['POST', commandLineLoginAction],
     '/api/command-line/login/poll': ['POST', commandLineLoginPollAction],
     '/api/command-line/login/describe': ['GET', commandLineLoginDescribeAction],

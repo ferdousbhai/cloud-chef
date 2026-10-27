@@ -25,6 +25,7 @@ import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.ser
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import { usableWorkspaceRuntime } from './cloudflare-integration';
 import { signedIn } from './signed-in';
+import { usernameProblem } from '~/lib/usernames';
 
 /**
  * Working on projects from the person's own computer, with their own tools: git clones and pushes the project's
@@ -529,4 +530,30 @@ export async function commandLineCreateProjectAction({
     },
     { status: 201 },
   );
+}
+
+const usernameSchema = z.strictObject({ username: z.string().trim().toLowerCase().max(39) });
+
+/** `POST /api/profile/username`: sets or changes the person's username, which their projects' addresses use. */
+export function setUsernameAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, usernameSchema, 'Choose a username.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const { username } = body.data;
+    const problem = usernameProblem(username);
+    if (problem) {
+      return Response.json({ error: problem }, { status: 400 });
+    }
+    try {
+      await env.DB.prepare('UPDATE "user" SET username = ? WHERE id = ?').bind(username, session.user.id).run();
+    } catch (error) {
+      if (String(error).includes('UNIQUE')) {
+        return Response.json({ error: `${username} is taken. Choose another.` }, { status: 409 });
+      }
+      throw error;
+    }
+    return Response.json({ username });
+  });
 }

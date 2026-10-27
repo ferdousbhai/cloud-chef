@@ -53,6 +53,7 @@ const cloudflareAuthSessionSchema: z.ZodType<CloudflareAuthSession> = z.object({
     name: z.string(),
     email: z.string(),
     image: z.string().nullable(),
+    username: z.string().nullable(),
   }),
   context: workspaceContextSchema.nullable(),
   contexts: z.array(workspaceContextSchema),

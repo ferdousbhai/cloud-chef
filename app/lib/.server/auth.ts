@@ -26,7 +26,8 @@ export type CloudflareAuthSession = {
     expiresAt: number;
     createdAt: number;
   };
-  user: CloudflareAuthUser;
+  /** With their username (`<username>/<project>` addresses), null until they choose one. */
+  user: CloudflareAuthUser & { username: string | null };
   context: WorkspaceContext | null;
   /** Every account this person can switch to, `context` among them. */
   contexts: WorkspaceContext[];
@@ -47,6 +48,7 @@ type SessionRow = {
   name: string;
   email: string;
   image: string | null;
+  username: string | null;
   context_connection_id: string | null;
 };
 
@@ -64,7 +66,7 @@ export async function getAuthSession(env: Env, request: Request): Promise<Cloudf
   const now = Date.now();
   const row = await env.DB.prepare(
     `SELECT auth.id AS session_id, auth.user_id, auth.expires_at, auth.created_at, auth.context_connection_id,
-            users.name, users.email, users.image
+            users.name, users.email, users.image, users.username
      FROM cloudflare_auth_sessions AS auth
      JOIN "user" AS users ON users.id = auth.user_id
      WHERE auth.token_hash = ? AND auth.expires_at > ?`,
@@ -77,7 +79,7 @@ export async function getAuthSession(env: Env, request: Request): Promise<Cloudf
   const contexts = await listWorkspaceContexts(env.DB, row.user_id);
   return {
     session: { id: row.session_id, userId: row.user_id, expiresAt: row.expires_at, createdAt: row.created_at },
-    user: { id: row.user_id, name: row.name, email: row.email, image: row.image },
+    user: { id: row.user_id, name: row.name, email: row.email, image: row.image, username: row.username },
     // The account the session chose, while the person may still build in it; otherwise their first.
     context: contexts.find((option) => option.connectionId === row.context_connection_id) ?? contexts.at(0) ?? null,
     contexts,
