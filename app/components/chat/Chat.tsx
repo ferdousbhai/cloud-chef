@@ -128,7 +128,7 @@ export const Chat = memo(
 );
 Chat.displayName = 'Chat';
 
-function WorkspaceRuntimeConnectionError({
+export function WorkspaceRuntimeConnectionError({
   message,
   code,
   upgradeUrl,

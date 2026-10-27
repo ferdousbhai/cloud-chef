@@ -1,5 +1,5 @@
 import { useExistingChat } from '~/lib/stores/startup';
-import { Chat } from './chat/Chat';
+import { Chat, WorkspaceRuntimeConnectionError } from './chat/Chat';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
 import { Toaster } from '~/components/ui/Toaster';
@@ -7,7 +7,11 @@ import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useStore } from '@nanostores/react';
-import { retryAfterRuntimeError, userWorkspacePreparingStore } from '~/lib/cloudflare/runtime-session';
+import {
+  retryAfterRuntimeError,
+  UserRuntimeSessionError,
+  userWorkspacePreparingStore,
+} from '~/lib/cloudflare/runtime-session';
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { PromptPrefillContext } from './chat/prompt-prefill';
@@ -95,6 +99,17 @@ export function ProjectLoadError({ error, onRetry }: { error: Error; onRetry: ()
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
         <WorkspacePreparingPanel onKeepWaiting={retry} />
       </div>
+    );
+  }
+  // A refusal that waits on the person (new Cloudflare permissions, the Workers plan) says what to do, with its button.
+  if (error instanceof UserRuntimeSessionError && error.code) {
+    return (
+      <WorkspaceRuntimeConnectionError
+        message={message}
+        code={error.code}
+        upgradeUrl={error.upgradeUrl}
+        onRetry={retry}
+      />
     );
   }
   return (

@@ -24,6 +24,7 @@ type LinkProps = {
 import { ProjectLoadError } from './ExistingChat.client';
 import { ErrorDisplay } from './ErrorComponent';
 import { WorkspacePreparingError } from '~/lib/cloudflare/client';
+import { UserRuntimeSessionError } from '~/lib/cloudflare/runtime-session';
 
 describe('launch route states', () => {
   it('replaces a failed cold project load with a retryable error instead of an endless spinner', () => {
@@ -33,6 +34,19 @@ describe('launch route states', () => {
     expect(html).toContain('Runtime unavailable');
     expect(html).toContain('Try again');
     expect(html).not.toContain('Loading project');
+  });
+
+  it('gives a project that needs Cloudflare approved again the button that does it', () => {
+    const html = renderToStaticMarkup(
+      <ProjectLoadError
+        error={new UserRuntimeSessionError('CloudChef needs updated Cloudflare permissions.', 'cloudflare_reauthorization_required')}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(html).toContain('Reauthorize Cloudflare');
+    expect(html).toContain('href="/settings#cloudflare"');
+    expect(html).toContain('Try again');
   });
 
   it('tells a workspace that is still being prepared apart from a project that failed to load', () => {
