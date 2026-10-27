@@ -31,6 +31,7 @@ let teamProjects: TeamProject[] = [];
 /** The workspace runtime's publish routes, or null where it hasn't been upgraded to have them. */
 let deployRoutes: { log: string } | null = null;
 const deployRequests: unknown[] = [];
+const visibilityRequests: unknown[] = [];
 
 /** CloudChef's routes and the workspace runtime, as the home reaches them. */
 async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -46,6 +47,11 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   if (url === '/api/org-projects') {
     return Response.json({ projects: teamProjects });
+  }
+  if (url === '/api/projects/visibility' && init?.method === 'POST') {
+    const body: { projectId: string; visibility: string } = JSON.parse(String(init.body));
+    visibilityRequests.push(body);
+    return Response.json({ visibility: body.visibility });
   }
   if (url === '/api/cloudflare/runtime-session') {
     return Response.json({ endpoint: RUNTIME, token: 'runtime-token', expiresAt: Date.now() + 3_600_000 });
@@ -80,6 +86,7 @@ beforeEach(() => {
   teamProjects = [];
   deployRoutes = null;
   deployRequests.length = 0;
+  visibilityRequests.length = 0;
 });
 
 afterEach(async () => {
@@ -118,11 +125,36 @@ const ADD = 'button[aria-label="Add an existing project"]';
 
 /** Opens the "Add an existing project" menu and returns its choices. */
 async function addChoices(): Promise<string[]> {
-  const trigger = document.querySelector<HTMLButtonElement>(ADD);
+  return menuChoices(document.querySelector<HTMLButtonElement>(ADD));
+}
+
+/** Opens a card's "More" menu and returns its choices. */
+async function moreChoices(title: string): Promise<string[]> {
+  return menuChoices(card(title).querySelector<HTMLButtonElement>(`button[aria-label="More for ${title}"]`));
+}
+
+async function menuChoices(trigger: HTMLButtonElement | null): Promise<string[]> {
+  if (!trigger) {
+    throw new Error('No menu button');
+  }
   await act(async () => {
-    trigger?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+    trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
   });
   return [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '');
+}
+
+async function closeMenu() {
+  await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+}
+
+async function choose(label: string) {
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+    (candidate) => candidate.textContent === label,
+  );
+  if (!item) {
+    throw new Error(`No ${label} choice`);
+  }
+  await act(async () => item.click());
 }
 
 describe('ProjectsHome', () => {
@@ -341,6 +373,94 @@ describe('ProjectsHome', () => {
     await click(document.querySelector<HTMLElement>('[role="dialog"]')!, 'Replace it');
     await vi.waitFor(() => expect(card('Storefront').textContent).toContain('Updating…'));
     expect(deployRequests).toEqual([{ orgProjectId: 'project-1', deploymentId: 'deployment-1', toWantedWorker: true }]);
+  });
+
+  it('offers Explore beside the projects, whether or not the person may add any', async () => {
+    context = teamMember;
+    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
+    await render('user-member-explore');
+    await vi.waitFor(() => card('Storefront'));
+
+    expect(document.querySelector('#team-projects')?.parentElement?.querySelector('a[href="/explore"]')).not.toBeNull();
+  });
+
+  it('offers to make a project public or private only to someone who manages it, and a copy to everyone', async () => {
+    context = teamAdmin;
+    teamProjects = [
+      { id: 'project-1', name: 'Storefront', role: 'edit', repo: 'r', visibility: 'private', canManage: true },
+      {
+        id: 'project-2',
+        name: 'Docs',
+        role: 'edit',
+        repo: 'r',
+        visibility: 'public',
+        canManage: true,
+        fullName: 'acme/docs',
+      },
+      { id: 'project-3', name: 'Notes', role: 'view', repo: 'r', visibility: 'public', canManage: false },
+    ];
+    await render('user-visibility-menu');
+    await vi.waitFor(() => card('Notes'));
+
+    const storefront = await moreChoices('Storefront');
+    expect(storefront).toContain('Make public');
+    expect(storefront).toContain('Make a copy');
+    expect(storefront).not.toContain('Make private');
+    await closeMenu();
+    const docs = await moreChoices('Docs');
+    expect(docs).toContain('Make private');
+    expect(docs).not.toContain('Make public');
+    await closeMenu();
+    const notes = await moreChoices('Notes');
+    expect(notes).toContain('Make a copy');
+    expect(notes).not.toContain('Make public');
+    expect(notes).not.toContain('Make private');
+
+    // A public project says so, and its address on CloudChef is its second line.
+    expect(card('Docs').textContent).toContain('Public');
+    expect(card('Docs').textContent).toContain('acme/docs');
+    expect(card('Storefront').textContent).not.toContain('Public');
+  });
+
+  it('says what making a project public means before doing it', async () => {
+    context = personal;
+    teamProjects = [
+      { id: 'project-1', name: 'Storefront', role: 'edit', repo: 'r', visibility: 'private', canManage: true },
+    ];
+    await render('user-make-public');
+    await vi.waitFor(() => card('Storefront'));
+
+    await moreChoices('Storefront');
+    await choose('Make public');
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Anyone signed in to CloudChef will be able to find it in Explore');
+    expect(visibilityRequests).toEqual([]);
+
+    await click(dialog!, 'Make public');
+    await vi.waitFor(() => expect(card('Storefront').textContent).toContain('Public'));
+    expect(visibilityRequests).toEqual([{ projectId: 'project-1', visibility: 'public' }]);
+
+    // Making it private again needs no question.
+    await moreChoices('Storefront');
+    await choose('Make private');
+    await vi.waitFor(() => expect(card('Storefront').textContent).not.toContain('Public'));
+    expect(visibilityRequests).toEqual([
+      { projectId: 'project-1', visibility: 'public' },
+      { projectId: 'project-1', visibility: 'private' },
+    ]);
+  });
+
+  it('opens Make a copy with the project’s name', async () => {
+    context = teamAdmin;
+    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'view', repo: 'r' }];
+    await render('user-copy');
+    await vi.waitFor(() => card('Storefront'));
+
+    await moreChoices('Storefront');
+    await choose('Make a copy');
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.querySelector('input')?.value).toBe('Storefront');
+    expect(dialog?.textContent).toContain('Acme');
   });
 
   it("says an uploaded project is code only, or isn't published yet", async () => {

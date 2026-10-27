@@ -3,9 +3,13 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import {
   CodeIcon,
+  CopyIcon,
   CounterClockwiseClockIcon,
   DownloadIcon,
   GitHubLogoIcon,
+  GlobeIcon,
+  LockClosedIcon,
+  LockOpen1Icon,
   Pencil1Icon,
   PersonIcon,
   PlusIcon,
@@ -16,10 +20,17 @@ import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { Menu, MenuItem } from '@ui/Menu';
 import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
+import { LinkButton } from '~/components/ui/LinkButton';
 import { authClient } from '~/lib/auth-client';
 import { useChatHistory } from '~/lib/cloudflare/chat-history-db';
 import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
-import { loadTeamProjects, openTeamProject, type TeamProject } from '~/lib/cloudflare/org-projects.client';
+import {
+  loadTeamProjects,
+  openTeamProject,
+  setProjectVisibility,
+  type ProjectVisibility,
+  type TeamProject,
+} from '~/lib/cloudflare/org-projects.client';
 import {
   downloadProjectArchive,
   openProjectChat,
@@ -30,6 +41,7 @@ import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/
 import { isImportReturn, IMPORT_RETURN_PARAM } from '~/lib/github-app.client';
 import { messageOf } from '~/lib/json-request';
 import { CloneDialog } from './CloneDialog.client';
+import { CopyProjectDialog } from './CopyProjectDialog.client';
 import { DeployLogDialog } from './DeployLogDialog.client';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 import { deployInProgress, ProjectCard, type CardDeploy } from './ProjectCard';
@@ -43,6 +55,8 @@ type OpenDialog =
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
+  | { kind: 'copy'; project: { id: string; name: string } }
+  | { kind: 'make-public'; project: TeamProject; connection: ConnectionProjects }
   | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string; live?: boolean }
   | {
       kind: 'use-wanted-worker';
@@ -80,7 +94,14 @@ export function ProjectsHome({ userId }: { userId: string }) {
   }, []);
 
   // Beside the first section's heading: the team's in a team, the person's own otherwise.
-  const addProject = canImport ? <AddProjectMenu onDialog={setDialog} /> : null;
+  const addProject = (
+    <div className="flex flex-wrap items-center gap-2">
+      <LinkButton variant="subtle" size="xs" to="/explore" icon={<GlobeIcon />}>
+        Explore
+      </LinkButton>
+      {canImport ? <AddProjectMenu onDialog={setDialog} /> : null}
+    </div>
+  );
 
   return (
     <div className="mx-auto mt-8 grid w-full max-w-6xl gap-10 pb-10">
@@ -145,6 +166,26 @@ export function ProjectsHome({ userId }: { userId: string }) {
           dialogBody={
             <p>
               {`Whatever the Worker named ${dialog.workerName} runs now is replaced with this project, and the project publishes there from then on. The copy it published under the other name stays in your Cloudflare account until you delete it there.`}
+            </p>
+          }
+        />
+      ) : null}
+      {dialog?.kind === 'copy' ? (
+        <CopyProjectDialog project={dialog.project} onOpenProject={openProjectChat} onClose={() => setDialog(null)} />
+      ) : null}
+      {dialog?.kind === 'make-public' ? (
+        <ConfirmationDialog
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void dialog.connection.changeVisibility(dialog.project, 'public');
+          }}
+          confirmText="Make public"
+          dialogTitle={`Make ${dialog.project.name} public?`}
+          dialogBody={
+            <p>
+              Anyone signed in to CloudChef will be able to find it in Explore, open its site, read its code and make
+              their own copy. Only people you’ve given access can change it.
             </p>
           }
         />
@@ -333,6 +374,7 @@ type ConnectionProjects = {
   open: (project: TeamProject) => Promise<void>;
   retrying: string | null;
   retry: (project: TeamProject, deploymentId: string, options?: { toWantedWorker?: true }) => Promise<void>;
+  changeVisibility: (project: TeamProject, visibility: ProjectVisibility) => Promise<void>;
 };
 
 function useConnectionProjects(
@@ -415,6 +457,21 @@ function useConnectionProjects(
     }
   };
 
+  const changeVisibility = async (project: TeamProject, visibility: ProjectVisibility) => {
+    try {
+      const changed = await setProjectVisibility(project.id, visibility);
+      setProjects(
+        (current) =>
+          current?.map((listed) => (listed.id === project.id ? { ...listed, visibility: changed } : listed)) ?? null,
+      );
+      toast.success(changed === 'public' ? `${project.name} is public.` : `${project.name} is private again.`);
+    } catch (error) {
+      toast.error(
+        messageOf(error, `${project.name} could not be made ${visibility === 'public' ? 'public' : 'private'}.`),
+      );
+    }
+  };
+
   const open = async (project: TeamProject) => {
     setOpening(project.id);
     try {
@@ -435,6 +492,7 @@ function useConnectionProjects(
     open,
     retrying,
     retry,
+    changeVisibility,
   };
 }
 
@@ -514,6 +572,8 @@ function ConnectionProjectCard({
       updatedAt={project.lastCommitAt ?? null}
       siteUrl={project.siteUrl ?? null}
       siteFramed={project.siteFrameable !== false}
+      subtitle={project.fullName}
+      isPublic={project.visibility === 'public'}
       badge={badge ?? undefined}
       deploy={deploy}
       primary={
@@ -558,6 +618,23 @@ function ConnectionProjectCard({
               Share
             </MenuItem>
           ) : null}
+          {project.canManage ? (
+            project.visibility === 'public' ? (
+              <MenuItem action={() => void connection.changeVisibility(project, 'private')}>
+                <LockClosedIcon />
+                Make private
+              </MenuItem>
+            ) : (
+              <MenuItem action={() => onDialog({ kind: 'make-public', project, connection })}>
+                <LockOpen1Icon />
+                Make public
+              </MenuItem>
+            )
+          ) : null}
+          <MenuItem action={() => onDialog({ kind: 'copy', project: { id: project.id, name: project.name } })}>
+            <CopyIcon />
+            Make a copy
+          </MenuItem>
         </>
       }
     />

@@ -3,7 +3,7 @@ import { lazy, Suspense, useState } from 'react';
 import { chatStore } from '~/lib/stores/chatId';
 import { ChatDescription } from '~/components/header/ChatDescription.client';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon } from '@radix-ui/react-icons';
+import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon, GlobeIcon } from '@radix-ui/react-icons';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
@@ -95,6 +95,9 @@ export function Header() {
             <>
               <div className="hidden items-center gap-1 lg:flex">
                 <WorkspaceSwitcher />
+                <LinkButton variant="subtle" size="xs" to="/explore" icon={<GlobeIcon />}>
+                  Explore
+                </LinkButton>
                 <LinkButton variant="subtle" size="xs" to="/settings" icon={<GearIcon />}>
                   Settings
                 </LinkButton>
@@ -120,6 +123,10 @@ export function Header() {
                       <MobileProjectMenuItems />
                     </Suspense>
                   )}
+                  <MenuItemComponent action={() => void navigate({ to: '/explore' })}>
+                    <GlobeIcon className="text-content-secondary" />
+                    Explore
+                  </MenuItemComponent>
                   <MenuItemComponent action={handleSettingsClick}>
                     <GearIcon className="text-content-secondary" />
                     Settings

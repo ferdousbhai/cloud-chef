@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
 import type { ChatHistorySummary, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
-import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
+import type { PublicProject, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { authSession } from './auth-session';
 import { collectBrowserDiagnostics } from './browser-diagnostics';
@@ -159,5 +159,46 @@ test('shows a team member the projects shared with them, and Edit only where the
   await expect(page.getByRole('menuitem', { name: 'Download ZIP' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Clone' })).toHaveCount(0);
   await expect(page.getByRole('menuitem', { name: 'Share' })).toHaveCount(0);
+  await assertClean();
+});
+
+test('lists public projects in Explore, with their sites and a way to make a copy', async ({ page }, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' });
+  const publicProjects: PublicProject[] = [
+    {
+      id: '00000000-0000-4000-8000-000000000003',
+      name: 'Booking site',
+      fullName: 'grace/booking-site',
+      owner: { username: 'grace', name: 'Grace Hopper' },
+      siteUrl: `${SITE_ORIGIN}/`,
+      siteFrameable: true,
+      createdAt: new Date(Date.now() - 3_600_000).toISOString(),
+      copiedFrom: { fullName: 'ada/booking' },
+    },
+  ];
+  await page.route('**/api/explore', (route) => route.fulfill({ json: { projects: publicProjects } }));
+
+  await page.goto('/');
+  await page.getByRole('region', { name: 'My projects' }).getByRole('link', { name: 'Explore' }).click();
+
+  await expect(page).toHaveURL(/\/explore$/);
+  await expect(page).toHaveTitle('Explore | CloudChef');
+  const booking = page.getByRole('listitem').filter({ hasText: 'grace/booking-site' });
+  await expect(booking).toContainText('By Grace Hopper');
+  await expect(booking).toContainText('Copied from ada/booking');
+  await expect(booking.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
+  await expect(booking.getByRole('link', { name: 'Open site: grace/booking-site' })).toHaveAttribute(
+    'href',
+    `${SITE_ORIGIN}/`,
+  );
+  await booking.getByRole('button', { name: 'Make a copy of grace/booking-site' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Make a copy' });
+  await expect(dialog.getByRole('textbox')).toHaveValue('Booking site');
+  await expect(dialog).toContainText('Personal');
+  await page.screenshot({ path: testInfo.outputPath('explore.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
+    true,
+  );
   await assertClean();
 });

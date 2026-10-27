@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { executeDataOperation } from './client';
 import { api } from './data-api';
-import { getJson } from '~/lib/json-request';
+import { getJson, postJson } from '~/lib/json-request';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 
 export const projectRoleSchema = z.enum(['view', 'edit']);
@@ -25,6 +25,9 @@ const deploymentSchema = z.object({
 export type ProjectDeployment = z.infer<typeof deploymentSchema>;
 export type ProjectDeploymentState = ProjectDeployment['state'];
 
+export const projectVisibilitySchema = z.enum(['private', 'public']);
+export type ProjectVisibility = z.infer<typeof projectVisibilitySchema>;
+
 const teamProjectsSchema = z.object({
   projects: z.array(
     z.object({
@@ -42,6 +45,12 @@ const teamProjectsSchema = z.object({
       deploysWith: z.enum(['workers_builds', 'cloudchef']).nullish(),
       /** For a project CloudChef publishes, its newest publish of main, however it went; null before the first. */
       deployment: deploymentSchema.nullish(),
+      /** Its address on CloudChef, `owner/slug`. */
+      fullName: z.string().nullish(),
+      /** Whether anyone signed in to CloudChef can find it in Explore, open its site, read its code and copy it. */
+      visibility: projectVisibilitySchema.nullish(),
+      /** Whether this person may make it public or private: a personal project's owner, or a team admin. */
+      canManage: z.boolean().nullish(),
     }),
   ),
 });
@@ -66,4 +75,47 @@ export function openTeamProject(project: Pick<TeamProject, 'id'>, onNavigate?: (
     onNavigate?.();
     window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
   });
+}
+
+/** Makes a project public or private; refused for someone who may not manage it. */
+export async function setProjectVisibility(
+  projectId: string,
+  visibility: ProjectVisibility,
+): Promise<ProjectVisibility> {
+  const schema = z.object({ visibility: projectVisibilitySchema });
+  return (await postJson('/api/projects/visibility', { projectId, visibility }, schema)).visibility;
+}
+
+const exploreSchema = z.object({
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      fullName: z.string().nullable(),
+      owner: z.object({ username: z.string().nullable(), name: z.string() }),
+      siteUrl: z.url({ protocol: /^https$/ }).nullable(),
+      siteFrameable: z.boolean().nullable(),
+      createdAt: z.iso.datetime(),
+      /** The public project this one was copied from, when it was. */
+      copiedFrom: z.object({ fullName: z.string().nullable() }).nullable(),
+    }),
+  ),
+});
+
+export type PublicProject = z.infer<typeof exploreSchema>['projects'][number];
+
+/** Every public project, newest first. */
+export async function loadPublicProjects(signal?: AbortSignal): Promise<PublicProject[]> {
+  return (await getJson('/api/explore', exploreSchema, 'Public projects could not be loaded. Try again.', signal))
+    .projects;
+}
+
+const copySchema = z.object({ projectId: z.string(), initialId: z.string(), fullName: z.string().nullable() });
+
+/**
+ * Copies a project, with its whole history, into the account the person is working in now. The copy is
+ * published like an uploaded project; `initialId` is its chat.
+ */
+export async function copyProject(projectId: string, name?: string): Promise<z.infer<typeof copySchema>> {
+  return postJson('/api/projects/copy', { projectId, name }, copySchema, 'The copy could not be made. Try again.');
 }
