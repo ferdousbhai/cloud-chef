@@ -44,7 +44,7 @@ import { CloneDialog } from './CloneDialog.client';
 import { CopyProjectDialog } from './CopyProjectDialog.client';
 import { DeployLogDialog } from './DeployLogDialog.client';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
-import { deployInProgress, ProjectCard, type CardDeploy } from './ProjectCard';
+import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } from './ProjectCard';
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
@@ -307,9 +307,12 @@ function OwnProjects({
         </div>
       ) : null}
       {history.isLoading && empty ? (
-        <p className="text-sm text-content-tertiary" role="status">
-          {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
-        </p>
+        <>
+          <p className="text-sm text-content-tertiary" role="status">
+            {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
+          </p>
+          <ProjectCardSkeletons />
+        </>
       ) : !history.isLoading && !failed && empty && (hideWhenEmpty || added.projects !== null) ? (
         <p className="text-sm text-content-secondary">No projects yet. Describe an app above to start one.</p>
       ) : null}
@@ -670,9 +673,12 @@ function TeamProjects({
           </Button>
         </div>
       ) : projects === null ? (
-        <p className="text-sm text-content-tertiary" role="status">
-          Loading team projects…
-        </p>
+        <>
+          <p className="text-sm text-content-tertiary" role="status">
+            Loading team projects…
+          </p>
+          <ProjectCardSkeletons />
+        </>
       ) : projects.length === 0 ? (
         <p className="text-sm text-content-secondary">
           {admin ? 'No team projects yet.' : 'No team projects are shared with you yet.'}

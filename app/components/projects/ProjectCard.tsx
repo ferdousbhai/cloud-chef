@@ -303,3 +303,27 @@ function siteHost(url: string): string {
     return url;
   }
 }
+
+/**
+ * Stand-ins shaped like project cards while a list loads, so the grid holds its place instead of jumping when the
+ * cards arrive. Decorative: the caller keeps its own status text for screen readers.
+ */
+export function ProjectCardSkeletons({ count = 3 }: { count?: number }) {
+  return (
+    <ul aria-hidden className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: count }, (_, index) => (
+        <li
+          key={index}
+          className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 motion-safe:animate-pulse"
+        >
+          <div className="aspect-[16/10] bg-bolt-elements-background-depth-2" />
+          <div className="flex flex-col gap-2 border-t border-bolt-elements-borderColor p-3">
+            <div className="h-4 w-2/3 rounded-sm bg-bolt-elements-background-depth-3" />
+            <div className="h-3 w-1/3 rounded-sm bg-bolt-elements-background-depth-2" />
+            <div className="mt-2 h-7 w-16 rounded bg-bolt-elements-background-depth-2" />
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
