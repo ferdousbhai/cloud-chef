@@ -14,19 +14,41 @@ const SCRIPT = join(rootDir, 'public/cli/cloudchef');
 const INSTALLER = join(rootDir, 'public/install.sh');
 const TOKEN = 'cct_test_token_123';
 
-/** The projects TSV: name, account, role, last publish, site, id, full name. */
+/** The projects TSV: name, account, role, last publish, site, id, full name, visibility. */
 const PROJECTS = [
-  ['alpha', "Sara's sites", 'edit', 'succeeded', 'https://alpha.example.com', 'proj-alpha-sara', 'sara/alpha'],
-  ['alpha', 'Personal', 'view', '-', '-', 'proj-alpha-personal', 'ferdous/alpha'],
+  [
+    'alpha',
+    "Sara's sites",
+    'edit',
+    'succeeded',
+    'https://alpha.example.com',
+    'proj-alpha-sara',
+    'sara/alpha',
+    'public',
+  ],
+  ['alpha', 'Personal', 'view', '-', '-', 'proj-alpha-personal', 'ferdous/alpha', 'private'],
   // An account called "sara" whose "alpha" has no full name yet: `sara/alpha` still means sara's project above.
-  ['alpha', 'sara', 'edit', '-', '-', 'proj-alpha-legacy', '-'],
-  ['Alberta plan glossary', 'Personal', 'edit', 'failed', '-', 'proj-beta', 'ferdous/alberta-plan-glossary'],
-  ['watched', 'Personal', 'edit', 'building', '-', 'proj-watched', 'ferdous/watched'],
-  ['broken', 'Personal', 'edit', 'failed', '-', 'proj-broken', 'ferdous/broken'],
-  ['Old site', "Sara's sites", 'edit', '-', '-', 'proj-old', '-'],
+  ['alpha', 'sara', 'edit', '-', '-', 'proj-alpha-legacy', '-', 'private'],
+  ['Alberta plan glossary', 'Personal', 'edit', 'failed', '-', 'proj-beta', 'ferdous/alberta-plan-glossary', 'private'],
+  ['watched', 'Personal', 'edit', 'building', '-', 'proj-watched', 'ferdous/watched', 'private'],
+  ['broken', 'Personal', 'edit', 'failed', '-', 'proj-broken', 'ferdous/broken', 'private'],
+  ['Old site', "Sara's sites", 'edit', '-', '-', 'proj-old', '-', 'private'],
 ];
-/** Where each clonable project's git is served: by its full name, else by its id. */
-const SERVED = ['sara/alpha.git', 'ferdous/alberta-plan-glossary.git', 'git/proj-old.git'];
+/** The Explore TSV (everyone's public projects): full name, name, owner's name, site, id. */
+const EXPLORE = [
+  ['sara/alpha', 'alpha', 'Sara', 'https://alpha.example.com', 'proj-alpha-sara'],
+  ['maria/recipes', 'Recipes', 'Maria', 'https://recipes.example.com', 'proj-recipes'],
+  ['-', 'Untitled', 'Omar', '-', 'proj-untitled'],
+];
+/** Where each clonable project's git is served: by its full name, else by its id. `sara/recipes` is the copy that
+ * `repo fork maria/recipes` makes. */
+const SERVED = [
+  'sara/alpha.git',
+  'ferdous/alberta-plan-glossary.git',
+  'git/proj-old.git',
+  'maria/recipes.git',
+  'sara/recipes.git',
+];
 
 /** A JSON value, as the fake answers. */
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
@@ -50,6 +72,8 @@ class FakeCloudChef {
   watchPolls = 0;
   uploads: Upload[] = [];
   reruns: string[] = [];
+  visibilityChanges: string[] = [];
+  copies: Record<string, string>[] = [];
   gitRoot: string;
 
   constructor(gitRoot: string) {
@@ -136,13 +160,44 @@ class FakeCloudChef {
         return text(200, PROJECTS.map((row) => row.join('\t')).join('\n') + '\n');
       }
       return json(200, {
-        projects: PROJECTS.map(([name, account, , , , id, fullName]) => ({
+        projects: PROJECTS.map(([name, account, , , , id, fullName, visibility]) => ({
           id,
           name,
           account,
           fullName: fullName === '-' ? null : fullName,
+          visibility,
         })),
       });
+    }
+    if (route === 'GET /api/explore') {
+      if (url.searchParams.get('format') === 'tsv') {
+        return text(200, EXPLORE.map((row) => row.join('\t')).join('\n') + '\n');
+      }
+      return json(200, {
+        projects: EXPLORE.map(([fullName, name, ownerName, siteUrl, id]) => ({
+          id,
+          name,
+          fullName: fullName === '-' ? null : fullName,
+          owner: { username: fullName === '-' ? null : fullName.split('/')[0], name: ownerName },
+          siteUrl: siteUrl === '-' ? null : siteUrl,
+        })),
+      });
+    }
+    if (route === 'POST /api/command-line/projects/visibility') {
+      const project = bodyField(body, 'project');
+      const visibility = bodyField(body, 'visibility');
+      if (project === 'proj-alpha-personal') {
+        return json(403, { error: "Only someone who can edit this project's settings can change who sees it." });
+      }
+      this.visibilityChanges.push(`${project}:${visibility}`);
+      return json(200, { visibility });
+    }
+    if (route === 'POST /api/command-line/projects/copy') {
+      const copy = RequestBody.parse(JSON.parse(body.toString()));
+      this.copies.push(copy);
+      const name = copy.name ?? 'Recipes';
+      const fullName = `sara/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      return json(201, { project: { id: 'proj-copy', name, fullName, gitUrl: `${this.host}/${fullName}.git` } });
     }
     if (route === 'GET /api/command-line/runs') {
       const project = url.searchParams.get('project');
@@ -363,15 +418,132 @@ describe('cloudchef repo', () => {
     const result = await cli(makeHome(), ['repo', 'list']);
     expect(result.code).toBe(0);
     const lines = result.stdout.trimEnd().split('\n');
-    expect(lines[0]).toMatch(/^NAME\s+ACCOUNT\s+ROLE\s+PUBLISH\s+SITE$/);
+    expect(lines[0]).toMatch(/^NAME\s+ACCOUNT\s+ROLE\s+VISIBILITY\s+PUBLISH\s+SITE$/);
     expect(lines).toHaveLength(PROJECTS.length + 1);
-    expect(lines[1]).toMatch(/^sara\/alpha\s+Sara's sites\s+edit\s+succeeded\s+https:\/\/alpha\.example\.com$/);
-    expect(lines[4]).toMatch(/^ferdous\/alberta-plan-glossary\s+Personal\s+edit\s+failed\s+-$/);
+    expect(lines[1]).toMatch(
+      /^sara\/alpha\s+Sara's sites\s+edit\s+public\s+succeeded\s+https:\/\/alpha\.example\.com$/,
+    );
+    expect(lines[4]).toMatch(/^ferdous\/alberta-plan-glossary\s+Personal\s+edit\s+private\s+failed\s+-$/);
     // A project without a full name yet shows its name.
-    expect(lines[7]).toMatch(/^Old site\s+Sara's sites\s+edit\s+-\s+-$/);
+    expect(lines[7]).toMatch(/^Old site\s+Sara's sites\s+edit\s+private\s+-\s+-$/);
     expect(result.stdout).not.toContain('proj-');
     // Columns line up.
     expect(lines[1].indexOf('edit')).toBe(lines[0].indexOf('ROLE'));
+    expect(lines[1].indexOf('public')).toBe(lines[0].indexOf('VISIBILITY'));
+  });
+
+  it("lists everyone's public projects with --public", async () => {
+    const home = makeHome();
+    const result = await cli(home, ['repo', 'list', '--public']);
+    expect(result.code).toBe(0);
+    const lines = result.stdout.trimEnd().split('\n');
+    expect(lines[0]).toMatch(/^NAME\s+OWNER\s+SITE$/);
+    expect(lines).toHaveLength(EXPLORE.length + 1);
+    expect(lines[2]).toMatch(/^maria\/recipes\s+Maria\s+https:\/\/recipes\.example\.com$/);
+    // One without a full name yet shows its name.
+    expect(lines[3]).toMatch(/^Untitled\s+Omar\s+-$/);
+    expect(result.stdout).not.toContain('proj-');
+
+    const asJson = await cli(home, ['repo', 'list', '--public', '--json']);
+    const parsed = z.object({ projects: z.array(z.object({ id: z.string() })) }).parse(JSON.parse(asJson.stdout));
+    expect(parsed.projects.map((project) => project.id)).toEqual(EXPLORE.map((row) => row[4]));
+  });
+
+  it('finds a public project that is not one of yours by OWNER/NAME, and clones it', async () => {
+    const home = makeHome();
+    const view = await cli(home, ['repo', 'view', 'Maria/Recipes', '--json']);
+    expect(view.code).toBe(0);
+    expect(JSON.parse(view.stdout)).toEqual({
+      id: 'proj-recipes',
+      name: 'Recipes',
+      fullName: 'maria/recipes',
+      account: 'Maria',
+      role: null,
+      visibility: 'public',
+      gitUrl: `${fake.host}/maria/recipes.git`,
+      siteUrl: 'https://recipes.example.com',
+      lastPublishState: null,
+    });
+    const shown = await cli(home, ['repo', 'view', 'maria/recipes']);
+    expect(shown.stdout).toMatch(/^owner:\s+Maria$/m);
+    expect(shown.stdout).toMatch(/^visibility:\s+public$/m);
+
+    // Your own project wins over the public list, and a bare name never matches someone else's project.
+    expect((await cli(home, ['repo', 'view', 'sara/alpha'])).stdout).toMatch(/^role:\s+edit$/m);
+    expect((await cli(home, ['repo', 'view', 'recipes'])).code).toBe(1);
+
+    expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
+    const cloned = await cli(home, ['repo', 'clone', 'maria/recipes']);
+    const target = join(home, 'cloudflare/maria/recipes');
+    expect(cloned.stdout).toContain(`Cloned maria/recipes into ${target}`);
+    expect(git(target, 'remote', 'get-url', 'origin').trim()).toBe(`${fake.host}/maria/recipes.git`);
+    // Inside its clone, the public project is the default PROJECT.
+    expect((await cli(home, ['repo', 'view'], { cwd: target })).stdout).toMatch(/^id:\s+proj-recipes$/m);
+  });
+
+  it('changes visibility, asking for consent before making a project public', async () => {
+    const home = makeHome();
+    const before = fake.visibilityChanges.length;
+    const unconsented = await cli(home, ['repo', 'edit', 'ferdous/alberta-plan-glossary', '--visibility', 'public']);
+    expect(unconsented.code).toBe(1);
+    expect(unconsented.stderr).toContain('Anyone signed in to CloudChef can find, read and copy a public project.');
+    expect(unconsented.stderr).toContain('--accept-visibility-change-consequences');
+    expect(fake.visibilityChanges).toHaveLength(before);
+
+    const made = await cli(home, [
+      'repo',
+      'edit',
+      'ferdous/alberta-plan-glossary',
+      '--visibility',
+      'public',
+      '--accept-visibility-change-consequences',
+    ]);
+    expect(made.code).toBe(0);
+    expect(made.stdout).toBe('ferdous/alberta-plan-glossary is now public.\n');
+    expect(fake.visibilityChanges.at(-1)).toBe('proj-beta:public');
+
+    // Private needs no consent.
+    const hidden = await cli(home, ['repo', 'edit', 'alberta-plan-glossary', '--visibility=private']);
+    expect(hidden.stdout).toBe('ferdous/alberta-plan-glossary is now private.\n');
+    expect(fake.visibilityChanges.at(-1)).toBe('proj-beta:private');
+
+    const refused = await cli(home, ['repo', 'edit', 'ferdous/alpha', '--visibility', 'private']);
+    expect(refused.code).toBe(1);
+    expect(refused.stderr).toContain("Only someone who can edit this project's settings can change who sees it.");
+    expect(refused.stderr).toContain('HTTP 403');
+
+    const bad = await cli(home, ['repo', 'edit', 'ferdous/alpha', '--visibility', 'internal']);
+    expect(bad.code).toBe(1);
+    expect((await cli(home, ['repo', 'edit', 'ferdous/alpha'])).stderr).toContain('Nothing to change');
+  });
+
+  it('forks a project into a copy of your own, and clones the copy with --clone', async () => {
+    const home = makeHome();
+    const named = await cli(home, [
+      'repo',
+      'fork',
+      'maria/recipes',
+      '--name',
+      'My recipes',
+      '--account',
+      "Sara's sites",
+    ]);
+    expect(named.code).toBe(0);
+    expect(named.stdout).toContain('Created sara/my-recipes\n');
+    expect(fake.copies.at(-1)).toEqual({ project: 'proj-recipes', name: 'My recipes', account: "Sara's sites" });
+    expect(existsSync(join(home, 'cloudflare'))).toBe(false);
+
+    expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
+    const cloned = await cli(home, ['repo', 'fork', 'maria/recipes', '--clone']);
+    expect(cloned.stderr).not.toContain('cloudchef:');
+    expect(cloned.code).toBe(0);
+    expect(fake.copies.at(-1)).toEqual({ project: 'proj-recipes' });
+    const target = join(home, 'cloudflare/sara/recipes');
+    expect(cloned.stdout).toContain('Created sara/recipes\n');
+    expect(cloned.stdout).toContain(`Cloned sara/recipes into ${target}`);
+    expect(readFileSync(join(target, 'index.html'), 'utf8')).toBe('<h1>alpha</h1>\n');
+    expect(git(target, 'remote', 'get-url', 'origin').trim()).toBe(`${fake.host}/sara/recipes.git`);
+    expect(git(target, 'remote', 'get-url', 'upstream').trim()).toBe(`${fake.host}/maria/recipes.git`);
   });
 
   it('resolves OWNER/NAME first, then a unique name, then ACCOUNT/NAME, then an id', async () => {
@@ -383,6 +555,7 @@ describe('cloudchef repo', () => {
       fullName: 'ferdous/alberta-plan-glossary',
       account: 'Personal',
       role: 'edit',
+      visibility: 'private',
       gitUrl: `${fake.host}/ferdous/alberta-plan-glossary.git`,
       siteUrl: null,
       lastPublishState: 'failed',
@@ -585,7 +758,59 @@ describe('cloudchef install and skill', () => {
     );
   });
 
-  it('installs the command and, with Claude Code present, the skill', async () => {
+  it('has Agent Skills frontmatter: a lowercase-hyphen name matching its folder, and when to use it', () => {
+    const skill = readFileSync(join(rootDir, 'public/cli/SKILL.md'), 'utf8');
+    const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(skill)?.[1] ?? '';
+    const fields = Object.fromEntries(
+      frontmatter
+        .split('\n')
+        .map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]),
+    );
+    expect(Object.keys(fields).sort()).toEqual(['description', 'name']);
+    expect(fields.name).toBe('cloudchef');
+    expect(fields.name).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+    expect(fields.description.length).toBeLessThanOrEqual(1024);
+    expect(fields.description).toContain('Use when');
+    expect(fields.description).not.toMatch(/[<>]/);
+  });
+
+  it('installs the skill for every agent, and for Claude Code and Codex only when they are there', async () => {
+    const skill = readFileSync(join(rootDir, 'public/cli/SKILL.md'), 'utf8');
+    const paths = (home: string, ...folders: string[]) =>
+      folders
+        .map((folder) => `Installed the cloudchef skill: ${join(home, folder, 'skills/cloudchef/SKILL.md')}\n`)
+        .join('');
+
+    const bare = makeHome();
+    const generic = await cli(bare, ['skill', 'install']);
+    expect(generic).toMatchObject({ code: 0, stdout: paths(bare, '.agents') });
+    expect(readFileSync(join(bare, '.agents/skills/cloudchef/SKILL.md'), 'utf8')).toBe(skill);
+    expect(existsSync(join(bare, '.claude'))).toBe(false);
+    expect(existsSync(join(bare, '.codex'))).toBe(false);
+
+    const both = makeHome();
+    mkdirSync(join(both, '.claude'));
+    mkdirSync(join(both, '.codex'));
+    const all = await cli(both, ['skill', 'install']);
+    expect(all).toMatchObject({ code: 0, stdout: paths(both, '.agents', '.claude', '.codex') });
+    for (const folder of ['.agents', '.claude', '.codex']) {
+      expect(readFileSync(join(both, folder, 'skills/cloudchef/SKILL.md'), 'utf8')).toBe(skill);
+    }
+
+    const codex = makeHome();
+    mkdirSync(join(codex, '.codex'));
+    expect((await cli(codex, ['skill', 'install'])).stdout).toBe(paths(codex, '.agents', '.codex'));
+
+    // --dir writes only there.
+    const chosen = makeHome();
+    mkdirSync(join(chosen, '.claude'));
+    const only = await cli(chosen, ['skill', 'install', '--dir', '~/mine']);
+    expect(only.stdout).toBe(`Installed the cloudchef skill: ${join(chosen, 'mine/cloudchef/SKILL.md')}\n`);
+    expect(existsSync(join(chosen, '.agents'))).toBe(false);
+    expect(existsSync(join(chosen, '.claude/skills'))).toBe(false);
+  });
+
+  it('installs the command and always the skill', async () => {
     const home = makeHome(false);
     mkdirSync(join(home, '.claude'));
     const bin = join(home, 'bin');
@@ -593,7 +818,15 @@ describe('cloudchef install and skill', () => {
     expect(result.stderr).toBe('');
     expect(result.code).toBe(0);
     expect(statSync(join(bin, 'cloudchef')).mode & 0o111).not.toBe(0);
+    expect(existsSync(join(home, '.agents/skills/cloudchef/SKILL.md'))).toBe(true);
     expect(existsSync(join(home, '.claude/skills/cloudchef/SKILL.md'))).toBe(true);
+    expect(existsSync(join(home, '.codex'))).toBe(false);
+
+    // Without any agent's folder, the skill still goes to ~/.agents/skills.
+    const plain = makeHome(false);
+    const plainResult = await runBash([INSTALLER], plain, { env: { CLOUDCHEF_INSTALL_DIR: join(plain, 'bin') } });
+    expect(plainResult.code).toBe(0);
+    expect(existsSync(join(plain, '.agents/skills/cloudchef/SKILL.md'))).toBe(true);
     expect(result.stdout).toContain(`export PATH="${bin}:$PATH"`);
     expect(result.stdout.trimEnd().endsWith('Next: cloudchef auth login')).toBe(true);
   });
@@ -609,7 +842,16 @@ describe('cloudchef install and skill', () => {
 
   it('prints help for each command', async () => {
     const home = makeHome();
-    for (const args of [['help'], ['repo', 'create', '--help'], ['help', 'run', 'watch'], ['config', '--help']]) {
+    for (const args of [
+      ['help'],
+      ['repo', 'create', '--help'],
+      ['help', 'run', 'watch'],
+      ['config', '--help'],
+      ['repo', 'edit', '--help'],
+      ['help', 'repo', 'fork'],
+      ['repo', 'list', '--help'],
+      ['help', 'skill'],
+    ]) {
       const result = await cli(home, args);
       expect(result.code).toBe(0);
       expect(result.stdout).toContain('Usage:');

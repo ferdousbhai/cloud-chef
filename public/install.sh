@@ -26,10 +26,8 @@ main() {
   trap - EXIT
   echo "Installed $version to $target"
 
-  if [ -d "$HOME/.claude" ]; then
-    echo "Claude Code found: installing the cloudchef skill."
-    CLOUDCHEF_HOST="$host" "$target" skill install
-  fi
+  echo "Installing the cloudchef skill for coding agents."
+  CLOUDCHEF_HOST="$host" "$target" skill install
 
   case ":$PATH:" in
     *":$dir:"*) ;;
