@@ -134,3 +134,31 @@ These are open questions for the owner, not defects to fix here.
 - Uppercase caps labels. They were left in place because they are part of the terminal look. The skill would move
   them to sentence case.
 - Skeletons for the chat and workbench restore paths (`Loading.tsx`, `WorkspacePreparing.tsx`).
+
+## What was applied
+
+- **Fix 1.** Geist Mono replaced JetBrains Mono (one commit). The connect footnote and chat markdown code now use
+  `--cc-font-mono`.
+- **Fixes 3 and 5.** Motion runs on `--cc-ease` and `--cc-duration-fade` / `--cc-duration-move` (300 and 500ms).
+  These feed Tailwind's default `transition`, `cubicEasingFn` and the CSS transitions. The sidebar now slides with a
+  transform. Icon buttons and settings tabs got a pressed state, and the skip link sits on the z-index scale.
+  - Exception: the workbench keeps its 200ms `left` and `width` animation, now on the base curve. Stretching a
+    layout animation to 500ms would cost frames.
+- **Fixes 4 and 6.**
+  - `font-black` and 800 weights are capped at bold.
+  - `min-h-screen` became `min-h-dvh`.
+  - `rounded-[4px]` became `rounded-sm`.
+- **Fix 7.** Skeleton project cards now show under "Loading projects…" and "Loading team projects…".
+- **Fix 9.** Every font size sits on the scale with its paired line height. Two deviations, plus a minor cleanup:
+  - The chat transcript went from 13px up to `text-sm` (14px), on purpose; snapping down would have shrunk the main
+    reading text.
+  - Legal prose went from 15px down to 14px with its 20px line height, as the rule requires. If that reads as too
+    tight, the alternative is 16px/24px.
+  - Inline code in project titles no longer sets its own `0.9em`.
+
+## Pre-existing failures (present at 7b4e0040, not caused by this branch)
+
+- `typecheck:check`: `app/components/projects/Explore.client.test.tsx` builds a user without `username`.
+- `test`: `Explore.client.test.tsx`, "Make a copy > names the account the copy goes into…", expects "Acme".
+- `knip`: `PublicBadge` (`ProjectCard.tsx`) and `findAccessibleProjectByFullName` (`org-projects.server.ts`) are
+  unused exports.
