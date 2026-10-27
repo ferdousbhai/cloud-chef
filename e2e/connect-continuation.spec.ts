@@ -35,7 +35,11 @@ async function stubCloudflareAuthorization(page: Page) {
 }
 
 test('finishes the submit that had to connect Cloudflare first', async ({ page }, testInfo) => {
-  const assertClean = collectBrowserDiagnostics(page, testInfo, [/status of 409/]);
+  // Leaving for Cloudflare cancels the home's project list if it is still loading.
+  const assertClean = collectBrowserDiagnostics(page, testInfo, [
+    /status of 409/,
+    /requestfailed: GET .*\/api\/org-projects$/,
+  ]);
   await stubCloudflareAuthorization(page);
 
   await page.goto('/');
