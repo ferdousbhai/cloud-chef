@@ -31,7 +31,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   onCloudflareExecutionDecision,
 }: AssistantMessageProps) {
   return (
-    <div className="w-full overflow-hidden text-[13px] leading-6">
+    <div className="w-full overflow-hidden text-sm">
       <div className="flex flex-col gap-1">
         {groupMessageParts(message.parts)
           .filter((block) => {

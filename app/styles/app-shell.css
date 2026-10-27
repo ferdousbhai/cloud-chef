@@ -190,18 +190,20 @@ button,
   max-width: 760px;
   margin: 12px 0 0;
   color: var(--cc-content-primary);
-  font-size: clamp(28px, 4.4vw, 44px);
+  font-size: 36px;
   font-weight: 700;
-  line-height: 1.1;
+  line-height: 40px;
   letter-spacing: -0.02em;
+  text-wrap: balance;
 }
 
 .app-page-lede {
   max-width: 650px;
   margin: 16px 0 0;
   color: var(--cc-content-secondary);
-  font-size: 15px;
-  line-height: 1.7;
+  font-size: 14px;
+  line-height: 20px;
+  text-wrap: pretty;
 }
 
 .app-page-content {
@@ -219,7 +221,7 @@ button,
   color: var(--cc-content-primary);
   font-size: 16px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 24px;
   letter-spacing: 0.02em;
 }
 
@@ -231,8 +233,9 @@ button,
   border-radius: var(--cc-radius-sm);
   background: var(--cc-background-secondary);
   color: var(--cc-content-secondary);
-  padding: 5px 9px;
-  font-size: 11px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 16px;
   font-weight: 700;
   letter-spacing: var(--cc-tracking-label);
   text-transform: uppercase;
@@ -272,7 +275,7 @@ button,
   color: var(--cc-neutral-2);
   padding: 14px;
   font-size: 12px;
-  line-height: 1.6;
+  line-height: 16px;
   white-space: pre-wrap;
 }
 
@@ -291,8 +294,9 @@ button,
     margin-bottom: 42px;
   }
 
-  .app-page-lede {
-    font-size: 14px;
+  .app-page-title {
+    font-size: 30px;
+    line-height: 36px;
   }
 }
 
@@ -344,7 +348,7 @@ button,
   color: var(--cc-content-primary);
   font-size: 20px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 28px;
 }
 
 .settings-tabs {
@@ -363,8 +367,9 @@ button,
   border-radius: var(--cc-radius);
   background: transparent;
   color: var(--cc-content-secondary);
-  padding: 7px 10px;
+  padding: 8px 12px;
   font-size: 14px;
+  line-height: 20px;
   font-weight: 500;
   white-space: nowrap;
   transition:
@@ -393,7 +398,7 @@ button,
 
 @media (max-width: 899px) {
   .settings-tab {
-    padding: 7px 8px;
+    padding: 8px;
   }
 
   .settings-tab svg {

@@ -15,7 +15,7 @@ export function RunNarrative({ parts }: { parts: CloudChefPart[] }) {
   }
   const earlier = texts.slice(0, -1);
   return (
-    <div className="flex w-full flex-col gap-1 overflow-hidden text-[13px] leading-6">
+    <div className="flex w-full flex-col gap-1 overflow-hidden text-sm">
       <Suspense fallback={null}>
         {earlier.length > 0 && (
           <DetailsToggle expanded={expanded} controls={detailsId} onToggle={() => setExpanded(!expanded)} />

@@ -126,7 +126,7 @@ function RunningToolContents({ invocation, progress }: { invocation: CloudChefTo
     <ToolResultFrame>
       <pre
         aria-live="polite"
-        className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs leading-[1.4] text-content-secondary"
+        className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-content-secondary"
       >
         {preview}
       </pre>
@@ -223,7 +223,7 @@ function CloudflareRequestContents({
         </div>
         {input ? <CloudflareRequestLine request={input} /> : null}
         {result.content ? (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-[1.4] text-content-secondary">
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-content-secondary">
             {result.content}
           </pre>
         ) : null}

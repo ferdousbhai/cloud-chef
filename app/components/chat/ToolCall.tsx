@@ -47,7 +47,7 @@ export const ToolCall = memo(function ToolCall({
       expanded={expanded}
       header={
         <div className="flex items-center gap-1.5">
-          <div className="w-full text-[13px] font-medium leading-4 text-content-primary">
+          <div className="w-full text-xs font-medium text-content-primary">
             {toolTitle(invocation, status, publish)}
           </div>
           {statusIcon(status, invocation, publish)}

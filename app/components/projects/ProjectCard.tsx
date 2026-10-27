@@ -190,7 +190,7 @@ export function ProjectThumbnail({
 export function PublicBadge() {
   return (
     <span
-      className="shrink-0 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[11px] leading-3 text-content-secondary"
+      className="shrink-0 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-xs text-content-secondary"
       title="Anyone signed in to CloudChef can find it in Explore"
     >
       Public

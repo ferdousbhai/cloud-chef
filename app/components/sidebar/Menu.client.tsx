@@ -239,7 +239,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
           )}
           {binDates(filteredList).map(({ category, items }) => (
             <section key={category} aria-label={category} className="mt-4 space-y-2 first:mt-0">
-              <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--bolt-elements-sidebar-background)] px-1 py-1.5 text-[11px] font-bold tracking-[0.06em] text-content-tertiary uppercase">
+              <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--bolt-elements-sidebar-background)] px-1 py-1.5 text-xs font-bold tracking-wider text-content-tertiary uppercase">
                 <span>{category}</span>
                 <span aria-hidden className="h-px flex-1 bg-border-transparent" />
               </div>

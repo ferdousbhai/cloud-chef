@@ -81,7 +81,7 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
               <ProjectTitle className="block truncate font-bold leading-5 text-content-primary">
                 {description}
               </ProjectTitle>
-              <span className="mt-0.5 text-[11px] font-medium leading-4 text-content-tertiary">{projectTime}</span>
+              <span className="mt-0.5 text-xs font-medium text-content-tertiary">{projectTime}</span>
             </span>
           </Link>
           <div className="flex shrink-0 items-center gap-0.5 text-content-tertiary opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">

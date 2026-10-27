@@ -52,7 +52,7 @@ function Notice({ children, onDismiss }: { children: ReactNode; onDismiss: () =>
       <button
         type="button"
         onClick={() => onDismiss()}
-        className="shrink-0 rounded px-1 text-[11px] font-semibold text-content-tertiary transition-colors hover:text-content-primary"
+        className="shrink-0 rounded px-1 text-xs font-semibold text-content-tertiary transition-colors hover:text-content-primary"
       >
         Dismiss
       </button>

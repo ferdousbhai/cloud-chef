@@ -239,7 +239,7 @@ export function SubchatBar({
                 <DropdownMenu.Trigger asChild disabled={interactionsDisabled}>
                   <button
                     type="button"
-                    className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-content-secondary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-content-secondary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={`Switch chat. ${chatPositionLabel}: ${currentSubchatLabel}`}
                   >
                     <span>
@@ -257,7 +257,7 @@ export function SubchatBar({
                   className="z-50 max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
                   aria-label="Chat history"
                 >
-                  <DropdownMenu.Label className="px-3 pb-2 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-content-secondary">
+                  <DropdownMenu.Label className="px-3 pb-2 pt-1.5 text-xs font-semibold uppercase tracking-widest text-content-secondary">
                     Chat history
                   </DropdownMenu.Label>
                   <DropdownMenu.RadioGroup
