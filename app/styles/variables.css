@@ -187,7 +187,7 @@ html.dark {
   /* Retro chrome primitives. Square-ish corners and a stacked drop shadow
      stand in for the soft blurred surfaces the previous theme used. */
   --cc-font-mono:
-    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   --cc-radius-sm: 4px;
   --cc-radius: 6px;
   --cc-radius-lg: 8px;

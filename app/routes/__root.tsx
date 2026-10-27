@@ -9,7 +9,7 @@ import { queryClient } from '~/lib/stores/reactQueryClient';
 import { THEME_KEY, themeStore } from '~/lib/stores/theme';
 import { stripIndents } from 'cloudchef-agent/utils/stripIndent';
 import globalStyles from '~/styles/index.css?url';
-import latinMonoFont from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
+import latinMonoFont from '@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url';
 
 type RootSearch = {
   prefill?: string;
