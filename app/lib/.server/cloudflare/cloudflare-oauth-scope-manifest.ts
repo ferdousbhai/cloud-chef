@@ -24,6 +24,10 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   // What Workers Builds reports for a project: which Worker builds its repository, each commit's build,
   // and its Previews. Read only: CloudChef never changes a project's builds.
   'workers-ci.read',
+  // Giving a project's site a domain of the account's own (Workers Custom Domains), which the agent asks for and an
+  // admin approves request by request: finding the domain's zone, and attaching it to the site's Worker.
+  'zone.read',
+  'workers-routes.write',
 ] as const;
 
 /**
