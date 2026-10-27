@@ -1,6 +1,6 @@
 ---
 name: cloudchef
-description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote ending in /git/<project id>.git on a CloudChef host.
+description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote on a CloudChef host, such as https://cloudchef.build/<owner>/<name>.git.
 ---
 
 # CloudChef
@@ -10,10 +10,12 @@ CloudChef keeps each project as a git repository and publishes it to the project
 
 ## Projects are git repositories
 
+- A project is named `owner/name`, like `ferdous/alberta-plan-glossary`, and its git address is
+  `https://cloudchef.build/ferdous/alberta-plan-glossary.git`.
 - `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), last publish, site.
-- `cloudchef repo clone NAME` clones one into `~/cloudflare/<account>/<project>` (change the folder with
-  `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Use `ACCOUNT/NAME` when two
-  accounts have a project with the same name.
+- `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudflare/ferdous/alberta-plan-glossary`
+  (change the folder with `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Just the
+  name works too when only one of your projects has it.
 - Git signs in through `cloudchef` (set up by `cloudchef auth login`), so plain `git pull` and `git push` work.
 - Pushing to `main` publishes the project to its live site.
 - Pushing any other branch builds a preview of that branch and leaves the live site alone.
@@ -31,7 +33,7 @@ CloudChef keeps each project as a git repository and publishes it to the project
    outage).
 4. `cloudchef browse` opens the live site.
 
-Run these inside the clone. Elsewhere, name the project: `cloudchef run watch NAME`.
+Run these inside the clone. Elsewhere, name the project: `cloudchef run watch --project ferdous/alberta-plan-glossary`.
 
 ## Secrets
 

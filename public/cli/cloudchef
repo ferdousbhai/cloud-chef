@@ -206,76 +206,140 @@ projects_tsv() {
   PROJECTS_TSV="$HTTP_BODY"
 }
 
-# The project id of the current directory's CloudChef git remote, if it has one.
-remote_project_id() {
-  local url id
+# The current directory's CloudChef project, from its git remote: "full:<owner>/<slug>" for {host}/<owner>/<slug>.git,
+# "id:<id>" for {host}/git/<id>.git, or nothing.
+remote_project_ref() {
+  local url path
   git rev-parse --git-dir >/dev/null 2>&1 || return 0
   git remote -v 2>/dev/null | while read -r _ url _; do
     case "$url" in
-      "$HOST/git/"*) ;;
+      "$HOST/"*) ;;
       *) continue ;;
     esac
-    id="${url#"$HOST/git/"}"
-    id="${id%.git}"
-    id="${id%/}"
-    printf '%s\n' "$id"
+    path="${url#"$HOST/"}"
+    path="${path%/}"
+    path="${path%.git}"
+    case "$path" in
+      */*/*) continue ;;
+      git/*) printf 'id:%s\n' "${path#git/}" ;;
+      */*) printf 'full:%s\n' "$path" ;;
+      *) continue ;;
+    esac
     break
   done
 }
 
-# resolve_project [PROJECT]: sets P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID. PROJECT is a name, ACCOUNT/NAME, or an
-# id; without one, the current directory's CloudChef git remote.
+lowercase() {
+  printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+# match_projects MODE VALUE: counts the projects in PROJECTS_TSV that match (M_COUNT), keeping the last match's row
+# (M_ROW) and a line per match (M_CHOICES). MODE: id, full (OWNER/NAME, any case), account (ACCOUNT/NAME), or bare (the
+# project's name, or the NAME of its OWNER/NAME).
+match_projects() {
+  local mode="$1" want="$2" want_lower name account role state site id full ok
+  want_lower="$(lowercase "$want")"
+  M_COUNT=0 M_ROW="" M_CHOICES=""
+  while IFS="$TAB" read -r name account role state site id full; do
+    [ -n "$id" ] && [ "$id" != "id" ] || continue
+    [ -n "$full" ] || full="-"
+    ok=""
+    case "$mode" in
+      id) [ "$id" = "$want" ] && ok=1 ;;
+      full) [ "$full" != "-" ] && [ "$(lowercase "$full")" = "$want_lower" ] && ok=1 ;;
+      account) [ "$account/$name" = "$want" ] && ok=1 ;;
+      bare)
+        if [ "$name" = "$want" ]; then
+          ok=1
+        elif [ "$full" != "-" ] && [ "$(lowercase "${full#*/}")" = "$want_lower" ]; then
+          ok=1
+        fi
+        ;;
+    esac
+    [ -n "$ok" ] || continue
+    M_COUNT=$((M_COUNT + 1))
+    M_ROW="$name$TAB$account$TAB$role$TAB$state$TAB$site$TAB$id$TAB$full"
+    if [ "$full" != "-" ]; then
+      M_CHOICES="$M_CHOICES  $full  ($account)$NL"
+    else
+      M_CHOICES="$M_CHOICES  $id  ($account/$name)$NL"
+    fi
+  done <<EOF
+$PROJECTS_TSV
+EOF
+}
+
+use_match() {
+  IFS="$TAB" read -r P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL <<EOF
+$M_ROW
+EOF
+  [ -n "$P_FULL" ] || P_FULL="-"
+  # How to name the project back to the person: its OWNER/NAME, else its id.
+  if [ "$P_FULL" != "-" ]; then P_REF="$P_FULL"; else P_REF="$P_ID"; fi
+}
+
+# resolve_project [PROJECT]: sets P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL P_REF. PROJECT is OWNER/NAME, a
+# project name when only one project has it, ACCOUNT/NAME, or an id; without one, the current directory's git remote.
 resolve_project() {
-  local want="$1" from_remote="" want_account="" want_name="" matches="" count=0 choices=""
-  local name account role state site id
+  local want="$1" ref
   if [ -z "$want" ]; then
-    want="$(remote_project_id)"
-    [ -n "$want" ] || die "Name a project, or run this inside a clone of one. See: cloudchef repo list"
-    from_remote=1
+    ref="$(remote_project_ref)"
+    [ -n "$ref" ] || die "Name a project, or run this inside a clone of one. See: cloudchef repo list"
+    projects_tsv
+    case "$ref" in
+      id:*) match_projects id "${ref#id:}" ;;
+      full:*) match_projects full "${ref#full:}" ;;
+    esac
+    [ "$M_COUNT" -ge 1 ] || die "This folder's CloudChef project (${ref#*:}) isn't one you can use any more."
+    use_match
+    return 0
   fi
   projects_tsv
   case "$want" in
     */*)
-      want_account="${want%%/*}"
-      want_name="${want#*/}"
+      match_projects full "$want"
+      [ "$M_COUNT" -ge 1 ] || match_projects account "$want"
+      ;;
+    *)
+      match_projects bare "$want"
+      [ "$M_COUNT" -ge 1 ] || match_projects id "$want"
       ;;
   esac
-  # An exact id wins.
-  while IFS="$TAB" read -r name account role state site id; do
-    [ -n "$id" ] || continue
-    if [ "$id" = "$want" ]; then
-      P_NAME="$name" P_ACCOUNT="$account" P_ROLE="$role" P_STATE="$state" P_SITE="$site" P_ID="$id"
-      return 0
-    fi
-  done <<EOF
-$PROJECTS_TSV
-EOF
-  [ -z "$from_remote" ] || die "This folder's CloudChef project ($want) isn't one you can use any more."
-  while IFS="$TAB" read -r name account role state site id; do
-    [ -n "$id" ] && [ "$id" != "id" ] || continue
-    if [ -n "$want_account" ]; then
-      [ "$account" = "$want_account" ] && [ "$name" = "$want_name" ] || continue
-    else
-      [ "$name" = "$want" ] || continue
-    fi
-    count=$((count + 1))
-    matches="$name$TAB$account$TAB$role$TAB$state$TAB$site$TAB$id"
-    choices="$choices  $account/$name$NL"
-  done <<EOF
-$PROJECTS_TSV
-EOF
-  if [ "$count" -eq 0 ]; then
-    die "No project named \"$want\". See: cloudchef repo list"
-  elif [ "$count" -gt 1 ]; then
-    die "Several accounts have a project named \"$want\". Name one as ACCOUNT/NAME:$NL${choices%"$NL"}"
+  if [ "$M_COUNT" -eq 0 ]; then
+    die "No project \"$want\". See: cloudchef repo list"
+  elif [ "$M_COUNT" -gt 1 ]; then
+    die "Several projects are called \"$want\". Name one of them:$NL${M_CHOICES%"$NL"}"
   fi
-  IFS="$TAB" read -r P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID <<EOF
-$matches
-EOF
+  use_match
 }
 
+# Whether the current directory's git remote is the resolved project.
+remote_is_project() {
+  local ref
+  ref="$(remote_project_ref)"
+  case "$ref" in
+    "id:$P_ID") return 0 ;;
+    full:*) [ "$P_FULL" != "-" ] && [ "$(lowercase "${ref#full:}")" = "$(lowercase "$P_FULL")" ] && return 0 ;;
+  esac
+  return 1
+}
+
+# The resolved project's git address: {host}/<owner>/<name>.git, or {host}/git/<id>.git before it has one.
 git_url() {
-  printf '%s/git/%s.git' "$HOST" "$1"
+  if [ "$P_FULL" != "-" ]; then
+    printf '%s/%s.git' "$HOST" "$P_FULL"
+  else
+    printf '%s/git/%s.git' "$HOST" "$P_ID"
+  fi
+}
+
+# Where repo clone puts the resolved project by default: <clone-dir>/<owner>/<name>, else <clone-dir>/<account>/<name>.
+default_clone_path() {
+  if [ "$P_FULL" != "-" ]; then
+    printf '%s/%s/%s' "$(clone_base)" "$(folder_safe "${P_FULL%%/*}")" "$(folder_safe "${P_FULL#*/}")"
+  else
+    printf '%s/%s/%s' "$(clone_base)" "$(folder_safe "$P_ACCOUNT")" "$(folder_safe "$P_NAME")"
+  fi
 }
 
 dash_to_empty() {
@@ -364,7 +428,10 @@ More
   help [COMMAND]       Show help for a command
   --version            Show the version
 
-PROJECT is a project name, ACCOUNT/NAME, or a project id. Inside a clone it defaults to that project.
+PROJECT is OWNER/NAME (like ferdous/alberta-plan-glossary), or just NAME when only one project has it.
+ACCOUNT/NAME and a project id work too. Inside a clone, PROJECT defaults to that project.
+
+Example: cloudchef repo clone ferdous/alberta-plan-glossary
 Environment: CLOUDCHEF_HOST (default https://cloudchef.build), CLOUDCHEF_TOKEN, CLOUDCHEF_CLONE_DIR.
 EOF
       ;;
@@ -394,17 +461,22 @@ Usage: cloudchef repo <list|view|clone|create>
   view [PROJECT] [--json] [--web]                 Show a project
   clone PROJECT [DIR] [-- GIT_FLAGS]              Clone a project
   create NAME [--account ACCOUNT] [--source DIR]  Upload a folder as a new project
+
+PROJECT is OWNER/NAME, as in: cloudchef repo clone ferdous/alberta-plan-glossary
 EOF
       ;;
-    "repo list") echo "Usage: cloudchef repo list [--json]${NL}${NL}Lists the projects you can view or edit, in every account you use." ;;
-    "repo view") echo "Usage: cloudchef repo view [PROJECT] [--json] [--web]${NL}${NL}Shows a project's account, your role, its git address, site and last publish.${NL}--web opens the projects page." ;;
+    "repo list") echo "Usage: cloudchef repo list [--json]${NL}${NL}Lists the projects you can view or edit, in every account you use, by OWNER/NAME.${NL}--json includes each project's id and git address." ;;
+    "repo view") echo "Usage: cloudchef repo view [PROJECT] [--json] [--web]${NL}${NL}Shows a project's full name, account, your role, git address, site and last publish.${NL}Example: cloudchef repo view ferdous/alberta-plan-glossary${NL}--web opens the projects page." ;;
     "repo clone")
       cat <<EOF
 Usage: cloudchef repo clone PROJECT [DIR] [-- GIT_FLAGS]
 
-Clones a project. Without DIR it goes to <clone-dir>/<account>/<project>, where clone-dir is
+Clones a project. Without DIR it goes to <clone-dir>/<owner>/<name>, where clone-dir is
 \$CLOUDCHEF_CLONE_DIR, else \`cloudchef config get clone-dir\`, else ~/cloudflare.
 Now: $(clone_base)
+
+Example: cloudchef repo clone ferdous/alberta-plan-glossary
+  clones into $(clone_base)/ferdous/alberta-plan-glossary
 EOF
       ;;
     "repo create")
@@ -630,8 +702,9 @@ cmd_repo_list() {
     return 0
   fi
   {
-    printf 'NAME\tACCOUNT\tROLE\tLAST PUBLISH\tSITE\tID\n'
-    printf '%s\n' "$PROJECTS_TSV" | awk -F '\t' 'NF >= 6 && $6 != "id"'
+    printf 'NAME\tACCOUNT\tROLE\tPUBLISH\tSITE\n'
+    printf '%s\n' "$PROJECTS_TSV" |
+      awk -F '\t' -v OFS='\t' 'NF >= 6 && $6 != "id" { print (($7 == "" || $7 == "-") ? $1 : $7), $2, $3, $4, $5 }'
   } | print_table
 }
 
@@ -639,9 +712,10 @@ project_json() {
   local site state
   site="$(dash_to_empty "$P_SITE")"
   state="$(dash_to_empty "$P_STATE")"
-  printf '{"id":"%s","name":"%s","account":"%s","role":"%s","gitUrl":"%s","siteUrl":%s,"lastPublishState":%s}\n' \
-    "$(json_escape "$P_ID")" "$(json_escape "$P_NAME")" "$(json_escape "$P_ACCOUNT")" "$(json_escape "$P_ROLE")" \
-    "$(json_escape "$(git_url "$P_ID")")" \
+  printf '{"id":"%s","name":"%s","fullName":%s,"account":"%s","role":"%s","gitUrl":"%s","siteUrl":%s,"lastPublishState":%s}\n' \
+    "$(json_escape "$P_ID")" "$(json_escape "$P_NAME")" \
+    "$([ "$P_FULL" != "-" ] && printf '"%s"' "$(json_escape "$P_FULL")" || printf null)" \
+    "$(json_escape "$P_ACCOUNT")" "$(json_escape "$P_ROLE")" "$(json_escape "$(git_url)")" \
     "$([ -n "$site" ] && printf '"%s"' "$(json_escape "$site")" || printf null)" \
     "$([ -n "$state" ] && printf '"%s"' "$(json_escape "$state")" || printf null)"
 }
@@ -667,10 +741,11 @@ cmd_repo_view() {
     project_json
     return 0
   fi
-  printf 'name:          %s\n' "$P_NAME"
+  printf 'name:          %s\n' "$P_REF"
+  [ "$P_FULL" != "-" ] && [ "$P_NAME" = "${P_FULL#*/}" ] || printf 'title:         %s\n' "$P_NAME"
   printf 'account:       %s\n' "$P_ACCOUNT"
   printf 'role:          %s\n' "$P_ROLE"
-  printf 'git:           %s\n' "$(git_url "$P_ID")"
+  printf 'git:           %s\n' "$(git_url)"
   printf 'site:          %s\n' "$P_SITE"
   printf 'last publish:  %s\n' "$P_STATE"
   printf 'id:            %s\n' "$P_ID"
@@ -696,15 +771,15 @@ cmd_repo_clone() {
   if [ -n "$dir" ]; then
     dir="$(expand_home "$dir")"
   else
-    dir="$(clone_base)/$(folder_safe "$P_ACCOUNT")/$(folder_safe "$P_NAME")"
+    dir="$(default_clone_path)"
   fi
   mkdir -p "$(dirname "$dir")" || die "Could not create $(dirname "$dir")."
-  git clone "$@" "$(git_url "$P_ID")" "$dir" || exit 1
-  printf 'Cloned %s into %s\n' "$P_NAME" "$dir"
+  git clone "$@" "$(git_url)" "$dir" || exit 1
+  printf 'Cloned %s into %s\n' "$P_REF" "$dir"
 }
 
 cmd_repo_create() {
-  local name="" account="" source="" source_given="" is_repo="" tmp zip query id gitUrl top abs
+  local name="" account="" source="" source_given="" is_repo="" tmp zip query id full gitUrl top abs
   while [ $# -gt 0 ]; do
     case "$1" in
       --account) need_value "$1" $#; account="$2"; shift ;;
@@ -756,10 +831,13 @@ cmd_repo_create() {
   http POST "/api/command-line/projects/create?$query" -H "Content-Type: application/zip" --data-binary "@$zip"
   http_ok
   id="$(json_field id "$HTTP_BODY")"
+  full="$(json_field fullName "$HTTP_BODY")"
   gitUrl="$(json_field gitUrl "$HTTP_BODY")"
   [ -n "$id" ] || die "The server didn't say which project it made."
-  [ -n "$gitUrl" ] || gitUrl="$(git_url "$id")"
-  printf 'Created %s (%s). It is publishing now.\n' "$(json_field name "$HTTP_BODY")" "$id"
+  P_ID="$id" P_FULL="${full:--}" P_NAME="$(json_field name "$HTTP_BODY")" P_ACCOUNT="$account"
+  if [ -n "$full" ]; then P_REF="$full"; else P_REF="$id"; fi
+  [ -n "$gitUrl" ] || gitUrl="$(git_url)"
+  printf 'Created %s. It is publishing now.\n' "$P_REF"
   printf 'git: %s\n' "$gitUrl"
 
   if [ -n "$is_repo" ]; then
@@ -771,15 +849,17 @@ cmd_repo_create() {
     printf 'The project starts with a fresh history. To join it to yours:\n'
     printf '  git pull cloudchef main --allow-unrelated-histories\n'
   else
-    local where
-    where="$(clone_base)"
-    if (resolve_project "$id" >/dev/null 2>&1); then
+    # Without an OWNER/NAME, the folder is named by the project's account, which the list knows.
+    if [ "$P_FULL" = "-" ] && [ -z "$P_ACCOUNT" ] && (resolve_project "$id" >/dev/null 2>&1); then
       resolve_project "$id"
-      where="$where/$(folder_safe "$P_ACCOUNT")/$(folder_safe "$P_NAME")"
     fi
-    printf 'To work on it with git: cloudchef repo clone %s  (clones into %s)\n' "$id" "$where"
+    if [ "$P_FULL" != "-" ] || [ -n "$P_ACCOUNT" ]; then
+      printf 'To work on it with git: cloudchef repo clone %s  (clones into %s)\n' "$P_REF" "$(default_clone_path)"
+    else
+      printf 'To work on it with git: cloudchef repo clone %s\n' "$P_REF"
+    fi
   fi
-  printf 'Follow the publish: cloudchef run watch --project %s\n' "$id"
+  printf 'Follow the publish: cloudchef run watch --project %s\n' "$P_REF"
 }
 
 cmd_repo() {
@@ -828,7 +908,7 @@ cmd_run_list() {
   fi
   runs_tsv "$P_ID"
   if ! find_run ""; then
-    printf 'No publishes of %s yet.\n' "$P_NAME"
+    printf 'No publishes of %s yet.\n' "$P_REF"
     return 0
   fi
   {
@@ -840,8 +920,8 @@ cmd_run_list() {
 need_run() {
   runs_tsv "$P_ID"
   if ! find_run "$1"; then
-    [ -n "$1" ] && die "No publish $1 of $P_NAME. See: cloudchef run list --project $P_ID"
-    die "No publishes of $P_NAME yet."
+    [ -n "$1" ] && die "No publish $1 of $P_REF. See: cloudchef run list $P_REF"
+    die "No publishes of $P_REF yet."
   fi
 }
 
@@ -855,7 +935,7 @@ cmd_run_view() {
     case "$HTTP_BODY" in *"$NL") ;; "") ;; *) printf '\n' ;; esac
     return 0
   fi
-  printf 'project:  %s\n' "$P_NAME"
+  printf 'project:  %s\n' "$P_REF"
   printf 'state:    %s\n' "$R_STATE"
   printf 'kind:     %s\n' "$R_KIND"
   printf 'branch:   %s\n' "$R_BRANCH"
@@ -863,7 +943,7 @@ cmd_run_view() {
   printf 'updated:  %s\n' "$R_UPDATED"
   printf 'id:       %s\n' "$R_ID"
   if [ "$R_STATE" = "failed" ]; then
-    printf '\nRead its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_ID"
+    printf '\nRead its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_REF"
   fi
 }
 
@@ -872,7 +952,7 @@ cmd_run_watch() {
   parse_run_args "$@"
   resolve_project "$PROJECT_ARG"
   # Inside a clone of the project, wait for the publish of its current commit, which may not have started yet.
-  if [ -z "$RUN_ARG" ] && [ "$(remote_project_id)" = "$P_ID" ]; then
+  if [ -z "$RUN_ARG" ] && remote_is_project; then
     head="$(git rev-parse HEAD 2>/dev/null)"
   fi
   while :; do
@@ -880,7 +960,7 @@ cmd_run_watch() {
     found=""
     if [ -n "$RUN_ARG" ]; then
       find_run "$RUN_ARG" && found=1
-      [ -n "$found" ] || die "No publish $RUN_ARG of $P_NAME."
+      [ -n "$found" ] || die "No publish $RUN_ARG of $P_REF."
     elif [ -n "$head" ]; then
       if find_run_for_commit "$head"; then
         found=1
@@ -894,7 +974,7 @@ cmd_run_watch() {
       fi
     else
       find_run "" && found=1
-      [ -n "$found" ] || die "No publishes of $P_NAME yet."
+      [ -n "$found" ] || die "No publishes of $P_REF yet."
     fi
     if [ -n "$found" ]; then
       if [ "$R_STATE" != "$last" ]; then
@@ -906,7 +986,7 @@ cmd_run_watch() {
           [ "$R_KIND" != "production" ] || [ "$(dash_to_empty "$P_SITE")" = "" ] || printf 'Live at %s\n' "$P_SITE"
           return 0
         fi
-        printf 'Read its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_ID"
+        printf 'Read its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_REF"
         return 1
       fi
     fi
@@ -925,7 +1005,7 @@ cmd_run_rerun() {
     "{\"project\":\"$(json_escape "$P_ID")\",\"deployment\":\"$(json_escape "$R_ID")\"}"
   id="$(json_field id "$HTTP_BODY")"
   printf 'Started publish %s of %s (%s). Follow it: cloudchef run watch %s --project %s\n' \
-    "$id" "$P_NAME" "${R_COMMIT:0:7}" "$id" "$P_ID"
+    "$id" "$P_REF" "${R_COMMIT:0:7}" "$id" "$P_REF"
 }
 
 cmd_run() {
@@ -1032,7 +1112,7 @@ skill_text() {
   cat <<'CLOUDCHEF_SKILL_END'
 ---
 name: cloudchef
-description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote ending in /git/<project id>.git on a CloudChef host.
+description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote on a CloudChef host, such as https://cloudchef.build/<owner>/<name>.git.
 ---
 
 # CloudChef
@@ -1042,10 +1122,12 @@ CloudChef keeps each project as a git repository and publishes it to the project
 
 ## Projects are git repositories
 
+- A project is named `owner/name`, like `ferdous/alberta-plan-glossary`, and its git address is
+  `https://cloudchef.build/ferdous/alberta-plan-glossary.git`.
 - `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), last publish, site.
-- `cloudchef repo clone NAME` clones one into `~/cloudflare/<account>/<project>` (change the folder with
-  `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Use `ACCOUNT/NAME` when two
-  accounts have a project with the same name.
+- `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudflare/ferdous/alberta-plan-glossary`
+  (change the folder with `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Just the
+  name works too when only one of your projects has it.
 - Git signs in through `cloudchef` (set up by `cloudchef auth login`), so plain `git pull` and `git push` work.
 - Pushing to `main` publishes the project to its live site.
 - Pushing any other branch builds a preview of that branch and leaves the live site alone.
@@ -1063,7 +1145,7 @@ CloudChef keeps each project as a git repository and publishes it to the project
    outage).
 4. `cloudchef browse` opens the live site.
 
-Run these inside the clone. Elsewhere, name the project: `cloudchef run watch NAME`.
+Run these inside the clone. Elsewhere, name the project: `cloudchef run watch --project ferdous/alberta-plan-glossary`.
 
 ## Secrets
 

@@ -1,2 +1,8 @@
 /.well-known/security.txt
   Content-Type: text/plain; charset=utf-8
+
+/install.sh
+  Content-Type: text/plain; charset=utf-8
+
+/cli/*
+  Content-Type: text/plain; charset=utf-8
