@@ -11,21 +11,14 @@ export function Preview({
   reloadKey,
   requesting,
   onPublish,
-  linked = false,
 }: {
   presentation: AppSitePresentation;
   publication: BuilderPublicationState | null;
   reloadKey: number;
   requesting: boolean;
   onPublish: () => void;
-  /** A team project: its previews are built by Workers Builds and linked in the chat, not framed here. */
-  linked?: boolean;
 }) {
   const { url, revision, status, error } = presentation;
-
-  if (linked) {
-    return <LinkedPreviewNotice />;
-  }
 
   return (
     <div className="flex size-full min-h-0 flex-col bg-bolt-elements-background-depth-1">
@@ -111,21 +104,6 @@ function PreviewEmpty({
             {status === 'failed' ? 'Try again' : 'Publish'}
           </Button>
         )}
-      </div>
-    </div>
-  );
-}
-
-/** A team project's previews are built by Workers Builds from the branch the agent publishes, and linked in the chat. */
-function LinkedPreviewNotice() {
-  return (
-    <div className="flex size-full flex-col overflow-y-auto bg-bolt-elements-background-depth-1 p-6 text-center">
-      <div className="m-auto w-full max-w-sm shrink-0 break-words">
-        <p className="font-medium text-content-primary">Previews open in a new tab</p>
-        <p className="mt-2 text-sm text-content-secondary">
-          Ask the agent for a preview: a copy of the site with your changes, at its own link. When it&apos;s ready, the
-          link shows in the chat. The live site doesn&apos;t change until you publish.
-        </p>
       </div>
     </div>
   );

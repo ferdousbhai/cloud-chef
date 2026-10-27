@@ -99,6 +99,8 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
 
   return (
     <WorkbenchFrame
+      // A team or uploaded project's previews open at their own links from the chat, so it shows only its code here.
+      views={controller.linkedProject ? sliderOptions.filter((option) => option.value === 'code') : sliderOptions}
       visible={controller.showWorkbench}
       selectedView={controller.selectedView}
       setSelectedView={controller.setSelectedView}
@@ -158,7 +160,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
           </div>
         </View>
         <View {...slidingPosition({ view: 'preview', selectedView: controller.selectedView })}>
-          {controller.hasLoadedPreview ? (
+          {controller.hasLoadedPreview && !controller.linkedProject ? (
             <Suspense fallback={null}>
               <Preview
                 presentation={presentation}
@@ -166,7 +168,6 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
                 reloadKey={previewReloadKey}
                 requesting={controller.publishRequesting}
                 onPublish={() => void controller.onPublishRequest()}
-                linked={Boolean(controller.linkedProject)}
               />
             </Suspense>
           ) : (
@@ -179,6 +180,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
 }
 
 function WorkbenchFrame({
+  views,
   visible,
   selectedView,
   setSelectedView,
@@ -189,6 +191,7 @@ function WorkbenchFrame({
   headerActions,
   children,
 }: {
+  views: SliderOption<WorkbenchViewType>[];
   visible: boolean;
   selectedView: WorkbenchViewType;
   setSelectedView: (view: WorkbenchViewType) => void;
@@ -244,7 +247,7 @@ function WorkbenchFrame({
               )}
               {!isSmallViewport && (
                 <>
-                  <Slider selected={selectedView} options={sliderOptions} setSelected={setSelectedView} />
+                  {views.length > 1 && <Slider selected={selectedView} options={views} setSelected={setSelectedView} />}
                   <div className="ml-auto" />
                 </>
               )}

@@ -61,6 +61,8 @@ export function HeaderActionButtons() {
 
 function SmallScreenSurfaceSwitcher({ showChat, showWorkbench }: { showChat: boolean; showWorkbench: boolean }) {
   const selectedView = useStore(workbenchStore.currentView);
+  // A team or uploaded project's previews open at their own links from the chat.
+  const linked = Boolean(useStore(workbenchStore.linkedProject));
 
   useEffect(() => {
     if (!showChat && !showWorkbench) {
@@ -88,12 +90,14 @@ function SmallScreenSurfaceSwitcher({ showChat, showWorkbench }: { showChat: boo
         icon={<CodeIcon />}
         onClick={() => selectWorkspaceSurface('code')}
       />
-      <SurfaceButton
-        label="Preview"
-        selected={showWorkbench && selectedView === 'preview'}
-        icon={<EyeOpenIcon />}
-        onClick={() => selectWorkspaceSurface('preview')}
-      />
+      {!linked && (
+        <SurfaceButton
+          label="Preview"
+          selected={showWorkbench && selectedView === 'preview'}
+          icon={<EyeOpenIcon />}
+          onClick={() => selectWorkspaceSurface('preview')}
+        />
+      )}
     </div>
   );
 }

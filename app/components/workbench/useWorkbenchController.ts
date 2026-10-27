@@ -75,6 +75,13 @@ export function useWorkbenchController(isStreaming?: boolean) {
     }
   }, [selectedView]);
 
+  // A team or uploaded project has no preview here, so it opens on its code.
+  useEffect(() => {
+    if (linkedProject && selectedView === 'preview') {
+      workbenchStore.currentView.set('code');
+    }
+  }, [linkedProject, selectedView]);
+
   useEffect(() => {
     workbenchStore.setDocuments(files);
   }, [files]);
