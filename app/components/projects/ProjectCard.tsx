@@ -187,7 +187,7 @@ export function ProjectThumbnail({
 }
 
 /** Says a project is public, beside its name. */
-export function PublicBadge() {
+function PublicBadge() {
   return (
     <span
       className="shrink-0 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[11px] leading-3 text-content-secondary"

@@ -378,7 +378,7 @@ export async function setProjectVisibility(
 }
 
 /** The project `<username>/<slug>` with `userId`'s role on it, if they may view or edit it now. */
-export async function findAccessibleProjectByFullName(
+async function findAccessibleProjectByFullName(
   db: D1Database,
   fullName: { owner: string; slug: string },
   userId: string,
