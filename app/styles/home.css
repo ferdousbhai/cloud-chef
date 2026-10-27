@@ -163,7 +163,6 @@ html.light {
   justify-content: space-between;
   gap: 4px 16px;
   color: var(--cc-content-secondary);
-  font-family: system-ui, sans-serif;
   font-size: 12px;
   line-height: 1.5;
 }

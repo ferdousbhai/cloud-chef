@@ -1,5 +1,5 @@
 :root {
-  --font-mono: ui-monospace, 'Fira Code', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-mono: var(--cc-font-mono);
   --code-font-size: 12px;
 }
 
