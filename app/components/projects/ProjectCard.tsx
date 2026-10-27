@@ -39,6 +39,8 @@ export function ProjectCard({
   updatedAt,
   siteUrl,
   siteFramed = true,
+  subtitle,
+  isPublic = false,
   badge,
   deploy,
   primary,
@@ -49,6 +51,10 @@ export function ProjectCard({
   siteUrl: string | null;
   /** Whether the site may be shown live in the card; one that refuses is shown by its address. */
   siteFramed?: boolean;
+  /** A second line under the title, such as the project's address on CloudChef. */
+  subtitle?: string | null;
+  /** Whether anyone signed in to CloudChef can find it in Explore. */
+  isPublic?: boolean;
   /** A short note beside the time, such as the person's access. */
   badge?: string;
   /** For a project CloudChef publishes itself, how its newest publish went. */
@@ -61,26 +67,22 @@ export function ProjectCard({
   return (
     <li className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-sm">
       <div className="relative">
-        {siteUrl && siteFramed ? (
-          <SiteThumbnail url={siteUrl} />
-        ) : siteUrl ? (
-          // A site that refuses to be shown in a frame (as many do, against clickjacking) is named instead.
-          <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 px-4 text-center text-sm text-content-secondary">
-            <span className="truncate">{siteHost(siteUrl)}</span>
-          </div>
-        ) : publishing ? (
-          <div
-            role="status"
-            className="flex aspect-[16/10] items-center justify-center gap-2 bg-bolt-elements-background-depth-2 text-xs text-content-secondary"
-          >
-            <Spinner />
-            <PublishProgress deploy={deploy} />
-          </div>
-        ) : (
-          <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 text-xs text-content-tertiary">
-            {deploy?.state === 'not_deployable' ? 'Code only' : 'Not published yet'}
-          </div>
-        )}
+        <ProjectThumbnail
+          siteUrl={siteUrl}
+          siteFramed={siteFramed}
+          placeholder={
+            publishing ? (
+              <div
+                role="status"
+                className="flex aspect-[16/10] items-center justify-center gap-2 bg-bolt-elements-background-depth-2 text-xs text-content-secondary"
+              >
+                <Spinner />
+                <PublishProgress deploy={deploy} />
+              </div>
+            ) : undefined
+          }
+          unpublished={deploy?.state === 'not_deployable' ? 'Code only' : 'Not published yet'}
+        />
         {siteUrl && publishing ? (
           // The site stays up while its next version is published.
           <span
@@ -94,9 +96,17 @@ export function ProjectCard({
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-3 border-t border-bolt-elements-borderColor p-3">
         <div className="min-w-0">
-          <h3 className="truncate font-medium text-content-primary" title={title}>
-            <ProjectTitle>{title}</ProjectTitle>
-          </h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <h3 className="truncate font-medium text-content-primary" title={title}>
+              <ProjectTitle>{title}</ProjectTitle>
+            </h3>
+            {isPublic ? <PublicBadge /> : null}
+          </div>
+          {subtitle ? (
+            <p className="truncate text-xs text-content-secondary" title={subtitle}>
+              {subtitle}
+            </p>
+          ) : null}
           <p className="truncate text-xs text-content-tertiary">
             {updatedAt ? (
               <>
@@ -138,6 +148,53 @@ export function ProjectCard({
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * What a project looks like live: its site, shown small once the card scrolls into view; its address, for a
+ * site that refuses to be framed; or, unpublished, `placeholder` when given and `unpublished` otherwise.
+ */
+export function ProjectThumbnail({
+  siteUrl,
+  siteFramed = true,
+  placeholder,
+  unpublished = 'Not published yet',
+}: {
+  siteUrl: string | null;
+  siteFramed?: boolean;
+  placeholder?: ReactNode;
+  unpublished?: string;
+}) {
+  if (siteUrl && siteFramed) {
+    return <SiteThumbnail url={siteUrl} />;
+  }
+  if (siteUrl) {
+    // A site that refuses to be shown in a frame (as many do, against clickjacking) is named instead.
+    return (
+      <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 px-4 text-center text-sm text-content-secondary">
+        <span className="truncate">{siteHost(siteUrl)}</span>
+      </div>
+    );
+  }
+  return (
+    placeholder ?? (
+      <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 text-xs text-content-tertiary">
+        {unpublished}
+      </div>
+    )
+  );
+}
+
+/** Says a project is public, beside its name. */
+export function PublicBadge() {
+  return (
+    <span
+      className="shrink-0 rounded border border-bolt-elements-borderColor px-1.5 py-0.5 text-[11px] leading-3 text-content-secondary"
+      title="Anyone signed in to CloudChef can find it in Explore"
+    >
+      Public
+    </span>
   );
 }
 

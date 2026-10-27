@@ -35,6 +35,9 @@ const LazyExistingChat = lazy(() =>
 const LazySettingsContent = lazy(() =>
   import('~/components/SettingsContent.client').then((mod) => ({ default: mod.SettingsContent })),
 );
+const LazyExplore = lazy(() =>
+  import('~/components/projects/Explore.client').then((mod) => ({ default: mod.Explore })),
+);
 const LazyTelemetryPreference = lazy(() =>
   import('~/components/trust/TelemetryPreference.client').then((mod) => ({ default: mod.TelemetryPreference })),
 );
@@ -43,6 +46,7 @@ const getClientHeader = createClientOnlyFn(() => LazyHeader);
 const getClientHomepage = createClientOnlyFn(() => LazyHomepage);
 const getClientExistingChat = createClientOnlyFn(() => LazyExistingChat);
 const getClientSettingsContent = createClientOnlyFn(() => LazySettingsContent);
+const getClientExplore = createClientOnlyFn(() => LazyExplore);
 const getClientTelemetryPreference = createClientOnlyFn(() => LazyTelemetryPreference);
 
 export const ClientHeader = createClientComponent<EmptyProps>(getClientHeader, <HeaderLoadingFallback />);
@@ -60,6 +64,10 @@ export const ClientExistingChat = createClientComponent<{ chatId: string }>(
 export const ClientSettingsContent = createClientComponent<{ authorizationError?: string | null }>(
   getClientSettingsContent,
   <Loading message="Loading settings…" />,
+);
+export const ClientExplore = createClientComponent<EmptyProps>(
+  getClientExplore,
+  <Loading message="Loading public projects…" />,
 );
 export const ClientTelemetryPreference = createClientComponent<EmptyProps>(getClientTelemetryPreference, null);
 

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root';
 import { Route as IndexRouteImport } from './routes/index';
+import { Route as ExploreRouteImport } from './routes/explore';
 import { Route as JoinRouteImport } from './routes/join';
 import { Route as PrivacyRouteImport } from './routes/privacy';
 import { Route as SecurityRouteImport } from './routes/security';
@@ -24,6 +25,11 @@ import { Route as SignInEmailRouteImport } from './routes/sign-in.email';
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any);
+const ExploreRoute = ExploreRouteImport.update({
+  id: '/explore',
+  path: '/explore',
   getParentRoute: () => rootRouteImport,
 } as any);
 const JoinRoute = JoinRouteImport.update({
@@ -79,6 +85,7 @@ const SignInEmailRoute = SignInEmailRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute;
+  '/explore': typeof ExploreRoute;
   '/join': typeof JoinRoute;
   '/privacy': typeof PrivacyRoute;
   '/security': typeof SecurityRoute;
@@ -92,6 +99,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute;
+  '/explore': typeof ExploreRoute;
   '/join': typeof JoinRoute;
   '/privacy': typeof PrivacyRoute;
   '/security': typeof SecurityRoute;
@@ -106,6 +114,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   '/': typeof IndexRoute;
+  '/explore': typeof ExploreRoute;
   '/join': typeof JoinRoute;
   '/privacy': typeof PrivacyRoute;
   '/security': typeof SecurityRoute;
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath;
   fullPaths:
     | '/'
+    | '/explore'
     | '/join'
     | '/privacy'
     | '/security'
@@ -134,6 +144,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo;
   to:
     | '/'
+    | '/explore'
     | '/join'
     | '/privacy'
     | '/security'
@@ -147,6 +158,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/explore'
     | '/join'
     | '/privacy'
     | '/security'
@@ -161,6 +173,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
+  ExploreRoute: typeof ExploreRoute;
   JoinRoute: typeof JoinRoute;
   PrivacyRoute: typeof PrivacyRoute;
   SecurityRoute: typeof SecurityRoute;
@@ -180,6 +193,13 @@ declare module '@tanstack/react-router' {
       path: '/';
       fullPath: '/';
       preLoaderRoute: typeof IndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    '/explore': {
+      id: '/explore';
+      path: '/explore';
+      fullPath: '/explore';
+      preLoaderRoute: typeof ExploreRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/join': {
@@ -257,6 +277,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ExploreRoute: ExploreRoute,
   JoinRoute: JoinRoute,
   PrivacyRoute: PrivacyRoute,
   SecurityRoute: SecurityRoute,
