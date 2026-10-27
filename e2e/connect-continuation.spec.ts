@@ -17,6 +17,8 @@ async function stubCloudflareAuthorization(page: Page) {
   await page.route('**/api/auth/session', (route) =>
     route.fulfill(connection.authorized ? { json: authSession } : { body: 'null', contentType: 'application/json' }),
   );
+  // The home lists the projects in the account it connects to; this one has none yet.
+  await page.route('**/api/org-projects', (route) => route.fulfill({ json: { projects: [] } }));
   await page.route('**/api/cloudflare/connection/start', (route) => {
     connection.authorized = true;
     return route.fulfill({ json: { authorizationUrl: new URL(route.request().url()).origin } });

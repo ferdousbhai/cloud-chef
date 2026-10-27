@@ -12,6 +12,8 @@ const RUNTIME_ORIGIN = 'https://e2e-recovery-fixture.workers.dev';
 
 async function stubConnectedSession(page: Page) {
   await page.route('**/api/auth/session', (route) => route.fulfill({ json: authSession }));
+  // The home lists the projects in the connected account; this one has none.
+  await page.route('**/api/org-projects', (route) => route.fulfill({ json: { projects: [] } }));
 }
 
 async function startProject(page: Page) {

@@ -102,7 +102,10 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await expect(booking.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts');
   const draft = projects.getByRole('listitem').filter({ hasText: 'Recipe planner' });
   await expect(draft.getByRole('link', { name: /Open site/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Import from GitHub' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add an existing project' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Import from GitHub' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Upload a ZIP' })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await booking.getByRole('button', { name: 'More for Booking site' }).click();
   await page.getByRole('menuitem', { name: 'History' }).click();
