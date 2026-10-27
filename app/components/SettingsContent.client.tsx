@@ -7,6 +7,7 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import { BrandLink } from '~/components/BrandLink';
 import { CloudflareCard } from '~/components/settings/CloudflareCard.client';
 import { AccountDataCard } from '~/components/settings/AccountDataCard.client';
+import { CommandLineCard } from '~/components/settings/CommandLineCard.client';
 import { AiRequestLogsCard } from '~/components/settings/AiRequestLogsCard.client';
 import { ModelsCard } from '~/components/settings/ModelsCard.client';
 import { OrganizationsCard } from '~/components/settings/OrganizationsCard.client';
@@ -27,6 +28,7 @@ const TAB_FOR_HASH = {
   account: 'account',
   profile: 'account',
   cloudflare: 'account',
+  'command-line': 'account',
   teams: 'teams',
   organizations: 'teams',
   models: 'models',
@@ -151,6 +153,7 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
               <>
                 <ProfileCard />
                 <CloudflareCard initialError={authorizationError} />
+                <CommandLineCard />
               </>,
             )}
             {panel('teams', <OrganizationsCard />)}

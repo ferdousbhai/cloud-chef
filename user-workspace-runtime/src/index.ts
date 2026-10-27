@@ -171,6 +171,7 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
+import { handleCommandLineGit } from './git-proxy';
 export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';
 import type { ProjectBuilder } from './project-builder';
 
@@ -3097,6 +3098,11 @@ async function handleUserRequest(
   if (request.method === 'GET' && url.pathname === '/v1/terminal') {
     // A WebSocket's answer is passed on as it is; CORS doesn't apply to it.
     return userRuntimeTerminalAction(request, url, env, capability.subject);
+  }
+  // git from the person's own computer, which CloudChef sent on after checking their command-line token.
+  const git = /^\/v1\/git\/([A-Za-z0-9_-]{1,128})\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);
+  if (git) {
+    return handleCommandLineGit(request, env, ctx, git[1]!, git[2]!);
   }
   let response: Response;
   const agentResponse = await routeUserRuntimeAgentRequest(request, sharedEnv, capability.subject);

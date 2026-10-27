@@ -292,7 +292,7 @@ function workspaceProvisioningFailureResponse(
  * moment. A runtime for another connection generation holds a secret that no longer authenticates, and
  * one that speaks another protocol cannot serve this release's browser: both are prepared again first.
  */
-function usableWorkspaceRuntime(
+export function usableWorkspaceRuntime(
   runtime: UserWorkspaceRuntime | null,
   connection: CloudflareConnection,
 ): { runtime: UserWorkspaceRuntime; upgradePending: boolean } | null {

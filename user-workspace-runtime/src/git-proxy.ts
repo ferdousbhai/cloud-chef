@@ -1,7 +1,12 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import type { BuilderWorkspaceGitRepository } from '../../app/agents/builder-workspace-api';
 import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { handleGitProxyRequest, workspaceRefsPrefix } from '../../app/lib/.server/cloudflare/git-proxy';
+import {
+  GIT_PROXY_HOST,
+  handleGitProxyRequest,
+  type RefUpdate,
+  workspaceRefsPrefix,
+} from '../../app/lib/.server/cloudflare/git-proxy';
 import { commitAuthor, openProject, ProjectAccessError } from '../../app/lib/.server/cloudflare/linked-project-client';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type { ProjectWorkspace } from './index';
@@ -73,20 +78,72 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
-        const project: { orgProjectId: string } | null = deployed;
-        if (project && update.ref.startsWith('refs/heads/') && !/^0{40}$/.test(update.newOid)) {
-          await this.env.PROJECT_BUILDER.get(this.env.PROJECT_BUILDER.idFromName(project.orgProjectId))
-            .enqueue({
-              orgProjectId: project.orgProjectId,
-              branch: update.ref.slice('refs/heads/'.length),
-              commit: update.newOid,
-            })
-            .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
-        }
+        await publishPush(this.env, deployed, update);
       },
       recordBase: (base) => workspace.setGitBase(base),
       fetch: (input, init) => fetch(input, init),
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });
   }
+}
+
+/** A branch pushed to a project CloudChef deploys itself is built: main to go live, another for a preview. */
+async function publishPush(env: GitProxyEnv, project: { orgProjectId: string } | null, update: RefUpdate) {
+  if (project && update.ref.startsWith('refs/heads/') && !/^0{40}$/.test(update.newOid)) {
+    await env.PROJECT_BUILDER.get(env.PROJECT_BUILDER.idFromName(project.orgProjectId))
+      .enqueue({
+        orgProjectId: project.orgProjectId,
+        branch: update.ref.slice('refs/heads/'.length),
+        commit: update.newOid,
+      })
+      .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
+  }
+}
+
+/**
+ * git on the person's own computer, for a team or uploaded project, as `/v1/git/<project id>/…` (CloudChef checked
+ * their command-line token and sent it on): the same checks as git in a workspace, and its pushes publish the
+ * same way. It has no workspace, so no saved branches of one.
+ */
+export async function handleCommandLineGit(
+  request: Request,
+  env: GitProxyEnv,
+  ctx: Pick<ExecutionContext, 'waitUntil'>,
+  orgProjectId: string,
+  rest: string,
+): Promise<Response> {
+  const identity = runtimeConnectionIdentity(env);
+  if (!identity) {
+    return new Response('This workspace is not connected to CloudChef.', { status: 503 });
+  }
+  let project: Awaited<ReturnType<typeof openProject>>;
+  try {
+    project = await openProject(env, identity, orgProjectId);
+  } catch (error) {
+    if (error instanceof ProjectAccessError) {
+      return new Response(error.message, { status: 403 });
+    }
+    throw error;
+  }
+  if (!project.repo) {
+    return new Response('This project has no repository yet. Open it in CloudChef once first.', { status: 409 });
+  }
+  const target = { repo: project.repo, orgProjectId, base: { branch: project.defaultBranch, commit: null } };
+  const repositories = new ProjectRepositories(env.ARTIFACTS);
+  const deployed = project.deploysWith === 'cloudchef' ? { orgProjectId } : null;
+  const url = new URL(request.url);
+  const forwarded = new Request(`http://${GIT_PROXY_HOST}/project.git/${rest}${url.search}`, request);
+  return handleGitProxyRequest(forwarded, {
+    repository: async () => target,
+    author: () => commitAuthor(env),
+    refusal: (repository, write) => gitRefusal(env, repository, write),
+    access: (repo, scope) => repositories.gitAccess(repo, scope),
+    revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+    // Nothing is saved for a computer: no ref is one of its own.
+    workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
+    recordPush: (update) => publishPush(env, deployed, update),
+    recordBase: async () => undefined,
+    fetch: (input, init) => fetch(input, init),
+    waitUntil: (promise) => ctx.waitUntil(promise),
+  });
 }

@@ -1,3 +1,12 @@
+import {
+  commandLineGitAction,
+  commandLineLogAction,
+  commandLineProjectsAction,
+  createCommandLineTokenAction,
+  isCommandLineGitPath,
+  listCommandLineTokensAction,
+  revokeCommandLineTokenAction,
+} from './server-handlers/command-line';
 import handler from '@tanstack/react-start/server-entry';
 import { healthAction } from './server-handlers/health';
 import { versionAction } from './server-handlers/version';
@@ -196,6 +205,11 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-usage': ['POST', runtimeUsageAction],
     '/connect/return': ['GET', completeCloudflareConnectionAction],
     '/api/version': ['GET', versionAction],
+    '/api/command-line/projects': ['GET', commandLineProjectsAction],
+    '/api/command-line/log': ['GET', commandLineLogAction],
+    '/api/settings/command-line-tokens': ['GET', listCommandLineTokensAction],
+    '/api/settings/command-line-tokens/create': ['POST', createCommandLineTokenAction],
+    '/api/settings/command-line-tokens/revoke': ['POST', revokeCommandLineTokenAction],
   }),
 );
 
@@ -243,6 +257,12 @@ async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> 
 }
 
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
+  // git from a person's own computer: its paths name the project, and every request is limited per token.
+  if (isCommandLineGitPath(pathname)) {
+    return (await runtimeRateLimited(request, env))
+      ? new Response('Too many git requests. Try again shortly.\n', { status: 429, headers: { 'Retry-After': '60' } })
+      : commandLineGitAction({ request, env });
+  }
   // A path naming one project is routed by its pattern; the handler reads the project from the path.
   const route = exactRoutes.get(projectRoute(pathname) ?? pathname);
   if (route) {

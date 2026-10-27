@@ -119,6 +119,24 @@ export function CloneDialog({ project, name, onClose }: { project: ProjectRef; n
           <p className="text-content-secondary">Anyone with this command can download the code until {until}.</p>
         </div>
       )}
+      {'orgProjectId' in project ? (
+        <div className="mt-4 grid gap-2 border-t border-bolt-elements-borderColor pt-3 text-sm">
+          <p className="font-medium text-content-primary">Work on it from your own computer</p>
+          <code
+            className="select-all rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 font-mono text-xs text-content-primary [overflow-wrap:anywhere]"
+            aria-label="Address to work on it from your own computer"
+          >
+            git clone {`https://cloudchef.build/git/${project.orgProjectId}.git`}
+          </code>
+          <p className="text-content-secondary">
+            Pushing main publishes it. When git asks for a password, use a command-line token from{' '}
+            <a className="underline" href="/settings#command-line">
+              Settings
+            </a>
+            .
+          </p>
+        </div>
+      ) : null}
     </Modal>
   );
 }
