@@ -2064,7 +2064,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       };
     }
     const review = await reviewDomainChange(request, (path) =>
-      this.readCloudflareJson(identity, path, options.abortSignal),
+      this.readCloudflareText(identity, path, options.abortSignal),
     );
     if ('refusal' in review) {
       return cloudflareRequestFailure(identity.accountId, review.refusal);
@@ -2106,18 +2106,18 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return identity && sameCloudflareConnectionIdentity(identity, expectedIdentity) ? identity : null;
   }
 
-  /** A read of the account's API by its path below `/client/v4`, parsed; null when it fails. */
-  private async readCloudflareJson(
+  /** A read of the account's API by its path below `/client/v4`: the response's text, or null when it fails. */
+  private async readCloudflareText(
     identity: RuntimeConnectionIdentity,
     path: string,
     signal = new AbortController().signal,
-  ): Promise<unknown> {
+  ): Promise<string | null> {
     try {
       const outcome = await this.createCloudflareApiClient(identity).send(
         { method: 'GET', url: `https://api.cloudflare.com/client/v4${path}` },
         signal,
       );
-      return outcome.status === 'success' ? JSON.parse(outcome.content) : null;
+      return outcome.status === 'success' ? outcome.content : null;
     } catch {
       return null;
     }

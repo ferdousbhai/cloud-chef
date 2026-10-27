@@ -10,8 +10,8 @@ import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
  */
 type DomainReview = { refusal: string } | { warning: string | null };
 
-/** A read of the account's API by its path below `/client/v4`; null when it fails or isn't JSON. */
-export type DomainReviewRead = (path: string) => Promise<unknown>;
+/** A read of the account's API by its path below `/client/v4`: the response's text, or null when it fails. */
+export type DomainReviewRead = (path: string) => Promise<string | null>;
 
 const CLOUDCHEF_HOST = new URL(CANONICAL_ORIGIN).hostname;
 const OWN_REFUSAL = 'CloudChef’s own address and Workers can’t be changed from a chat.';
@@ -25,11 +25,25 @@ const routeSchema = z.looseObject({ pattern: z.string(), script: z.string().opti
 const listed = <T extends z.ZodType>(item: T) => z.looseObject({ result: z.array(item) });
 const single = <T extends z.ZodType>(item: T) => z.looseObject({ result: item });
 
+/** What `read` answers for `path`, in `schema`'s shape, or undefined. */
+async function readAs<T>(read: DomainReviewRead, path: string, schema: z.ZodType<T>): Promise<T | undefined> {
+  const text = await read(path);
+  if (text === null) {
+    return undefined;
+  }
+  try {
+    const parsed = schema.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function reviewDomainChange(request: CloudflareApiRequest, read: DomainReviewRead): Promise<DomainReview> {
   const path = new URL(request.url).pathname.replace(/^\/client\/v4/, '').replace(/\/+$/, '');
   const domains = /^\/accounts\/[^/]+\/workers\/domains(\/[^/]+)?$/.exec(path);
   if (domains) {
-    return domains[1] ? reviewDomainRemoval(path, read) : reviewDomainAttach(path, request.body, read);
+    return domains[1] ? reviewDomainRemoval(path, read) : reviewDomainAttach(path, request, read);
   }
   if (
     /^\/zones\/[^/]+\/workers\/routes(\/[^/]+)?$/.test(path) ||
@@ -43,8 +57,12 @@ export async function reviewDomainChange(request: CloudflareApiRequest, read: Do
   return { warning: null };
 }
 
-async function reviewDomainAttach(path: string, body: unknown, read: DomainReviewRead): Promise<DomainReview> {
-  const domain = customDomainSchema.safeParse(body);
+async function reviewDomainAttach(
+  path: string,
+  request: CloudflareApiRequest,
+  read: DomainReviewRead,
+): Promise<DomainReview> {
+  const domain = customDomainSchema.safeParse(request.body);
   if (!domain.success) {
     return { warning: null };
   }
@@ -52,8 +70,8 @@ async function reviewDomainAttach(path: string, body: unknown, read: DomainRevie
   if (isOwn(hostname, service)) {
     return { refusal: OWN_REFUSAL };
   }
-  const existing = listed(customDomainSchema).safeParse(await read(`${path}?hostname=${encodeURIComponent(hostname)}`));
-  const current = existing.success ? existing.data.result.find((entry) => entry.hostname === hostname) : undefined;
+  const existing = await readAs(read, `${path}?hostname=${encodeURIComponent(hostname)}`, listed(customDomainSchema));
+  const current = existing?.result.find((entry) => entry.hostname === hostname);
   if (current && isOwn(current.hostname, current.service)) {
     return { refusal: OWN_REFUSAL };
   }
@@ -76,11 +94,11 @@ async function reviewDomainAttach(path: string, body: unknown, read: DomainRevie
 }
 
 async function reviewDomainRemoval(path: string, read: DomainReviewRead): Promise<DomainReview> {
-  const found = single(customDomainSchema).safeParse(await read(path));
-  if (!found.success) {
+  const found = await readAs(read, path, single(customDomainSchema));
+  if (!found) {
     return { warning: 'CloudChef couldn’t look up which address this changes; check it before approving.' };
   }
-  const { hostname, service } = found.data.result;
+  const { hostname, service } = found.result;
   if (isOwn(hostname, service)) {
     return { refusal: OWN_REFUSAL };
   }
@@ -101,9 +119,9 @@ async function reviewRoutes(
     return route.success ? [route.data] : [];
   });
   if (/\/workers\/routes\/[^/]+$/.test(path)) {
-    const found = single(routeSchema).safeParse(await read(path));
-    if (found.success) {
-      routes.push(found.data.result);
+    const found = await readAs(read, path, single(routeSchema));
+    if (found) {
+      routes.push(found.result);
     } else if (request.method === 'DELETE') {
       return { warning: 'CloudChef couldn’t look up which addresses this changes; check it before approving.' };
     }
