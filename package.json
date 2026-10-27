@@ -104,6 +104,8 @@
     "@tanstack/react-router": "^1.170.45",
     "@tanstack/react-start": "^1.169.3",
     "@uiw/codemirror-theme-vscode": "^4.25.11",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "agents": "^0.29.0",
     "ai": "7.0.148",
     "cloudchef-agent": "workspace:*",

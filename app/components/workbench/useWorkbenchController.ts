@@ -31,6 +31,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const isSmallViewport = useViewport();
   const workspaceId = workbenchStore.getActiveWorkspaceId();
   const [hasLoadedPreview, setHasLoadedPreview] = useState(false);
+  const [hasLoadedTerminal, setHasLoadedTerminal] = useState(false);
   const [publishRequestState, setPublishRequestState] = useState({ projectId, workspaceId, requesting: false });
   const publishRequestVersionRef = useRef(0);
   const manualPublishRequestRef = useRef<symbol | null>(null);
@@ -73,6 +74,10 @@ export function useWorkbenchController(isStreaming?: boolean) {
   useEffect(() => {
     if (selectedView === 'preview') {
       setHasLoadedPreview(true);
+    }
+    // The shell is opened only once someone asks for it, and then stays attached while the page is open.
+    if (selectedView === 'terminal') {
+      setHasLoadedTerminal(true);
     }
   }, [selectedView]);
 
@@ -160,6 +165,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
     currentDocument,
     files,
     hasLoadedPreview,
+    hasLoadedTerminal,
     linkedProject,
     linkedSite,
     conversationClosed,

@@ -14,7 +14,7 @@ import { AppSiteStore } from './app-site';
 /** Editor buffers that differ from what is on disk and are renderable as text. */
 type UnsavedTextFiles = Record<AbsolutePath, File>;
 
-export type WorkbenchViewType = 'code' | 'preview';
+export type WorkbenchViewType = 'code' | 'preview' | 'terminal';
 
 /** Where the active workspace's files stand, as the chat loading them reports it, with its retry. */
 export type WorkspaceFilesStatus = {

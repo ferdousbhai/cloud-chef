@@ -6,7 +6,7 @@ import {
   Workspace,
   WorkspaceProxy,
 } from '@cloudflare/computer';
-import { type SandboxCommand } from '@cloudflare/sandbox';
+import { proxyTerminal, type SandboxCommand } from '@cloudflare/sandbox';
 import { settleCancelledWorkspaceCommand } from './command-cancellation';
 import { terminateWorkspaceCommand } from './command-termination';
 import {
@@ -67,6 +67,7 @@ import {
   userRuntimeProjectDeployLogAction,
   userRuntimeProjectDeployRetryAction,
 } from '../../app/lib/cloudflare/data/projects.server';
+import { findChat } from '../../app/lib/cloudflare/data/chat-repository.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { builderModelCatalogResponse } from '../../app/lib/.server/llm/workers-ai-model-catalog';
@@ -1147,6 +1148,27 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const path = requireProjectPath(pathValue, true);
     await this.withStatefulOperation('write', `mkdir:${path}`, () =>
       this.withComputer((workspace) => workspace.fs.mkdir(path, { recursive: true })),
+    );
+  }
+
+  /**
+   * The workspace's shell for the person to work in themselves (their own tools, such as a coding agent), in the
+   * project folder of the same container the agent uses. One per container, kept between visits: a reloaded page
+   * reattaches to it, and a new container starts a new one. Its home is the container's own disk, since everything
+   * under /home is saved with the project.
+   */
+  async openTerminal(size: TerminalSize): ReturnType<ProjectWorkspace['createTerminal']> {
+    await this.withComputer(async () => undefined);
+    await this.assertContainerMatchesDurableProject();
+    const running = (await this.listTerminals()).find((terminal) => terminal.snapshot.status === 'running');
+    return (
+      running ??
+      this.createTerminal({
+        command: ['/bin/bash', '-l'],
+        cwd: PROJECT_ROOT,
+        env: { ...CONTAINER_TOOL_ENV, TERM: 'xterm-256color', HOME: '/root' },
+        ...size,
+      })
     );
   }
 
@@ -3072,6 +3094,10 @@ async function handleUserRequest(
     return withCors(Response.json({ error: 'Unauthorized' }, { status: 401 }), origin);
   }
   const sharedEnv = sharedHandlerEnv(env);
+  if (request.method === 'GET' && url.pathname === '/v1/terminal') {
+    // A WebSocket's answer is passed on as it is; CORS doesn't apply to it.
+    return userRuntimeTerminalAction(request, url, env, capability.subject);
+  }
   let response: Response;
   const agentResponse = await routeUserRuntimeAgentRequest(request, sharedEnv, capability.subject);
   if (agentResponse) {
@@ -3117,6 +3143,50 @@ async function handleUserRequest(
     }
   }
   return withCors(response, capability.origin);
+}
+
+type TerminalSize = { cols: number; rows: number };
+
+/** The terminal's size as the page asks for it, within what a screen can show. */
+function terminalSize(url: URL): TerminalSize {
+  const read = (name: string, min: number, max: number, fallback: number) => {
+    const value = Number(url.searchParams.get(name));
+    return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+  };
+  return { cols: read('cols', 20, 500, 80), rows: read('rows', 5, 200, 24) };
+}
+
+/**
+ * `GET /v1/terminal?chat=<chat id>`: a WebSocket to the shell in that chat's workspace container, for the person
+ * whose runtime this is. The container holds no credential, so a shell lets them do only what the git proxy and
+ * the runtime let the workspace do.
+ */
+async function userRuntimeTerminalAction(
+  request: Request,
+  url: URL,
+  env: RuntimeEnv,
+  userId: string,
+): Promise<Response> {
+  if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+    return Response.json({ error: 'Expected a WebSocket upgrade' }, { status: 426 });
+  }
+  const chatId = url.searchParams.get('chat') ?? '';
+  if (!chatId || !(await findChat(env.DB, { id: chatId, sessionId: userId }))) {
+    return Response.json({ error: 'Not found' }, { status: 404 });
+  }
+  // The chat's workspace, keyed as its agent keys it.
+  const projectId = env.BuilderAgent.idFromName(chatId).toString();
+  const stub = env.PROJECT_WORKSPACE.get(env.PROJECT_WORKSPACE.idFromName(projectId));
+  await stub.initializeProjectIdentity({ projectId, userId });
+  const size = terminalSize(url);
+  const terminal = await stub.openTerminal(size);
+  const headers = new Headers(request.headers);
+  headers.set('x-sandbox-port-route-token', await terminal.capability.authorizeConnection());
+  return proxyTerminal(stub, terminal.snapshot.id, new Request(request, { headers }), {
+    ...size,
+    cursor: url.searchParams.get('cursor') ?? undefined,
+    runtimeIncarnationID: terminal.runtimeIncarnationID,
+  });
 }
 
 async function projectRootExists(workspace: WorkspaceClient): Promise<boolean> {

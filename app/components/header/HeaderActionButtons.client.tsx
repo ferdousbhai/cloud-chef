@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { ChatBubbleIcon, CodeIcon, EyeOpenIcon } from '@radix-ui/react-icons';
+import { ChatBubbleIcon, CodeIcon, KeyboardIcon, EyeOpenIcon } from '@radix-ui/react-icons';
 import { useEffect, type ReactNode } from 'react';
 import { Button } from '@ui/Button';
 import useViewport from '~/lib/hooks/useViewport';
@@ -93,6 +93,12 @@ function SmallScreenSurfaceSwitcher({ showChat, showWorkbench }: { showChat: boo
         selected={showWorkbench && selectedView === 'preview'}
         icon={<EyeOpenIcon />}
         onClick={() => selectWorkspaceSurface('preview')}
+      />
+      <SurfaceButton
+        label="Terminal"
+        selected={showWorkbench && selectedView === 'terminal'}
+        icon={<KeyboardIcon />}
+        onClick={() => selectWorkspaceSurface('terminal')}
       />
     </div>
   );

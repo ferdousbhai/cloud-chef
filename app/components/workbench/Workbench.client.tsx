@@ -40,6 +40,9 @@ interface WorkbenchProps {
 
 const viewTransition = { duration: 0.3, ease: cubicEasingFn };
 const Preview = lazy(() => import('./Preview').then((module) => ({ default: module.Preview })));
+const TerminalPanel = lazy(() =>
+  import('./TerminalPanel.client').then((module) => ({ default: module.TerminalPanel })),
+);
 const sliderOptions: SliderOption<WorkbenchViewType>[] = [
   {
     value: 'code',
@@ -48,6 +51,10 @@ const sliderOptions: SliderOption<WorkbenchViewType>[] = [
   {
     value: 'preview',
     text: 'Preview',
+  },
+  {
+    value: 'terminal',
+    text: 'Terminal',
   },
 ];
 
@@ -173,6 +180,15 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
             <div />
           )}
         </View>
+        <View {...slidingPosition({ view: 'terminal', selectedView: controller.selectedView })}>
+          {controller.hasLoadedTerminal ? (
+            <Suspense fallback={null}>
+              <TerminalPanel chatId={controller.projectId} />
+            </Suspense>
+          ) : (
+            <div />
+          )}
+        </View>
       </>
     </WorkbenchFrame>
   );
@@ -285,7 +301,7 @@ const View = memo(function View({ children, ...props }: ViewProps) {
 });
 
 function slidingPosition({ view, selectedView }: { view: WorkbenchViewType; selectedView: WorkbenchViewType }) {
-  const tabsInOrder: WorkbenchViewType[] = ['code', 'preview'];
+  const tabsInOrder: WorkbenchViewType[] = ['code', 'preview', 'terminal'];
 
   const viewIndex = tabsInOrder.indexOf(view);
   const selectedViewIndex = tabsInOrder.indexOf(selectedView);
