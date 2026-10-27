@@ -1,6 +1,6 @@
 ---
 name: cloudchef
-description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote on a CloudChef host, such as https://cloudchef.build/<owner>/<name>.git.
+description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list, clone and copy projects, make one public or private, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote on a CloudChef host, such as https://cloudchef.build/ferdous/alberta-plan-glossary.git.
 ---
 
 # CloudChef
@@ -12,7 +12,8 @@ CloudChef keeps each project as a git repository and publishes it to the project
 
 - A project is named `owner/name`, like `ferdous/alberta-plan-glossary`, and its git address is
   `https://cloudchef.build/ferdous/alberta-plan-glossary.git`.
-- `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), last publish, site.
+- `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), whether it is public
+  or private, last publish, site.
 - `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudflare/ferdous/alberta-plan-glossary`
   (change the folder with `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Just the
   name works too when only one of your projects has it.
@@ -22,6 +23,19 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - With the view role you can clone and pull but not push.
 - `cloudchef repo create NAME` uploads the committed files of the current folder as a new project. The project starts
   with a fresh history; `git pull cloudchef main --allow-unrelated-histories` joins it to your local one.
+
+## Public projects
+
+- A public project can be found, read and copied by anyone signed in to CloudChef. Only people with the edit role on it can push.
+- `cloudchef repo list --public` lists everyone's public projects. `cloudchef repo view OWNER/NAME` and
+  `cloudchef repo clone OWNER/NAME` work for them too (read only: clone and pull, no push).
+- `cloudchef repo fork OWNER/NAME` copies a project, with its history, into a new project of your own and prints its
+  name; `--name NAME` names the copy, `--account ACCOUNT` picks the account (default Personal), and `--clone` clones the
+  copy with the original as the git remote `upstream`. Copying can take a minute. Change and push the copy, not the
+  original.
+- `cloudchef repo edit OWNER/NAME --visibility public` makes a project public and `--visibility private` makes it
+  private again. Making one public needs `--accept-visibility-change-consequences`; ask the user before passing it,
+  since everyone signed in can then read and copy the code.
 
 ## After a push
 

@@ -237,12 +237,13 @@ lowercase() {
 # (M_ROW) and a line per match (M_CHOICES). MODE: id, full (OWNER/NAME, any case), account (ACCOUNT/NAME), or bare (the
 # project's name, or the NAME of its OWNER/NAME).
 match_projects() {
-  local mode="$1" want="$2" want_lower name account role state site id full ok
+  local mode="$1" want="$2" want_lower name account role state site id full vis ok
   want_lower="$(lowercase "$want")"
   M_COUNT=0 M_ROW="" M_CHOICES=""
-  while IFS="$TAB" read -r name account role state site id full; do
+  while IFS="$TAB" read -r name account role state site id full vis; do
     [ -n "$id" ] && [ "$id" != "id" ] || continue
     [ -n "$full" ] || full="-"
+    [ -n "$vis" ] || vis="-"
     ok=""
     case "$mode" in
       id) [ "$id" = "$want" ] && ok=1 ;;
@@ -258,7 +259,7 @@ match_projects() {
     esac
     [ -n "$ok" ] || continue
     M_COUNT=$((M_COUNT + 1))
-    M_ROW="$name$TAB$account$TAB$role$TAB$state$TAB$site$TAB$id$TAB$full"
+    M_ROW="$name$TAB$account$TAB$role$TAB$state$TAB$site$TAB$id$TAB$full$TAB$vis"
     if [ "$full" != "-" ]; then
       M_CHOICES="$M_CHOICES  $full  ($account)$NL"
     else
@@ -269,17 +270,50 @@ $PROJECTS_TSV
 EOF
 }
 
+# match_public MODE VALUE: like match_projects, over the public projects (Explore's TSV: full name, name, owner's name,
+# site, id); MODE is full or id. A match's row has the
+# project list's columns, with no role (you use it only as a public project) and the owner's name as its account.
+match_public() {
+  local mode="$1" want="$2" want_lower full name owner site id ok
+  want_lower="$(lowercase "$want")"
+  M_COUNT=0 M_ROW="" M_CHOICES=""
+  # Only a fallback: when Explore can't be read, there is simply no public match.
+  require_token
+  http GET "/api/explore?format=tsv"
+  case "$HTTP_STATUS" in
+    2??) EXPLORE_TSV="$HTTP_BODY" ;;
+    *) EXPLORE_TSV="" ;;
+  esac
+  while IFS="$TAB" read -r full name owner site id; do
+    [ -n "$id" ] && [ "$id" != "id" ] || continue
+    [ -n "$full" ] || full="-"
+    ok=""
+    case "$mode" in
+      id) [ "$id" = "$want" ] && ok=1 ;;
+      full) [ "$full" != "-" ] && [ "$(lowercase "$full")" = "$want_lower" ] && ok=1 ;;
+    esac
+    [ -n "$ok" ] || continue
+    M_COUNT=$((M_COUNT + 1))
+    M_ROW="$name$TAB$owner$TAB-$TAB-$TAB${site:--}$TAB$id$TAB$full${TAB}public"
+    M_CHOICES="$M_CHOICES  $id  ($owner/$name)$NL"
+  done <<EOF
+$EXPLORE_TSV
+EOF
+}
+
 use_match() {
-  IFS="$TAB" read -r P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL <<EOF
+  IFS="$TAB" read -r P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL P_VIS <<EOF
 $M_ROW
 EOF
   [ -n "$P_FULL" ] || P_FULL="-"
+  [ -n "$P_VIS" ] || P_VIS="-"
   # How to name the project back to the person: its OWNER/NAME, else its id.
   if [ "$P_FULL" != "-" ]; then P_REF="$P_FULL"; else P_REF="$P_ID"; fi
 }
 
-# resolve_project [PROJECT]: sets P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL P_REF. PROJECT is OWNER/NAME, a
-# project name when only one project has it, ACCOUNT/NAME, or an id; without one, the current directory's git remote.
+# resolve_project [PROJECT]: sets P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL P_VIS P_REF. PROJECT is OWNER/NAME,
+# a project name when only one project has it, ACCOUNT/NAME, or an id; without one, the current directory's git remote.
+# An OWNER/NAME or id that isn't one of your projects can be a public project's (P_ROLE is then "-").
 resolve_project() {
   local want="$1" ref
   if [ -z "$want" ]; then
@@ -290,6 +324,7 @@ resolve_project() {
       id:*) match_projects id "${ref#id:}" ;;
       full:*) match_projects full "${ref#full:}" ;;
     esac
+    [ "$M_COUNT" -ge 1 ] || match_public "${ref%%:*}" "${ref#*:}"
     [ "$M_COUNT" -ge 1 ] || die "This folder's CloudChef project (${ref#*:}) isn't one you can use any more."
     use_match
     return 0
@@ -299,14 +334,16 @@ resolve_project() {
     */*)
       match_projects full "$want"
       [ "$M_COUNT" -ge 1 ] || match_projects account "$want"
+      [ "$M_COUNT" -ge 1 ] || match_public full "$want"
       ;;
     *)
       match_projects bare "$want"
       [ "$M_COUNT" -ge 1 ] || match_projects id "$want"
+      [ "$M_COUNT" -ge 1 ] || match_public id "$want"
       ;;
   esac
   if [ "$M_COUNT" -eq 0 ]; then
-    die "No project \"$want\". See: cloudchef repo list"
+    die "No project \"$want\". See: cloudchef repo list, or cloudchef repo list --public"
   elif [ "$M_COUNT" -gt 1 ]; then
     die "Several projects are called \"$want\". Name one of them:$NL${M_CHOICES%"$NL"}"
   fi
@@ -409,10 +446,12 @@ Auth
   auth setup-git       Let git sign in to CloudChef through cloudchef
 
 Projects
-  repo list            List the projects you can use
+  repo list            List the projects you can use (--public: everyone's public projects)
   repo view [PROJECT]  Show a project
   repo clone PROJECT   Clone a project
   repo create NAME     Upload a folder as a new project
+  repo edit [PROJECT]  Make a project public or private
+  repo fork PROJECT    Copy a project into your own account
 
 Publishes
   run list [PROJECT]   List a project's publishes and previews
@@ -424,12 +463,13 @@ More
   browse [PROJECT]     Open a project's site
   api PATH             Make an authenticated request to the CloudChef API
   config               Read and change settings (clone-dir)
-  skill install        Install the cloudchef skill for Claude Code
+  skill install        Install the cloudchef skill for coding agents
   help [COMMAND]       Show help for a command
   --version            Show the version
 
 PROJECT is OWNER/NAME (like ferdous/alberta-plan-glossary), or just NAME when only one project has it.
-ACCOUNT/NAME and a project id work too. Inside a clone, PROJECT defaults to that project.
+ACCOUNT/NAME and a project id work too, and OWNER/NAME also finds public projects. Inside a clone, PROJECT
+defaults to that project.
 
 Example: cloudchef repo clone ferdous/alberta-plan-glossary
 Environment: CLOUDCHEF_HOST (default https://cloudchef.build), CLOUDCHEF_TOKEN, CLOUDCHEF_CLONE_DIR.
@@ -455,17 +495,49 @@ EOF
     "auth git-credential") echo "Usage: cloudchef auth git-credential <get|store|erase>${NL}${NL}The git credential helper protocol. Answers only for $HOST." ;;
     repo)
       cat <<EOF
-Usage: cloudchef repo <list|view|clone|create>
+Usage: cloudchef repo <list|view|clone|create|edit|fork>
 
-  list [--json]                                   List the projects you can use
-  view [PROJECT] [--json] [--web]                 Show a project
-  clone PROJECT [DIR] [-- GIT_FLAGS]              Clone a project
-  create NAME [--account ACCOUNT] [--source DIR]  Upload a folder as a new project
+  list [--public] [--json]                         Your projects, or with --public everyone's public ones
+  view [PROJECT] [--json] [--web]                  Show a project
+  clone PROJECT [DIR] [-- GIT_FLAGS]               Clone a project
+  create NAME [--account ACCOUNT] [--source DIR]   Upload a folder as a new project
+  edit [PROJECT] --visibility public|private       Make a project public or private
+  fork PROJECT [--name N] [--account A] [--clone]  Copy a project into your own account
 
 PROJECT is OWNER/NAME, as in: cloudchef repo clone ferdous/alberta-plan-glossary
 EOF
       ;;
-    "repo list") echo "Usage: cloudchef repo list [--json]${NL}${NL}Lists the projects you can view or edit, in every account you use, by OWNER/NAME.${NL}--json includes each project's id and git address." ;;
+    "repo list")
+      cat <<EOF
+Usage: cloudchef repo list [--public] [--json]
+
+Lists the projects you can view or edit, in every account you use, by OWNER/NAME, with whether each is
+public or private. --json includes each project's id and git address.
+
+--public lists everyone's public projects instead (Explore). Anyone signed in can clone and copy those:
+  cloudchef repo clone OWNER/NAME, cloudchef repo fork OWNER/NAME
+EOF
+      ;;
+    "repo edit")
+      cat <<EOF
+Usage: cloudchef repo edit [PROJECT] --visibility public|private [--accept-visibility-change-consequences]
+
+Makes a project public or private. $PUBLIC_NOTE
+Making one public asks first; --accept-visibility-change-consequences answers yes (needed when not run
+in a terminal). Only people who can change the project's settings can do this.
+EOF
+      ;;
+    "repo fork")
+      cat <<EOF
+Usage: cloudchef repo fork [PROJECT] [--name NAME] [--account ACCOUNT] [--clone]
+
+Copies a project (yours, or anyone's public one) into a new project of your own, with its history, and
+prints the new project's OWNER/NAME. Copying can take a minute.
+  --name NAME        Name the copy (default: the original's name)
+  --account ACCOUNT  Put the copy in this account (default: Personal)
+  --clone            Clone the copy into <clone-dir>/<owner>/<name>, with the original as the remote "upstream"
+EOF
+      ;;
     "repo view") echo "Usage: cloudchef repo view [PROJECT] [--json] [--web]${NL}${NL}Shows a project's full name, account, your role, git address, site and last publish.${NL}Example: cloudchef repo view ferdous/alberta-plan-glossary${NL}--web opens the projects page." ;;
     "repo clone")
       cat <<EOF
@@ -517,7 +589,15 @@ Settings (kept in $CONFIG_FILE):
   clone-dir  Where repo clone puts projects (default ~/cloudflare); CLOUDCHEF_CLONE_DIR overrides it
 EOF
       ;;
-    skill | "skill install") echo "Usage: cloudchef skill install [--dir DIR]${NL}${NL}Writes the cloudchef agent skill to ~/.claude/skills/cloudchef/SKILL.md (or DIR/cloudchef/SKILL.md)." ;;
+    skill | "skill install")
+      cat <<EOF
+Usage: cloudchef skill install [--dir DIR]
+
+Writes the cloudchef agent skill (an Agent Skills folder, cloudchef/SKILL.md) to ~/.agents/skills, which
+OpenCode and other agents read, and also to ~/.claude/skills (Claude Code) and ~/.codex/skills (Codex)
+when ~/.claude and ~/.codex exist. --dir DIR writes only DIR/cloudchef/SKILL.md.
+EOF
+      ;;
     *) return 1 ;;
   esac
 }
@@ -683,14 +763,33 @@ cmd_auth() {
 # ---------- repo ----------
 
 cmd_repo_list() {
-  local json=""
+  local json="" public=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --json) json=1 ;;
+      --public) public=1 ;;
       *) die "Unknown argument: $1. See: cloudchef repo list --help" ;;
     esac
     shift
   done
+  if [ -n "$public" ]; then
+    if [ -n "$json" ]; then
+      api_get /api/explore
+      printf '%s\n' "$HTTP_BODY"
+      return 0
+    fi
+    api_get "/api/explore?format=tsv"
+    if ! printf '%s\n' "$HTTP_BODY" | grep -q "$TAB"; then
+      printf 'No public projects yet.\n'
+      return 0
+    fi
+    {
+      printf 'NAME\tOWNER\tSITE\n'
+      printf '%s\n' "$HTTP_BODY" |
+        awk -F '\t' -v OFS='\t' 'NF >= 5 && $5 != "id" { print (($1 == "" || $1 == "-") ? $2 : $1), $3, ($4 == "" ? "-" : $4) }'
+    } | print_table
+    return 0
+  fi
   if [ -n "$json" ]; then
     api_get /api/command-line/projects
     printf '%s\n' "$HTTP_BODY"
@@ -702,9 +801,10 @@ cmd_repo_list() {
     return 0
   fi
   {
-    printf 'NAME\tACCOUNT\tROLE\tPUBLISH\tSITE\n'
+    printf 'NAME\tACCOUNT\tROLE\tVISIBILITY\tPUBLISH\tSITE\n'
     printf '%s\n' "$PROJECTS_TSV" |
-      awk -F '\t' -v OFS='\t' 'NF >= 6 && $6 != "id" { print (($7 == "" || $7 == "-") ? $1 : $7), $2, $3, $4, $5 }'
+      awk -F '\t' -v OFS='\t' 'NF >= 6 && $6 != "id" {
+        print (($7 == "" || $7 == "-") ? $1 : $7), $2, $3, ($8 == "" ? "-" : $8), $4, $5 }'
   } | print_table
 }
 
@@ -712,10 +812,13 @@ project_json() {
   local site state
   site="$(dash_to_empty "$P_SITE")"
   state="$(dash_to_empty "$P_STATE")"
-  printf '{"id":"%s","name":"%s","fullName":%s,"account":"%s","role":"%s","gitUrl":"%s","siteUrl":%s,"lastPublishState":%s}\n' \
+  printf '{"id":"%s","name":"%s","fullName":%s,"account":"%s","role":%s,"visibility":%s,"gitUrl":"%s","siteUrl":%s,"lastPublishState":%s}\n' \
     "$(json_escape "$P_ID")" "$(json_escape "$P_NAME")" \
     "$([ "$P_FULL" != "-" ] && printf '"%s"' "$(json_escape "$P_FULL")" || printf null)" \
-    "$(json_escape "$P_ACCOUNT")" "$(json_escape "$P_ROLE")" "$(json_escape "$(git_url)")" \
+    "$(json_escape "$P_ACCOUNT")" \
+    "$([ "$P_ROLE" != "-" ] && printf '"%s"' "$(json_escape "$P_ROLE")" || printf null)" \
+    "$([ "$P_VIS" != "-" ] && printf '"%s"' "$(json_escape "$P_VIS")" || printf null)" \
+    "$(json_escape "$(git_url)")" \
     "$([ -n "$site" ] && printf '"%s"' "$(json_escape "$site")" || printf null)" \
     "$([ -n "$state" ] && printf '"%s"' "$(json_escape "$state")" || printf null)"
 }
@@ -743,8 +846,14 @@ cmd_repo_view() {
   fi
   printf 'name:          %s\n' "$P_REF"
   [ "$P_FULL" != "-" ] && [ "$P_NAME" = "${P_FULL#*/}" ] || printf 'title:         %s\n' "$P_NAME"
-  printf 'account:       %s\n' "$P_ACCOUNT"
-  printf 'role:          %s\n' "$P_ROLE"
+  if [ "$P_ROLE" = "-" ]; then
+    printf 'owner:         %s\n' "$P_ACCOUNT"
+    printf 'role:          none (a public project: you can clone and copy it)\n'
+  else
+    printf 'account:       %s\n' "$P_ACCOUNT"
+    printf 'role:          %s\n' "$P_ROLE"
+  fi
+  printf 'visibility:    %s\n' "$P_VIS"
   printf 'git:           %s\n' "$(git_url)"
   printf 'site:          %s\n' "$P_SITE"
   printf 'last publish:  %s\n' "$P_STATE"
@@ -862,6 +971,88 @@ cmd_repo_create() {
   printf 'Follow the publish: cloudchef run watch --project %s\n' "$P_REF"
 }
 
+PUBLIC_NOTE="Anyone signed in to CloudChef can find, read and copy a public project."
+
+cmd_repo_edit() {
+  local project="" visibility="" accepted="" answer
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --visibility) need_value "$1" $#; visibility="$2"; shift ;;
+      --visibility=*) visibility="${1#--visibility=}" ;;
+      --accept-visibility-change-consequences) accepted=1 ;;
+      -*) die "Unknown flag: $1. See: cloudchef repo edit --help" ;;
+      *) [ -z "$project" ] || die "Too many arguments."; project="$1" ;;
+    esac
+    shift
+  done
+  case "$visibility" in
+    public | private) ;;
+    "") die "Nothing to change. Use --visibility public or --visibility private." ;;
+    *) die "--visibility is public or private, not \"$visibility\"." ;;
+  esac
+  resolve_project "$project"
+  if [ "$visibility" = "public" ] && [ -z "$accepted" ]; then
+    note "$PUBLIC_NOTE"
+    if [ -t 0 ]; then
+      printf 'Make %s public? [y/N] ' "$P_REF" >&2
+      read -r answer || answer=""
+      case "$answer" in
+        y | Y | yes | YES | Yes) ;;
+        *) die "Left $P_REF as it was." ;;
+      esac
+    else
+      die "To make $P_REF public, add --accept-visibility-change-consequences."
+    fi
+  elif [ "$visibility" = "public" ]; then
+    note "$PUBLIC_NOTE"
+  fi
+  api_post_json /api/command-line/projects/visibility \
+    "{\"project\":\"$(json_escape "$P_ID")\",\"visibility\":\"$visibility\"}"
+  visibility="$(json_field visibility "$HTTP_BODY")"
+  printf '%s is now %s.\n' "$P_REF" "${visibility:-updated}"
+}
+
+cmd_repo_fork() {
+  local project="" name="" account="" clone="" body id full gitUrl upstream dir
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --name) need_value "$1" $#; name="$2"; shift ;;
+      --name=*) name="${1#--name=}" ;;
+      --account) need_value "$1" $#; account="$2"; shift ;;
+      --account=*) account="${1#--account=}" ;;
+      --clone) clone=1 ;;
+      --clone=true) clone=1 ;;
+      --clone=false) clone="" ;;
+      -*) die "Unknown flag: $1. See: cloudchef repo fork --help" ;;
+      *) [ -z "$project" ] || die "Too many arguments."; project="$1" ;;
+    esac
+    shift
+  done
+  resolve_project "$project"
+  upstream="$(git_url)"
+  body="{\"project\":\"$(json_escape "$P_ID")\""
+  [ -z "$name" ] || body="$body,\"name\":\"$(json_escape "$name")\""
+  [ -z "$account" ] || body="$body,\"account\":\"$(json_escape "$account")\""
+  body="$body}"
+  note "Copying $P_REF into ${account:-your Personal account}. This can take a minute..."
+  api_post_json /api/command-line/projects/copy "$body"
+  id="$(json_field id "$HTTP_BODY")"
+  full="$(json_field fullName "$HTTP_BODY")"
+  gitUrl="$(json_field gitUrl "$HTTP_BODY")"
+  [ -n "$id" ] || die "The server didn't say which project it made."
+  P_ID="$id" P_FULL="${full:--}" P_NAME="$(json_field name "$HTTP_BODY")" P_ACCOUNT="${account:-Personal}"
+  if [ -n "$full" ]; then P_REF="$full"; else P_REF="$id"; fi
+  [ -n "$gitUrl" ] || gitUrl="$(git_url)"
+  printf 'Created %s\n' "$P_REF"
+  printf 'git: %s\n' "$gitUrl"
+  [ -n "$clone" ] || return 0
+  dir="$(default_clone_path)"
+  mkdir -p "$(dirname "$dir")" || die "Could not create $(dirname "$dir")."
+  git clone "$gitUrl" "$dir" || exit 1
+  git -C "$dir" remote add upstream "$upstream" 2>/dev/null || true
+  printf 'Cloned %s into %s (the original is the git remote "upstream")\n' "$P_REF" "$dir"
+}
+
 cmd_repo() {
   local sub="$1"
   [ $# -gt 0 ] && shift
@@ -872,6 +1063,8 @@ cmd_repo() {
     view) cmd_repo_view "$@" ;;
     clone) cmd_repo_clone "$@" ;;
     create) cmd_repo_create "$@" ;;
+    edit) cmd_repo_edit "$@" ;;
+    fork) cmd_repo_fork "$@" ;;
     *) die "Unknown command: repo $sub. See: cloudchef help repo" ;;
   esac
 }
@@ -1112,7 +1305,7 @@ skill_text() {
   cat <<'CLOUDCHEF_SKILL_END'
 ---
 name: cloudchef
-description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list and clone projects, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote on a CloudChef host, such as https://cloudchef.build/<owner>/<name>.git.
+description: Work on CloudChef (cloudchef.build) projects from this computer with the `cloudchef` command - list, clone and copy projects, make one public or private, publish changes by pushing to main, preview a branch, wait for a publish to finish, and read a publish log to fix a failed one. Use when the user mentions CloudChef or cloudchef.build, or when the current git repository has a remote on a CloudChef host, such as https://cloudchef.build/ferdous/alberta-plan-glossary.git.
 ---
 
 # CloudChef
@@ -1124,7 +1317,8 @@ CloudChef keeps each project as a git repository and publishes it to the project
 
 - A project is named `owner/name`, like `ferdous/alberta-plan-glossary`, and its git address is
   `https://cloudchef.build/ferdous/alberta-plan-glossary.git`.
-- `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), last publish, site.
+- `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), whether it is public
+  or private, last publish, site.
 - `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudflare/ferdous/alberta-plan-glossary`
   (change the folder with `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Just the
   name works too when only one of your projects has it.
@@ -1134,6 +1328,19 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - With the view role you can clone and pull but not push.
 - `cloudchef repo create NAME` uploads the committed files of the current folder as a new project. The project starts
   with a fresh history; `git pull cloudchef main --allow-unrelated-histories` joins it to your local one.
+
+## Public projects
+
+- A public project can be found, read and copied by anyone signed in to CloudChef. Only people with the edit role on it can push.
+- `cloudchef repo list --public` lists everyone's public projects. `cloudchef repo view OWNER/NAME` and
+  `cloudchef repo clone OWNER/NAME` work for them too (read only: clone and pull, no push).
+- `cloudchef repo fork OWNER/NAME` copies a project, with its history, into a new project of your own and prints its
+  name; `--name NAME` names the copy, `--account ACCOUNT` picks the account (default Personal), and `--clone` clones the
+  copy with the original as the git remote `upstream`. Copying can take a minute. Change and push the copy, not the
+  original.
+- `cloudchef repo edit OWNER/NAME --visibility public` makes a project public and `--visibility private` makes it
+  private again. Making one public needs `--accept-visibility-change-consequences`; ask the user before passing it,
+  since everyone signed in can then read and copy the code.
 
 ## After a push
 
@@ -1156,8 +1363,15 @@ Run these inside the clone. Elsewhere, name the project: `cloudchef run watch --
 CLOUDCHEF_SKILL_END
 }
 
+write_skill() {
+  mkdir -p "$1/cloudchef" && skill_text >"$1/cloudchef/SKILL.md" || die "Could not write $1/cloudchef/SKILL.md."
+  printf 'Installed the cloudchef skill: %s\n' "$1/cloudchef/SKILL.md"
+}
+
+# The skill is one Agent Skills folder (cloudchef/SKILL.md). By default it goes to ~/.agents/skills, which OpenCode and
+# other agents read, and to Claude Code's and Codex's own skill folders when they are installed.
 cmd_skill() {
-  local sub="$1" dir="$HOME/.claude/skills"
+  local sub="$1" dir=""
   [ $# -gt 0 ] && shift
   if [ -z "$sub" ] || wants_help "$sub" "$@"; then usage skill; return 0; fi
   [ "$sub" = "install" ] || die "Unknown command: skill $sub. See: cloudchef help skill"
@@ -1169,8 +1383,13 @@ cmd_skill() {
     esac
     shift
   done
-  mkdir -p "$dir/cloudchef" && skill_text >"$dir/cloudchef/SKILL.md" || die "Could not write $dir/cloudchef/SKILL.md."
-  printf 'Installed the cloudchef skill: %s\n' "$dir/cloudchef/SKILL.md"
+  if [ -n "$dir" ]; then
+    write_skill "$dir"
+    return 0
+  fi
+  write_skill "$HOME/.agents/skills"
+  [ ! -d "$HOME/.claude" ] || write_skill "$HOME/.claude/skills"
+  [ ! -d "$HOME/.codex" ] || write_skill "$HOME/.codex/skills"
 }
 
 # ---------- main ----------
