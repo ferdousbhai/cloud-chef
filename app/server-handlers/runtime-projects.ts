@@ -394,8 +394,9 @@ export async function runtimeProjectStatusAction(args: {
 
 /**
  * The project's live site, for the model to read its content: the origins its Worker serves in production
- * and its Previews, as Cloudflare reports them. Nothing the workspace says is trusted here: a workspace's
- * own config could name any address.
+ * and its Previews, as Cloudflare reports them; and for the workspace to show beside the chat, the live one
+ * and whether it may be framed. Nothing the workspace says is trusted here: a workspace's own config could
+ * name any address.
  */
 export async function runtimeProjectSiteAction(args: {
   request: Request;
@@ -412,17 +413,27 @@ export async function runtimeProjectSiteAction(args: {
       .filter((deployment) => deployment.kind === 'preview' && deployment.state === 'succeeded' && deployment.url)
       .map((deployment) => new URL(deployment.url!).origin);
     const live = project.siteUrl ? [new URL(project.siteUrl).origin] : [];
-    return json({ origins: [...new Set([...live, ...previews])] }, 200);
+    return json(
+      { origins: [...new Set([...live, ...previews])], live: project.siteUrl, frameable: project.siteFrameable },
+      200,
+    );
   }
   return withWorkersBuilds(args, connection, project, async (api, worker, readProduction) => {
     if (!worker) {
-      return json({ origins: [] }, 200);
+      return json({ origins: [], live: null, frameable: null }, 200);
     }
     const [production, previews] = await Promise.all([
       readProduction(worker),
       previewOrigins(api, worker).catch(() => []),
     ]);
-    return json({ origins: [...new Set([...production, ...previews])] }, 200);
+    return json(
+      {
+        origins: [...new Set([...production, ...previews])],
+        live: project.siteUrl ?? production[0] ?? null,
+        frameable: project.siteFrameable,
+      },
+      200,
+    );
   });
 }
 

@@ -26,6 +26,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const selectedView = useStore(workbenchStore.currentView);
   const following = useStore(workbenchStore.followingStreamedCode);
   const linkedProject = useStore(workbenchStore.linkedProject);
+  const linkedSite = useStore(workbenchStore.linkedSite);
   const conversationClosed = useStore(workbenchStore.conversationClosed);
   const isSmallViewport = useViewport();
   const workspaceId = workbenchStore.getActiveWorkspaceId();
@@ -74,13 +75,6 @@ export function useWorkbenchController(isStreaming?: boolean) {
       setHasLoadedPreview(true);
     }
   }, [selectedView]);
-
-  // A team or uploaded project has no preview here, so it opens on its code.
-  useEffect(() => {
-    if (linkedProject && selectedView === 'preview') {
-      workbenchStore.currentView.set('code');
-    }
-  }, [linkedProject, selectedView]);
 
   useEffect(() => {
     workbenchStore.setDocuments(files);
@@ -167,6 +161,7 @@ export function useWorkbenchController(isStreaming?: boolean) {
     files,
     hasLoadedPreview,
     linkedProject,
+    linkedSite,
     conversationClosed,
     isSmallViewport,
     onEditorChange,

@@ -25,6 +25,7 @@ vi.mock('~/lib/stores/workbench.client', async () => {
       currentView: atom<'code' | 'preview'>('code'),
       followingStreamedCode: atom(true),
       linkedProject,
+      linkedSite: atom(null),
       conversationClosed,
       activateWorkspace(nextWorkspaceId: string) {
         workspaceId = nextWorkspaceId;
@@ -142,16 +143,6 @@ describe('useWorkbenchController publish requests', () => {
     expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
     expect(controller()!.linkedProject).toEqual({ repository: 'ada/site', defaultBranch: 'main' });
-  });
-
-  it('opens a team or uploaded project on its code, since its previews open at their own links', async () => {
-    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.linkedProject.set({ repository: 'ada/site', defaultBranch: 'main' });
-    workbenchStore.currentView.set('preview');
-
-    await mountController();
-
-    expect(workbenchStore.currentView.get()).toBe('code');
   });
 
   it('never saves a file in a conversation a newer one continues', async () => {

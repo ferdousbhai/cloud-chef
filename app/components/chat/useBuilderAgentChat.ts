@@ -171,6 +171,11 @@ export function useBuilderAgentChat(args: {
       if (linked?.repository !== shownLinked?.repository || linked?.defaultBranch !== shownLinked?.defaultBranch) {
         workbenchStore.linkedProject.set(linked);
       }
+      const site = state.linkedSite ?? null;
+      const shownSite = workbenchStore.linkedSite.get();
+      if (site?.url !== shownSite?.url || site?.frameable !== shownSite?.frameable || site?.kind !== shownSite?.kind) {
+        workbenchStore.linkedSite.set(site);
+      }
       workbenchStore.conversationClosed.set(state.conversationClosed === true);
       const generatedTitle = state.generatedSubchatTitle;
       if (!generatedTitle || generatedSubchatTitleUpdatedAtRef.current === generatedTitle.updatedAt) {

@@ -129,7 +129,7 @@ import {
   ProjectRefusalError,
   ProjectUnavailableError,
   projectBuildStatus,
-  projectSiteOrigins,
+  projectSite,
   commitAuthor,
   requestProductionReview,
   type ProductionRequestOutcome,
@@ -362,6 +362,7 @@ export type BuilderAgentState = {
   cloudflareExecutions?: CloudflareExecutionPublicState[];
   /** The team project this workspace works on, once it's prepared; null for a CloudChef app. */
   linkedProject?: BuilderLinkedProjectSummary | null;
+  linkedSite?: BuilderLinkedSite | null;
   /**
    * A newer conversation in the chat continues the project, so this one is kept to read: only the newest
    * conversation changes the project.
@@ -378,6 +379,12 @@ export type BuilderLinkedProjectSummary = {
   repo?: string;
   defaultBranch: string;
 };
+
+/**
+ * The site a team or uploaded project's workspace shows beside the chat: the newest preview this conversation
+ * made, else the live site; with whether it may be framed (null until CloudChef checked).
+ */
+export type BuilderLinkedSite = { url: string; frameable: boolean | null; kind: 'live' | 'preview' };
 
 /**
  * What a conversation hands the newer one that continues its project: where production stands and
@@ -425,6 +432,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     contextCompactionRequestedTurnId: null,
     cloudflareExecutions: [],
     linkedProject: null,
+    linkedSite: null,
     conversationClosed: false,
   };
 
@@ -1295,12 +1303,35 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         ? { repository: linked.name ?? linked.repository, repo: linked.repository, defaultBranch: linked.defaultBranch }
         : null,
     );
+    if (linked && this.state.linkedSite?.kind !== 'preview') {
+      void this.showLiveSite(linked.orgProjectId);
+    }
     const closed =
       this.userId !== null &&
       (await loadConversationScope(this.env.DB, { agentName: this.name, ownerId: this.userId })).closed;
     if ((this.state.conversationClosed ?? false) !== closed) {
       this.setState({ ...this.state, conversationClosed: closed });
     }
+  }
+
+  /** The project's live site, shown beside the chat; what was shown stays when it can't be looked up. */
+  private async showLiveSite(orgProjectId: string): Promise<void> {
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity) {
+      return;
+    }
+    const site = await projectSite(this.env, identity, orgProjectId, SITE_NOTE_TIMEOUT_MS).catch(() => null);
+    if (site) {
+      this.showLinkedSite(site.live ? { url: site.live, frameable: site.frameable, kind: 'live' } : null);
+    }
+  }
+
+  private showLinkedSite(next: BuilderLinkedSite | null): void {
+    const current = this.state.linkedSite ?? null;
+    if (current?.url === next?.url && current?.frameable === next?.frameable && current?.kind === next?.kind) {
+      return;
+    }
+    this.setState({ ...this.state, linkedSite: next });
   }
 
   private showLinkedProject(next: BuilderLinkedProjectSummary | null): void {
@@ -1893,6 +1924,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return;
     }
     const output = build ? linkedBuildSettledResult(watch, build) : linkedBuildUnfollowedResult(watch);
+    if (build?.state === 'success' && build.previewUrl) {
+      // What was just built is what the workspace shows: the preview, or the live site once it is live.
+      this.showLinkedSite({
+        url: build.previewUrl,
+        frameable: this.state.linkedSite?.frameable ?? null,
+        kind: watch.live ? 'live' : 'preview',
+      });
+    }
     console.info({
       event: 'linked_build_settled',
       build: output.data?.build ?? 'none',
@@ -1954,7 +1993,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       return null;
     }
     try {
-      const origins = await projectSiteOrigins(this.env, identity, linked.orgProjectId, SITE_NOTE_TIMEOUT_MS);
+      const { origins } = await projectSite(this.env, identity, linked.orgProjectId, SITE_NOTE_TIMEOUT_MS);
       return origins.length > 0 ? `The project's live site and preview links: ${origins.join(', ')}` : null;
     } catch {
       return null;

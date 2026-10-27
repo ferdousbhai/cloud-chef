@@ -99,8 +99,6 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
 
   return (
     <WorkbenchFrame
-      // A team or uploaded project's previews open at their own links from the chat, so it shows only its code here.
-      views={controller.linkedProject ? sliderOptions.filter((option) => option.value === 'code') : sliderOptions}
       visible={controller.showWorkbench}
       selectedView={controller.selectedView}
       setSelectedView={controller.setSelectedView}
@@ -160,7 +158,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
           </div>
         </View>
         <View {...slidingPosition({ view: 'preview', selectedView: controller.selectedView })}>
-          {controller.hasLoadedPreview && !controller.linkedProject ? (
+          {controller.hasLoadedPreview ? (
             <Suspense fallback={null}>
               <Preview
                 presentation={presentation}
@@ -168,6 +166,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
                 reloadKey={previewReloadKey}
                 requesting={controller.publishRequesting}
                 onPublish={() => void controller.onPublishRequest()}
+                linkedSite={controller.linkedProject ? controller.linkedSite : undefined}
               />
             </Suspense>
           ) : (
@@ -180,7 +179,6 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
 }
 
 function WorkbenchFrame({
-  views,
   visible,
   selectedView,
   setSelectedView,
@@ -191,7 +189,6 @@ function WorkbenchFrame({
   headerActions,
   children,
 }: {
-  views: SliderOption<WorkbenchViewType>[];
   visible: boolean;
   selectedView: WorkbenchViewType;
   setSelectedView: (view: WorkbenchViewType) => void;
@@ -247,7 +244,7 @@ function WorkbenchFrame({
               )}
               {!isSmallViewport && (
                 <>
-                  {views.length > 1 && <Slider selected={selectedView} options={views} setSelected={setSelectedView} />}
+                  <Slider selected={selectedView} options={sliderOptions} setSelected={setSelectedView} />
                   <div className="ml-auto" />
                 </>
               )}

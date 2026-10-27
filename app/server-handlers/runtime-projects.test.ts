@@ -382,6 +382,8 @@ describe("a runtime asking about a project's builds and site", () => {
         'https://blog.team.workers.dev',
         'https://cloudchef-sara-a-key-blog.team.workers.dev',
       ],
+      live: 'https://blog.example.com',
+      frameable: false,
     });
     const refused = await runtimeProjectSiteAction({
       request: await runtime('/api/cloudflare/runtime-projects/site', { orgProjectId: BLOG }),

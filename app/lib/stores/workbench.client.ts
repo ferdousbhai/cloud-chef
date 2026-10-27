@@ -3,7 +3,7 @@ import type { EditorDocument, File, FileMap, ScrollPosition } from 'cloudchef-ag
 import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import type { BuilderWorkspaceSyncEntry } from '@cloudchef/user-workspace-runtime/protocol';
-import type { BuilderLinkedProjectSummary } from '~/agents/builder-agent';
+import type { BuilderLinkedProjectSummary, BuilderLinkedSite } from '~/agents/builder-agent';
 import type { WorkspacePresentationState } from '~/components/chat/useBuilderAgentChat';
 import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
@@ -49,6 +49,8 @@ export class WorkbenchStore {
    * says). A GitHub project previews and deploys through its repository's pipeline, not CloudChef's.
    */
   linkedProject: WritableAtom<BuilderLinkedProjectSummary | null> = atom(null);
+  /** What a team or uploaded project's Preview shows: its newest preview from this conversation, else its live site. */
+  linkedSite: WritableAtom<BuilderLinkedSite | null> = atom(null);
   /** A newer conversation in the chat continues the project: this one's files are shown to read only. */
   conversationClosed: WritableAtom<boolean> = atom(false);
   /** How the active workspace's files are reaching the browser, which the code view says while it has none. */
@@ -137,6 +139,7 @@ export class WorkbenchStore {
     this.#editorStore.followingStreamedCode.set(true);
     this.#appSiteStore.reset();
     this.linkedProject.set(null);
+    this.linkedSite.set(null);
     this.conversationClosed.set(false);
     this.workspaceFiles.set(CONNECTING_WORKSPACE_FILES);
     this.currentView.set('code');

@@ -53,7 +53,12 @@ const buildStatusSchema = z.object({
 });
 export type ProjectBuildStatus = z.infer<typeof buildStatusSchema>;
 
-const siteOriginsSchema = z.object({ origins: z.array(z.string()).max(16) });
+const projectSiteSchema = z.object({
+  origins: z.array(z.string()).max(16),
+  live: z.url({ protocol: /^https$/ }).nullable(),
+  frameable: z.boolean().nullable(),
+});
+type ProjectSite = z.infer<typeof projectSiteSchema>;
 
 const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'updated', 'unchanged']) });
 
@@ -214,15 +219,18 @@ export async function projectBuildStatus(
   return readAnswer(response, buildStatusSchema, 'CloudChef could not read the build status.');
 }
 
-/** The project's live site, as the https origins the control plane reports: its production and preview URLs. */
-export async function projectSiteOrigins(
+/**
+ * The project's site as the control plane reports it: the https origins of its production and preview URLs, the
+ * live address, and whether that may be shown in a frame (null until checked).
+ */
+export async function projectSite(
   env: RuntimeEnv,
   identity: Identity,
   orgProjectId: string,
   timeoutMs = STATUS_TIMEOUT_MS,
-): Promise<string[]> {
+): Promise<ProjectSite> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/site', { orgProjectId }, timeoutMs);
-  return (await readAnswer(response, siteOriginsSchema, "CloudChef could not look up the project's site.")).origins;
+  return readAnswer(response, projectSiteSchema, "CloudChef could not look up the project's site.");
 }
 
 /** Whether the admins now see a new request, this draft's request updated to the revision sent, or no change. */
