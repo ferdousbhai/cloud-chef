@@ -134,6 +134,7 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   );
   await page.route('**/api/settings/ai-gateway-logging', (route) => route.fulfill({ json: { contentLogging: true } }));
   await page.route('**/api/organizations', (route) => route.fulfill({ json: { organizations: [] } }));
+  await page.route('**/api/settings/command-line-tokens', (route) => route.fulfill({ json: { tokens: [] } }));
   // The Models card lists the account's catalog, which its workspace runtime serves. The Worker's
   // connect-src policy only allows workers.dev origins, so the double looks like a user-owned runtime.
   const runtimeOrigin = 'https://e2e-settings-fixture.workers.dev';
