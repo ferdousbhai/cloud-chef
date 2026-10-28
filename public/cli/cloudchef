@@ -449,7 +449,7 @@ Projects
   repo list            List the projects you can use (--public: everyone's public projects)
   repo view [PROJECT]  Show a project
   repo clone PROJECT   Clone a project
-  repo create NAME     Upload a folder as a new project
+  repo create NAME     Make a new project from a repository or folder
   repo edit [PROJECT]  Make a project public or private
   repo fork PROJECT    Copy a project into your own account
 
@@ -500,7 +500,7 @@ Usage: cloudchef repo <list|view|clone|create|edit|fork>
   list [--public] [--json]                         Your projects, or with --public everyone's public ones
   view [PROJECT] [--json] [--web]                  Show a project
   clone PROJECT [DIR] [-- GIT_FLAGS]               Clone a project
-  create NAME [--account ACCOUNT] [--source DIR]   Upload a folder as a new project
+  create NAME [--source DIR] [--push]              Make a new project from a repository or folder
   edit [PROJECT] --visibility public|private       Make a project public or private
   fork PROJECT [--name N] [--account A] [--clone]  Copy a project into your own account
 
@@ -553,12 +553,22 @@ EOF
       ;;
     "repo create")
       cat <<EOF
-Usage: cloudchef repo create NAME [--account ACCOUNT] [--source DIR]
+Usage: cloudchef repo create NAME [--account ACCOUNT] [--source DIR] [--push] [--remote NAME]
 
-Uploads the committed files of DIR (default: the current folder) as a new project, which then publishes.
-Outside a git repository, every file not ignored by .gitignore is uploaded. The project starts with a
-fresh history; in a git repository a "cloudchef" remote is added for it.
---account names the account to create it in (default: your own).
+Makes a new project from DIR (default: the current folder).
+
+When DIR is a git repository with commits, the project keeps its history: it is made empty, DIR gets
+the git remote "cloudchef" for it, and --push pushes HEAD to its main, which publishes it. Without
+--push, push when you're ready: git push -u cloudchef HEAD:main
+
+Otherwise every file of DIR that .gitignore doesn't exclude is uploaded, and the project publishes.
+
+  --account ACCOUNT  The account to make it in (default: your own)
+  --source DIR       The folder to make it from
+  --push             Push the repository's history to main
+  --remote NAME      Name the git remote NAME instead of "cloudchef"
+
+Example: cloudchef repo create my-site --push
 EOF
       ;;
     run)
@@ -594,8 +604,8 @@ EOF
 Usage: cloudchef skill install [--dir DIR]
 
 Writes the cloudchef agent skill (an Agent Skills folder, cloudchef/SKILL.md) to ~/.agents/skills, which
-OpenCode and other agents read, and also to ~/.claude/skills (Claude Code) and ~/.codex/skills (Codex)
-when ~/.claude and ~/.codex exist. --dir DIR writes only DIR/cloudchef/SKILL.md.
+Codex, OpenCode and other agents read. When ~/.claude exists, ~/.claude/skills/cloudchef becomes a link to
+it, for Claude Code. --dir DIR writes only DIR/cloudchef/SKILL.md.
 EOF
       ;;
     *) return 1 ;;
@@ -887,14 +897,33 @@ cmd_repo_clone() {
   printf 'Cloned %s into %s\n' "$P_REF" "$dir"
 }
 
+# read_created_project ACCOUNT: from a new project's answer (201 {"project":{...}}), sets P_ID P_FULL P_NAME P_ACCOUNT
+# P_REF and CREATED_GIT_URL.
+read_created_project() {
+  local id full
+  id="$(json_field id "$HTTP_BODY")"
+  full="$(json_field fullName "$HTTP_BODY")"
+  [ -n "$id" ] || die "The server didn't say which project it made."
+  P_ID="$id" P_FULL="${full:--}" P_NAME="$(json_field name "$HTTP_BODY")" P_ACCOUNT="$1"
+  if [ -n "$full" ]; then P_REF="$full"; else P_REF="$id"; fi
+  CREATED_GIT_URL="$(json_field gitUrl "$HTTP_BODY")"
+  [ -n "$CREATED_GIT_URL" ] || CREATED_GIT_URL="$(git_url)"
+}
+
+# A git repository with commits becomes an empty project that its history is pushed to (like
+# gh repo create --source . --push); any other folder is uploaded as a ZIP of its files, which then publishes.
 cmd_repo_create() {
-  local name="" account="" source="" source_given="" is_repo="" tmp zip query id full gitUrl top abs
+  local name="" account="" source="" source_given="" push="" remote="cloudchef" remote_given=""
+  local is_repo="" has_history="" tmp zip query top abs existing push_command track="" where=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --account) need_value "$1" $#; account="$2"; shift ;;
       --account=*) account="${1#--account=}" ;;
       --source) need_value "$1" $#; source="$2"; source_given=1; shift ;;
       --source=*) source="${1#--source=}"; source_given=1 ;;
+      --remote | -r) need_value "$1" $#; remote="$2"; remote_given=1; shift ;;
+      --remote=*) remote="${1#--remote=}"; remote_given=1 ;;
+      --push) push=1 ;;
       -*) die "Unknown flag: $1. See: cloudchef repo create --help" ;;
       *) [ -z "$name" ] || die "Too many arguments."; name="$1" ;;
     esac
@@ -909,58 +938,79 @@ cmd_repo_create() {
 
   top="$(git -C "$abs" rev-parse --show-toplevel 2>/dev/null)" && top="$(cd "$top" && pwd -P)"
   [ "$top" = "$abs" ] && is_repo=1
-  if [ -z "$source_given" ]; then
-    note "Uploading the current folder ($abs). Use --source DIR to upload another."
+  if [ -n "$is_repo" ]; then
+    git -C "$abs" rev-parse --verify -q HEAD >/dev/null && has_history=1
+    git check-ref-format "refs/remotes/$remote/main" || die "\"$remote\" can't be the name of a git remote."
+    # Checked before the project is made, so a clash never leaves an unused project behind.
+    if existing="$(git -C "$abs" remote get-url "$remote" 2>/dev/null)"; then
+      die "This repository already has a git remote \"$remote\" ($existing). Choose another name with --remote NAME."
+    fi
+  elif [ -n "$remote_given" ]; then
+    die "--remote needs a git repository, and $abs isn't one."
+  fi
+  query="name=$(urlencode "$name")"
+  [ -z "$account" ] || query="$query&account=$(urlencode "$account")"
+  [ "$abs" = "$(pwd -P)" ] || where=" (in $abs)"
+
+  if [ -n "$has_history" ]; then
+    [ -n "$source_given" ] || note "Making the project from this repository ($abs). Use --source DIR for another."
+    if [ -n "$(git -C "$abs" status --porcelain 2>/dev/null)" ]; then
+      note "Only commits are pushed; this repository has changes that aren't committed."
+    fi
+    http POST "/api/command-line/projects/create?$query&empty=1"
+    http_ok
+    read_created_project "$account"
+    printf 'Created %s.\n' "$P_REF"
+    printf 'git: %s\n' "$CREATED_GIT_URL"
+    git -C "$abs" remote add "$remote" "$CREATED_GIT_URL" || die "Could not add the git remote \"$remote\"."
+    printf 'Added the git remote "%s".\n' "$remote"
+    # On a branch, that branch then follows the project's main.
+    git -C "$abs" symbolic-ref -q HEAD >/dev/null && track=1
+    push_command="git push ${track:+-u }$remote HEAD:main"
+    if [ -z "$push" ]; then
+      printf 'It is empty until you push your history; pushing to main publishes it:\n  %s%s\n' "$push_command" "$where"
+      printf 'Then follow the publish: cloudchef run watch --project %s\n' "$P_REF"
+      return 0
+    fi
+    note "Pushing to main..."
+    git -C "$abs" push ${track:+-u} "$remote" HEAD:main ||
+      die "The push didn't go through. The project is there, empty; push again with: $push_command$where"
+    printf 'Pushed your history to main. It is publishing now.\n'
+    printf 'Follow the publish: cloudchef run watch --project %s\n' "$P_REF"
+    return 0
   fi
 
+  [ -z "$push" ] || note "Nothing to push: $abs has no commits, so its files are uploaded instead, and they publish by themselves."
+  [ -n "$source_given" ] || note "Uploading the current folder ($abs). Use --source DIR to upload another."
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/cloudchef.XXXXXX")" || die "Could not make a temporary folder."
   trap 'rm -rf "$tmp"' EXIT
   zip="$tmp/upload.zip"
-  if [ -n "$is_repo" ]; then
-    git -C "$abs" rev-parse --verify -q HEAD >/dev/null ||
-      die "$abs is a git repository with no commits yet. Commit your files first."
-    if [ -n "$(git -C "$abs" status --porcelain 2>/dev/null)" ]; then
-      note "Only committed files are uploaded; this folder has changes that aren't committed."
-    fi
-    git -C "$abs" archive --format=zip -o "$zip" HEAD || die "Could not make the upload."
-  else
-    (
-      export GIT_DIR="$tmp/index.git"
-      git init -q &&
-        git --work-tree="$abs" add -A &&
-        git -c user.name=cloudchef -c user.email=cli@cloudchef.build -c commit.gpgsign=false \
-          --work-tree="$abs" commit -q --no-verify -m "Upload" >/dev/null &&
-        git archive --format=zip -o "$zip" HEAD
-    ) || die "Could not make the upload (is $abs empty?)."
-  fi
+  # Every file .gitignore doesn't exclude, gathered through a throwaway index so the folder itself is untouched.
+  (
+    export GIT_DIR="$tmp/index.git"
+    git init -q &&
+      git --work-tree="$abs" add -A &&
+      git -c user.name=cloudchef -c user.email=cli@cloudchef.build -c commit.gpgsign=false \
+        --work-tree="$abs" commit -q --no-verify -m "Upload" >/dev/null &&
+      git archive --format=zip -o "$zip" HEAD
+  ) || die "Could not make the upload (is $abs empty?)."
 
-  query="name=$(urlencode "$name")"
-  [ -z "$account" ] || query="$query&account=$(urlencode "$account")"
   note "Uploading $(wc -c <"$zip" | tr -d ' ') bytes..."
   http POST "/api/command-line/projects/create?$query" -H "Content-Type: application/zip" --data-binary "@$zip"
   http_ok
-  id="$(json_field id "$HTTP_BODY")"
-  full="$(json_field fullName "$HTTP_BODY")"
-  gitUrl="$(json_field gitUrl "$HTTP_BODY")"
-  [ -n "$id" ] || die "The server didn't say which project it made."
-  P_ID="$id" P_FULL="${full:--}" P_NAME="$(json_field name "$HTTP_BODY")" P_ACCOUNT="$account"
-  if [ -n "$full" ]; then P_REF="$full"; else P_REF="$id"; fi
-  [ -n "$gitUrl" ] || gitUrl="$(git_url)"
+  read_created_project "$account"
   printf 'Created %s. It is publishing now.\n' "$P_REF"
-  printf 'git: %s\n' "$gitUrl"
+  printf 'git: %s\n' "$CREATED_GIT_URL"
 
   if [ -n "$is_repo" ]; then
-    if git -C "$abs" remote get-url cloudchef >/dev/null 2>&1; then
-      printf 'This repository already has a "cloudchef" remote; point it here with:\n  git remote set-url cloudchef %s\n' "$gitUrl"
-    else
-      git -C "$abs" remote add cloudchef "$gitUrl" && printf 'Added the git remote "cloudchef".\n'
-    fi
-    printf 'The project starts with a fresh history. To join it to yours:\n'
-    printf '  git pull cloudchef main --allow-unrelated-histories\n'
+    # A repository with no commits yet takes the project's history.
+    git -C "$abs" remote add "$remote" "$CREATED_GIT_URL" && printf 'Added the git remote "%s".\n' "$remote"
+    printf 'To carry on here from the project'"'"'s first commit%s:\n  git fetch %s && git reset %s/main\n' \
+      "$where" "$remote" "$remote"
   else
     # Without an OWNER/NAME, the folder is named by the project's account, which the list knows.
-    if [ "$P_FULL" = "-" ] && [ -z "$P_ACCOUNT" ] && (resolve_project "$id" >/dev/null 2>&1); then
-      resolve_project "$id"
+    if [ "$P_FULL" = "-" ] && [ -z "$P_ACCOUNT" ] && (resolve_project "$P_ID" >/dev/null 2>&1); then
+      resolve_project "$P_ID"
     fi
     if [ "$P_FULL" != "-" ] || [ -n "$P_ACCOUNT" ]; then
       printf 'To work on it with git: cloudchef repo clone %s  (clones into %s)\n' "$P_REF" "$(default_clone_path)"
@@ -1326,8 +1376,11 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - Pushing to `main` publishes the project to its live site.
 - Pushing any other branch builds a preview of that branch and leaves the live site alone.
 - With the view role you can clone and pull but not push.
-- `cloudchef repo create NAME` uploads the committed files of the current folder as a new project. The project starts
-  with a fresh history; `git pull cloudchef main --allow-unrelated-histories` joins it to your local one.
+- `cloudchef repo create NAME --push`, run in a git repository, makes a new project from it with its whole history:
+  it adds the git remote `cloudchef` and pushes the current commit to the project's `main`, which publishes it (then
+  `cloudchef run watch`). Without `--push` the project stays empty until `git push -u cloudchef HEAD:main`.
+  `--remote NAME` names the remote, `--account ACCOUNT` picks the account, `--source DIR` another folder. A folder
+  that isn't a git repository (or has no commits) is uploaded as files instead, and publishes by itself.
 
 ## Public projects
 
@@ -1368,8 +1421,43 @@ write_skill() {
   printf 'Installed the cloudchef skill: %s\n' "$1/cloudchef/SKILL.md"
 }
 
-# The skill is one Agent Skills folder (cloudchef/SKILL.md). By default it goes to ~/.agents/skills, which OpenCode and
-# other agents read, and to Claude Code's and Codex's own skill folders when they are installed.
+# Whether DIR is a real folder (not a link) holding nothing but a cloudchef SKILL.md, so removing it loses nothing.
+holds_only_our_skill() {
+  local dir="$1" entry
+  [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
+  for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    [ "$entry" = "$dir/SKILL.md" ] || return 1
+  done
+  [ -f "$dir/SKILL.md" ] && [ ! -L "$dir/SKILL.md" ] && grep -qx 'name: cloudchef' "$dir/SKILL.md"
+}
+
+remove_our_skill() {
+  rm -f "$1/SKILL.md" && rmdir "$1"
+}
+
+# Claude Code reads only ~/.claude/skills, so its cloudchef skill is a link to the one copy in ~/.agents/skills. An
+# existing link or earlier copy of the skill is replaced; anything else there is left alone.
+link_claude_skill() {
+  local real="$HOME/.agents/skills/cloudchef" link="$HOME/.claude/skills/cloudchef"
+  if [ -L "$link" ]; then
+    rm -f "$link" || die "Could not replace the link $link."
+  elif [ -e "$link" ]; then
+    if [ "$(cd "$link" 2>/dev/null && pwd -P)" = "$(cd "$real" && pwd -P)" ]; then
+      return 0 # ~/.claude/skills and ~/.agents/skills are already the same folder.
+    fi
+    if ! holds_only_our_skill "$link"; then
+      note "Left $link alone: it holds more than the cloudchef skill. Remove it and run cloudchef skill install again to link Claude Code to $real."
+      return 0
+    fi
+    remove_our_skill "$link" || die "Could not replace the earlier copy $link."
+  fi
+  mkdir -p "$HOME/.claude/skills" && ln -s "$real" "$link" || die "Could not link $link to $real."
+  printf 'Linked %s -> %s\n' "$link" "$real"
+}
+
+# The skill is one Agent Skills folder (cloudchef/SKILL.md) in ~/.agents/skills, which Codex, OpenCode and other agents
+# read, linked into Claude Code's ~/.claude/skills when Claude Code is installed.
 cmd_skill() {
   local sub="$1" dir=""
   [ $# -gt 0 ] && shift
@@ -1388,8 +1476,12 @@ cmd_skill() {
     return 0
   fi
   write_skill "$HOME/.agents/skills"
-  [ ! -d "$HOME/.claude" ] || write_skill "$HOME/.claude/skills"
-  [ ! -d "$HOME/.codex" ] || write_skill "$HOME/.codex/skills"
+  [ ! -d "$HOME/.claude" ] || link_claude_skill
+  # Earlier versions also copied it to ~/.codex/skills, which Codex doesn't read.
+  if holds_only_our_skill "$HOME/.codex/skills/cloudchef"; then
+    remove_our_skill "$HOME/.codex/skills/cloudchef" &&
+      printf 'Removed the earlier copy %s (Codex reads ~/.agents/skills)\n' "$HOME/.codex/skills/cloudchef"
+  fi
 }
 
 # ---------- main ----------

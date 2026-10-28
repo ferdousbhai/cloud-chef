@@ -21,8 +21,11 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - Pushing to `main` publishes the project to its live site.
 - Pushing any other branch builds a preview of that branch and leaves the live site alone.
 - With the view role you can clone and pull but not push.
-- `cloudchef repo create NAME` uploads the committed files of the current folder as a new project. The project starts
-  with a fresh history; `git pull cloudchef main --allow-unrelated-histories` joins it to your local one.
+- `cloudchef repo create NAME --push`, run in a git repository, makes a new project from it with its whole history:
+  it adds the git remote `cloudchef` and pushes the current commit to the project's `main`, which publishes it (then
+  `cloudchef run watch`). Without `--push` the project stays empty until `git push -u cloudchef HEAD:main`.
+  `--remote NAME` names the remote, `--account ACCOUNT` picks the account, `--source DIR` another folder. A folder
+  that isn't a git repository (or has no commits) is uploaded as files instead, and publishes by itself.
 
 ## Public projects
 

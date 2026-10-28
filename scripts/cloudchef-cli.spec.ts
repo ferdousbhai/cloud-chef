@@ -1,6 +1,16 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { env as hostEnvironment } from 'node:process';
 import { dirname, join, resolve } from 'node:path';
@@ -115,6 +125,10 @@ class FakeCloudChef {
       if (request.headers.authorization !== basic) {
         response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="CloudChef"' });
         return response.end('Use a command-line token.\n');
+      }
+      // Pushes need smart HTTP, which git's own http-backend answers; clones read the files as dumb HTTP.
+      if (url.searchParams.get('service') === 'git-receive-pack' || url.pathname.endsWith('/git-receive-pack')) {
+        return this.smartGit(request, response, url, body);
       }
       const file = join(this.gitRoot, url.pathname);
       if (!file.startsWith(this.gitRoot) || !existsSync(file) || statSync(file).isDirectory()) {
@@ -233,6 +247,10 @@ class FakeCloudChef {
       // A person with a username gets an OWNER/NAME; "plain" stands for one made before usernames.
       const name = url.searchParams.get('name') ?? '';
       const fullName = name === 'plain' ? null : `sara/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      if (url.searchParams.get('empty') === '1' && fullName) {
+        // An empty project: a repository with no commits, waiting for its first push.
+        execFileSync('git', ['init', '-q', '--bare', '-b', 'main', join(this.gitRoot, `${fullName}.git`)]);
+      }
       return json(201, {
         project: {
           id: 'proj-new',
@@ -243,6 +261,46 @@ class FakeCloudChef {
       });
     }
     return json(404, { error: `No route ${route}.` });
+  }
+
+  /** Answers a smart-HTTP git request through `git http-backend` (CGI), as the signed-in "cloudchef". */
+  smartGit(request: IncomingMessage, response: ServerResponse, url: URL, body: Buffer) {
+    const backend = spawn('git', ['http-backend'], {
+      env: {
+        PATH: hostEnvironment.PATH ?? '/usr/bin:/bin',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_PROJECT_ROOT: this.gitRoot,
+        GIT_HTTP_EXPORT_ALL: '1',
+        REMOTE_USER: 'cloudchef',
+        REQUEST_METHOD: request.method ?? 'GET',
+        PATH_INFO: url.pathname,
+        QUERY_STRING: url.search.slice(1),
+        CONTENT_TYPE: request.headers['content-type'] ?? '',
+        CONTENT_LENGTH: String(body.length),
+        HTTP_CONTENT_ENCODING: request.headers['content-encoding'] ?? '',
+        GIT_PROTOCOL: String(request.headers['git-protocol'] ?? ''),
+      },
+    });
+    const chunks: Buffer[] = [];
+    backend.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    backend.on('close', () => {
+      const output = Buffer.concat(chunks);
+      const split = output.indexOf('\r\n\r\n');
+      const headers: Record<string, string> = {};
+      let status = 200;
+      for (const line of output.subarray(0, split).toString().split('\r\n')) {
+        const [key, value] = [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()];
+        if (key.toLowerCase() === 'status') {
+          status = Number.parseInt(value, 10);
+        } else {
+          headers[key] = value;
+        }
+      }
+      response.writeHead(status, headers);
+      response.end(output.subarray(split + 4));
+    });
+    backend.stdin.end(body);
   }
 }
 
@@ -639,35 +697,102 @@ describe('cloudchef repo', () => {
     expect(existsSync(join(home, 'here/index.html'))).toBe(true);
   });
 
-  it('uploads the committed files of a git repository as a zip and adds the cloudchef remote', async () => {
+  /** A repository with two commits on "work" (not main), plus a change that isn't committed. */
+  function repositoryWithHistory(home: string, folder: string) {
+    const repo = join(home, folder);
+    mkdirSync(repo, { recursive: true });
+    git(repo, 'init', '-q', '-b', 'work');
+    writeFileSync(join(repo, 'index.html'), '<p>one</p>\n');
+    git(repo, 'add', '-A');
+    git(repo, 'commit', '-q', '-m', 'One');
+    writeFileSync(join(repo, 'index.html'), '<p>two</p>\n');
+    git(repo, 'commit', '-q', '-am', 'Two');
+    writeFileSync(join(repo, 'draft.txt'), 'not committed\n');
+    return repo;
+  }
+
+  it('makes an empty project from a repository and pushes its whole history to main with --push', async () => {
+    const home = makeHome();
+    expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
+    const repo = repositoryWithHistory(home, 'pushed');
+
+    const result = await cli(home, ['repo', 'create', 'pushed site', '--account', "Sara's sites", '--push'], {
+      cwd: repo,
+    });
+    expect(result.stderr).not.toContain('cloudchef:');
+    expect(result.code).toBe(0);
+    expect(result.stderr).toContain("changes that aren't committed");
+    expect(result.stdout).toContain('Created sara/pushed-site.\n');
+    expect(result.stdout).toContain('Added the git remote "cloudchef".');
+    expect(result.stdout).toContain('Pushed your history to main. It is publishing now.');
+    expect(result.stdout).toContain('Follow the publish: cloudchef run watch --project sara/pushed-site\n');
+
+    const request = fake.uploads.at(-1)!;
+    expect(request.query.get('name')).toBe('pushed site');
+    expect(request.query.get('account')).toBe("Sara's sites");
+    expect(request.query.get('empty')).toBe('1');
+    expect(request.body.length).toBe(0);
+
+    // The project's repository has exactly the local history, on main and nothing else.
+    const served = join(workDir, 'served/sara/pushed-site.git');
+    expect(git(served, 'for-each-ref', '--format=%(refname)').trim()).toBe('refs/heads/main');
+    expect(git(served, 'rev-parse', 'main').trim()).toBe(git(repo, 'rev-parse', 'HEAD').trim());
+    expect(git(served, 'log', '--format=%s', 'main').trim().split('\n')).toEqual(['Two', 'One']);
+    expect(git(repo, 'remote', 'get-url', 'cloudchef').trim()).toBe(`${fake.host}/sara/pushed-site.git`);
+    // The local branch now follows the project's main.
+    expect(git(repo, 'rev-parse', '--abbrev-ref', 'work@{upstream}').trim()).toBe('cloudchef/main');
+  });
+
+  it('without --push, makes the project empty and says how to push; --remote names the remote', async () => {
+    const home = makeHome();
+    const repo = repositoryWithHistory(home, 'later');
+    git(repo, 'remote', 'add', 'cloudchef', 'https://example.com/elsewhere.git');
+    const before = fake.uploads.length;
+
+    const clash = await cli(home, ['repo', 'create', 'later'], { cwd: repo });
+    expect(clash.code).toBe(1);
+    expect(clash.stderr).toContain(
+      'This repository already has a git remote "cloudchef" (https://example.com/elsewhere.git). Choose another name with --remote NAME.',
+    );
+    expect(fake.uploads).toHaveLength(before);
+    expect((await cli(home, ['repo', 'create', 'later', '--remote', 'bad name'], { cwd: repo })).code).toBe(1);
+    expect(fake.uploads).toHaveLength(before);
+
+    const result = await cli(home, ['repo', 'create', 'later', '--remote', 'chef', '--source', repo]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Created sara/later.\n');
+    expect(result.stdout).toContain('Added the git remote "chef".');
+    expect(result.stdout).toContain(`  git push -u chef HEAD:main (in ${repo})\n`);
+    expect(result.stdout).toContain('Then follow the publish: cloudchef run watch --project sara/later\n');
+    expect(fake.uploads.at(-1)!.query.get('empty')).toBe('1');
+    expect(git(repo, 'remote', 'get-url', 'chef').trim()).toBe(`${fake.host}/sara/later.git`);
+    expect(git(repo, 'remote', 'get-url', 'cloudchef').trim()).toBe('https://example.com/elsewhere.git');
+    expect(git(join(workDir, 'served/sara/later.git'), 'for-each-ref').trim()).toBe('');
+  });
+
+  it("uploads a git repository's files as a zip when it has no commits yet, and adds the remote", async () => {
     const home = makeHome();
     const repo = join(home, 'site');
     mkdirSync(join(repo, 'src'), { recursive: true });
     git(repo, 'init', '-q', '-b', 'main');
-
-    const empty = await cli(home, ['repo', 'create', 'site'], { cwd: repo });
-    expect(empty.code).toBe(1);
-    expect(empty.stderr).toContain('no commits');
-
     writeFileSync(join(repo, 'index.html'), '<p>hi</p>\n');
     writeFileSync(join(repo, 'src/app.js'), 'export {};\n');
     writeFileSync(join(repo, '.gitignore'), '.env\n');
     writeFileSync(join(repo, '.env'), 'SECRET=1\n');
-    git(repo, 'add', '-A');
-    git(repo, 'commit', '-q', '-m', 'Site');
-    writeFileSync(join(repo, 'draft.txt'), 'not committed\n');
 
-    const result = await cli(home, ['repo', 'create', 'my site', '--account', "Sara's sites"], { cwd: repo });
+    const result = await cli(home, ['repo', 'create', 'my site', '--account', "Sara's sites", '--push'], { cwd: repo });
     expect(result.code).toBe(0);
+    expect(result.stderr).toContain('Nothing to push');
     expect(result.stderr).toContain('Uploading the current folder');
     expect(result.stdout).toContain('Created sara/my-site. It is publishing now.');
     expect(result.stdout).toContain('cloudchef run watch --project sara/my-site');
-    expect(result.stdout).toContain('git pull cloudchef main --allow-unrelated-histories');
+    expect(result.stdout).toContain('git fetch cloudchef && git reset cloudchef/main');
 
     const upload = fake.uploads.at(-1)!;
     expect(upload.contentType).toBe('application/zip');
     expect(upload.query.get('name')).toBe('my site');
     expect(upload.query.get('account')).toBe("Sara's sites");
+    expect(upload.query.get('empty')).toBeNull();
     const zip = await JSZip.loadAsync(upload.body);
     const files = Object.values(zip.files)
       .filter((entry) => !entry.dir)
@@ -676,6 +801,8 @@ describe('cloudchef repo', () => {
     expect(files).toEqual(['.gitignore', 'index.html', 'src/app.js']);
     expect(await zip.file('index.html')!.async('string')).toBe('<p>hi</p>\n');
     expect(git(repo, 'remote', 'get-url', 'cloudchef').trim()).toBe(`${fake.host}/sara/my-site.git`);
+    // The folder's own repository is untouched: still no commits, nothing staged.
+    expect(spawnSync('git', ['-C', repo, 'rev-parse', '--verify', '-q', 'HEAD']).status).not.toBe(0);
   });
 
   it('uploads a plain folder without its ignored files', async () => {
@@ -774,40 +901,75 @@ describe('cloudchef install and skill', () => {
     expect(fields.description).not.toMatch(/[<>]/);
   });
 
-  it('installs the skill for every agent, and for Claude Code and Codex only when they are there', async () => {
+  it('writes one copy to ~/.agents/skills and links Claude Code to it only when ~/.claude is there', async () => {
     const skill = readFileSync(join(rootDir, 'public/cli/SKILL.md'), 'utf8');
-    const paths = (home: string, ...folders: string[]) =>
-      folders
-        .map((folder) => `Installed the cloudchef skill: ${join(home, folder, 'skills/cloudchef/SKILL.md')}\n`)
-        .join('');
+    const installed = (home: string) =>
+      `Installed the cloudchef skill: ${join(home, '.agents/skills/cloudchef/SKILL.md')}\n`;
+    const linked = (home: string) =>
+      `Linked ${join(home, '.claude/skills/cloudchef')} -> ${join(home, '.agents/skills/cloudchef')}\n`;
 
     const bare = makeHome();
     const generic = await cli(bare, ['skill', 'install']);
-    expect(generic).toMatchObject({ code: 0, stdout: paths(bare, '.agents') });
+    expect(generic).toMatchObject({ code: 0, stdout: installed(bare) });
     expect(readFileSync(join(bare, '.agents/skills/cloudchef/SKILL.md'), 'utf8')).toBe(skill);
     expect(existsSync(join(bare, '.claude'))).toBe(false);
     expect(existsSync(join(bare, '.codex'))).toBe(false);
 
-    const both = makeHome();
-    mkdirSync(join(both, '.claude'));
-    mkdirSync(join(both, '.codex'));
-    const all = await cli(both, ['skill', 'install']);
-    expect(all).toMatchObject({ code: 0, stdout: paths(both, '.agents', '.claude', '.codex') });
-    for (const folder of ['.agents', '.claude', '.codex']) {
-      expect(readFileSync(join(both, folder, 'skills/cloudchef/SKILL.md'), 'utf8')).toBe(skill);
-    }
-
-    const codex = makeHome();
-    mkdirSync(join(codex, '.codex'));
-    expect((await cli(codex, ['skill', 'install'])).stdout).toBe(paths(codex, '.agents', '.codex'));
+    const claude = makeHome();
+    mkdirSync(join(claude, '.claude'));
+    const both = await cli(claude, ['skill', 'install']);
+    expect(both).toMatchObject({ code: 0, stdout: installed(claude) + linked(claude) });
+    const link = join(claude, '.claude/skills/cloudchef');
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(realpathSync(link)).toBe(realpathSync(join(claude, '.agents/skills/cloudchef')));
+    expect(readFileSync(join(link, 'SKILL.md'), 'utf8')).toBe(skill);
+    // Installing again replaces the link.
+    expect(await cli(claude, ['skill', 'install'])).toMatchObject({
+      code: 0,
+      stdout: installed(claude) + linked(claude),
+    });
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
 
     // --dir writes only there.
+    const only = await cli(claude, ['skill', 'install', '--dir', '~/mine']);
+    expect(only.stdout).toBe(`Installed the cloudchef skill: ${join(claude, 'mine/cloudchef/SKILL.md')}\n`);
     const chosen = makeHome();
     mkdirSync(join(chosen, '.claude'));
-    const only = await cli(chosen, ['skill', 'install', '--dir', '~/mine']);
-    expect(only.stdout).toBe(`Installed the cloudchef skill: ${join(chosen, 'mine/cloudchef/SKILL.md')}\n`);
+    expect((await cli(chosen, ['skill', 'install', '--dir', '~/mine'])).code).toBe(0);
     expect(existsSync(join(chosen, '.agents'))).toBe(false);
     expect(existsSync(join(chosen, '.claude/skills'))).toBe(false);
+  });
+
+  it("replaces an earlier copy of the skill, removes the old Codex copy, and never deletes anyone else's files", async () => {
+    const old = '---\nname: cloudchef\ndescription: An older cloudchef skill.\n---\n';
+    const home = makeHome();
+    for (const folder of ['.claude', '.codex']) {
+      mkdirSync(join(home, folder, 'skills/cloudchef'), { recursive: true });
+      writeFileSync(join(home, folder, 'skills/cloudchef/SKILL.md'), old);
+    }
+    mkdirSync(join(home, '.codex/skills/other'));
+    const replaced = await cli(home, ['skill', 'install']);
+    expect(replaced.code).toBe(0);
+    expect(replaced.stdout).toContain(`Linked ${join(home, '.claude/skills/cloudchef')} -> `);
+    expect(replaced.stdout).toContain(`Removed the earlier copy ${join(home, '.codex/skills/cloudchef')}`);
+    expect(lstatSync(join(home, '.claude/skills/cloudchef')).isSymbolicLink()).toBe(true);
+    expect(existsSync(join(home, '.codex/skills/cloudchef'))).toBe(false);
+    expect(existsSync(join(home, '.codex/skills/other'))).toBe(true);
+
+    // A folder holding anything else, or a SKILL.md that isn't ours, stays as it is.
+    const foreign = makeHome();
+    mkdirSync(join(foreign, '.claude/skills/cloudchef'), { recursive: true });
+    writeFileSync(join(foreign, '.claude/skills/cloudchef/SKILL.md'), old);
+    writeFileSync(join(foreign, '.claude/skills/cloudchef/notes.txt'), 'mine\n');
+    mkdirSync(join(foreign, '.codex/skills/cloudchef'), { recursive: true });
+    writeFileSync(join(foreign, '.codex/skills/cloudchef/SKILL.md'), '---\nname: something-else\n---\n');
+    const kept = await cli(foreign, ['skill', 'install']);
+    expect(kept.code).toBe(0);
+    expect(kept.stdout).toBe(`Installed the cloudchef skill: ${join(foreign, '.agents/skills/cloudchef/SKILL.md')}\n`);
+    expect(kept.stderr).toContain(`Left ${join(foreign, '.claude/skills/cloudchef')} alone`);
+    expect(lstatSync(join(foreign, '.claude/skills/cloudchef')).isDirectory()).toBe(true);
+    expect(readFileSync(join(foreign, '.claude/skills/cloudchef/notes.txt'), 'utf8')).toBe('mine\n');
+    expect(readFileSync(join(foreign, '.codex/skills/cloudchef/SKILL.md'), 'utf8')).toContain('something-else');
   });
 
   it('installs the command and always the skill', async () => {
@@ -820,6 +982,7 @@ describe('cloudchef install and skill', () => {
     expect(statSync(join(bin, 'cloudchef')).mode & 0o111).not.toBe(0);
     expect(existsSync(join(home, '.agents/skills/cloudchef/SKILL.md'))).toBe(true);
     expect(existsSync(join(home, '.claude/skills/cloudchef/SKILL.md'))).toBe(true);
+    expect(lstatSync(join(home, '.claude/skills/cloudchef')).isSymbolicLink()).toBe(true);
     expect(existsSync(join(home, '.codex'))).toBe(false);
 
     // Without any agent's folder, the skill still goes to ~/.agents/skills.
