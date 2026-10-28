@@ -64,6 +64,8 @@ const migrationPolicies = [
       '0046_apps.sql': '8316793cea4e79accd2289e03f70df809dd2902c26b06113b62aee4444f8dfd5',
       '0047_approval_requests.sql': '7a6cd0e2b99fe965f75337de75807fe5b9a16ee4bd16b21ea6c1b0f5b44ac8dc',
       '0048_drop_unused_request_storage.sql': '4f70f804b55f95534d9863579ce07c682c1c177d435270196c2570f432c47b0a',
+      '0049_drop_connection_authorization_copies.sql':
+        '6ce622590c9dc91b2871ed7eb244c73ca4d2dd94252c54947348df4446f40c42',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -115,6 +117,8 @@ const migrationPolicies = [
       // GitHub approval states and production requests' snapshot and claim columns, unread since drafts are approved
       // into their own Artifacts repository.
       '0048_drop_unused_request_storage.sql',
+      // The connection's copies of its account's authorization and their rollout triggers, unread since 0035/0037.
+      '0049_drop_connection_authorization_copies.sql',
     ],
   },
   {
