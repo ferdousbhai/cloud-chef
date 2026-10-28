@@ -25,7 +25,7 @@ const deploymentSchema = z.object({
 export type ProjectDeployment = z.infer<typeof deploymentSchema>;
 export type ProjectDeploymentState = ProjectDeployment['state'];
 
-export const projectVisibilitySchema = z.enum(['private', 'public']);
+const projectVisibilitySchema = z.enum(['private', 'public']);
 export type ProjectVisibility = z.infer<typeof projectVisibilitySchema>;
 
 const teamProjectsSchema = z.object({

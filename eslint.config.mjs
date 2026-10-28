@@ -1,8 +1,14 @@
+import { fixupConfigRules, fixupPluginRules } from '@eslint/compat';
 import blitzPlugin from '@blitz/eslint-plugin';
 import { getNamingConventionRule, tsFileExtensions } from '@blitz/eslint-plugin/dist/configs/typescript.js';
 import tailwindcss from 'eslint-plugin-tailwindcss';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
+
+// eslint-plugin-react and the other plugins below still call context methods ESLint 10 removed
+// (getFilename and the like); ESLint's own compat layer puts them back.
+const react = fixupPluginRules(reactPlugin);
+const tailwind = fixupPluginRules(tailwindcss);
 
 const noDirectProcessEnv = {
   meta: {
@@ -36,11 +42,11 @@ export default [
   {
     ignores: ['**/dist', '**/node_modules', '**/.wrangler', 'scripts/fixtures/**', 'template/**', 'app/generated/**'],
   },
-  ...blitzPlugin.configs.recommended(),
+  ...fixupConfigRules(blitzPlugin.configs.recommended()),
   {
     files: [...tsFileExtensions],
     plugins: {
-      react: reactPlugin,
+      react,
       'react-hooks': reactHooksPlugin,
       local: {
         rules: {
@@ -145,7 +151,7 @@ export default [
       ],
     },
   },
-  ...tailwindcss.configs['flat/recommended'],
+  ...fixupConfigRules(tailwindcss.configs['flat/recommended']),
   {
     rules: {
       'tailwindcss/classnames-order': 'off',
@@ -154,7 +160,7 @@ export default [
   {
     files: ['**/*.tsx'],
     plugins: {
-      tailwindcss,
+      tailwindcss: tailwind,
     },
     rules: {
       'tailwindcss/no-custom-classname': 'off',

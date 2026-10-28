@@ -69,16 +69,21 @@ export function OrgProjectsSection({
   const { data: session } = authClient.useSession();
   const workingHere = session?.context?.kind === 'organization' && session.context.orgId === orgId;
 
-  // Back from GitHub to the import dialog started here: it opens again, listing what was just connected.
+  // Back from GitHub to the import dialog started here: it opens again, listing what was just connected, once the
+  // session says this is the team being worked in.
+  const [returnPending, setReturnPending] = useState(() => isImportReturn(window.location.search));
+  if (returnPending && workingHere) {
+    setReturnPending(false);
+    setImporting(true);
+  }
   useEffect(() => {
-    if (workingHere && isImportReturn(window.location.search)) {
-      setImporting(true);
+    if (importing && isImportReturn(window.location.search)) {
       const url = new URL(window.location.href);
       url.searchParams.delete(IMPORT_RETURN_PARAM);
       url.searchParams.delete('github_message');
       window.history.replaceState(window.history.state, '', url);
     }
-  }, [workingHere]);
+  }, [importing]);
 
   const connect = () =>
     void runRequest(async () => {

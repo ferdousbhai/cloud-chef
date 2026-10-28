@@ -22,11 +22,15 @@ let controller: Controller | undefined;
 let root: Root | undefined;
 
 function Harness({ onSend, onMount }: { onSend: OnSend; onMount?: () => void }) {
-  controller = useMessageInputController({
+  const current = useMessageInputController({
     isStreaming: false,
     onStop: vi.fn(),
     onSend,
     prefillEnabled: false,
+  });
+  // Recorded first, so onMount sees this render's controller.
+  useLayoutEffect(() => {
+    controller = current;
   });
   useLayoutEffect(() => {
     onMount?.();

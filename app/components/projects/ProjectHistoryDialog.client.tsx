@@ -57,11 +57,21 @@ export function ProjectHistoryDialog({
   const ref = 'chatInitialId' in project ? project.chatInitialId : project.orgProjectId;
   /** One of the person's own apps, as opposed to a team project (opened from Projects, or its chat). */
   const ownApp = 'chatInitialId' in project && !teamProject;
+  // Another project shown in this dialog starts from nothing, as a new one would.
+  const [shownRef, setShownRef] = useState(ref);
+  if (shownRef !== ref) {
+    setShownRef(ref);
+    setCommits(null);
+    setLoadError(null);
+  }
+  const retry = () => {
+    setCommits(null);
+    setLoadError(null);
+    setAttempt((n) => n + 1);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
-    setCommits(null);
-    setLoadError(null);
     loadProjectHistory(project, 0, controller.signal)
       .then((page) => {
         setCommits(page);
@@ -144,7 +154,7 @@ export function ProjectHistoryDialog({
         {loadError !== null ? (
           <div role="alert" className="grid gap-2 text-sm text-content-secondary">
             <p>{loadError}</p>
-            <Button className="justify-self-start" size="xs" variant="neutral" onClick={() => setAttempt((n) => n + 1)}>
+            <Button className="justify-self-start" size="xs" variant="neutral" onClick={retry}>
               Try again
             </Button>
           </div>

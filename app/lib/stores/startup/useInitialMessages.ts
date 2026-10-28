@@ -64,7 +64,10 @@ export function useInitialMessagesState(workspaceId: string | undefined): Initia
       return;
     }
     if (activeSelection.loadedSubchatIndex !== transcript.loadedSubchatIndex) {
+      // The store and the selection move together: set apart, a render could see the old store value with
+      // the new selection and switch back to the conversation it just left.
       subchatIndexStore.set(transcript.loadedSubchatIndex);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelection({
         ...activeSelection,
         loadedSubchatIndex: transcript.loadedSubchatIndex,

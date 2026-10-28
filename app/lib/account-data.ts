@@ -9,7 +9,7 @@ export const ACCOUNT_DELETION_CONFIRMATION = 'delete my CloudChef account';
  * What each section of the account export holds, in the words Settings uses to name one it couldn't
  * read. The export and Settings share this so a section added to one is named in the other.
  */
-export const ACCOUNT_EXPORT_SECTION_LABELS = {
+const ACCOUNT_EXPORT_SECTION_LABELS = {
   account: 'your account record',
   cloudflareConnection: 'your Cloudflare connection',
   encryptedCredential: 'CloudChef’s stored access to the Cloudflare account you build in',

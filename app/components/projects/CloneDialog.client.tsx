@@ -20,32 +20,33 @@ export function CloneDialog({
   fullName?: string | null;
   onClose: () => void;
 }) {
-  const [projectId, setProjectId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const ref = 'chatInitialId' in project ? project.chatInitialId : project.orgProjectId;
+  // What was found, for the project and attempt it was found for: anything else is still being looked up.
+  const [found, setFound] = useState<{ key: string; projectId: string | null; error: string | null } | null>(null);
+  const key = `${ref}#${attempt}`;
+  const projectId = found?.key === key ? found.projectId : null;
+  const error = found?.key === key ? found.error : null;
 
   useEffect(() => {
     let cancelled = false;
-    setProjectId(null);
-    setError(null);
     loadGitProjectId(project)
       .then((loaded) => {
         if (!cancelled) {
-          setProjectId(loaded);
+          setFound({ key, projectId: loaded, error: null });
         }
       })
       .catch((cause) => {
         if (!cancelled) {
-          setError(messageOf(cause, 'Its address could not be found.'));
+          setFound({ key, projectId: null, error: messageOf(cause, 'Its address could not be found.') });
         }
       });
     return () => {
       cancelled = true;
     };
-    // `project` is a fresh object each render; what it names is `ref`.
+    // `project` is a fresh object each render; what it names is `ref`, which `key` carries.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref, attempt]);
+  }, [key]);
 
   const origin = window.location.origin;
   const gitUrl = fullName ? `${origin}/${fullName}.git` : `${origin}/git/${projectId}.git`;

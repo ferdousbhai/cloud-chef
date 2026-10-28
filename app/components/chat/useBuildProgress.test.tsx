@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
@@ -10,13 +10,16 @@ import { useBuildProgress } from './useBuildProgress';
 let progress: BuildProgress | null = null;
 
 function Harness({ messages }: { messages: CloudChefMessage[] }) {
-  progress = useBuildProgress({
+  const current = useBuildProgress({
     streamStatus: 'streaming',
     isRecovering: false,
     isProjectUpdate: false,
     activeToolNames: [],
     validationStage: null,
     messages,
+  });
+  useLayoutEffect(() => {
+    progress = current;
   });
   return null;
 }

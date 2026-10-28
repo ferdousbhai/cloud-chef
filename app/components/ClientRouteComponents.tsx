@@ -10,9 +10,11 @@ type EmptyProps = Record<string, never>;
 /** A client-only component, showing `fallback` on the server and while its code loads. */
 function createClientComponent<TProps extends object>(getComponent: () => ComponentType<TProps>, fallback: ReactNode) {
   function HydratedClientComponent(props: TProps) {
+    // The same module-level lazy component on every call (see the Lazy* constants below): nothing is made here.
     const Component = getComponent();
     return (
       <Suspense fallback={fallback}>
+        {/* eslint-disable-next-line react-hooks/static-components */}
         <Component {...props} />
       </Suspense>
     );

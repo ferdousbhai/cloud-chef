@@ -22,7 +22,7 @@ const BUNDLED_SKILLS: readonly BundledSkillSource[] = [
   ...CLOUDFLARE_SKILLS.map(({ name, files }) => ({ name, files: new Map(files) })),
 ];
 
-export type BuilderSkillReadResult = { kind: 'file' | 'directory'; content: string };
+type BuilderSkillReadResult = { kind: 'file' | 'directory'; content: string };
 
 export type BuilderSkillReader = {
   read(path: string): Promise<BuilderSkillReadResult | null>;

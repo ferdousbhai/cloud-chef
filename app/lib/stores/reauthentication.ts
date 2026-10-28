@@ -13,13 +13,21 @@ export function recordReauthenticatingUser(userId: string): void {
   }
 }
 
-/** Reads and spends the record: true when the fresh sign-in landed in a different account. */
-export function takeReauthenticationSwitchedAccount(currentUserId: string): boolean {
+/** Reads the record without spending it: true when the fresh sign-in landed in a different account. */
+export function reauthenticationSwitchedAccount(currentUserId: string): boolean {
   try {
     const started = window.sessionStorage.getItem(REAUTHENTICATING_USER_KEY);
-    window.sessionStorage.removeItem(REAUTHENTICATING_USER_KEY);
     return started !== null && started !== currentUserId;
   } catch {
     return false;
+  }
+}
+
+/** Spends the record, once what it says has been read. */
+export function forgetReauthenticatingUser(): void {
+  try {
+    window.sessionStorage.removeItem(REAUTHENTICATING_USER_KEY);
+  } catch {
+    // Nothing stored to forget.
   }
 }

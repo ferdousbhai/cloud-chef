@@ -22,7 +22,7 @@ const themes = {
   'light-plus': () => import('shiki/themes/light-plus.mjs'),
 };
 
-export type CodeLanguage = keyof typeof languages;
+type CodeLanguage = keyof typeof languages;
 export type CodeTheme = keyof typeof themes;
 export type HighlightLanguage = CodeLanguage | SpecialLanguage;
 

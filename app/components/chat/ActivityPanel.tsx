@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { z } from 'zod';
 import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
@@ -35,11 +35,12 @@ export function ActivityPanel({
   const [revealBaseline] = useState(() => activityRevealStore.get());
   const revealRequest = useStore(activityRevealStore);
   const revealKey = revealRequest > revealBaseline ? revealRequest : 0;
-  useEffect(() => {
-    if (revealKey) {
-      setExpanded(true);
-    }
-  }, [revealKey]);
+  // Each new reveal opens the panel once; closing it afterwards is the person's to do.
+  const [revealedKey, setRevealedKey] = useState(0);
+  if (revealKey && revealKey !== revealedKey) {
+    setRevealedKey(revealKey);
+    setExpanded(true);
+  }
   const pendingApproval = cloudflareExecutions?.some((execution) => execution.status === 'awaiting_approval') ?? false;
   const visible = !compact || expanded || pendingApproval;
   const activity = messages.filter(

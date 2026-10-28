@@ -294,6 +294,9 @@ export function useConversationAgentChat(args: {
     });
   }, [conversationAgent, transcript]);
 
+  // The gate holder is a per-presentation mutable cell made during render (above), not a value React tracks:
+  // a send started before this effect runs must wait on the new presentation's gate, so it is written here.
+  /* eslint-disable react-hooks/immutability */
   useEffect(() => {
     const previousGate = workspaceGateRef.current;
     const gate = previousGate.started ? createAsyncGate() : previousGate;
@@ -409,8 +412,11 @@ export function useConversationAgentChat(args: {
       }
     };
   }, [args.presentationId, conversationAgent, workspaceAttemptId, workspaceGateRef]);
+  /* eslint-enable react-hooks/immutability */
 
   const retryWorkspacePresentation = useCallback(() => setWorkspaceAttemptId((id) => id + 1), []);
+  // Read during render on purpose: a presentation from a gate this render no longer holds is stale (see above).
+  // eslint-disable-next-line react-hooks/refs
   const currentPresentation = workspacePresentation?.gate === workspaceGateRef.current ? workspacePresentation : null;
   const workspacePresentationState: WorkspacePresentationState = currentPresentation?.state ?? 'connecting';
   const workspaceFailure = currentPresentation?.failure ?? null;

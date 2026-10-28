@@ -91,38 +91,44 @@ export function OrganizationsCard() {
   const [creating, setCreating] = useState(false);
   // What a return from GitHub (connecting it, or approving a production request) or deleting a team has
   // to say, shown once.
-  const [githubMessage, setGitHubMessage] = useState<string | null>(null);
+  const [githubMessage] = useState<string | null>(() => {
+    const message = new URL(window.location.href).searchParams.get('github_message');
+    let deleted: string | null = null;
+    try {
+      deleted = window.sessionStorage.getItem(TEAM_DELETED_NOTICE_KEY);
+    } catch {
+      // Without session storage the reload after deleting a team just doesn't repeat what happened.
+    }
+    return deleted ?? (message ? gitHubReturnMessageText(message) : null);
+  });
   const scrolledToHash = useRef(false);
+  // Shown once: the address and the stored notice forget it.
   useEffect(() => {
     const url = new URL(window.location.href);
-    const message = url.searchParams.get('github_message');
-    if (message) {
-      setGitHubMessage(gitHubReturnMessageText(message));
+    if (url.searchParams.has('github_message')) {
       url.searchParams.delete('github_message');
       url.searchParams.delete('promoted');
       window.history.replaceState(null, '', url);
     }
     try {
-      const deleted = window.sessionStorage.getItem(TEAM_DELETED_NOTICE_KEY);
-      if (deleted) {
-        window.sessionStorage.removeItem(TEAM_DELETED_NOTICE_KEY);
-        setGitHubMessage(deleted);
-      }
+      window.sessionStorage.removeItem(TEAM_DELETED_NOTICE_KEY);
     } catch {
-      // Without session storage the reload after deleting a team just doesn't repeat what happened.
+      // Nothing stored to forget.
     }
   }, []);
 
   /** Loads the teams, and again after a change; a failure says so instead of leaving stale controls unexplained. */
-  const reload = useCallback(async () => {
-    try {
-      const { organizations } = await getJson('/api/organizations', organizationsSchema, 'Unable to load your teams.');
-      setOrganizations(organizations);
-      setError(null);
-    } catch (loadError) {
-      setError(messageOf(loadError, 'Unable to load your teams.'));
-    }
-  }, []);
+  const reload = useCallback(
+    () =>
+      getJson('/api/organizations', organizationsSchema, 'Unable to load your teams.').then(
+        ({ organizations }) => {
+          setOrganizations(organizations);
+          setError(null);
+        },
+        (loadError) => setError(messageOf(loadError, 'Unable to load your teams.')),
+      ),
+    [],
+  );
 
   useEffect(() => {
     void reload();

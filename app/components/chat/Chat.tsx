@@ -80,7 +80,6 @@ export const Chat = memo(
         return undefined;
       }
       let canceled = false;
-      setRuntimeConnectionError(null);
       void getUserRuntimeSession({ retryProvisioning: retryCount > 0 }).catch((error) => {
         if (!canceled) {
           logger.error('Unable to connect to the user-owned runtime', error);
@@ -106,7 +105,10 @@ export const Chat = memo(
           message={runtimeConnectionError.message}
           code={runtimeConnectionError.code}
           upgradeUrl={runtimeConnectionError.upgradeUrl}
-          onRetry={() => setRetryCount((count) => count + 1)}
+          onRetry={() => {
+            setRuntimeConnectionError(null);
+            setRetryCount((count) => count + 1);
+          }}
         />
       ) : workspacePreparing ? (
         <WorkspacePreparingLoading />

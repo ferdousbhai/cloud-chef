@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
@@ -33,7 +33,10 @@ let controller: ReturnType<typeof useMessageInputController> | undefined;
 let root: Root | undefined;
 
 function Harness({ onSend }: { onSend: OnSend }) {
-  controller = useMessageInputController({ isStreaming: false, onStop: vi.fn(), onSend });
+  const current = useMessageInputController({ isStreaming: false, onStop: vi.fn(), onSend });
+  useLayoutEffect(() => {
+    controller = current;
+  });
   return null;
 }
 

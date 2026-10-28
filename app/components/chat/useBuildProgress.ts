@@ -11,12 +11,6 @@ import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 
 const CLOCK_INTERVAL_MS = 1_000;
 
-/** The reasoning part the model is streaming right now, and when this client first saw it. */
-type ReasoningActivity = {
-  key: string;
-  startedAt: number;
-};
-
 export function useBuildProgress(args: {
   streamStatus: StreamStatus;
   isRecovering: boolean;
@@ -46,25 +40,11 @@ export function useBuildProgress(args: {
     [turnKey, toolActivities, toolProgress],
   );
   const reasoningKey = useMemo(() => streamingReasoningKey(args.messages), [args.messages]);
+  // Each tick notes when the activity and the reasoning it sees began; a change since the last tick has run for none.
   const [clock, setClock] = useState(() => {
     const timestamp = Date.now();
-    return { activityKey, lastActivityAt: timestamp, now: timestamp };
+    return { activityKey, lastActivityAt: timestamp, reasoningKey, reasoningStartedAt: timestamp, now: timestamp };
   });
-  const [reasoning, setReasoning] = useState<ReasoningActivity | null>(null);
-
-  useEffect(() => {
-    const timestamp = Date.now();
-    setClock({ activityKey, lastActivityAt: timestamp, now: timestamp });
-  }, [activityKey]);
-
-  useEffect(() => {
-    setReasoning((current) => {
-      if (reasoningKey === null) {
-        return null;
-      }
-      return current?.key === reasoningKey ? current : { key: reasoningKey, startedAt: Date.now() };
-    });
-  }, [reasoningKey]);
 
   const active = isStreamStatusActive(args.streamStatus);
   useEffect(() => {
@@ -72,11 +52,21 @@ export function useBuildProgress(args: {
       return () => undefined;
     }
     const interval = window.setInterval(
-      () => setClock((current) => (current.activityKey === activityKey ? { ...current, now: Date.now() } : current)),
+      () =>
+        setClock((current) => {
+          const timestamp = Date.now();
+          return {
+            activityKey,
+            lastActivityAt: current.activityKey === activityKey ? current.lastActivityAt : timestamp,
+            reasoningKey,
+            reasoningStartedAt: current.reasoningKey === reasoningKey ? current.reasoningStartedAt : timestamp,
+            now: timestamp,
+          };
+        }),
       CLOCK_INTERVAL_MS,
     );
     return () => window.clearInterval(interval);
-  }, [active, activityKey]);
+  }, [active, activityKey, reasoningKey]);
 
   return getBuildProgress({
     streamStatus: args.streamStatus,
@@ -85,7 +75,9 @@ export function useBuildProgress(args: {
     activeToolNames: args.activeToolNames,
     validationStage: args.validationStage,
     reasoningForMs:
-      reasoning !== null && reasoning.key === reasoningKey ? Math.max(0, clock.now - reasoning.startedAt) : null,
+      reasoningKey !== null && clock.reasoningKey === reasoningKey
+        ? Math.max(0, clock.now - clock.reasoningStartedAt)
+        : null,
     inactiveForMs: clock.activityKey === activityKey ? Math.max(0, clock.now - clock.lastActivityAt) : 0,
   });
 }

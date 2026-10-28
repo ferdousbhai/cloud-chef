@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it } from 'vitest';
-import { recordReauthenticatingUser, takeReauthenticationSwitchedAccount } from './reauthentication';
+import {
+  forgetReauthenticatingUser,
+  reauthenticationSwitchedAccount,
+  recordReauthenticatingUser,
+} from './reauthentication';
+
+function takeReauthenticationSwitchedAccount(userId: string): boolean {
+  const switched = reauthenticationSwitchedAccount(userId);
+  forgetReauthenticatingUser();
+  return switched;
+}
 
 describe('re-authentication account check', () => {
   it('notices a fresh sign-in that landed in another account, once', () => {

@@ -85,12 +85,12 @@ export function ProjectsHome({ userId }: { userId: string }) {
   const draftsAllowed = team === null || team.draftsAllowed;
   // In a team only its admins import, since a team's projects are theirs to add.
   const canImport = team === null || team.role === 'admin';
-  const [dialog, setDialog] = useState<OpenDialog | null>(null);
-
   // Back from installing the GitHub App: the import dialog opens again, and the address forgets the visit.
+  const [dialog, setDialog] = useState<OpenDialog | null>(() =>
+    isImportReturn(window.location.search) ? { kind: 'import' } : null,
+  );
   useEffect(() => {
     if (isImportReturn(window.location.search)) {
-      setDialog({ kind: 'import' });
       const url = new URL(window.location.href);
       url.searchParams.delete(IMPORT_RETURN_PARAM);
       // A connection made: the dialog shows it in its list, so the return's note isn't kept in the address.
@@ -561,16 +561,20 @@ function useConnectionProjects(
   const [refresh, setRefresh] = useState(0);
   // The list the last refresh showed, so a publish that ends since is announced once.
   const shown = useRef<TeamProject[] | null>(null);
-  shown.current = projects;
+  useEffect(() => {
+    shown.current = projects;
+  }, [projects]);
 
   useEffect(() => {
     if (!enabled) {
       return undefined;
     }
     const controller = new AbortController();
-    setLoadFailed(false);
     loadTeamProjects(controller.signal)
-      .then(setProjects)
+      .then((listed) => {
+        setProjects(listed);
+        setLoadFailed(false);
+      })
       .catch(() => {
         if (!controller.signal.aborted) {
           setLoadFailed(true);
@@ -656,7 +660,10 @@ function useConnectionProjects(
   return {
     projects,
     loadFailed,
-    reload: () => setAttempt((count) => count + 1),
+    reload: () => {
+      setLoadFailed(false);
+      setAttempt((count) => count + 1);
+    },
     opening,
     open,
     retrying,

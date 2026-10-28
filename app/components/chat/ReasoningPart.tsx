@@ -55,12 +55,17 @@ export function ReasoningPart({
   const [highlighted, setHighlighted] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // Each new reveal opens and highlights the part once; the highlight fades on a timer.
+  const [revealedKey, setRevealedKey] = useState(0);
+  if (revealKey && revealKey !== revealedKey) {
+    setRevealedKey(revealKey);
+    setExpanded(true);
+    setHighlighted(true);
+  }
   useEffect(() => {
     if (!revealKey) {
       return () => undefined;
     }
-    setExpanded(true);
-    setHighlighted(true);
     rootRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     const timer = window.setTimeout(() => setHighlighted(false), REVEAL_HIGHLIGHT_MS);
     return () => window.clearTimeout(timer);

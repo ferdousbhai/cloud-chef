@@ -40,9 +40,11 @@ export function OrgProjectsList({
       return undefined;
     }
     const controller = new AbortController();
-    setLoadFailed(false);
     void loadTeamProjects(controller.signal)
-      .then((listed) => setProjects(listed.filter((project) => project.role === 'edit')))
+      .then((listed) => {
+        setProjects(listed.filter((project) => project.role === 'edit'));
+        setLoadFailed(false);
+      })
       .catch(() => {
         if (!controller.signal.aborted) {
           setLoadFailed(true);
@@ -62,7 +64,15 @@ export function OrgProjectsList({
           role="alert"
         >
           <p>{heading} could not be loaded.</p>
-          <Button className="mt-2" size="xs" variant="neutral" onClick={() => setAttempt((count) => count + 1)}>
+          <Button
+            className="mt-2"
+            size="xs"
+            variant="neutral"
+            onClick={() => {
+              setLoadFailed(false);
+              setAttempt((count) => count + 1);
+            }}
+          >
             Try again
           </Button>
         </div>

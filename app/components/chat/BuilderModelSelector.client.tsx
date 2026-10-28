@@ -93,10 +93,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
         : REASONING_LEVEL_LABELS[reasoningLevel];
   const [openRequested, setOpenRequested] = useState(false);
   const open = !disabled && openRequested;
-  const orderedModels = useMemo(
-    () => orderBuilderModelsForDisplay(standingIn ? [...models, model] : models, defaultModelId),
-    [defaultModelId, model, models, standingIn],
-  );
+  const orderedModels = orderBuilderModelsForDisplay(standingIn ? [...models, model] : models, defaultModelId);
   const defaultModel = orderedModels.find(({ id }) => id === defaultModelId) ?? model;
   const hasModels = (slug: BuilderProvider) => orderedModels.some((entry) => builderProviderFor(entry) === slug);
   // The default model's provider first, then the other providers with models, Workers AI last.
@@ -104,10 +101,8 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
   const keylessProviders = GATEWAY_PROVIDER_SLUGS.filter((slug) => !hasModels(slug));
   const activeProvider = provider ?? builderProviderFor(model);
   // Only the newest model of each family is listed, and the selected one, so a choice never vanishes.
-  const listedModels = useMemo(() => {
-    const older = olderBuilderModelIds(orderedModels);
-    return orderedModels.filter((entry) => entry.id === modelId || !older.has(entry.id));
-  }, [modelId, orderedModels]);
+  const older = olderBuilderModelIds(orderedModels);
+  const listedModels = orderedModels.filter((entry) => entry.id === modelId || !older.has(entry.id));
   const recentModels = [...new Set(recents)].flatMap((id) => {
     const recent = orderedModels.find((entry) => entry.id === id);
     return recent && id !== defaultModel.id ? [recent] : [];
@@ -133,21 +128,10 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
     return () => window.removeEventListener('storage', syncBuilderModelPreference);
   }, []);
 
-  // Opening the picker is the user seeing the list, so nothing here is new to them any more.
-  useEffect(() => {
-    const unseen = builderNewModelsStore.get();
-    if (!open || unseen.length === 0) {
-      return;
-    }
-    setOpenedWithNewIds(unseen.map(({ id }) => id));
-    markBuilderModelsSeen();
-  }, [open]);
-
-  useEffect(() => {
-    if (disabled) {
-      setOpenRequested(false);
-    }
-  }, [disabled]);
+  // A disabled picker forgets that it was asked open, so enabling it again doesn't reopen it.
+  if (disabled && openRequested) {
+    setOpenRequested(false);
+  }
 
   return (
     <DropdownMenu.Root
@@ -161,6 +145,12 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
               : builderProviderFor(model),
           );
           setSearch('');
+          // Opening the picker is the user seeing the list, so nothing here is new to them any more.
+          const unseen = builderNewModelsStore.get();
+          if (!disabled && unseen.length > 0) {
+            setOpenedWithNewIds(unseen.map(({ id }) => id));
+            markBuilderModelsSeen();
+          }
         }
         setOpenRequested(!disabled && nextOpen);
       }}
