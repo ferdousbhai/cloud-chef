@@ -85,20 +85,23 @@ export function ModelsCard() {
   const [compatibleModels, setCompatibleModels] = useState<BuilderModel[] | null>(null);
   const [compatibleError, setCompatibleError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setSettings(await getJson(PATH, settingsSchema));
-  }, []);
+  const refresh = useCallback(() => getJson(PATH, settingsSchema).then(setSettings), []);
 
   /** Every model the account could offer, which follows the provider keys it has. */
-  const refreshCompatible = useCallback(async () => {
-    setCompatibleError(null);
-    try {
-      setCompatibleModels(await fetchCompatibleBuilderModels());
-    } catch (failure) {
-      setCompatibleModels(null);
-      setCompatibleError(messageOf(failure, 'The account’s models could not be listed just now.'));
-    }
-  }, []);
+  const refreshCompatible = useCallback(
+    () =>
+      fetchCompatibleBuilderModels().then(
+        (listed) => {
+          setCompatibleModels(listed);
+          setCompatibleError(null);
+        },
+        (failure) => {
+          setCompatibleModels(null);
+          setCompatibleError(messageOf(failure, 'The account’s models could not be listed just now.'));
+        },
+      ),
+    [],
+  );
 
   useEffect(() => {
     refresh().catch((failure) => {
@@ -271,7 +274,10 @@ export function ModelsCard() {
             canManage={settings.canManage}
             busy={busy}
             onSave={chooseAllowed}
-            onRetry={() => void refreshCompatible()}
+            onRetry={() => {
+              setCompatibleError(null);
+              void refreshCompatible();
+            }}
           />
 
           <h3 className="mt-6 text-sm font-medium text-content-primary">Provider keys</h3>

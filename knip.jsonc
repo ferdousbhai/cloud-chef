@@ -22,16 +22,12 @@
         // Child process spawned by `pnpm run validate` (scripts/validate.mjs) for each template profile.
         "scripts/verify-template.mjs",
       ],
-      "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!", "!.cloudchef-runtime-security-*/**"],
+      "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,css}!", "!.cloudchef-runtime-security-*/**"],
       "ignore": [
         "template/**",
         "app/test/cloudflare-workers-shim.ts",
         // Reached only through vitest.conversation-agent.config.ts's `cloudflare:email` alias.
         "tests/conversation-agent/cloudflare-email-shim.ts",
-        // Vendored verbatim from the install-anti-slop skill and loaded by Oxlint through
-        // `jsPlugins`, which knip does not read. Analysing it would report unused exports
-        // against source this repository does not own and must not prune.
-        "tools/oxlint/anti-slop/**",
       ],
     },
     "cloudchef-agent": {
@@ -43,10 +39,13 @@
       "project": ["src/**/*.ts"],
     },
     "template": {
-      "entry": ["src/plain-server.ts", "src/server.ts"],
+      "entry": ["src/plain-server.ts"],
       "project": ["src/**/*.{ts,tsx}", "scripts/**/*.mjs"],
     },
   },
+
+  // A system tool the CLI spec runs only where it is installed; it isn't an npm package.
+  "ignoreBinaries": ["shellcheck"],
 
   "ignoreDependencies": [
     // satisfies the Cloudflare Agents decorator transform peer dependency
@@ -55,9 +54,6 @@
 
     // virtual module provided by the Cloudflare Workers runtime
     "cloudflare",
-
-    // imported by the vendored anti-slop plugin, which knip is told to ignore above
-    "@oxlint/plugins",
 
     // run as `pnpm exec wrangler` only by local D1 migrations (scripts/apply-d1-migrations.mjs --local)
     "wrangler",

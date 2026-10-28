@@ -18,12 +18,17 @@ type HighlightedCode = {
 };
 
 export function useHighlightedCode(code: string, language: string, theme: CodeTheme): HighlightedCode | null {
-  const [highlighted, setHighlighted] = useState<HighlightedCode | null>(null);
+  // The highlighting with what it highlighted: for any other code, language or theme there is none yet.
+  const [highlighted, setHighlighted] = useState<{
+    code: string;
+    language: string;
+    theme: CodeTheme;
+    value: HighlightedCode;
+  } | null>(null);
 
   useEffect(() => {
     const normalizedLanguage = normalizeCodeLanguage(language);
     let active = true;
-    setHighlighted(null);
 
     void getCodeHighlighter({
       langs: isLoadableLanguage(normalizedLanguage) ? [normalizedLanguage] : [],
@@ -31,7 +36,12 @@ export function useHighlightedCode(code: string, language: string, theme: CodeTh
     })
       .then((highlighter) => {
         if (active) {
-          setHighlighted(highlighter.codeToTokens(code, { lang: normalizedLanguage, theme }));
+          setHighlighted({
+            code,
+            language,
+            theme,
+            value: highlighter.codeToTokens(code, { lang: normalizedLanguage, theme }),
+          });
         }
       })
       .catch((error) => {
@@ -45,7 +55,9 @@ export function useHighlightedCode(code: string, language: string, theme: CodeTh
     };
   }, [code, language, theme]);
 
-  return highlighted;
+  return highlighted?.code === code && highlighted.language === language && highlighted.theme === theme
+    ? highlighted.value
+    : null;
 }
 
 export function highlightTokenStyle(token: HighlightToken): CSSProperties {

@@ -194,7 +194,7 @@ export function useConversationAgentChat(args: {
   });
   const workspaceControllerRef = useRef<BuilderWorkspaceSyncController | null>(null);
   // presentationId is the key, not an input: changing presentation must hand out a fresh gate.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate re-key
+  // oxlint-disable-next-line react/exhaustive-deps -- deliberate re-key
   const workspaceGateRef = useMemo(() => ({ current: createAsyncGate() }), [args.presentationId]);
   const chat = useAgentChat<ConversationAgentState, UIMessage>({
     agent: conversationAgent,
@@ -294,6 +294,9 @@ export function useConversationAgentChat(args: {
     });
   }, [conversationAgent, transcript]);
 
+  // The gate holder is a per-presentation mutable cell made during render (above), not a value React tracks:
+  // a send started before this effect runs must wait on the new presentation's gate, so it is written here.
+  /* oxlint-disable react/immutability */
   useEffect(() => {
     const previousGate = workspaceGateRef.current;
     const gate = previousGate.started ? createAsyncGate() : previousGate;
@@ -409,8 +412,11 @@ export function useConversationAgentChat(args: {
       }
     };
   }, [args.presentationId, conversationAgent, workspaceAttemptId, workspaceGateRef]);
+  /* eslint-enable react/immutability */
 
   const retryWorkspacePresentation = useCallback(() => setWorkspaceAttemptId((id) => id + 1), []);
+  // Read during render on purpose: a presentation from a gate this render no longer holds is stale (see above).
+  // oxlint-disable-next-line react/refs
   const currentPresentation = workspacePresentation?.gate === workspaceGateRef.current ? workspacePresentation : null;
   const workspacePresentationState: WorkspacePresentationState = currentPresentation?.state ?? 'connecting';
   const workspaceFailure = currentPresentation?.failure ?? null;

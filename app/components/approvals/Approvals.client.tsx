@@ -21,11 +21,13 @@ export function Approvals() {
   const [approvals, setApprovals] = useState<ApprovalsList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const reload = () => setAttempt((count) => count + 1);
+  const reload = () => {
+    setError(null);
+    setAttempt((count) => count + 1);
+  };
 
   useEffect(() => {
     const controller = new AbortController();
-    setError(null);
     loadApprovals(controller.signal)
       .then(setApprovals)
       .catch((cause) => {

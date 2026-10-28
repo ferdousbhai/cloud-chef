@@ -9,7 +9,7 @@ export type AppSiteState = {
   deployment: BuilderDeploymentState | null;
 };
 
-export type AppSiteStatus = 'idle' | 'publishing' | 'failed' | 'live';
+type AppSiteStatus = 'idle' | 'publishing' | 'failed' | 'live';
 
 export type AppSitePresentation = {
   /** The site's address, when it is one the preview pane may frame. */

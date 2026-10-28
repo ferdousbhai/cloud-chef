@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-// eslint-disable-next-line no-restricted-imports
+// oxlint-disable-next-line no-restricted-imports
 import { Toaster as SonnerToaster } from 'sonner';
 import { themeStore } from '~/lib/stores/theme';
 

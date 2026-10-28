@@ -1,4 +1,4 @@
-export type CloudflareConnectionStatus = 'active' | 'revoked';
+type CloudflareConnectionStatus = 'active' | 'revoked';
 
 /** Who a connection belongs to: one person's own Cloudflare account, or an organization's. */
 export type CloudflareConnectionOwner = { kind: 'user'; userId: string } | { kind: 'organization'; orgId: string };

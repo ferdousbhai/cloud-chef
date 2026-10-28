@@ -13,7 +13,7 @@
         "scripts/verify-template.mjs",
       ],
       "project": [
-        "**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx}!",
+        "**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,css}!",
         "!**/*.test.{ts,tsx}",
         "!**/*.spec.{ts,tsx}",
         "!tests/**",
@@ -34,14 +34,13 @@
       "project": ["src/**/*.ts!", "!src/**/*.test.ts"],
     },
   },
-  // `@oxlint/plugins` is imported only by the vendored plugin under tools/, which this
-  // production view excludes by design.
+  // As in knip.jsonc: a system tool, not an npm package.
+  "ignoreBinaries": ["shellcheck"],
   // `wrangler` and `@cloudflare/workers-types` are explained in knip.jsonc.
   "ignoreDependencies": [
     "@babel/core",
     "@babel/plugin-proposal-decorators",
     "cloudflare",
-    "@oxlint/plugins",
     "wrangler",
     "@cloudflare/workers-types",
   ],

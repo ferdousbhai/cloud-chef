@@ -1,4 +1,4 @@
-export const CLIENT_TELEMETRY_EVENTS = [
+const CLIENT_TELEMETRY_EVENTS = [
   'Builder connection was not ready before send',
   'Failed to process chat request',
   'Failed to start Cloudflare authorization',
@@ -9,7 +9,7 @@ export const CLIENT_TELEMETRY_EVENTS = [
 
 export type ClientTelemetryEvent = (typeof CLIENT_TELEMETRY_EVENTS)[number];
 
-export const PRODUCT_TELEMETRY_EVENTS = [
+const PRODUCT_TELEMETRY_EVENTS = [
   'landing_viewed',
   'cloudflare_connect_started',
   'prompt_submitted',

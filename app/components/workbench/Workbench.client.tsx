@@ -1,14 +1,5 @@
 import { motion, MotionConfig, type HTMLMotionProps, type Variants } from 'motion/react';
-import {
-  lazy,
-  memo,
-  Suspense,
-  useEffect,
-  useState,
-  type CSSProperties,
-  type ReactElement,
-  type ReactNode,
-} from 'react';
+import { lazy, memo, Suspense, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { IconButton } from '~/components/ui/IconButton';
 import { PanelHeaderButton } from '~/components/ui/PanelHeaderButton';
 import { Slider, type SliderOption } from '~/components/ui/Slider';
@@ -77,13 +68,11 @@ const workbenchVariants = {
 
 export const Workbench = memo(function Workbench({ isStreaming, beforeChatStarted }: WorkbenchProps) {
   const showWorkbench = useStore(workbenchStore.showWorkbench);
+  // Mounted the first time it is shown, and kept mounted after.
   const [hasMountedWorkbench, setHasMountedWorkbench] = useState(showWorkbench);
-
-  useEffect(() => {
-    if (showWorkbench) {
-      setHasMountedWorkbench(true);
-    }
-  }, [showWorkbench]);
+  if (showWorkbench && !hasMountedWorkbench) {
+    setHasMountedWorkbench(true);
+  }
 
   if (!hasMountedWorkbench) {
     return null;

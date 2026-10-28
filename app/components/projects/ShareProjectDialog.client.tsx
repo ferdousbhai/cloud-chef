@@ -46,15 +46,18 @@ export function ShareProjectDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
 
-  const load = useCallback(async () => {
-    const { organizations } = await getJson('/api/organizations', teamsSchema);
-    const organization = organizations.find((candidate) => candidate.orgId === orgId);
-    const shared = organization?.projects.find((candidate) => candidate.id === project.id);
-    if (!organization?.members || !shared) {
-      throw new Error('Only the team’s admins can share its projects.');
-    }
-    setTeam({ members: organization.members, access: shared.access });
-  }, [orgId, project.id]);
+  const load = useCallback(
+    () =>
+      getJson('/api/organizations', teamsSchema).then(({ organizations }) => {
+        const organization = organizations.find((candidate) => candidate.orgId === orgId);
+        const shared = organization?.projects.find((candidate) => candidate.id === project.id);
+        if (!organization?.members || !shared) {
+          throw new Error('Only the team’s admins can share its projects.');
+        }
+        setTeam({ members: organization.members, access: shared.access });
+      }),
+    [orgId, project.id],
+  );
 
   useEffect(() => {
     load().catch((error) => setLoadError(messageOf(error, 'Sharing could not be loaded.')));

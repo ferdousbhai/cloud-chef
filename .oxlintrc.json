@@ -42,6 +42,86 @@
     "anti-slop/no-unknown-type-aliases": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
     "anti-slop/no-widen-then-assert": "error",
-    "anti-slop/require-safety-comment-for-type-assertion": "error"
-  }
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+    "anti-slop/no-ad-blocked-class": "error",
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "react/set-state-in-effect": "error",
+    "react/set-state-in-render": "error",
+    "react/purity": "error",
+    "react/immutability": "error",
+    "react/static-components": "error",
+    "react/preserve-manual-memoization": "error",
+    "react/incompatible-library": "warn",
+    "react/unsupported-syntax": "warn",
+    "react/jsx-key": "error",
+    "react/jsx-no-duplicate-props": "error",
+    "react/jsx-no-target-blank": "error",
+    "react/jsx-no-undef": "error",
+    "react/no-danger-with-children": "error",
+    "react/no-direct-mutation-state": "error",
+    "react/no-unescaped-entities": "error",
+    "react/no-unknown-property": "error",
+    "typescript/consistent-type-imports": [
+      "error",
+      {
+        "prefer": "type-imports",
+        "fixStyle": "separate-type-imports"
+      }
+    ],
+    "eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
+      }
+    ],
+    "eslint/curly": "error",
+    "eslint/no-eval": "error",
+    "eslint/prefer-arrow-callback": [
+      "error",
+      {
+        "allowNamedFunctions": true
+      }
+    ]
+  },
+  "plugins": ["eslint", "typescript", "unicorn", "oxc", "react", "import"],
+  "overrides": [
+    {
+      "files": ["app/**/*.ts", "app/**/*.tsx", "cloudchef-agent/**/*.ts"],
+      "rules": {
+        "anti-slop/no-direct-process-env": "error"
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "react/globals": "off"
+      }
+    },
+    {
+      "files": ["app/**/*.ts", "app/**/*.tsx"],
+      "rules": {
+        "eslint/no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["../"],
+                "message": "Relative imports are not allowed. Please use '~/' instead."
+              }
+            ],
+            "paths": [
+              {
+                "name": "sonner",
+                "importNames": ["Toaster"],
+                "message": "Please import Toaster from '~/components/ui/Toaster' instead of 'sonner'."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }

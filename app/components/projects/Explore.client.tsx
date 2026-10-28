@@ -20,7 +20,6 @@ export function Explore({ onOpenProject = openProjectWorkspace }: { onOpenProjec
 
   useEffect(() => {
     const controller = new AbortController();
-    setError(null);
     loadPublicProjects(controller.signal)
       .then(setProjects)
       .catch((cause) => {
@@ -42,7 +41,14 @@ export function Explore({ onOpenProject = openProjectWorkspace }: { onOpenProjec
       {error !== null ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-content-secondary">
           <span>{error}</span>
-          <Button size="xs" variant="neutral" onClick={() => setAttempt((count) => count + 1)}>
+          <Button
+            size="xs"
+            variant="neutral"
+            onClick={() => {
+              setError(null);
+              setAttempt((count) => count + 1);
+            }}
+          >
             Try again
           </Button>
         </div>

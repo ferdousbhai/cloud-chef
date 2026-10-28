@@ -65,7 +65,6 @@ export function useWaitingApprovals(admin: boolean): number {
   const [waiting, setWaiting] = useState(0);
   useEffect(() => {
     if (!admin) {
-      setWaiting(0);
       return undefined;
     }
     const controller = new AbortController();
@@ -74,5 +73,5 @@ export function useWaitingApprovals(admin: boolean): number {
       .catch(() => undefined);
     return () => controller.abort();
   }, [admin]);
-  return waiting;
+  return admin ? waiting : 0;
 }

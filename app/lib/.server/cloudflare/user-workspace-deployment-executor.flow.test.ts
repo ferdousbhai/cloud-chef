@@ -72,7 +72,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     vi.stubGlobal('fetch', mocks.credentialFetch);
     // Vitest must expose a constructible implementation because production
     // instantiates the account API with `new`.
-    // eslint-disable-next-line prefer-arrow-callback
+    // oxlint-disable-next-line prefer-arrow-callback
     mocks.UserCloudflareAccountApi.mockImplementation(function () {
       return mocks.accountApi;
     });

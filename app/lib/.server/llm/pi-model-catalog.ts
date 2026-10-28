@@ -26,7 +26,7 @@ import {
 type PiCatalogModel = Model<Api>;
 
 /** The Pi APIs CloudChef can carry through the AI Gateway binding: each has a transport in `pi-ai-models.ts`. */
-export const GATEWAY_APIS = ['anthropic-messages', 'openai-responses', 'openai-completions'] as const;
+const GATEWAY_APIS = ['anthropic-messages', 'openai-responses', 'openai-completions'] as const;
 export type GatewayApi = (typeof GATEWAY_APIS)[number];
 
 /** Pi's gateway catalog writes its models' base URLs against this, with the account and gateway left as placeholders. */

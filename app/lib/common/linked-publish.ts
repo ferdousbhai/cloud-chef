@@ -26,7 +26,7 @@ const linkedBuildStateSchema = z.enum([
 ]);
 
 /** A publish whose commit is in the project's repository. Fields after `detailsUrl` are absent from outputs saved before them. */
-export const linkedPublishDataSchema = z.looseObject({
+const linkedPublishDataSchema = z.looseObject({
   branch: z.string(),
   commit: z.string(),
   live: z.boolean(),

@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 723
-Inventory SHA-256: fac3c8e76dc514787858a38dd0f0aac24076fb4f1377d10d4bf698e6cb7023a9
+Production packages: 724
+Inventory SHA-256: 14002ea82d57a09c66d32c31771957cd143c8ff82664cba39ab63ae6887ceae7
 
 PACKAGE INVENTORY
 =================
@@ -2288,6 +2288,15 @@ Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/u
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
+
+@typescript/typescript6@6.0.2
+Declared license: Apache-2.0
+Author: Microsoft Corp.
+Repository: {"type":"git","url":"https://github.com/microsoft/TypeScript.git"}
+Homepage: https://www.typescriptlang.org/
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE.txt (SHA-256 a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47)
 
 @uiw/codemirror-theme-vscode@4.25.12
 Declared license: MIT
@@ -18939,6 +18948,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47
 Used by:
+- @typescript/typescript6@6.0.2:LICENSE.txt
 - typescript@5.9.3:LICENSE.txt
 - typescript@6.0.3:LICENSE.txt
 ----- BEGIN VERBATIM CONTENT -----

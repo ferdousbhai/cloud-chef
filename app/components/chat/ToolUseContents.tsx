@@ -295,14 +295,17 @@ function CloudflareRequestApprovalContents({
 }) {
   const [pendingDecision, setPendingDecision] = useState<'approve' | 'reject' | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
-  const [expired, setExpired] = useState(() => (proposal?.expiresAt ?? execution?.expiresAt ?? Infinity) <= Date.now());
   const expiresAt = proposal?.expiresAt ?? execution?.expiresAt;
+  // The deadline that has passed; a proposal with another deadline (or none) hasn't expired.
+  const [passedDeadline, setPassedDeadline] = useState<number | null>(() =>
+    expiresAt !== undefined && expiresAt <= Date.now() ? expiresAt : null,
+  );
+  const expired = expiresAt !== undefined && passedDeadline === expiresAt;
   useEffect(() => {
-    if (!expiresAt || expiresAt <= Date.now()) {
-      setExpired(Boolean(expiresAt));
+    if (!expiresAt) {
       return undefined;
     }
-    const timeout = window.setTimeout(() => setExpired(true), expiresAt - Date.now());
+    const timeout = window.setTimeout(() => setPassedDeadline(expiresAt), Math.max(0, expiresAt - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [expiresAt]);
 

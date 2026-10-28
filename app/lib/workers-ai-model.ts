@@ -35,7 +35,7 @@ export type WorkersAiModelId = `@cf/${string}/${string}`;
  * A model served through the account's default AI Gateway with the account's own key for its
  * provider: the provider's slug, then the provider's own model id (`anthropic/claude-opus-5-5`).
  */
-export type GatewayModelId = `${GatewayProviderSlug}/${string}`;
+type GatewayModelId = `${GatewayProviderSlug}/${string}`;
 
 /** A model the builder can run on: a Workers AI model, or a provider's model when the account has a key. */
 export type BuilderModelId = WorkersAiModelId | GatewayModelId;
@@ -46,7 +46,7 @@ export type BuilderModelId = WorkersAiModelId | GatewayModelId;
  * — "Default" — sends no level at all, so the provider applies its own default effort (an older
  * Claude model, which has none, thinks at the "high" budget).
  */
-export const BUILDER_REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+const BUILDER_REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 export type BuilderReasoningLevel = (typeof BUILDER_REASONING_LEVELS)[number];
 

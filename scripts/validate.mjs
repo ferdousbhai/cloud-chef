@@ -28,7 +28,6 @@ export const VALIDATION_TASKS = Object.freeze([
   { name: 'generate', args: ['run', 'generate'] },
   { name: 'agent typecheck', args: ['--dir', 'cloudchef-agent', 'run', 'typecheck'] },
   { name: 'agent test', args: ['--dir', 'cloudchef-agent', 'run', 'test'] },
-  { name: 'lint:code', args: ['run', 'lint:code'], after: ['generate'] },
   { name: 'typecheck:check', args: ['run', 'typecheck:check'], after: ['generate'] },
   { name: 'knip', args: ['run', 'knip'], after: ['generate'] },
   { name: 'build:check', args: ['run', 'build:check'], after: ['generate'] },

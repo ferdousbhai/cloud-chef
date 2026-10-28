@@ -71,15 +71,13 @@ export function useWorkbenchController(isStreaming?: boolean) {
     }
   }, [hasSite]);
 
-  useEffect(() => {
-    if (selectedView === 'preview') {
-      setHasLoadedPreview(true);
-    }
-    // The shell is opened only once someone asks for it, and then stays attached while the page is open.
-    if (selectedView === 'terminal') {
-      setHasLoadedTerminal(true);
-    }
-  }, [selectedView]);
+  if (selectedView === 'preview' && !hasLoadedPreview) {
+    setHasLoadedPreview(true);
+  }
+  // The shell is opened only once someone asks for it, and then stays attached while the page is open.
+  if (selectedView === 'terminal' && !hasLoadedTerminal) {
+    setHasLoadedTerminal(true);
+  }
 
   useEffect(() => {
     workbenchStore.setDocuments(files);

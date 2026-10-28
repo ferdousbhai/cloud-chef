@@ -102,7 +102,7 @@ function Join() {
       void join();
     }
     // `join` reads only the token and stable setters.
-  }, [signedInAsInvited]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [signedInAsInvited]); // oxlint-disable-line react/exhaustive-deps
 
   if (!isPending && !session && sessionError) {
     return (

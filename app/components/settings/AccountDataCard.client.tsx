@@ -7,7 +7,7 @@ import { ACCOUNT_DELETION_CONFIRMATION, accountExportSectionLabel } from '~/lib/
 import { authClient } from '~/lib/auth-client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { queryClient } from '~/lib/stores/reactQueryClient';
-import { takeReauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
+import { forgetReauthenticatingUser, reauthenticationSwitchedAccount } from '~/lib/stores/reauthentication';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { errorFeedback, FeedbackLine } from './Feedback';
 import { SettingsCard } from './SettingsLayout';
@@ -115,13 +115,19 @@ export function AccountDataCard() {
 
   // A fresh sign-in that landed in another account than the one that asked for it: export and
   // erasure would act on that other account, so they wait until the person signs back in.
+  // Read once the session names the person, then spent.
   const [switchedAccount, setSwitchedAccount] = useState(false);
+  const [checkedFor, setCheckedFor] = useState<string | null>(null);
   const userId = session?.user.id ?? null;
+  if (userId && checkedFor !== userId) {
+    setCheckedFor(userId);
+    setSwitchedAccount((switched) => switched || reauthenticationSwitchedAccount(userId));
+  }
   useEffect(() => {
-    if (userId && takeReauthenticationSwitchedAccount(userId)) {
-      setSwitchedAccount(true);
+    if (checkedFor) {
+      forgetReauthenticatingUser();
     }
-  }, [userId]);
+  }, [checkedFor]);
 
   const deletionControls =
     phase === 'reauthenticate' ? (

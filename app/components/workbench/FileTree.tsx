@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { FileMap } from 'cloudchef-agent/types';
 import { DEFAULT_COLLAPSED_FOLDERS } from '~/utils/constants';
 import { classNames } from '~/utils/classNames';
@@ -31,15 +31,16 @@ export const FileTree = memo(function FileTree({
   const fileList = useMemo(() => buildFileList(files, rootFolder), [files, rootFolder]);
   const [collapsedFolders, setCollapsedFolders] = useState(() => initialCollapsedFolders(fileList, inMenu));
 
-  useEffect(() => {
-    if (inMenu) {
-      setCollapsedFolders(new Set(folderPathsFromFileList(fileList)));
-      return;
-    }
-    setCollapsedFolders(
-      (previous) => new Set(folderPathsFromFileList(fileList).filter((folder) => previous.has(folder))),
+  // When the files or the menu mode change, the collapsed folders follow in the same render: all of them in a
+  // menu, otherwise those still present.
+  const [shown, setShown] = useState({ fileList, inMenu });
+  if (shown.fileList !== fileList || shown.inMenu !== inMenu) {
+    setShown({ fileList, inMenu });
+    const folders = folderPathsFromFileList(fileList);
+    setCollapsedFolders((previous) =>
+      inMenu ? new Set(folders) : new Set(folders.filter((folder) => previous.has(folder))),
     );
-  }, [fileList, inMenu]);
+  }
 
   const visibleNodes = useMemo(() => visibleFileList(fileList, collapsedFolders), [fileList, collapsedFolders]);
   const toggleCollapseState = (fullPath: string) => {

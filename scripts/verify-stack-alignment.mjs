@@ -202,7 +202,12 @@ export function verifyStackAlignment() {
       'cloudchef-agent/package.json',
       agentRequiredPackages,
     ),
-    ...findPackageVersionAlignmentErrors(rootPackage, templatePackage, 'template/package.json', SHARED_APP_PACKAGES),
+    ...findPackageVersionAlignmentErrors(
+      compilerView(rootPackage),
+      compilerView(templatePackage),
+      'template/package.json',
+      SHARED_APP_PACKAGES,
+    ),
     ...findForbiddenFiles(forbiddenLockfiles),
     ...findMissingPaths(rootDir, requiredPaths),
     ...findSandboxRuntimePinErrors(
@@ -250,3 +255,19 @@ export function verifyStackAlignment() {
 }
 
 runVerifierIfMain(import.meta.url, verifyStackAlignment);
+
+/**
+ * What generated apps must match the control plane on: the TypeScript each compiles with. Its `typescript` dependency
+ * is TypeScript 6's API (`npm:@typescript/typescript6`) for the tools that import it, while `@typescript/native`
+ * (`npm:typescript@…`) is the compiler, TypeScript 7, which has no JavaScript API yet.
+ */
+function compilerView(pkg) {
+  const compiler = pkg.devDependencies?.['@typescript/native'];
+  if (!compiler) {
+    return pkg;
+  }
+  return {
+    ...pkg,
+    devDependencies: { ...pkg.devDependencies, typescript: compiler.replace(/^npm:typescript@/, '') },
+  };
+}

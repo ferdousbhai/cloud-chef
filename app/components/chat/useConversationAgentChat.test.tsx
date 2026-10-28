@@ -111,7 +111,7 @@ vi.mock('./chat-send-reconciliation', () => ({
 // Pins a browser timeout to the runtime's derived container connect ceiling; the runtime is
 // outside the ~/ alias, and the dependency direction (runtime imports app) forbids exporting
 // the ceiling through app code.
-// eslint-disable-next-line no-restricted-imports -- test-only cross-boundary derivation pin
+// oxlint-disable-next-line no-restricted-imports -- test-only cross-boundary derivation pin
 import { CONTAINER_CONNECT_TIMEOUT_MS } from '../../../user-workspace-runtime/src/container-toolchain';
 import {
   useConversationAgentChat,

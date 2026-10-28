@@ -24,23 +24,24 @@ export function DeployLogDialog({
   live?: boolean;
   onClose: () => void;
 }) {
-  const [log, setLog] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // What was read, for the publish and attempt it was read for: anything else is still loading.
+  const key = `${orgProjectId}#${deploymentId}#${attempt}`;
+  const [read, setRead] = useState<{ key: string; log: string | null; error: string | null } | null>(null);
+  const log = read?.key === key ? read.log : null;
+  const error = read?.key === key ? read.error : null;
 
   useEffect(() => {
     const controller = new AbortController();
     let timer: number | undefined;
     const load = () =>
       loadProjectDeployLog(orgProjectId, deploymentId, controller.signal)
-        .then((text) => {
-          setLog(text);
-          setError(null);
-        })
+        .then((text) => setRead({ key, log: text, error: null }))
         .catch((cause) => {
           // While it runs, a log not started yet is just not there yet.
           if (!controller.signal.aborted && !live) {
-            setError(messageOf(cause, 'What happened could not be loaded. Try again.'));
+            const message = messageOf(cause, 'What happened could not be loaded. Try again.');
+            setRead((current) => ({ key, log: current?.key === key ? current.log : null, error: message }));
           }
         })
         .finally(() => {
@@ -48,14 +49,12 @@ export function DeployLogDialog({
             timer = window.setTimeout(() => void load(), LIVE_REFRESH_MS);
           }
         });
-    setLog(null);
-    setError(null);
     void load();
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [orgProjectId, deploymentId, attempt, live]);
+  }, [orgProjectId, deploymentId, key, live]);
 
   return (
     <Modal onClose={onClose} title={live ? 'Progress' : 'What happened'} description={name}>
