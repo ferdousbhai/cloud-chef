@@ -14,7 +14,6 @@ const EXPECTED_BRANCH = 'main';
 const EXPECTED_BUILD_COMMAND = 'pnpm run workers-builds:build';
 const EXPECTED_DEPLOY_COMMAND = 'pnpm run workers-builds:deploy';
 // A branch build validates and stops: it never uploads a version of the production Worker.
-const EXPECTED_BRANCH_COMMAND = 'pnpm run workers-builds:branch';
 const EXPECTED_TOKEN_NAME = 'account-workers-builds-production';
 // NODE_VERSION and PNPM_VERSION are the pins in `.nvmrc` and `packageManager`.
 const EXPECTED_BUILD_VARIABLE_NAMES = ['NODE_VERSION', 'PNPM_VERSION', 'SKIP_DEPENDENCY_INSTALL'];
@@ -44,13 +43,8 @@ export function findWorkersBuildsConfigErrors({
   requireEqual(errors, 'workers-builds.production.json rootDirectory', config?.rootDirectory, '/');
   requireEqual(errors, 'workers-builds.production.json buildCommand', config?.buildCommand, EXPECTED_BUILD_COMMAND);
   requireEqual(errors, 'workers-builds.production.json deployCommand', config?.deployCommand, EXPECTED_DEPLOY_COMMAND);
-  requireEqual(errors, 'workers-builds.production.json nonProductionBuilds', config?.nonProductionBuilds, true);
-  requireEqual(
-    errors,
-    'workers-builds.production.json nonProductionDeployCommand',
-    config?.nonProductionDeployCommand,
-    EXPECTED_BRANCH_COMMAND,
-  );
+  // Only main is built: every change is validated locally before it's pushed, and a branch build would only repeat it.
+  requireEqual(errors, 'workers-builds.production.json nonProductionBuilds', config?.nonProductionBuilds, false);
   requireEqual(errors, 'workers-builds.production.json buildCaching', config?.buildCaching, true);
   requireEqual(errors, 'workers-builds.production.json buildTokenName', config?.buildTokenName, EXPECTED_TOKEN_NAME);
   requireStringArray(errors, 'workers-builds.production.json pathIncludes', config?.pathIncludes, ['*']);
@@ -98,8 +92,8 @@ export function findWorkersBuildsConfigErrors({
     [
       'pnpm install --frozen-lockfile',
       'node scripts/check-workers-builds-environment.mjs',
-      // Full validation on branch builds; on the production branch the deploy step validates.
-      'node scripts/workers-builds-checks.mjs',
+      // The checked-in outputs, regenerated; the deploy step builds the release.
+      'pnpm run generate',
       'node scripts/deploy-production.mjs --check-workers-builds',
     ].join(' && '),
   );
@@ -107,19 +101,19 @@ export function findWorkersBuildsConfigErrors({
     errors,
     'package.json scripts.workers-builds:deploy',
     scripts?.['workers-builds:deploy'],
-    // Validates the release inputs, runs `pnpm run validate` (which builds the Worker) beside the
-    // account checks, migrates only once it passes, then deploys that build and verifies it live.
+    // Checks the release inputs, builds the Worker (`pnpm run release:build`) beside the account checks,
+    // migrates only once it is built, then deploys that build and verifies it live.
     'node scripts/deploy-production.mjs --workers-builds',
   );
-  // The deploy step ships what validation's `build:check` built, so that check must be the release build.
+  // The deploy step ships what `release:build`'s `build:check` built, so that check must be the release build.
   requireEqual(errors, 'package.json scripts.build:check', scripts?.['build:check'], 'vite build');
-  requireEqual(errors, 'package.json scripts.validate', scripts?.validate, 'node scripts/validate.mjs');
   requireEqual(
     errors,
-    'package.json scripts.workers-builds:branch',
-    scripts?.['workers-builds:branch'],
-    'node scripts/workers-builds-branch.mjs',
+    'package.json scripts.release:build',
+    scripts?.['release:build'],
+    'pnpm run build:check && pnpm run verify:built-ssr && pnpm run verify:static-assets && pnpm run bundle:check',
   );
+  requireEqual(errors, 'package.json scripts.validate', scripts?.validate, 'node scripts/validate.mjs');
 
   if (
     !githubWorkflowPaths?.includes(REQUIRED_GITHUB_WORKFLOW_PATH) ||

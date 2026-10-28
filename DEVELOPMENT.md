@@ -114,10 +114,9 @@ The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Build
 the reviewed contract for its dashboard build settings; Cloudflare does not read it, so mirror it in the Worker's Builds
 settings:
 
-- production branch `main`, with non-production builds enabled
+- production branch `main`, with non-production builds disabled (every change is validated locally before it's pushed)
 - build command `pnpm run workers-builds:build`, deploy command `pnpm run workers-builds:deploy`
-- non-production deploy command `pnpm run workers-builds:branch`, which uploads nothing: every version of the
-  `cloudchef` Worker carries production's D1 and secrets (preview URLs are off for the same reason)
+- preview URLs off: every version of the `cloudchef` Worker carries production's D1 and secrets
 - root `/`, all paths included, build caching on
 - build token `account-workers-builds-production`, which needs only the permissions to deploy the Worker, read its
   deployment, and manage the control-plane D1 migrations
@@ -127,22 +126,17 @@ settings:
 Runtime secrets remain on the Worker and are not build variables. User workspace and generated-application resources
 are provisioned with the authorization of the Cloudflare account they are in, which everyone building there shares.
 
-Cloudflare Workers Builds runs the full `pnpm run validate` on every non-production branch
-(`scripts/workers-builds-checks.mjs`), checks its build identity and clean checkout but not the production branch
-(`deploy-production.mjs --check-workers-builds`), and uploads nothing. A push to `main` validates too, inside the deploy step, so a
-release that fails validation deploys and migrates nothing. Its build command only regenerates the checked-in outputs
-and checks the release inputs. The deploy command (`scripts/deploy-production.mjs --workers-builds`), which runs only
-from the exact Workers Builds checkout, then runs `pnpm run validate` with the exact 40-character commit ID and OAuth
-client ID in the environment (which `cloudflare.config.ts` binds as plain-text vars). Validation's `build:check` is
-therefore the release build itself, so there is no separate build and the gate costs only the checks beside it.
-Validation includes the committed-config checks (`verify:production-config`, `verify:workers-builds-config`), so the
-deploy step does not run them again; the account check (`provision:production:check`, which only reads the account
-with `cf d1 list`) runs at the same time. Only after validation passes does it record a D1 restore point and apply the control-plane D1
-migrations. It confirms the checkout is still clean, deploys that build with `cf deploy --prebuilt`, and then probes
-`https://cloudchef.build/api/version` every 5 seconds, from the moment the deploy returns, until five consecutive
-responses report that commit, a live Worker version ID, configured OAuth bindings, and `Cache-Control: no-store`.
-Validation needs no browser (`verify:built-browser` is the GitHub Actions browser gate), so it runs in the Workers
-Builds image exactly as it does on a branch build.
+`pnpm run validate` runs before every push to `main` (locally), so Workers Builds doesn't run it again. Its build
+command only regenerates the checked-in outputs and checks the release inputs. The deploy command
+(`scripts/deploy-production.mjs --workers-builds`), which runs only from the exact Workers Builds checkout, runs
+`pnpm run release:build` (the `vite build` it ships and the built-output checks) with the exact 40-character commit ID
+and OAuth client ID in the environment (which `cloudflare.config.ts` binds as plain-text vars), beside the account check
+(`provision:production:check`, which only reads the account with `cf d1 list`). Only after the build passes does it
+record a D1 restore point and apply the control-plane D1 migrations. It confirms the checkout is still clean, deploys that
+build with `cf deploy --prebuilt`, and then probes `https://cloudchef.build/api/version` every 5 seconds, from the moment
+the deploy returns, until five consecutive responses report that commit, a live Worker version ID, configured OAuth
+bindings, and `Cache-Control: no-store`.
+The browser gate (`verify:built-browser`) runs in GitHub Actions.
 
 For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with `cf`,
 which addresses the Worker by name and needs no config file:

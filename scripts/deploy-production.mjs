@@ -142,9 +142,8 @@ export function resolveDeployableCommitSha({ spawn = spawnSync, env = process.en
 }
 
 /**
- * The last command of every Workers Builds build step. On main it proves the inputs the deploy step will release.
- * Any other branch deploys nothing (scripts/workers-builds-branch.mjs), so it proves the same build identity and
- * clean checkout without the production-branch requirement, which every deploy path still enforces itself.
+ * The last command of the Workers Builds build step: it proves the inputs the deploy step will release. Only main
+ * is built; the production-branch requirement is still enforced by every deploy path itself.
  * @param {{clientId?: string, env?: Record<string, string | undefined>, spawn?: typeof spawnSync}} [options]
  * @returns {string} the commit the build checked
  */
@@ -334,10 +333,10 @@ export const WORKERS_BUILDS_AFTER_VALIDATION_STEPS = Object.freeze([
 ]);
 
 /**
- * The release's validation gate. Its `build:check` is the same `vite build` the release ships, so running
- * it with the deploy vars builds the Worker and proves it (tests, types, lint, built-output checks) in one pass.
+ * The release build: the `vite build` the release ships, with the deploy vars, and the checks of its built output.
+ * The full `pnpm run validate` (tests, types, lint) runs before every push to main, so it isn't run again here.
  */
-const WORKERS_BUILDS_VALIDATE_ARGS = Object.freeze(['run', 'validate']);
+const WORKERS_BUILDS_VALIDATE_ARGS = Object.freeze(['run', 'release:build']);
 
 /**
  * @typedef {(command: string, args: readonly string[], options: Record<string, unknown>) => Promise<{
@@ -374,12 +373,11 @@ function spawnBuffered(command, args, options) {
 }
 
 /**
- * The Workers Builds deploy step. The release's validation gate, `pnpm run validate`, runs with the
- * release's deploy vars, so the Worker its `build:check` builds and its built-output checks prove is the
- * one `cf deploy` ships. The checks that read only the account and the committed config run meanwhile;
- * the D1 restore point and migrations wait for validation to pass, and `cf deploy` waits for everything.
- * A failed check, validation, or migration therefore deploys nothing, and failed validation migrates
- * nothing. A failure from the migrations on says that D1 was (or may have been partly) migrated and
+ * The Workers Builds deploy step. The release build, `pnpm run release:build`, runs with the release's deploy
+ * vars, so the Worker its `build:check` builds and its built-output checks prove is the one `cf deploy` ships
+ * (the full `pnpm run validate` ran before the push). The account check runs meanwhile; the D1 restore point and
+ * migrations wait for the build to pass, and `cf deploy` waits for everything. A failed check, build, or migration
+ * therefore deploys nothing, and a failed build migrates nothing. A failure from the migrations on says that D1 was (or may have been partly) migrated and
  * where the restore point is, since the Worker serving traffic may now predate the schema. Validation's output is printed in one piece when it finishes, so it never interleaves with
  * the checks' output.
  *
@@ -421,9 +419,11 @@ export async function deployFromWorkersBuilds({
       throw error;
     }
     if (result?.status !== 0) {
-      throw new Error(`Validation failed with exit status ${result?.status}.${nothingDeployed} Nothing was migrated.`);
+      throw new Error(
+        `The release build failed with exit status ${result?.status}.${nothingDeployed} Nothing was migrated.`,
+      );
     }
-    // Validation regenerates the checked-in outputs, so prove the build is still exactly this commit.
+    // Building regenerates outputs, so prove the build is still exactly this commit.
     resolveDeployableCommitSha({ spawn, env });
   });
   // Observed here so a check that fails first never leaves validation's rejection unhandled.

@@ -14,11 +14,11 @@
   "type": "module",
   "version": "0.0.7",
   "scripts": {
-    "workers-builds:build": "pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && node scripts/workers-builds-checks.mjs && node scripts/deploy-production.mjs --check-workers-builds",
+    "workers-builds:build": "pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && pnpm run generate && node scripts/deploy-production.mjs --check-workers-builds",
     "workers-builds:deploy": "node scripts/deploy-production.mjs --workers-builds",
-    "workers-builds:branch": "node scripts/workers-builds-branch.mjs",
     "build": "pnpm run generate && pnpm run build:check",
     "build:check": "vite build",
+    "release:build": "pnpm run build:check && pnpm run verify:built-ssr && pnpm run verify:static-assets && pnpm run bundle:check",
     "build:analyze": "pnpm run build && pnpm run bundle:report",
     "bundle:check": "node scripts/report-client-bundle.mjs --max-raw-kb=500 --max-total-gzip-kb=1300 --max-total-brotli-kb=1100 --limit=15",
     "bundle:report": "node scripts/report-client-bundle.mjs",

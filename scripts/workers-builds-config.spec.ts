@@ -8,8 +8,7 @@ const validConfig = {
   rootDirectory: '/',
   buildCommand: 'pnpm run workers-builds:build',
   deployCommand: 'pnpm run workers-builds:deploy',
-  nonProductionBuilds: true,
-  nonProductionDeployCommand: 'pnpm run workers-builds:branch',
+  nonProductionBuilds: false,
   pathIncludes: ['*'],
   pathExcludes: [],
   buildCaching: true,
@@ -26,10 +25,11 @@ const packageJson = {
   packageManager: 'pnpm@11.14.0',
   scripts: {
     'workers-builds:build':
-      'pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && node scripts/workers-builds-checks.mjs && node scripts/deploy-production.mjs --check-workers-builds',
+      'pnpm install --frozen-lockfile && node scripts/check-workers-builds-environment.mjs && pnpm run generate && node scripts/deploy-production.mjs --check-workers-builds',
     'workers-builds:deploy': 'node scripts/deploy-production.mjs --workers-builds',
-    'workers-builds:branch': 'node scripts/workers-builds-branch.mjs',
     'build:check': 'vite build',
+    'release:build':
+      'pnpm run build:check && pnpm run verify:built-ssr && pnpm run verify:static-assets && pnpm run bundle:check',
     validate: 'node scripts/validate.mjs',
   },
 };
@@ -48,13 +48,12 @@ describe('Workers Builds production configuration', () => {
     ).toEqual([]);
   });
 
-  it('rejects disabled branch builds, preview URLs, mutable toolchains, unreviewed variables, and GitHub deployment workflows', () => {
+  it('rejects branch builds, preview URLs, mutable toolchains, unreviewed variables, and GitHub deployment workflows', () => {
     expect(
       findWorkersBuildsConfigErrors({
         config: {
           ...validConfig,
-          nonProductionBuilds: false,
-          nonProductionDeployCommand: 'wrangler deploy',
+          nonProductionBuilds: true,
           buildTokenName: 'per-project-token',
           buildVariables: { ...validConfig.buildVariables, UNREVIEWED_SECRET: 'value' },
         },
@@ -80,13 +79,12 @@ describe('Workers Builds production configuration', () => {
     ).toEqual(
       expect.arrayContaining([
         '.github/workflows/browser-gate.yml must run pnpm run verify:built-browser; the Workers Builds image cannot host the browser gate.',
-        'workers-builds.production.json nonProductionBuilds must be true; found false.',
-        'workers-builds.production.json nonProductionDeployCommand must be "pnpm run workers-builds:branch"; found "wrangler deploy".',
+        'workers-builds.production.json nonProductionBuilds must be false; found true.',
         'cloudflare.config.ts previewUrls must be false; found true.',
         'workers-builds.production.json buildTokenName must be "account-workers-builds-production"; found "per-project-token".',
         'workers-builds.production.json buildVariables must not contain unreviewed variables: UNREVIEWED_SECRET.',
         'package.json packageManager must pin an exact pnpm version; found "pnpm@latest".',
-        // The deploy step ships the Worker validation builds, so validation must build exactly the release.
+        // The deploy step ships the Worker `release:build` builds, so its build must be exactly the release.
         'package.json scripts.build:check must be "vite build"; found "vite build --mode development".',
         'package.json scripts.validate must be "node scripts/validate.mjs"; found undefined.',
         '.nvmrc must pin an exact Node.js version; found "node".',

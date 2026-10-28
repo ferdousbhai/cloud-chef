@@ -357,8 +357,8 @@ describe('production deploy wrapper', () => {
         'd1:bookmark:production',
         'd1:migrations:apply:production',
       ]);
-      // Validation's `build:check` is the release build, so it runs with the release's deploy vars.
-      expect(spawnValidation).toHaveBeenCalledWith('pnpm', ['run', 'validate'], {
+      // The release build runs with the release's deploy vars.
+      expect(spawnValidation).toHaveBeenCalledWith('pnpm', ['run', 'release:build'], {
         env: { ...workersBuildEnv, COMMIT_SHA: commitSha, CLOUDFLARE_OAUTH_CLIENT_ID: 'oauth-client-id' },
       });
       expect(log).toHaveBeenCalledWith('validate output\n');
@@ -381,7 +381,7 @@ describe('production deploy wrapper', () => {
       validation.finish();
 
       await expect(deploy).rejects.toThrow(
-        'Validation failed with exit status 1. Nothing was deployed. Nothing was migrated.',
+        'The release build failed with exit status 1. Nothing was deployed. Nothing was migrated.',
       );
       expect(events).toEqual(['validation started', ...accountChecks, 'validation finished']);
       expect(log).toHaveBeenCalledWith('validate output\n');
