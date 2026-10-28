@@ -263,7 +263,8 @@ class BuilderWorkspaceCollectionSource {
     mode: BuilderWorkspacePullResult['mode'],
     entries: BuilderWorkspaceSyncEntry[],
   ): void {
-    params.begin({ immediate: true });
+    // Only this sync writes the collection, so no optimistic write is ever pending for it to queue behind.
+    params.begin();
     if (mode === 'snapshot') {
       params.truncate();
     }
