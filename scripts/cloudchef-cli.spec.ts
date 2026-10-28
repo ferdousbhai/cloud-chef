@@ -862,7 +862,8 @@ describe('cloudchef run', () => {
       .map((line) => line.split(/\s+/)[1]);
     expect(states).toEqual(['queued', 'building', 'succeeded']);
 
-    const failed = await cli(home, ['run', 'watch', '--project', 'broken', '--interval', '0']);
+    // gh's -R names the project too.
+    const failed = await cli(home, ['run', 'watch', '-R', 'broken', '--interval', '0']);
     expect(failed.code).toBe(1);
     expect(failed.stdout).toContain('cloudchef run view run-b --project ferdous/broken --log');
   });

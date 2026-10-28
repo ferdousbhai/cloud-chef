@@ -1130,8 +1130,9 @@ parse_run_args() {
   RUN_ARG="" PROJECT_ARG="" LOG_FLAG="" JSON_FLAG="" INTERVAL=5
   while [ $# -gt 0 ]; do
     case "$1" in
-      --project | -p) need_value "$1" $#; PROJECT_ARG="$2"; shift ;;
-      --project=*) PROJECT_ARG="${1#--project=}" ;;
+      # -R and --repo as gh spells them.
+      --project | -p | --repo | -R) need_value "$1" $#; PROJECT_ARG="$2"; shift ;;
+      --project=* | --repo=*) PROJECT_ARG="${1#*=}" ;;
       --log) LOG_FLAG=1 ;;
       --json) JSON_FLAG=1 ;;
       --interval | -i) need_value "$1" $#; INTERVAL="$2"; shift ;;
