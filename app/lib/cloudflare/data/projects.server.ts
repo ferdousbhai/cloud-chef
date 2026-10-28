@@ -11,6 +11,8 @@ import {
   ProjectUnavailableError,
   commitAuthor,
   deletableProjectRepository,
+  mainRewriteTarget,
+  reportMainRewritten,
   registerProjectImport,
   registerUploadedProject,
 } from '~/lib/.server/cloudflare/linked-project-client';
@@ -31,6 +33,7 @@ import {
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
 import { internalErrorResponse } from './http.server';
+import { secretFileRefusal } from '~/lib/.server/cloudflare/git-proxy';
 import { IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
@@ -829,6 +832,104 @@ function folderName(name: string): string {
       .replace(/^-+|-+$/g, '')
       .slice(0, 60) || 'project'
   );
+}
+
+const rewriteMainSchema = z.strictObject({
+  orgProjectId: z.string().uuid(),
+  branch: z
+    .string()
+    .regex(/^[A-Za-z0-9._/-]{1,255}$/)
+    .refine((branch) => branch !== MAIN_BRANCH && !branch.includes('..')),
+  /** The branch's commit, and main's, as the person read them. */
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  expected: z.string().regex(/^[0-9a-f]{40}$/),
+});
+
+/**
+ * `POST /v1/projects/rewrite-main`: main becomes `branch`'s commit even though it doesn't add to main's history, once
+ * CloudChef says this person runs the project (its owner, or one of its team's admins). Only while main and the branch
+ * are still where the person read them, and never with a secret file main didn't already hold. The change is recorded,
+ * then published as a push to main is. main's old commits stay in the repository, unreachable from it.
+ */
+export async function userRuntimeRewriteMainAction(
+  args: { request: Request; env: Env },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = rewriteMainSchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json(
+      { error: 'Name the project, a branch other than main with its commit, and main’s commit to replace.' },
+      { status: 400 },
+    );
+  }
+  const { orgProjectId, branch, commit, expected } = parsed.data;
+  try {
+    const identity = runtimeConnectionIdentity(args.env);
+    if (!identity) {
+      throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+    }
+    const target = await mainRewriteTarget(args.env, identity, orgProjectId);
+    const store = repositories(args.env);
+    const refs = await store.refs(target.repo);
+    const branchHead = refs.get(`refs/heads/${branch}`);
+    const mainHead = refs.get(`refs/heads/${MAIN_BRANCH}`);
+    const refused = (error: string, status = 409) =>
+      Response.json({ error }, { status, headers: { 'cache-control': 'no-store' } });
+    if (!branchHead) {
+      return refused(`${branch} isn’t a branch of this project. Push the new history to it first.`, 404);
+    }
+    if (branchHead !== commit) {
+      return refused(`${branch} has changed since you read it (it is at ${branchHead.slice(0, 7)} now). Try again.`);
+    }
+    if (mainHead !== expected) {
+      return refused(
+        `main has changed since you read it (it is at ${mainHead?.slice(0, 7) ?? 'nothing'} now), so it was left as it is. Look at what’s new on main, then try again.`,
+      );
+    }
+    if (commit === expected) {
+      return refused(`main is already at ${commit.slice(0, 7)}.`);
+    }
+    const secrets = await store.secretFilesChanged(target.repo, expected, commit);
+    if (secrets[0] !== undefined) {
+      return refused(secretFileRefusal(secrets[0]), 422);
+    }
+    const notMoved = await store.replaceMain(target.repo, { from: expected, to: commit });
+    if (notMoved) {
+      return refused(`main has changed since you read it, so it was left as it is (${notMoved}). Try again.`);
+    }
+    // main has moved: a record that couldn't be kept is said, and logged, rather than main moved back.
+    const recorded = await reportMainRewritten(args.env, identity, {
+      orgProjectId,
+      branch,
+      oldCommit: expected,
+      newCommit: commit,
+    }).then(
+      () => true,
+      (error: Error) => {
+        console.error({ event: 'main_rewrite_not_recorded', orgProjectId, expected, commit, message: error.message });
+        return false;
+      },
+    );
+    // Published as a push to main is: Workers Builds sees main move in the repository by itself; a project CloudChef
+    // deploys is built here.
+    if (target.deploysWith === 'cloudchef') {
+      await args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(orgProjectId))
+        .enqueue({ orgProjectId, branch: MAIN_BRANCH, commit })
+        .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
+    }
+    return Response.json(
+      { oldCommit: expected, newCommit: commit, publishedBy: target.deploysWith, recorded },
+      { headers: { 'cache-control': 'no-store' } },
+    );
+  } catch (error) {
+    if (error instanceof ProjectAccessError) {
+      return Response.json({ error: error.message }, { status: 403 });
+    }
+    if (error instanceof ProjectRefusalError) {
+      return Response.json({ error: error.message }, { status: 409 });
+    }
+    return internalErrorResponse(error, 'main couldn’t be rewritten. Try again.');
+  }
 }
 
 const deployRetrySchema = z.object({

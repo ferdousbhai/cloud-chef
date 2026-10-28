@@ -539,6 +539,35 @@ export async function requireManagedProject(db: D1Database, userId: string, proj
   return toProject(row);
 }
 
+/** A replacement of a project's main by the person who runs it: who, from which branch, and main's commit before and after. */
+type MainRewrite = {
+  projectId: string;
+  userId: string;
+  branch: string;
+  oldCommit: string;
+  newCommit: string;
+  rewrittenAt: number;
+};
+
+/** Keeps a record that `userId` replaced the project's main (`cloudchef repo rewrite-main`). */
+export async function recordMainRewrite(db: D1Database, rewrite: MainRewrite): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO project_main_rewrites (id, project_id, rewritten_by, branch, old_commit, new_commit, rewritten_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      rewrite.projectId,
+      rewrite.userId,
+      rewrite.branch,
+      rewrite.oldCommit,
+      rewrite.newCommit,
+      rewrite.rewrittenAt,
+    )
+    .run();
+}
+
 /** Gives a team member a role on one project, changes it, or (null) withdraws it. */
 export async function setProjectAccess(
   db: D1Database,

@@ -39,6 +39,21 @@ describe('ProjectRepositories', () => {
     expect(await repositories.isAncestor('p-history', unrelated, second, 1)).toBeNull();
   });
 
+  it('replaces main with a history of its own only from the commit it was read at', async () => {
+    const { artifacts, repositories } = setup();
+    await artifacts.create('p-rewrite');
+    const first = await artifacts.commitDirect('p-rewrite', 'main', { 'a.txt': '1', 'song.mp3': 'big' });
+    const second = await artifacts.commitDirect('p-rewrite', 'main', { 'a.txt': '2', 'song.mp3': 'big' });
+    const slim = await artifacts.commitDirect('p-rewrite', 'slim', { 'a.txt': '2' });
+
+    // main moved past `first` since it was read: left as it is.
+    expect(await repositories.replaceMain('p-rewrite', { from: first, to: slim })).toBeTruthy();
+    expect(await artifacts.head('p-rewrite')).toBe(second);
+
+    expect(await repositories.replaceMain('p-rewrite', { from: second, to: slim })).toBeNull();
+    expect(await artifacts.head('p-rewrite')).toBe(slim);
+  });
+
   it('names repositories after their chat or project', () => {
     expect(nativeProjectRepo('6f1c2a7e-0000-4000-8000-000000000001')).toBe('p-6f1c2a7e-0000-4000-8000-000000000001');
     expect(importedProjectRepo('a b/c')).toBe('t-a-b-c');

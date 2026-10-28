@@ -103,7 +103,8 @@ function requestToken(request: Request): string | null {
   return null;
 }
 
-async function tokenUser(request: Request, env: Env): Promise<string | null> {
+/** Who the command-line token a request carries is for, or null when it carries no live one. */
+export async function tokenUser(request: Request, env: Env): Promise<string | null> {
   const token = requestToken(request);
   return token ? commandLineTokenUser(env.DB, token) : null;
 }

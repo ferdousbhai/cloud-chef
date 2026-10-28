@@ -138,6 +138,40 @@ export async function deletableProjectRepository(
   return (await readAnswer(response, deletableSchema, 'CloudChef could not check the project.')).repo;
 }
 
+const mainRewriteSchema = z.object({ repo: z.string().min(1), deploysWith: z.enum(['workers_builds', 'cloudchef']) });
+
+/** Said when someone who doesn't run the project asks to replace its main. */
+export const MAIN_REWRITE_OWNER_ONLY = 'Only the project’s owner, or one of its team’s admins, can rewrite its main.';
+
+/**
+ * The repository of a project whose main this runtime's person may replace (its owner, or one of its team's admins),
+ * and who publishes it. Throws `ProjectAccessError` when they may not.
+ */
+export async function mainRewriteTarget(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+): Promise<z.infer<typeof mainRewriteSchema>> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/main-rewrite', { orgProjectId });
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    throw new ProjectAccessError(await failureMessage(response, MAIN_REWRITE_OWNER_ONLY), response.status);
+  }
+  return readAnswer(response, mainRewriteSchema, 'CloudChef could not check the project.');
+}
+
+/** Records that this runtime's person replaced the project's main with `branch`, from `oldCommit` to `newCommit`. */
+export async function reportMainRewritten(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; branch: string; oldCommit: string; newCommit: string },
+): Promise<void> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/main-rewritten', body);
+  if (!response.ok) {
+    throw await failure(response, 'CloudChef could not record that main was rewritten.');
+  }
+  await response.body?.cancel().catch(() => undefined);
+}
+
 const accessMemberSchema = z.object({ member: memberSchema.nullable().optional().catch(null) });
 
 /**
