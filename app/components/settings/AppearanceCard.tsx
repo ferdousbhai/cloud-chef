@@ -9,7 +9,7 @@ const CHOICES: { value: ThemePreference; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ];
 
-/** Light or dark, or following the device's setting (the default). Kept in this browser. */
+/** Light or dark (the default), or following the device's setting. Kept in this browser. */
 export function AppearanceCard() {
   const preference = useStore(themePreferenceStore);
   return (

@@ -155,10 +155,9 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await page.goto('/settings');
   // Settings opens on Account; each tab shows its own cards.
   await expect(page.getByRole('heading', { name: 'Cloudflare account' })).toBeVisible();
-  // The theme is chosen here, not in the header: System until a theme is picked, and the page follows the choice.
+  // The theme is chosen here, not in the header: dark until another is picked, and the page follows the choice.
   const theme = page.getByRole('radiogroup', { name: 'Theme' });
-  await expect(theme.getByRole('radio', { name: 'System' })).toHaveAttribute('aria-checked', 'true');
-  await theme.getByRole('radio', { name: 'Dark' }).click();
+  await expect(theme.getByRole('radio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
   await expect(page.locator('html')).toHaveClass('dark');
   await page.getByRole('heading', { name: 'Appearance' }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('appearance.png') });

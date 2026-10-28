@@ -1,30 +1,31 @@
 import { atom } from 'nanostores';
 
 export type Theme = 'dark' | 'light';
-/** What the person chose in Settings: a theme, or to follow the device's (the default). */
+/** What the person chose in Settings: a theme, or to follow the device's. Dark until they choose. */
 export type ThemePreference = Theme | 'system';
 
-/** Holds a chosen theme; absent while the page follows the device, as `__root.tsx`'s early script reads it. */
+/** Holds the person's choice; absent means dark, as `__root.tsx`'s early script reads it. */
 export const THEME_KEY = 'cloudchef_theme';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
+const DEFAULT_PREFERENCE: ThemePreference = 'dark';
 
 export const themePreferenceStore = atom<ThemePreference>(storedPreference());
 /** The theme the page shows now. */
 export const themeStore = atom<Theme>(resolve(themePreferenceStore.get()));
 
-function isTheme(value: string | null): value is Theme {
-  return value === 'dark' || value === 'light';
+function isPreference(value: string | null): value is ThemePreference {
+  return value === 'dark' || value === 'light' || value === 'system';
 }
 
 function storedPreference(): ThemePreference {
   try {
-    // Absent on the server, where reading it throws and the page follows the device.
+    // Absent on the server, where reading it throws.
     const stored = localStorage.getItem(THEME_KEY);
-    return isTheme(stored) ? stored : 'system';
+    return isPreference(stored) ? stored : DEFAULT_PREFERENCE;
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
-    return 'system';
+    return DEFAULT_PREFERENCE;
   }
 }
 
@@ -41,11 +42,7 @@ export function setThemePreference(preference: ThemePreference) {
   themePreferenceStore.set(preference);
   themeStore.set(resolve(preference));
   try {
-    if (preference === 'system') {
-      localStorage.removeItem(THEME_KEY);
-    } else {
-      localStorage.setItem(THEME_KEY, preference);
-    }
+    localStorage.setItem(THEME_KEY, preference);
   } catch {
     // The choice still holds for this page.
   }

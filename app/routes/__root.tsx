@@ -25,11 +25,13 @@ const inlineBootstrapCode = stripIndents`
     try {
       theme = localStorage.getItem('${THEME_KEY}');
     } catch (storageUnavailable) {
-      // Storage can be unavailable in privacy-restricted browser contexts; fall back to the media query.
+      // Storage can be unavailable in privacy-restricted browser contexts; the page is then dark.
     }
 
-    if (!theme) {
+    if (theme === 'system') {
       theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } else if (theme !== 'light') {
+      theme = 'dark';
     }
 
     document.documentElement.setAttribute('class', theme);

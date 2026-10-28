@@ -11,7 +11,6 @@ let root: Root | undefined;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   localStorage.clear();
-  setThemePreference('system');
 });
 
 afterEach(async () => {
@@ -34,20 +33,20 @@ function choice(label: string): HTMLButtonElement {
 }
 
 describe('Appearance', () => {
-  it('follows the device until a theme is chosen, keeps the choice, and goes back to following it', async () => {
+  it('is dark until another theme is chosen, keeps the choice, and can follow the device', async () => {
     root = createRoot(document.body.appendChild(document.createElement('div')));
     await act(async () => root?.render(<AppearanceCard />));
 
-    expect(choice('System').getAttribute('aria-checked')).toBe('true');
-    expect(localStorage.getItem(THEME_KEY)).toBeNull();
-
-    await act(async () => choice('Dark').click());
     expect(choice('Dark').getAttribute('aria-checked')).toBe('true');
     expect(themeStore.get()).toBe('dark');
-    expect(localStorage.getItem(THEME_KEY)).toBe('dark');
+
+    await act(async () => choice('Light').click());
+    expect(choice('Light').getAttribute('aria-checked')).toBe('true');
+    expect(themeStore.get()).toBe('light');
+    expect(localStorage.getItem(THEME_KEY)).toBe('light');
 
     await act(async () => choice('System').click());
-    // Nothing stored means the page follows the device, as its early script reads it.
-    expect(localStorage.getItem(THEME_KEY)).toBeNull();
+    expect(localStorage.getItem(THEME_KEY)).toBe('system');
+    setThemePreference('dark');
   });
 });
