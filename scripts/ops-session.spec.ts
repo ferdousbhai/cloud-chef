@@ -76,7 +76,7 @@ function fakeProduction() {
       if (sql.includes('FROM organization_usage_daily')) {
         return d1Rows([{ day: '2026-10-20', turns: 21, input_tokens: 9, output_tokens: 8, cached_tokens: 7 }]);
       }
-      if (sql.includes('FROM chats')) {
+      if (sql.includes('FROM workspaces')) {
         return d1Rows([
           {
             id: CHAT,
@@ -88,8 +88,8 @@ function fakeProduction() {
           },
         ]);
       }
-      if (sql.includes('FROM chat_transcripts')) {
-        return d1Rows([{ subchat_index: 0, agent_name: INITIAL, created_at: AT - 3_600_000, updated_at: AT }]);
+      if (sql.includes('FROM conversations')) {
+        return d1Rows([{ conversation_index: 0, agent_name: INITIAL, created_at: AT - 3_600_000, updated_at: AT }]);
       }
       if (sql.includes('FROM deployments')) {
         return d1Rows([]);
@@ -195,9 +195,9 @@ describe('ops:session reads production without changing it', () => {
     ).not.toThrow();
     for (const args of [
       ['d1', 'execute', 'db'],
-      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'UPDATE chats SET is_deleted = 1' })],
-      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1; DROP TABLE chats' })],
-      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1' }), '--sql', 'DROP TABLE chats'],
+      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'UPDATE workspaces SET is_deleted = 1' })],
+      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1; DROP TABLE workspaces' })],
+      ['d1', 'query', 'db', '--body', JSON.stringify({ sql: 'SELECT 1' }), '--sql', 'DROP TABLE workspaces'],
       ['d1', 'query', 'db', '--sql', 'SELECT 1'],
       ['ai-gateway', 'logs', 'delete', '--gateway-id', 'default'],
       ['o11y', 'telemetry', 'query', '--body', JSON.stringify({ dry: false })],
@@ -287,7 +287,7 @@ describe('ops:session reconstruction', () => {
     ]);
 
     const text = renderSession(session);
-    expect(text).toContain(`Chat ${CHAT} "Retreat Page Signup Button" in ${WORKER} (organization Sara's sites)`);
+    expect(text).toContain(`Workspace ${CHAT} "Retreat Page Signup Button" in ${WORKER} (organization Sara's sites)`);
     expect(text).toContain('[user] Add a signup button');
     expect(text).toContain('[tool call] grep({"path":"src/x.ts"})');
     expect(text).toContain('[tool error] grep: not a directory: src/x.ts');
@@ -314,7 +314,7 @@ describe('ops:session reconstruction', () => {
     const session = await collectSession(parseTarget(CHAT), { cf, controlPlaneDatabaseId: CONTROL_PLANE, now: AT });
 
     expect(session).toMatchObject({ found: true, chat: { id: CHAT }, user: { id: USER } });
-    const chatQuery = production.calls.find((call) => sqlOf(call.args).sql.includes('FROM chats'));
+    const chatQuery = production.calls.find((call) => sqlOf(call.args).sql.includes('FROM workspaces'));
     expect(sqlOf(chatQuery?.args ?? []).params).toEqual([CHAT]);
     expect(session.events).toBeNull();
     expect(session.unknown).toEqual([

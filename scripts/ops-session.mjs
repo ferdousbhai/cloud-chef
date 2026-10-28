@@ -407,10 +407,10 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
           cf,
           databaseId,
           user
-            ? `SELECT chats.*, (SELECT MAX(updated_at) FROM chat_transcripts WHERE chat_id = chats.id) AS last_activity_at
-               FROM chats WHERE is_deleted = 0 ORDER BY COALESCE(last_activity_at, 0) DESC, timestamp DESC LIMIT ${CHATS_PER_WORKSPACE}`
-            : `SELECT chats.*, (SELECT MAX(updated_at) FROM chat_transcripts WHERE chat_id = chats.id) AS last_activity_at
-               FROM chats WHERE id = ?1 OR initial_id = ?1`,
+            ? `SELECT workspaces.*, (SELECT MAX(updated_at) FROM conversations WHERE workspace_id = workspaces.id) AS last_activity_at
+               FROM workspaces WHERE is_deleted = 0 ORDER BY COALESCE(last_activity_at, 0) DESC, timestamp DESC LIMIT ${CHATS_PER_WORKSPACE}`
+            : `SELECT workspaces.*, (SELECT MAX(updated_at) FROM conversations WHERE workspace_id = workspaces.id) AS last_activity_at
+               FROM workspaces WHERE id = ?1 OR initial_id = ?1`,
           user ? [] : [target.value],
           { accountId: runtime.account_id },
         ),
@@ -468,8 +468,8 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
       select(
         cf,
         databaseId,
-        `SELECT subchat_index, agent_name, description, created_at, updated_at FROM chat_transcripts
-         WHERE chat_id = ?1 ORDER BY subchat_index`,
+        `SELECT conversation_index, agent_name, description, created_at, updated_at FROM conversations
+         WHERE workspace_id = ?1 ORDER BY conversation_index`,
         [chat.id],
         { accountId },
       ),
@@ -482,7 +482,7 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
         cf,
         databaseId,
         `SELECT id, status, production_url, error_code, error_message, created_at, updated_at FROM deployments
-         WHERE chat_id = ?1 ORDER BY created_at DESC LIMIT 5`,
+         WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT 5`,
         [chat.id],
         { accountId },
       ),
@@ -622,9 +622,8 @@ export function renderSession(session) {
     const { user, chat } = session;
     push(`CloudChef session for ${user?.email ?? 'an unknown user'} (${user?.id ?? 'no id'})`);
     push(
-      `Chat ${chat.id} "${bounded(chat.description ?? '', 80)}" in ${chat.workerName}` +
-        `${chat.orgName ? ` (organization ${chat.orgName})` : ''}, created ${chat.timestamp}` +
-        `${chat.archived_at ? `, archived ${time(chat.archived_at)}` : ''}`,
+      `Workspace ${chat.id} "${bounded(chat.description ?? '', 80)}" in ${chat.workerName}` +
+        `${chat.orgName ? ` (organization ${chat.orgName})` : ''}, created ${chat.timestamp}`,
     );
     push(`Window read: ${time(session.window.from)} to ${time(session.window.to)}`, '');
     push('Runtimes');

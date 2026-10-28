@@ -21,7 +21,7 @@ describe('BuilderAgent request policy', () => {
     const first = vi.fn(async () => ({
       agent_name: binding.agentName,
       initial_id: binding.chatInitialId,
-      subchat_index: binding.subchatIndex,
+      conversation_index: binding.subchatIndex,
       parent_agent_name: binding.parentAgentName,
     }));
     const bind = vi.fn(() => ({ first }));
@@ -34,7 +34,7 @@ describe('BuilderAgent request policy', () => {
       }),
     ).resolves.toEqual(binding);
     expect(bind).toHaveBeenCalledWith(binding.agentName, 'owner');
-    expect(prepare.mock.calls[0]?.[0]).toContain('chats.is_deleted = 0');
+    expect(prepare.mock.calls[0]?.[0]).toContain('workspaces.is_deleted = 0');
   });
 
   it('accepts only an exact D1-bound chat and subchat, naming them from the binding', () => {

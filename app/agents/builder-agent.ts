@@ -618,9 +618,9 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     }
     const owned = await this.env.DB.prepare(
       `SELECT 1 AS found
-       FROM chat_transcripts AS transcripts
-       INNER JOIN chats ON chats.id = transcripts.chat_id
-       WHERE transcripts.agent_name = ? AND chats.creator_id = ? AND chats.is_deleted = 1
+       FROM conversations AS transcripts
+       INNER JOIN workspaces ON workspaces.id = transcripts.workspace_id
+       WHERE transcripts.agent_name = ? AND workspaces.creator_id = ? AND workspaces.is_deleted = 1
        LIMIT 1`,
     )
       .bind(this.name, ownerId)

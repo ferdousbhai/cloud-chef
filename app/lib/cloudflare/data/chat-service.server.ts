@@ -26,7 +26,7 @@ export async function discardEmptyChat(db: D1Database, args: { sessionId: string
     }),
     db
       .prepare(
-        `UPDATE chats
+        `UPDATE workspaces
          SET is_deleted = 1
          WHERE creator_id = ? AND initial_id = ?
            AND ${EMPTY_CHAT_DISCARD_PREDICATE}`,
@@ -48,32 +48,32 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
   const { results } = await db
     .prepare(
       `SELECT
-         chats.initial_id,
+         workspaces.initial_id,
          COALESCE(
-           NULLIF(TRIM(chats.description), ''),
+           NULLIF(TRIM(workspaces.description), ''),
            (
-             SELECT NULLIF(TRIM(chat_transcripts.description), '')
-             FROM chat_transcripts
-             WHERE chat_transcripts.chat_id = chats.id
-               AND chat_transcripts.description IS NOT NULL
-               AND TRIM(chat_transcripts.description) <> ''
-             ORDER BY chat_transcripts.subchat_index ASC
+             SELECT NULLIF(TRIM(conversations.description), '')
+             FROM conversations
+             WHERE conversations.workspace_id = workspaces.id
+               AND conversations.description IS NOT NULL
+               AND TRIM(conversations.description) <> ''
+             ORDER BY conversations.conversation_index ASC
              LIMIT 1
            )
          ) AS description,
-         chats.timestamp,
+         workspaces.timestamp,
          (
            SELECT deployments.production_url FROM deployments
-           WHERE deployments.chat_id = chats.id AND deployments.status = 'succeeded'
+           WHERE deployments.workspace_id = workspaces.id AND deployments.status = 'succeeded'
              AND deployments.production_url IS NOT NULL
            ORDER BY deployments.updated_at DESC LIMIT 1
          ) AS production_url
-       FROM chats
-       WHERE chats.creator_id = ? AND chats.is_deleted = 0
-         AND chats.has_messages = 1
+       FROM workspaces
+       WHERE workspaces.creator_id = ? AND workspaces.is_deleted = 0
+         AND workspaces.has_messages = 1
          -- A team project's chat is listed with the team's projects, not as an app of one's own.
-         AND chats.org_project_id IS NULL
-       ORDER BY chats.timestamp DESC, chats.id DESC`,
+         AND workspaces.org_project_id IS NULL
+       ORDER BY workspaces.timestamp DESC, workspaces.id DESC`,
     )
     .bind(args.sessionId)
     .all<{
@@ -102,7 +102,7 @@ export async function setDescription(
 ): Promise<null> {
   const chat = await requireChat(db, { id: args.id, sessionId: args.sessionId });
   await db
-    .prepare(`UPDATE chats SET description = ?, description_source = 'user' WHERE id = ?`)
+    .prepare(`UPDATE workspaces SET description = ?, description_source = 'user' WHERE id = ?`)
     .bind(args.description, chat.id)
     .run();
   return null;
@@ -114,7 +114,7 @@ export async function setHeuristicProjectDescriptionIfMissing(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE chats
+      `UPDATE workspaces
        SET description = ?, description_source = 'heuristic'
        WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
          AND description_source IS NULL
@@ -132,7 +132,7 @@ export async function setGeneratedProjectDescription(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE chats
+      `UPDATE workspaces
        SET description = ?, description_source = 'generated'
        WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
          AND (
@@ -158,13 +158,13 @@ export async function setGeneratedSubchatDescription(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE chat_transcripts
+      `UPDATE conversations
        SET description = ?, description_source = 'generated', description_generation = ?
-       WHERE chat_id = (
-         SELECT id FROM chats
+       WHERE workspace_id = (
+         SELECT id FROM workspaces
          WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
        )
-         AND subchat_index = ?
+         AND conversation_index = ?
          AND description_generation <= ?
          AND (
            description_source IN ('heuristic', 'generated')
@@ -182,13 +182,13 @@ export async function setHeuristicSubchatDescriptionIfMissing(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `UPDATE chat_transcripts
+      `UPDATE conversations
        SET description = ?, description_source = 'heuristic', description_generation = ?
-       WHERE chat_id = (
-         SELECT id FROM chats
+       WHERE workspace_id = (
+         SELECT id FROM workspaces
          WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
        )
-         AND subchat_index = ?
+         AND conversation_index = ?
          AND description_source IS NULL
          AND description IS NULL`,
     )
@@ -203,13 +203,13 @@ export async function setSubchatDescription(
 ): Promise<null> {
   const result = await db
     .prepare(
-      `UPDATE chat_transcripts
+      `UPDATE conversations
        SET description = ?, description_source = 'user'
-       WHERE chat_id = (
-         SELECT id FROM chats
+       WHERE workspace_id = (
+         SELECT id FROM workspaces
          WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
        )
-         AND subchat_index = ?`,
+         AND conversation_index = ?`,
     )
     .bind(args.description, args.sessionId, args.chatId, args.subchatIndex)
     .run();
@@ -225,7 +225,7 @@ export async function removeChat(db: D1Database, args: { sessionId: string; id: 
     prepareAppResourceGcCandidateStatement(db, { initialId: args.id, ownerId: args.sessionId }),
     db
       .prepare(
-        `UPDATE chats
+        `UPDATE workspaces
          SET is_deleted = 1
          WHERE initial_id = ? AND creator_id = ? AND is_deleted = 0`,
       )
@@ -238,23 +238,23 @@ export async function getSubchats(db: D1Database, args: { sessionId: string; cha
   const chat = await requireChat(db, { id: args.chatId, sessionId: args.sessionId });
   const { results } = await db
     .prepare(
-      `SELECT subchat_index, description, updated_at, agent_name
-       FROM chat_transcripts
-       WHERE chat_id = ?
-       ORDER BY subchat_index ASC`,
+      `SELECT conversation_index, description, updated_at, agent_name
+       FROM conversations
+       WHERE workspace_id = ?
+       ORDER BY conversation_index ASC`,
     )
     .bind(chat.id)
     .all<{
-      subchat_index: number;
+      conversation_index: number;
       description: string | null;
       updated_at: number;
       agent_name: string;
     }>();
   return results.map((row) => ({
-    subchatIndex: row.subchat_index,
+    subchatIndex: row.conversation_index,
     description: row.description ?? undefined,
     updatedAt: row.updated_at,
-    transcript: { agentName: row.agent_name, subchatIndex: row.subchat_index },
+    transcript: { agentName: row.agent_name, subchatIndex: row.conversation_index },
   }));
 }
 
@@ -267,30 +267,30 @@ export async function createSubchat(
   args: { sessionId: string; chat: ChatRow; parent: ChatTranscriptRow; parentRevision: number },
 ) {
   const { chat, parent } = args;
-  if (chat.last_subchat_index >= MAX_SUBCHAT_INDEX) {
+  if (chat.last_conversation_index >= MAX_SUBCHAT_INDEX) {
     throw new SubchatLimitError();
   }
-  const newSubchatIndex = chat.last_subchat_index + 1;
+  const newSubchatIndex = chat.last_conversation_index + 1;
   const transitionToken = crypto.randomUUID();
   const results = await db.batch([
     prepareInsertChatTranscript(db, {
       chatId: chat.id,
       initialId: chat.initial_id,
       subchatIndex: newSubchatIndex,
-      parent: { subchatIndex: parent.subchat_index, revision: args.parentRevision },
+      parent: { subchatIndex: parent.conversation_index, revision: args.parentRevision },
       ownerId: args.sessionId,
       transitionToken,
     }),
     db
       .prepare(
-        `UPDATE chats
-         SET last_subchat_index = ?
-         WHERE id = ? AND last_subchat_index = ? AND EXISTS (
-           SELECT 1 FROM chat_transcripts
-           WHERE chat_id = ? AND subchat_index = ? AND transition_token = ?
+        `UPDATE workspaces
+         SET last_conversation_index = ?
+         WHERE id = ? AND last_conversation_index = ? AND EXISTS (
+           SELECT 1 FROM conversations
+           WHERE workspace_id = ? AND conversation_index = ? AND transition_token = ?
          )`,
       )
-      .bind(newSubchatIndex, chat.id, chat.last_subchat_index, chat.id, newSubchatIndex, transitionToken),
+      .bind(newSubchatIndex, chat.id, chat.last_conversation_index, chat.id, newSubchatIndex, transitionToken),
   ]);
   if (results.some((result) => result.meta.changes !== 1)) {
     throw new Error('Chat transcript changed while creating a subchat; retry the operation');

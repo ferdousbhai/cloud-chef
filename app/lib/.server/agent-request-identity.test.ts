@@ -135,7 +135,7 @@ describe('user-runtime Agent routing', () => {
   });
 
   it('classifies a raced root Agent collision as not found', async () => {
-    ensureInitialChat.mockRejectedValue(new Error('UNIQUE constraint failed: chat_transcripts.agent_name'));
+    ensureInitialChat.mockRejectedValue(new Error('UNIQUE constraint failed: conversations.agent_name'));
     const agentName = 'e59066e3-07a0-4757-aead-a736431b9218';
     const prepared: Array<{ query: string; values: unknown[] }> = [];
     const db = {
@@ -154,12 +154,12 @@ describe('user-runtime Agent routing', () => {
     } as unknown as D1Database;
 
     expect((await route(`/agents/builder-agent/${agentName}`, { DB: db } as Env))?.status).toBe(404);
-    expect(prepared[1].query).toContain('LEFT JOIN chat_transcripts');
+    expect(prepared[1].query).toContain('LEFT JOIN conversations');
     expect(prepared[1].values).toEqual([agentName, agentName]);
   });
 
   it('adopts a raced root Agent claim owned by the runtime subject', async () => {
-    ensureInitialChat.mockRejectedValue(new Error('UNIQUE constraint failed: chat_transcripts.agent_name'));
+    ensureInitialChat.mockRejectedValue(new Error('UNIQUE constraint failed: conversations.agent_name'));
     const agentName = 'e59066e3-07a0-4757-aead-a736431b9218';
     const db = {
       prepare: vi.fn((query: string) => ({
@@ -197,7 +197,7 @@ describe('user-runtime Agent routing', () => {
     expect(
       (await route('/agents/builder-agent/chat--transcript-2-1', { DB: database.db } as Env, 'owner-1'))?.status,
     ).toBe(200);
-    expect(database.query).toContain('LEFT JOIN chat_transcripts');
+    expect(database.query).toContain('LEFT JOIN conversations');
     expect(database.values).toEqual(['owner-1', 'chat--transcript-2-1', 'chat--transcript-2-1']);
   });
 });

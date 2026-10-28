@@ -16,7 +16,7 @@ describe('BuilderAgent garbage collection', () => {
   });
 
   it("durably schedules each subchat's Agent destroy before removing its receipt", async () => {
-    const database = new AgentGcDatabase([candidate(), candidate({ subchat_index: 1 })]);
+    const database = new AgentGcDatabase([candidate(), candidate({ conversation_index: 1 })]);
 
     await expect(sweepAgentGcCandidates(database.env)).resolves.toBeUndefined();
     expect(database.scheduleDestroy.mock.calls).toEqual([
@@ -70,10 +70,10 @@ describe('BuilderAgent garbage collection', () => {
   it('passes over a chat revived since it was deleted', async () => {
     const { database, db } = userWorkspaceDatabase();
     database.exec(`
-      INSERT INTO chats (id, creator_id, initial_id, description, timestamp, is_deleted) VALUES
+      INSERT INTO workspaces (id, creator_id, initial_id, description, timestamp, is_deleted) VALUES
         ('chat-deleted', 'owner', 'deleted', 'Deleted', '2026-10-20T00:00:00.000Z', 1),
         ('chat-revived', 'owner', 'revived', 'Revived', '2026-10-20T00:00:00.000Z', 0);
-      INSERT INTO agent_gc_candidates (chat_id, initial_id, subchat_index, not_before, created_at)
+      INSERT INTO agent_gc_candidates (workspace_id, initial_id, conversation_index, not_before, created_at)
       VALUES ('chat-deleted', 'deleted', 0, 50, 0), ('chat-revived', 'revived', 0, 50, 0);
     `);
     const scheduled: string[] = [];
@@ -96,7 +96,7 @@ describe('BuilderAgent garbage collection', () => {
   it('caps concurrent Agent destruction work', async () => {
     const database = new AgentGcDatabase(
       Array.from({ length: AGENT_GC_SWEEP_LIMIT + 3 }, (_, index) =>
-        candidate({ chat_id: `chat-row-${index}`, initial_id: `chat-${index}` }),
+        candidate({ workspace_id: `chat-row-${index}`, initial_id: `chat-${index}` }),
       ),
     );
 
@@ -107,20 +107,20 @@ describe('BuilderAgent garbage collection', () => {
 });
 
 type Candidate = {
-  chat_id: string;
+  workspace_id: string;
   initial_id: string;
   owner_id: string;
-  subchat_index: number;
+  conversation_index: number;
   not_before: number;
   attempts: number;
 };
 
 function candidate(overrides: Partial<Candidate> = {}): Candidate {
   return {
-    chat_id: 'chat-row',
+    workspace_id: 'chat-row',
     initial_id: 'chat',
     owner_id: 'owner',
-    subchat_index: 0,
+    conversation_index: 0,
     not_before: 50,
     attempts: 0,
     ...overrides,
@@ -163,8 +163,8 @@ class AgentGcDatabase {
         .sort(
           (left, right) =>
             left.not_before - right.not_before ||
-            left.chat_id.localeCompare(right.chat_id) ||
-            left.subchat_index - right.subchat_index,
+            left.workspace_id.localeCompare(right.workspace_id) ||
+            left.conversation_index - right.conversation_index,
         )
         .slice(0, limit)
         .map((item) => ({ ...item })),
@@ -200,7 +200,8 @@ class AgentGcDatabase {
 
   private find(chatId: string, subchatIndex: number, notBefore: number): number {
     return this.candidates.findIndex(
-      (item) => item.chat_id === chatId && item.subchat_index === subchatIndex && item.not_before === notBefore,
+      (item) =>
+        item.workspace_id === chatId && item.conversation_index === subchatIndex && item.not_before === notBefore,
     );
   }
 }

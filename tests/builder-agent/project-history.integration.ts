@@ -70,7 +70,7 @@ async function publishedHarness(
   });
   harness.database.exec(`
     INSERT INTO deployments (
-      id, chat_id, user_id, connection_id, connection_generation, workspace_reference, status, plan_json,
+      id, workspace_id, user_id, connection_id, connection_generation, workspace_reference, status, plan_json,
       plan_digest, created_at, updated_at
     ) VALUES ('deployment-1', 'chat-1', 'owner-1', 'connection-1', 1, 'ref', 'succeeded', '{}', 'digest', 1, 1);
   `);

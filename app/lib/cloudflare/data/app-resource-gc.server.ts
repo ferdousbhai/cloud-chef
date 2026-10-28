@@ -26,7 +26,7 @@ const APP_RESOURCE_GC_REQUEUE_PER_SWEEP = 20;
 const logger = createScopedLogger('CloudflareAppResourceGc');
 
 type AppResourceGcCandidateRow = {
-  chat_id: string;
+  workspace_id: string;
   not_before: number;
   attempts: number;
 };
@@ -58,12 +58,12 @@ export function prepareAppResourceGcCandidateStatement(
   const now = Date.now();
   return db
     .prepare(
-      `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
-       SELECT chats.id, ?, ?, 0
-       FROM chats
-       WHERE chats.initial_id = ? AND chats.creator_id = ?
-         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'chats.is_deleted = 0'}
-       ON CONFLICT(chat_id) DO UPDATE SET
+      `INSERT INTO app_resource_gc_candidates (workspace_id, not_before, created_at, attempts)
+       SELECT workspaces.id, ?, ?, 0
+       FROM workspaces
+       WHERE workspaces.initial_id = ? AND workspaces.creator_id = ?
+         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'workspaces.is_deleted = 0'}
+       ON CONFLICT(workspace_id) DO UPDATE SET
          not_before = MIN(app_resource_gc_candidates.not_before, excluded.not_before)`,
     )
     .bind(now + AGENT_GC_GRACE_PERIOD_MS, now, args.initialId, args.ownerId);
@@ -90,11 +90,11 @@ export async function sweepAppResourceGcCandidates(
     await requeueRemovedChatsWithDeployments(env.DB, now);
   }
   const result = await env.DB.prepare(
-    `SELECT candidates.chat_id, candidates.not_before, candidates.attempts
+    `SELECT candidates.workspace_id, candidates.not_before, candidates.attempts
      FROM app_resource_gc_candidates AS candidates
-     INNER JOIN chats ON chats.id = candidates.chat_id
-     WHERE chats.is_deleted = 1 AND candidates.not_before <= ?
-     ORDER BY candidates.not_before, candidates.chat_id
+     INNER JOIN workspaces ON workspaces.id = candidates.workspace_id
+     WHERE workspaces.is_deleted = 1 AND candidates.not_before <= ?
+     ORDER BY candidates.not_before, candidates.workspace_id
      LIMIT ?`,
   )
     .bind(now, APP_RESOURCE_GC_SWEEP_LIMIT)
@@ -140,15 +140,15 @@ type AppResourceGcSweepOptions = {
 function requeueRemovedChatsWithDeployments(db: D1Database, now: number): Promise<D1Result> {
   return db
     .prepare(
-      `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
-       SELECT chats.id, ?, ?, 0
-       FROM chats
-       WHERE chats.is_deleted = 1
-         AND EXISTS (SELECT 1 FROM deployments WHERE deployments.chat_id = chats.id)
-         AND NOT EXISTS (SELECT 1 FROM app_resource_gc_candidates AS queued WHERE queued.chat_id = chats.id)
-       ORDER BY chats.id
+      `INSERT INTO app_resource_gc_candidates (workspace_id, not_before, created_at, attempts)
+       SELECT workspaces.id, ?, ?, 0
+       FROM workspaces
+       WHERE workspaces.is_deleted = 1
+         AND EXISTS (SELECT 1 FROM deployments WHERE deployments.workspace_id = workspaces.id)
+         AND NOT EXISTS (SELECT 1 FROM app_resource_gc_candidates AS queued WHERE queued.workspace_id = workspaces.id)
+       ORDER BY workspaces.id
        LIMIT ?
-       ON CONFLICT(chat_id) DO NOTHING`,
+       ON CONFLICT(workspace_id) DO NOTHING`,
     )
     .bind(now + AGENT_GC_GRACE_PERIOD_MS, now, APP_RESOURCE_GC_REQUEUE_PER_SWEEP)
     .run();
@@ -200,11 +200,11 @@ async function cleanupCandidate(
       .prepare(
         `SELECT id, plan_json, created_at
          FROM deployments
-         WHERE chat_id = ?
+         WHERE workspace_id = ?
          ORDER BY created_at, id
          LIMIT ?`,
       )
-      .bind(candidate.chat_id, APP_RESOURCE_GC_DEPLOYMENT_PAGE)
+      .bind(candidate.workspace_id, APP_RESOURCE_GC_DEPLOYMENT_PAGE)
       .all<DeploymentPlanRow>();
     const recorded = await recordedResources(
       db,
@@ -226,7 +226,7 @@ async function cleanupCandidate(
         continue;
       }
       sweep.budget -= 1;
-      const targets = await unsharedTargets(db, candidate.chat_id, row, cleanupTargets(owned, plan));
+      const targets = await unsharedTargets(db, candidate.workspace_id, row, cleanupTargets(owned, plan));
       if (!(await removeTargets(accountApi, targets))) {
         // An R2 bucket is still draining, a bounded batch at a time; the next sweep resumes here.
         break;
@@ -244,14 +244,14 @@ async function cleanupCandidate(
       return;
     }
     if (sweep.repositories) {
-      await deleteChatRepository(db, sweep.repositories, candidate.chat_id);
+      await deleteChatRepository(db, sweep.repositories, candidate.workspace_id);
     }
     await db
       .prepare(
         `DELETE FROM app_resource_gc_candidates
-         WHERE chat_id = ? AND not_before = ?`,
+         WHERE workspace_id = ? AND not_before = ?`,
       )
-      .bind(candidate.chat_id, candidate.not_before)
+      .bind(candidate.workspace_id, candidate.not_before)
       .run();
   } catch {
     await rescheduleCandidate(db, candidate, now, true);
@@ -262,7 +262,7 @@ async function cleanupCandidate(
 /** The repository of a removed chat's own app; a team project it worked on keeps its own. */
 async function deleteChatRepository(db: D1Database, repositories: ProjectRepositories, chatId: string): Promise<void> {
   const chat = await db
-    .prepare('SELECT initial_id, org_project_id FROM chats WHERE id = ?')
+    .prepare('SELECT initial_id, org_project_id FROM workspaces WHERE id = ?')
     .bind(chatId)
     .first<{ initial_id: string; org_project_id: string | null }>();
   if (!chat || chat.org_project_id !== null) {
@@ -363,7 +363,7 @@ async function unsharedTargets(
     const shared = await db
       .prepare(
         `SELECT 1 AS found FROM deployments
-         WHERE chat_id = ?1
+         WHERE workspace_id = ?1
            AND (created_at > ?6 OR (created_at = ?6 AND id > ?2))
            AND (
              EXISTS (
@@ -436,8 +436,8 @@ function rescheduleCandidate(
     .prepare(
       `UPDATE app_resource_gc_candidates
        SET attempts = ?, not_before = ?
-       WHERE chat_id = ? AND not_before = ?`,
+       WHERE workspace_id = ? AND not_before = ?`,
     )
-    .bind(failed ? candidate.attempts + 1 : candidate.attempts, retryAt, candidate.chat_id, candidate.not_before)
+    .bind(failed ? candidate.attempts + 1 : candidate.attempts, retryAt, candidate.workspace_id, candidate.not_before)
     .run();
 }

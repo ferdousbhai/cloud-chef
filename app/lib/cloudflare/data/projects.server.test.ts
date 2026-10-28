@@ -32,9 +32,9 @@ afterEach(() => {
 async function setup() {
   const { database, db } = userWorkspaceDatabase();
   database.exec(`
-    INSERT INTO chats (id, creator_id, initial_id, description, timestamp, has_messages)
+    INSERT INTO workspaces (id, creator_id, initial_id, description, timestamp, has_messages)
       VALUES ('chat-1', '${OWNER}', '${CHAT}', 'My Bakery', '2026-10-20T00:00:00.000Z', 1);
-    INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
+    INSERT INTO conversations (workspace_id, conversation_index, agent_name, transition_token, created_at, updated_at)
       VALUES ('chat-1', 0, 'agent-1', 'token-1', 1, 1);
   `);
   const artifacts = fakeArtifacts();
@@ -126,7 +126,7 @@ describe("a project's history", () => {
         (entry) => entry.hash,
       ),
     ).toEqual([head]);
-    database.prepare('UPDATE chats SET org_project_id = ?').run(TEAM_PROJECT);
+    database.prepare('UPDATE workspaces SET org_project_id = ?').run(TEAM_PROJECT);
     expect(
       (await projectHistory(env, { sessionId: OWNER, chatInitialId: CHAT, limit: 10, offset: 0 }, store)).map(
         (entry) => entry.hash,
@@ -160,7 +160,7 @@ describe('forking a project', () => {
     const { initialId } = await forkProject(env, { sessionId: OWNER, chatInitialId: CHAT, commit: older }, store);
     expect(await artifacts.head(`p-${initialId}`)).toBe(older);
     expect(await artifacts.filesAt(`p-${initialId}`, 'main')).toEqual({ 'index.html': 'v1' });
-    expect(database.prepare('SELECT description FROM chats WHERE initial_id = ?').get(initialId)).toEqual({
+    expect(database.prepare('SELECT description FROM workspaces WHERE initial_id = ?').get(initialId)).toEqual({
       description: 'My Bakery (fork)',
     });
     expect((await getAllChats(env.DB, { sessionId: OWNER })).map((chat) => chat.initialId)).toContain(initialId);
@@ -185,7 +185,9 @@ describe('importing a repository', () => {
     expect(calls.map((call) => call.route)).toEqual(['runtime-projects/register-import', 'runtime-projects/imported']);
     expect(calls[0]?.body).toEqual({ url: 'https://github.com/acme/site', name: 'site' });
     expect(calls[1]?.body).toEqual({ orgProjectId: TEAM_PROJECT, repo: `t-${TEAM_PROJECT}`, commit: head });
-    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+    expect(
+      database.prepare('SELECT org_project_id FROM workspaces WHERE initial_id = ?').get(result.initialId),
+    ).toEqual({
       org_project_id: TEAM_PROJECT,
     });
   });
@@ -295,7 +297,9 @@ describe('uploading a ZIP as a new project', () => {
     });
     expect(await artifacts.filesAt(repo, 'main')).toEqual({ 'index.html': '<h1>Bread</h1>', 'run.sh': 'echo' });
     expect((await store().readTreeAt(repo, 'main')).files.find((file) => file.path === 'run.sh')?.mode).toBe('100755');
-    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+    expect(
+      database.prepare('SELECT org_project_id FROM workspaces WHERE initial_id = ?').get(result.initialId),
+    ).toEqual({
       org_project_id: result.projectId,
     });
   });
@@ -384,7 +388,9 @@ describe('copying a project into this account', () => {
       repo,
       copiedFrom: SOURCE,
     });
-    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+    expect(
+      database.prepare('SELECT org_project_id FROM workspaces WHERE initial_id = ?').get(result.initialId),
+    ).toEqual({
       org_project_id: result.projectId,
     });
   });
@@ -431,7 +437,9 @@ describe('making an empty project for history pushed from the command line', () 
       repo,
       pushed: true,
     });
-    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+    expect(
+      database.prepare('SELECT org_project_id FROM workspaces WHERE initial_id = ?').get(result.initialId),
+    ).toEqual({
       org_project_id: result.projectId,
     });
   });
@@ -466,7 +474,7 @@ describe('copying an app into a new app of this person', () => {
     expect(await artifacts.head(`p-${initialId}`)).toBe(head);
     expect(
       database
-        .prepare('SELECT description, has_messages, org_project_id FROM chats WHERE initial_id = ?')
+        .prepare('SELECT description, has_messages, org_project_id FROM workspaces WHERE initial_id = ?')
         .get(initialId),
     ).toEqual({ description: 'My garden', has_messages: 1, org_project_id: null });
   });

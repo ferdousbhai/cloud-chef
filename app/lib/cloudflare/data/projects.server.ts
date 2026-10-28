@@ -63,7 +63,7 @@ async function resolveProject(env: Env, sessionId: string, target: ProjectTarget
     if (!chat) {
       throw new DataNotFoundError('Project not found');
     }
-    const row = await env.DB.prepare('SELECT org_project_id FROM chats WHERE id = ?')
+    const row = await env.DB.prepare('SELECT org_project_id FROM workspaces WHERE id = ?')
       .bind(chat.id)
       .first<{ org_project_id: string | null }>();
     orgProjectId = row?.org_project_id ?? null;
@@ -170,7 +170,9 @@ export async function forkProject(
   await store.fork(project.repo, nativeProjectRepo(initialId), commit.hash === head ? {} : { commit: commit.hash });
   const chat = await ensureInitialChat(env.DB, { id: crypto.randomUUID(), creatorId: args.sessionId, initialId });
   // It holds the copied app already, so it is listed as one and never discarded as empty.
-  await env.DB.prepare(`UPDATE chats SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`)
+  await env.DB.prepare(
+    `UPDATE workspaces SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
+  )
     .bind(`${project.name} (fork)`.slice(0, 200), chat.id)
     .run();
   return { initialId };
@@ -474,7 +476,7 @@ export async function userRuntimeAppReadAccessAction(
   try {
     // One of this person's own apps: a chat of theirs that isn't a team project's.
     const app = await args.env.DB.prepare(
-      'SELECT 1 AS found FROM chats WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
+      'SELECT 1 AS found FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
     )
       .bind(args.userId, parsed.data.appId)
       .first<{ found: number }>();
@@ -534,7 +536,7 @@ export async function userRuntimeAppCopyAction(
     const chat = await ensureInitialChat(args.env.DB, { id: crypto.randomUUID(), creatorId: args.userId, initialId });
     // It holds the copied app already, so it is listed as one and never discarded as empty.
     await args.env.DB.prepare(
-      `UPDATE chats SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
+      `UPDATE workspaces SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
     )
       .bind(name, chat.id)
       .run();

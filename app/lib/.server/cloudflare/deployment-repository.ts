@@ -34,7 +34,7 @@ type DeploymentActivity = {
 
 type DeploymentRow = {
   id: string;
-  chat_id: string;
+  workspace_id: string;
   user_id: string;
   connection_id: string;
   connection_generation: number;
@@ -50,7 +50,7 @@ type DeploymentRow = {
   updated_at: number;
 };
 
-const DEPLOYMENT_COLUMNS = `id, chat_id, user_id, connection_id, connection_generation, execution_generation,
+const DEPLOYMENT_COLUMNS = `id, workspace_id, user_id, connection_id, connection_generation, execution_generation,
   workspace_reference, status, plan_json, plan_digest, production_url,
   error_code, error_message, created_at, updated_at`;
 
@@ -71,7 +71,7 @@ export async function createDeployment(args: {
       args.db
         .prepare(
           `INSERT INTO deployments (
-           id, chat_id, user_id, connection_id, connection_generation, execution_generation,
+           id, workspace_id, user_id, connection_id, connection_generation, execution_generation,
            workspace_reference, status, plan_json, plan_digest, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, 1, ?, 'approved', ?, ?, ?, ?)`,
         )
@@ -199,10 +199,10 @@ export async function claimApprovedDeployment(args: {
          WHERE id = ? AND user_id = ? AND connection_id = ? AND connection_generation = ?
            AND execution_generation = ? AND status = 'approved' AND updated_at = ?
            AND EXISTS (
-             SELECT 1 FROM chats
-             WHERE chats.id = deployments.chat_id
-               AND chats.creator_id = deployments.user_id
-               AND chats.is_deleted = 0
+             SELECT 1 FROM workspaces
+             WHERE workspaces.id = deployments.workspace_id
+               AND workspaces.creator_id = deployments.user_id
+               AND workspaces.is_deleted = 0
            )
            AND NOT EXISTS (
              SELECT 1 FROM deployments AS active
@@ -548,7 +548,7 @@ function sameDeploymentIdentity(current: Deployment, expected: Deployment): bool
 function deploymentFromRow(row: DeploymentRow): Deployment {
   return {
     id: row.id,
-    chatId: row.chat_id,
+    chatId: row.workspace_id,
     userId: row.user_id,
     connectionId: row.connection_id,
     connectionGeneration: row.connection_generation,

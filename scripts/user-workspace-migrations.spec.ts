@@ -5,18 +5,18 @@ import { describe, expect, test } from 'vitest';
 const workloadTables = [
   'agent_gc_candidates',
   'app_resource_gc_candidates',
-  'chat_transcripts',
-  'chats',
   'clone_tokens',
+  'conversations',
   'deployment_activity',
   'deployment_resources',
   'deployments',
   'runtime_activity',
   'runtime_upgrade_window',
+  'workspaces',
 ];
 
 describe('user-owned workspace D1 schema', () => {
-  test('contains only chat and deployment workload metadata', () => {
+  test('contains only workspace and deployment workload metadata', () => {
     const db = database();
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -29,12 +29,12 @@ describe('user-owned workspace D1 schema', () => {
   test('stores a workspace reference without retaining a build artifact or connection copy', () => {
     const db = database();
     db.prepare(
-      `INSERT INTO chats (id, creator_id, initial_id, timestamp)
+      `INSERT INTO workspaces (id, creator_id, initial_id, timestamp)
        VALUES ('chat-1', 'user-1', 'initial-1', '2026-08-01T00:00:00.000Z')`,
     ).run();
     db.prepare(
       `INSERT INTO deployments (
-         id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+         id, workspace_id, user_id, connection_id, connection_generation, workspace_reference,
          status, plan_json, plan_digest, created_at, updated_at
        ) VALUES ('deployment-1', 'chat-1', 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
          'awaiting_approval', '{}', 'digest', 1, 1)`,
@@ -50,11 +50,11 @@ describe('user-owned workspace D1 schema', () => {
   test('uses only the immutable initial ID for chat identity', () => {
     const db = database();
     const columns = db
-      .prepare('PRAGMA table_info(chats)')
+      .prepare('PRAGMA table_info(workspaces)')
       .all()
       .map((row) => String(row.name));
     const indexes = db
-      .prepare("PRAGMA index_list('chats')")
+      .prepare("PRAGMA index_list('workspaces')")
       .all()
       .map((row) => String(row.name));
 
@@ -65,11 +65,11 @@ describe('user-owned workspace D1 schema', () => {
   test('tracks automatic and manual project and conversation titles', () => {
     const db = database();
     const chatColumns = db
-      .prepare('PRAGMA table_info(chats)')
+      .prepare('PRAGMA table_info(workspaces)')
       .all()
       .map((row) => String(row.name));
     const transcriptColumns = db
-      .prepare('PRAGMA table_info(chat_transcripts)')
+      .prepare('PRAGMA table_info(conversations)')
       .all()
       .map((row) => String(row.name));
 
@@ -128,20 +128,61 @@ describe('user-owned workspace D1 schema', () => {
     ]);
   });
 
-  test('allows one current conversation per GitHub project, beside any archived ones', () => {
+  test('allows one workspace per person per team project', () => {
     const db = database();
-    const insert = (id: string, archivedAt: number | null) =>
+    const insert = (id: string, creator: string) =>
       db
         .prepare(
-          `INSERT INTO chats (id, creator_id, initial_id, timestamp, org_project_id, archived_at)
-           VALUES (?, 'user-1', ?, '2026-10-20T00:00:00.000Z', 'project-1', ?)`,
+          `INSERT INTO workspaces (id, creator_id, initial_id, timestamp, org_project_id)
+           VALUES (?, ?, ?, '2026-10-20T00:00:00.000Z', 'project-1')`,
         )
-        .run(id, id, archivedAt);
-    insert('earlier', 1);
-    insert('current', null);
-    expect(() => insert('second-current', null)).toThrow(/UNIQUE/);
-    insert('also-earlier', 2);
-    expect(db.prepare('SELECT COUNT(*) AS count FROM chats').get()).toEqual({ count: 3 });
+        .run(id, creator, id);
+    insert('mine', 'user-1');
+    expect(() => insert('mine-again', 'user-1')).toThrow(/UNIQUE/);
+    insert('theirs', 'user-2');
+    expect(db.prepare('SELECT COUNT(*) AS count FROM workspaces').get()).toEqual({ count: 2 });
+  });
+
+  test('renames chats to workspaces and their transcripts to conversations, keeping every row', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    for (const name of readdirSync('user-workspace-migrations')
+      .filter((name) => name.endsWith('.sql') && name < '0019_workspaces_and_conversations.sql')
+      .sort()) {
+      db.exec(readFileSync(`user-workspace-migrations/${name}`, 'utf8'));
+    }
+    db.prepare(
+      `INSERT INTO chats (id, creator_id, initial_id, timestamp, last_subchat_index, org_project_id)
+       VALUES ('chat-1', 'user-1', 'initial-1', '2026-08-01T00:00:00.000Z', 1, 'project-1')`,
+    ).run();
+    db.prepare(
+      `INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
+       VALUES ('chat-1', 0, 'agent-0', 't0', 1, 1), ('chat-1', 1, 'agent-1', 't1', 2, 2)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO deployments (
+         id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+         status, plan_json, plan_digest, created_at, updated_at
+       ) VALUES ('deployment-1', 'chat-1', 'user-1', 'connection-1', 1, 'reference', 'succeeded', '{}', 'd', 1, 1)`,
+    ).run();
+
+    db.exec(readFileSync('user-workspace-migrations/0019_workspaces_and_conversations.sql', 'utf8'));
+
+    expect(db.prepare('SELECT id, last_conversation_index, org_project_id FROM workspaces').all()).toEqual([
+      { id: 'chat-1', last_conversation_index: 1, org_project_id: 'project-1' },
+    ]);
+    expect(
+      db.prepare('SELECT workspace_id, conversation_index, agent_name FROM conversations ORDER BY 2').all(),
+    ).toEqual([
+      { workspace_id: 'chat-1', conversation_index: 0, agent_name: 'agent-0' },
+      { workspace_id: 'chat-1', conversation_index: 1, agent_name: 'agent-1' },
+    ]);
+    expect(db.prepare('SELECT workspace_id FROM deployments').get()).toEqual({ workspace_id: 'chat-1' });
+    // A workspace's conversations and deployments still go with it.
+    db.prepare("DELETE FROM workspaces WHERE id = 'chat-1'").run();
+    expect(db.prepare('SELECT COUNT(*) AS count FROM conversations').get()).toEqual({ count: 0 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM deployments').get()).toEqual({ count: 0 });
+    expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
   test('removes the alternate URL identity without changing chat rows', () => {

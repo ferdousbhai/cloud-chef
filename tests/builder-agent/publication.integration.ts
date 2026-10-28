@@ -852,7 +852,7 @@ describe('another deployment record left holding the project', () => {
     harness.database
       .prepare(
         `INSERT INTO deployments (
-           id, chat_id, user_id, connection_id, connection_generation, execution_generation, workspace_reference,
+           id, workspace_id, user_id, connection_id, connection_generation, execution_generation, workspace_reference,
            status, plan_json, plan_digest, created_at, updated_at
          ) VALUES (?, 'chat-1', 'owner-1', 'connection-1', 1, ?, ?, ?, '{}', 'digest', 1, ?)`,
       )

@@ -80,7 +80,7 @@ describe('app resource garbage collection', () => {
     await expect(sweepAt(1_000, workspace.env)).resolves.toBeUndefined();
 
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+      { workspace_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
   });
@@ -109,7 +109,7 @@ describe('app resource garbage collection', () => {
     expect(workspace.resourceCount()).toBe(0);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+      { workspace_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
   });
 
@@ -150,7 +150,7 @@ describe('app resource garbage collection', () => {
     expect(accountApi.deleteR2Bucket).not.toHaveBeenCalled();
     expect(workspace.deploymentIds()).toEqual(['deployment-7', 'deployment-8']);
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+      { workspace_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
 
     await sweepAt(100 + AGENT_GC_RETRY_BASE_MS, workspace.env);
@@ -210,7 +210,7 @@ describe('app resource garbage collection', () => {
 
     expect(workspace.deploymentIds()).toEqual(['deployment-2']);
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 1 },
+      { workspace_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS, attempts: 1 },
     ]);
   });
 
@@ -226,7 +226,7 @@ describe('app resource garbage collection', () => {
     expect(accountApi.deleteManagedWorker).toHaveBeenCalledOnce();
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
+      { workspace_id: 'chat-row', not_before: 100 + AGENT_GC_RETRY_BASE_MS, attempts: 0 },
     ]);
   });
 
@@ -246,7 +246,7 @@ describe('app resource garbage collection', () => {
 
     await sweepAt(1_000, workspace.env, { requeueRemovedChats: true });
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_GRACE_PERIOD_MS, attempts: 0 },
+      { workspace_id: 'chat-row', not_before: 1_000 + AGENT_GC_GRACE_PERIOD_MS, attempts: 0 },
     ]);
     expect(accountApi.deleteManagedWorker).not.toHaveBeenCalled();
 
@@ -277,7 +277,7 @@ describe('app resource garbage collection', () => {
 
     await sweepAt(1_000, workspace.env, { requeueRemovedChats: true });
     // The rest, without queueing any twice; `chat-row` has no deployment records, so it is never queued.
-    expect(workspace.candidates().map(({ chat_id }) => chat_id)).toEqual(
+    expect(workspace.candidates().map(({ workspace_id }) => workspace_id)).toEqual(
       Array.from({ length: 25 }, (_, index) => `chat-${String(index).padStart(2, '0')}`),
     );
   });
@@ -291,7 +291,7 @@ describe('app resource garbage collection', () => {
     await expect(sweepAt(1_000, workspace.env)).resolves.toBeUndefined();
 
     expect(workspace.candidates()).toEqual([
-      { chat_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS * 4, attempts: 3 },
+      { workspace_id: 'chat-row', not_before: 1_000 + AGENT_GC_RETRY_BASE_MS * 4, attempts: 3 },
     ]);
     expect(workspace.deploymentIds()).toEqual(['deployment-1']);
   });
@@ -348,7 +348,7 @@ class AppResourceGcWorkspace {
     if (queued) {
       database
         .prepare(
-          `INSERT INTO app_resource_gc_candidates (chat_id, not_before, created_at, attempts)
+          `INSERT INTO app_resource_gc_candidates (workspace_id, not_before, created_at, attempts)
            VALUES ('chat-row', 50, 0, ?)`,
         )
         .run(attempts);
@@ -371,7 +371,7 @@ class AppResourceGcWorkspace {
   chat(id: string, { removed }: { removed: boolean }) {
     this.#database
       .prepare(
-        `INSERT INTO chats (id, creator_id, initial_id, timestamp, is_deleted)
+        `INSERT INTO workspaces (id, creator_id, initial_id, timestamp, is_deleted)
          VALUES (?, 'user-1', ?, '2026-10-01T00:00:00.000Z', ?)`,
       )
       .run(id, `initial-${id}`, removed ? 1 : 0);
@@ -387,7 +387,7 @@ class AppResourceGcWorkspace {
     this.#database
       .prepare(
         `INSERT INTO deployments (
-           id, chat_id, user_id, connection_id, connection_generation, workspace_reference,
+           id, workspace_id, user_id, connection_id, connection_generation, workspace_reference,
            status, plan_json, plan_digest, created_at, updated_at
          ) VALUES (?, ?, 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
            'succeeded', ?, 'digest', ?, ?)`,
@@ -411,7 +411,7 @@ class AppResourceGcWorkspace {
 
   candidates() {
     return this.#database
-      .prepare('SELECT chat_id, not_before, attempts FROM app_resource_gc_candidates ORDER BY chat_id')
+      .prepare('SELECT workspace_id, not_before, attempts FROM app_resource_gc_candidates ORDER BY workspace_id')
       .all()
       .map((row) => ({ ...row }));
   }

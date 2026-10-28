@@ -134,6 +134,7 @@ const migrationPolicies = [
       '0016_remove_runtime_controls.sql': '2215380e3ec544cdf283ea068b67995e8887c9b1cea48a11a3da24597902d5c5',
       '0017_drop_generation_columns.sql': 'c8d690f93662c0db7363b2b280b05d9529289426843c341732735bb5129f0ef9',
       '0018_clone_tokens.sql': '069a24c5d65f112fe1fe7f10d90019daea73b14b870e4ecb7a47cde381f1831d',
+      '0019_workspaces_and_conversations.sql': 'b3b45dd9e17b720ff2e9fb3d8a474c887521def321066eb7453808dc93ec155a',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -151,6 +152,9 @@ const migrationPolicies = [
       '0016_remove_runtime_controls.sql',
       // The transcript and cleanup-candidate generation columns, unnamed since the release before.
       '0017_drop_generation_columns.sql',
+      // Tables and columns renamed to workspaces and conversations, shipped with the runtime that names them so;
+      // the archive-and-continue columns no runtime reads since one workspace holds all its conversations.
+      '0019_workspaces_and_conversations.sql',
     ],
   },
   {

@@ -2,7 +2,7 @@ import type { ChatRow } from './types';
 import { DataNotFoundError } from './errors';
 
 const CHAT_COLUMNS =
-  'chats.id, chats.creator_id, chats.initial_id, chats.description, chats.timestamp, chats.last_subchat_index, chats.has_messages, chats.is_deleted';
+  'workspaces.id, workspaces.creator_id, workspaces.initial_id, workspaces.description, workspaces.timestamp, workspaces.last_conversation_index, workspaces.has_messages, workspaces.is_deleted';
 
 /**
  * Create the chat catalog row and its BuilderAgent transcript identity, or bring back the one a
@@ -25,10 +25,10 @@ export async function ensureInitialChat(
     // Only a still-empty chat is eligible; a discarded chat that ever accepted content is not.
     db
       .prepare(
-        `UPDATE chats
+        `UPDATE workspaces
          SET is_deleted = 0
          WHERE id = (
-           SELECT id FROM chats
+           SELECT id FROM workspaces
            WHERE creator_id = ? AND initial_id = ? AND is_deleted = 1 AND has_messages = 0
            ORDER BY timestamp DESC, id DESC
            LIMIT 1
@@ -41,27 +41,27 @@ export async function ensureInitialChat(
     db
       .prepare(
         `DELETE FROM agent_gc_candidates
-         WHERE chat_id IN (
-           SELECT id FROM chats WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
+         WHERE workspace_id IN (
+           SELECT id FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
          )`,
       )
       .bind(args.creatorId, args.initialId),
     db
       .prepare(
         `DELETE FROM app_resource_gc_candidates
-         WHERE chat_id IN (
-           SELECT id FROM chats WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
+         WHERE workspace_id IN (
+           SELECT id FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
          )`,
       )
       .bind(args.creatorId, args.initialId),
     db
       .prepare(
-        `INSERT INTO chats (
-          id, creator_id, initial_id, description, timestamp, last_subchat_index, has_messages, is_deleted,
+        `INSERT INTO workspaces (
+          id, creator_id, initial_id, description, timestamp, last_conversation_index, has_messages, is_deleted,
           org_project_id
         )
         SELECT ?, ?, ?, NULL, ?, 0, 0, 0, ?
-        WHERE NOT EXISTS (SELECT 1 FROM chats WHERE initial_id = ?)
+        WHERE NOT EXISTS (SELECT 1 FROM workspaces WHERE initial_id = ?)
         ON CONFLICT DO NOTHING`,
       )
       .bind(
@@ -74,22 +74,22 @@ export async function ensureInitialChat(
       ),
     db
       .prepare(
-        `INSERT INTO chat_transcripts (
-          chat_id, subchat_index, agent_name,
-          parent_subchat_index, parent_revision, transition_token, created_at, updated_at
+        `INSERT INTO conversations (
+          workspace_id, conversation_index, agent_name,
+          parent_conversation_index, parent_revision, transition_token, created_at, updated_at
         )
-        SELECT chats.id, 0, chats.initial_id, NULL, NULL, ?, ?, ?
-        FROM chats
-        WHERE chats.id = ? AND chats.creator_id = ? AND chats.initial_id = ? AND chats.is_deleted = 0
-        ON CONFLICT(chat_id, subchat_index) DO NOTHING`,
+        SELECT workspaces.id, 0, workspaces.initial_id, NULL, NULL, ?, ?, ?
+        FROM workspaces
+        WHERE workspaces.id = ? AND workspaces.creator_id = ? AND workspaces.initial_id = ? AND workspaces.is_deleted = 0
+        ON CONFLICT(workspace_id, conversation_index) DO NOTHING`,
       )
       .bind(crypto.randomUUID(), createdAt, createdAt, args.id, args.creatorId, args.initialId),
   ]);
 
   const chat = await db
     .prepare(
-      `SELECT ${CHAT_COLUMNS} FROM chats
-       WHERE chats.creator_id = ? AND chats.initial_id = ? AND chats.is_deleted = 0
+      `SELECT ${CHAT_COLUMNS} FROM workspaces
+       WHERE workspaces.creator_id = ? AND workspaces.initial_id = ? AND workspaces.is_deleted = 0
        LIMIT 1`,
     )
     .bind(args.creatorId, args.initialId)
@@ -135,7 +135,7 @@ export async function openLinkedChat(
 async function findLinkedChat(db: D1Database, args: { sessionId: string; orgProjectId: string }) {
   const row = await db
     .prepare(
-      `SELECT initial_id FROM chats
+      `SELECT initial_id FROM workspaces
        WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0 LIMIT 1`,
     )
     .bind(args.sessionId, args.orgProjectId)
@@ -146,8 +146,8 @@ async function findLinkedChat(db: D1Database, args: { sessionId: string; orgProj
 export function findChat(db: D1Database, args: { id: string; sessionId: string }): Promise<ChatRow | null> {
   return db
     .prepare(
-      `SELECT ${CHAT_COLUMNS} FROM chats
-       WHERE chats.creator_id = ? AND chats.initial_id = ? AND chats.is_deleted = 0
+      `SELECT ${CHAT_COLUMNS} FROM workspaces
+       WHERE workspaces.creator_id = ? AND workspaces.initial_id = ? AND workspaces.is_deleted = 0
        LIMIT 1`,
     )
     .bind(args.sessionId, args.id)
@@ -169,12 +169,12 @@ export async function markChatStarted(
 ): Promise<void> {
   await db
     .prepare(
-      `UPDATE chats
+      `UPDATE workspaces
        SET has_messages = 1
        WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
          AND EXISTS (
-           SELECT 1 FROM chat_transcripts
-           WHERE chat_transcripts.chat_id = chats.id AND chat_transcripts.agent_name = ?
+           SELECT 1 FROM conversations
+           WHERE conversations.workspace_id = workspaces.id AND conversations.agent_name = ?
          )`,
     )
     .bind(args.sessionId, args.chatId, args.agentName)

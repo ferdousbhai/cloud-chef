@@ -88,7 +88,7 @@ describe("a new workspace's seed", () => {
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
       cloudflareIdentity: true,
     });
-    harness.database.prepare(`UPDATE chats SET org_project_id = ?`).run(TEAM_PROJECT_ID);
+    harness.database.prepare(`UPDATE workspaces SET org_project_id = ?`).run(TEAM_PROJECT_ID);
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
       String(input instanceof Request ? input.url : input).includes('runtime-projects/open')
         ? open()
@@ -107,7 +107,7 @@ describe("a new workspace's seed", () => {
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
       cloudflareIdentity: true,
     });
-    harness.database.prepare(`UPDATE chats SET org_project_id = ?`).run(TEAM_PROJECT_ID);
+    harness.database.prepare(`UPDATE workspaces SET org_project_id = ?`).run(TEAM_PROJECT_ID);
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
 
     await expect(harness.agent.prepareWorkspace()).rejects.toThrow('CloudChef could not open the project.');

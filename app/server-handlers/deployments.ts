@@ -199,7 +199,7 @@ export async function userRuntimeDeploymentAction(args: {
 
 async function requireActiveDeploymentChat(db: D1Database, deployment: Deployment): Promise<void> {
   const active = await db
-    .prepare(`SELECT 1 AS found FROM chats WHERE id = ? AND creator_id = ? AND is_deleted = 0 LIMIT 1`)
+    .prepare(`SELECT 1 AS found FROM workspaces WHERE id = ? AND creator_id = ? AND is_deleted = 0 LIMIT 1`)
     .bind(deployment.chatId, deployment.userId)
     .first<{ found: number }>();
   if (!active) {

@@ -6,7 +6,7 @@ export async function requireChatTranscript(
   args: { chatId: string; subchatIndex: number },
 ): Promise<ChatTranscriptRow> {
   const transcript = await db
-    .prepare('SELECT * FROM chat_transcripts WHERE chat_id = ? AND subchat_index = ?')
+    .prepare('SELECT * FROM conversations WHERE workspace_id = ? AND conversation_index = ?')
     .bind(args.chatId, args.subchatIndex)
     .first<ChatTranscriptRow>();
   if (!transcript) {
@@ -16,7 +16,7 @@ export async function requireChatTranscript(
 }
 
 export function transcriptIdentity(row: ChatTranscriptRow): TranscriptIdentity {
-  return { agentName: row.agent_name, subchatIndex: row.subchat_index };
+  return { agentName: row.agent_name, subchatIndex: row.conversation_index };
 }
 
 /** Inserts a subchat's transcript, only while its parent is a transcript of the owner's live chat. */
@@ -34,16 +34,16 @@ export function prepareInsertChatTranscript(
   const now = Date.now();
   return db
     .prepare(
-      `INSERT INTO chat_transcripts (
-        chat_id, subchat_index, agent_name,
-        parent_subchat_index, parent_revision, transition_token, created_at, updated_at
+      `INSERT INTO conversations (
+        workspace_id, conversation_index, agent_name,
+        parent_conversation_index, parent_revision, transition_token, created_at, updated_at
       )
       SELECT ?, ?, ?, ?, ?, ?, ?, ?
-      FROM chat_transcripts
-      WHERE chat_id = ? AND subchat_index = ?
+      FROM conversations
+      WHERE workspace_id = ? AND conversation_index = ?
         AND EXISTS (
-          SELECT 1 FROM chats
-          WHERE chats.id = chat_transcripts.chat_id AND chats.creator_id = ? AND chats.is_deleted = 0
+          SELECT 1 FROM workspaces
+          WHERE workspaces.id = conversations.workspace_id AND workspaces.creator_id = ? AND workspaces.is_deleted = 0
         )`,
     )
     .bind(

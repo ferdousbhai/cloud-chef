@@ -58,11 +58,11 @@ export async function routeUserRuntimeAgentRequest(
 async function authorizeAgentForUser(env: Env, agentName: string, userId: string): Promise<Response | null> {
   const chat = await env.DB.prepare(
     `SELECT COUNT(*) AS match_count,
-            SUM(CASE WHEN chats.is_deleted = 0 THEN 1 ELSE 0 END) AS active_match_count,
-            MAX(CASE WHEN chats.creator_id <> ? THEN 1 ELSE 0 END) AS has_owner_conflict
-     FROM chats
-     LEFT JOIN chat_transcripts ON chat_transcripts.chat_id = chats.id
-     WHERE chats.initial_id = ? OR chat_transcripts.agent_name = ?`,
+            SUM(CASE WHEN workspaces.is_deleted = 0 THEN 1 ELSE 0 END) AS active_match_count,
+            MAX(CASE WHEN workspaces.creator_id <> ? THEN 1 ELSE 0 END) AS has_owner_conflict
+     FROM workspaces
+     LEFT JOIN conversations ON conversations.workspace_id = workspaces.id
+     WHERE workspaces.initial_id = ? OR conversations.agent_name = ?`,
   )
     .bind(userId, agentName, agentName)
     .first<{ match_count: number; active_match_count: number; has_owner_conflict: number | null }>();
@@ -78,10 +78,10 @@ async function authorizeAgentForUser(env: Env, agentName: string, userId: string
       });
     } catch (error) {
       const activeOwner = await env.DB.prepare(
-        `SELECT chats.creator_id
-         FROM chats
-         LEFT JOIN chat_transcripts ON chat_transcripts.chat_id = chats.id
-         WHERE (chats.initial_id = ? OR chat_transcripts.agent_name = ?) AND chats.is_deleted = 0
+        `SELECT workspaces.creator_id
+         FROM workspaces
+         LEFT JOIN conversations ON conversations.workspace_id = workspaces.id
+         WHERE (workspaces.initial_id = ? OR conversations.agent_name = ?) AND workspaces.is_deleted = 0
          LIMIT 1`,
       )
         .bind(agentName, agentName)

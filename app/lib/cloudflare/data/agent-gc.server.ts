@@ -10,10 +10,10 @@ const AGENT_GC_RETRY_MAX_MS = 60 * 60 * 1000;
 const logger = createScopedLogger('CloudflareAgentGc');
 
 type AgentGcCandidateRow = {
-  chat_id: string;
+  workspace_id: string;
   initial_id: string;
   owner_id: string;
-  subchat_index: number;
+  conversation_index: number;
   not_before: number;
   attempts: number;
 };
@@ -27,14 +27,14 @@ export function prepareAgentGcCandidatesStatement(
   return db
     .prepare(
       `INSERT INTO agent_gc_candidates (
-         chat_id, initial_id, subchat_index, not_before, created_at, attempts
+         workspace_id, initial_id, conversation_index, not_before, created_at, attempts
        )
-       SELECT chats.id, chats.initial_id, transcripts.subchat_index, ?, ?, 0
-       FROM chats
-       JOIN chat_transcripts AS transcripts ON transcripts.chat_id = chats.id
-       WHERE chats.creator_id = ? AND chats.initial_id = ?
-         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'chats.is_deleted = 0'}
-       ON CONFLICT(chat_id, subchat_index) DO UPDATE SET
+       SELECT workspaces.id, workspaces.initial_id, transcripts.conversation_index, ?, ?, 0
+       FROM workspaces
+       JOIN conversations AS transcripts ON transcripts.workspace_id = workspaces.id
+       WHERE workspaces.creator_id = ? AND workspaces.initial_id = ?
+         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'workspaces.is_deleted = 0'}
+       ON CONFLICT(workspace_id, conversation_index) DO UPDATE SET
          not_before = MIN(agent_gc_candidates.not_before, excluded.not_before)`,
     )
     .bind(notBefore, now, args.ownerId, args.initialId);
@@ -43,12 +43,12 @@ export function prepareAgentGcCandidatesStatement(
 export async function sweepAgentGcCandidates(env: Pick<Env, 'BuilderAgent' | 'DB'>): Promise<void> {
   const now = Date.now();
   const result = await env.DB.prepare(
-    `SELECT candidates.chat_id, candidates.initial_id, chats.creator_id AS owner_id,
-            candidates.subchat_index, candidates.not_before, candidates.attempts
+    `SELECT candidates.workspace_id, candidates.initial_id, workspaces.creator_id AS owner_id,
+            candidates.conversation_index, candidates.not_before, candidates.attempts
      FROM agent_gc_candidates AS candidates
-     INNER JOIN chats ON chats.id = candidates.chat_id
-     WHERE candidates.not_before <= ? AND chats.is_deleted = 1
-     ORDER BY candidates.not_before, candidates.chat_id, candidates.subchat_index
+     INNER JOIN workspaces ON workspaces.id = candidates.workspace_id
+     WHERE candidates.not_before <= ? AND workspaces.is_deleted = 1
+     ORDER BY candidates.not_before, candidates.workspace_id, candidates.conversation_index
      LIMIT ?`,
   )
     .bind(now, AGENT_GC_SWEEP_LIMIT)
@@ -71,7 +71,7 @@ async function destroyCandidateAgent(
   now: number,
 ): Promise<void> {
   try {
-    const name = transcriptAgentName(candidate.initial_id, candidate.subchat_index);
+    const name = transcriptAgentName(candidate.initial_id, candidate.conversation_index);
     const agent = env.BuilderAgent.getByName(name);
     // The SDK durably records a condemned marker and alarm before this RPC
     // resolves. Delete the D1 receipt only after that schedule is accepted;
@@ -83,11 +83,11 @@ async function destroyCandidateAgent(
     await env.DB.prepare(
       `UPDATE agent_gc_candidates
        SET attempts = attempts + 1, not_before = ?
-       WHERE chat_id = ? AND subchat_index = ? AND not_before = ?`,
+       WHERE workspace_id = ? AND conversation_index = ? AND not_before = ?`,
     )
-      .bind(retryAt, candidate.chat_id, candidate.subchat_index, candidate.not_before)
+      .bind(retryAt, candidate.workspace_id, candidate.conversation_index, candidate.not_before)
       .run();
-    logger.warn('Unable to destroy deferred BuilderAgent', { subchatIndex: candidate.subchat_index });
+    logger.warn('Unable to destroy deferred BuilderAgent', { subchatIndex: candidate.conversation_index });
   }
 }
 
@@ -95,9 +95,9 @@ function deleteCompletedCandidate(db: D1Database, candidate: AgentGcCandidateRow
   return db
     .prepare(
       `DELETE FROM agent_gc_candidates
-       WHERE chat_id = ? AND subchat_index = ? AND not_before = ?`,
+       WHERE workspace_id = ? AND conversation_index = ? AND not_before = ?`,
     )
-    .bind(candidate.chat_id, candidate.subchat_index, candidate.not_before)
+    .bind(candidate.workspace_id, candidate.conversation_index, candidate.not_before)
     .run();
 }
 

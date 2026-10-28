@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { DatabaseSync, type SQLInputValue, type StatementSync } from 'node:sqlite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -35,12 +35,12 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(readFileSync('user-workspace-migrations/0001_user_workspace.sql', 'utf8'));
-  sqlite.exec(readFileSync('user-workspace-migrations/0005_deployment_activity.sql', 'utf8'));
-  sqlite.exec(readFileSync('user-workspace-migrations/0014_deployment_claim_id.sql', 'utf8'));
+  for (const file of readdirSync('user-workspace-migrations').sort()) {
+    sqlite.exec(readFileSync(`user-workspace-migrations/${file}`, 'utf8'));
+  }
   sqlite
     .prepare(
-      `INSERT INTO chats (id, creator_id, initial_id, timestamp) VALUES ('chat-1', 'user-1', 'initial-1', 'now')`,
+      `INSERT INTO workspaces (id, creator_id, initial_id, timestamp) VALUES ('chat-1', 'user-1', 'initial-1', 'now')`,
     )
     .run();
   db = d1(sqlite);

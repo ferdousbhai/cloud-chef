@@ -66,7 +66,7 @@ async function linkedWorkspace(
 
 /** The person started a newer conversation in the project's chat, which closes this one. */
 async function close(harness: BuilderAgentHarness) {
-  harness.database.prepare(`UPDATE chats SET org_project_id = ?`).run(PROJECT_ID);
+  harness.database.prepare(`UPDATE workspaces SET org_project_id = ?`).run(PROJECT_ID);
   await harness.startConversation();
 }
 
@@ -92,7 +92,7 @@ describe('an earlier conversation on a team project', () => {
 
   it('refuses saves once the member deleted it, though its agent and turn live on', async () => {
     const harness = await harnessWith(await linkedWorkspace());
-    harness.database.prepare(`UPDATE chats SET org_project_id = ?, is_deleted = 1`).run(PROJECT_ID);
+    harness.database.prepare(`UPDATE workspaces SET org_project_id = ?, is_deleted = 1`).run(PROJECT_ID);
 
     await expect(harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] })).rejects.toMatchObject({
       status: 409,

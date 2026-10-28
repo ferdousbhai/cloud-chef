@@ -9,7 +9,7 @@ describe('a new conversation in a chat', () => {
     await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
     const handover = { productionRevision: 'a'.repeat(64), publicationPending: true };
     const calls: unknown[] = [];
-    const lastIndex = () => database.prepare('SELECT last_subchat_index AS last FROM chats').get()?.last;
+    const lastIndex = () => database.prepare('SELECT last_conversation_index AS last FROM workspaces').get()?.last;
     const BuilderAgent = {
       getByName: (name: string) => ({
         getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),

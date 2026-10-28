@@ -165,7 +165,7 @@ export async function handleCommandLineAppGit(
     return new Response('This workspace is not connected to CloudChef.', { status: 503 });
   }
   const app = await env.DB.prepare(
-    'SELECT 1 AS found FROM chats WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
+    'SELECT 1 AS found FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
   )
     .bind(identity.userId, appId)
     .first<{ found: number }>();

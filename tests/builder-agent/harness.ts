@@ -239,9 +239,9 @@ export async function builderAgentHarness(
   const artifacts = options.artifacts ?? fakeArtifacts();
   const { database, db } = userWorkspaceDatabase();
   database.exec(`
-    INSERT INTO chats (id, creator_id, initial_id, description, timestamp)
+    INSERT INTO workspaces (id, creator_id, initial_id, description, timestamp)
       VALUES ('chat-1', '${OWNER_ID}', '${CHAT_INITIAL_ID}', 'A chat', '2026-10-20T00:00:00.000Z');
-    INSERT INTO chat_transcripts (chat_id, subchat_index, agent_name, transition_token, created_at, updated_at)
+    INSERT INTO conversations (workspace_id, conversation_index, agent_name, transition_token, created_at, updated_at)
       VALUES ('chat-1', 0, '${AGENT_NAME}', 'token-1', 1, 1);
   `);
   const runtimeBindings: UserRuntimeBindings = { CLOUDCHEF_USER_RUNTIME: '1', AI: options.ai };
@@ -300,17 +300,19 @@ export async function builderAgentHarness(
      */
     startConversation: async () => {
       // SAFETY: the statement selects exactly this column of chats.
-      const { last } = database.prepare('SELECT last_subchat_index AS last FROM chats').get() as { last: number };
+      const { last } = database.prepare('SELECT last_conversation_index AS last FROM workspaces').get() as {
+        last: number;
+      };
       const index = last + 1;
       const name = transcriptAgentName(CHAT_INITIAL_ID, index);
       database
         .prepare(
-          `INSERT INTO chat_transcripts (
-             chat_id, subchat_index, agent_name, parent_subchat_index, transition_token, created_at, updated_at
+          `INSERT INTO conversations (
+             workspace_id, conversation_index, agent_name, parent_conversation_index, transition_token, created_at, updated_at
            ) VALUES ('chat-1', ?, ?, ?, ?, 1, 1)`,
         )
         .run(index, name, last, `token-${index}`);
-      database.prepare('UPDATE chats SET last_subchat_index = ?').run(index);
+      database.prepare('UPDATE workspaces SET last_conversation_index = ?').run(index);
       return startAgent(name);
     },
     /** Each agent's recorded activity, as the control plane's upgrade window reads it. */
@@ -321,7 +323,7 @@ export async function builderAgentHarness(
         busy: number;
       }>,
     /** The member deleted the chat: its agent lives on until the GC sweep reaches it. */
-    deleteChat: () => database.prepare('UPDATE chats SET is_deleted = 1').run(),
+    deleteChat: () => database.prepare('UPDATE workspaces SET is_deleted = 1').run(),
     /** An upgrade to another Worker version found the runtime idle and is about to redeploy it. */
     openUpgradeWindow: (targetVersion = 'runtime-next', expiresAt = Date.now() + 60_000) =>
       database

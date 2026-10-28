@@ -4,17 +4,17 @@ export type ChatRow = {
   initial_id: string;
   description: string | null;
   timestamp: string;
-  last_subchat_index: number;
+  last_conversation_index: number;
   has_messages: number;
   is_deleted: number;
 };
 
 export type ChatTranscriptRow = {
-  chat_id: string;
-  subchat_index: number;
+  workspace_id: string;
+  conversation_index: number;
   agent_name: string;
   description: string | null;
-  parent_subchat_index: number | null;
+  parent_conversation_index: number | null;
   parent_revision: number | null;
   transition_token: string;
   created_at: number;

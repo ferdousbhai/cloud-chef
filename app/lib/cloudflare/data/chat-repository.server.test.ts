@@ -21,8 +21,8 @@ describe('ensureInitialChat', () => {
     ).resolves.toMatchObject({ id: 'chat-row', is_deleted: 0, has_messages: 0, created: true });
 
     // One catalog row and one transcript identity, and the queued cleanup is withdrawn with them.
-    expect(count(sqlite, 'chats')).toBe(1);
-    expect(count(sqlite, 'chat_transcripts')).toBe(1);
+    expect(count(sqlite, 'workspaces')).toBe(1);
+    expect(count(sqlite, 'conversations')).toBe(1);
     expect(count(sqlite, 'agent_gc_candidates')).toBe(0);
     expect(count(sqlite, 'app_resource_gc_candidates')).toBe(0);
   });
@@ -30,12 +30,12 @@ describe('ensureInitialChat', () => {
   it('leaves a discarded chat that accepted content deleted', async () => {
     const { sqlite, db } = workspaceDatabase();
     await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
-    sqlite.exec("UPDATE chats SET has_messages = 1, is_deleted = 1 WHERE id = 'chat-row'");
+    sqlite.exec("UPDATE workspaces SET has_messages = 1, is_deleted = 1 WHERE id = 'chat-row'");
 
     await expect(ensureInitialChat(db, { id: 'chat-row-2', creatorId: 'session', initialId: 'chat' })).rejects.toThrow(
       'Unable to initialize chat',
     );
-    expect(count(sqlite, 'chats')).toBe(1);
+    expect(count(sqlite, 'workspaces')).toBe(1);
   });
 });
 
@@ -50,10 +50,10 @@ describe('openLinkedChat', () => {
     const first = await openLinkedChat(db, { sessionId: 'session', id: 'first-id', orgProjectId: 'project-1' });
     expect(first).toEqual({ initialId: 'first-id', created: true });
     // Bound before its agent ever starts: seeding reads the project from the row.
-    expect(sqlite.prepare("SELECT org_project_id FROM chats WHERE initial_id = 'first-id'").get()).toEqual({
+    expect(sqlite.prepare("SELECT org_project_id FROM workspaces WHERE initial_id = 'first-id'").get()).toEqual({
       org_project_id: 'project-1',
     });
-    expect(sqlite.prepare('SELECT agent_name FROM chat_transcripts').all()).toEqual([{ agent_name: 'first-id' }]);
+    expect(sqlite.prepare('SELECT agent_name FROM conversations').all()).toEqual([{ agent_name: 'first-id' }]);
 
     await expect(
       openLinkedChat(db, { sessionId: 'session', id: 'second-id', orgProjectId: 'project-1' }),

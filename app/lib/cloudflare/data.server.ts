@@ -108,7 +108,7 @@ export async function userRuntimeInitialMessagesAction(args: {
     const identity = transcriptIdentity(
       await requireChatTranscript(args.env.DB, {
         chatId: chat.id,
-        subchatIndex: body.subchatIndex ?? chat.last_subchat_index,
+        subchatIndex: body.subchatIndex ?? chat.last_conversation_index,
       }),
     );
     const durable = await getBuilderTranscriptSnapshot(args.env, identity, args.userId);
@@ -199,7 +199,7 @@ async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatI
   const chat = await requireChat(env.DB, { id: args.chatId, sessionId: args.sessionId });
   const parent = await requireChatTranscript(env.DB, {
     chatId: chat.id,
-    subchatIndex: chat.last_subchat_index,
+    subchatIndex: chat.last_conversation_index,
   });
   const identity = transcriptIdentity(parent);
   const durable = await getBuilderTranscriptSnapshot(env, identity, args.sessionId);

@@ -30,7 +30,7 @@ export function builderTranscriptBindingsEqual(
 type BuilderTranscriptRow = {
   agent_name: string;
   initial_id: string;
-  subchat_index: number;
+  conversation_index: number;
   parent_agent_name: string | null;
 };
 
@@ -42,17 +42,17 @@ export async function loadBuilderTranscriptBinding(
   const row = await db
     .prepare(
       `SELECT transcripts.agent_name,
-              chats.initial_id,
-              transcripts.subchat_index,
+              workspaces.initial_id,
+              transcripts.conversation_index,
               parent.agent_name AS parent_agent_name
-       FROM chat_transcripts AS transcripts
-       INNER JOIN chats ON chats.id = transcripts.chat_id
-       LEFT JOIN chat_transcripts AS parent
-         ON parent.chat_id = transcripts.chat_id
-        AND parent.subchat_index = transcripts.parent_subchat_index
+       FROM conversations AS transcripts
+       INNER JOIN workspaces ON workspaces.id = transcripts.workspace_id
+       LEFT JOIN conversations AS parent
+         ON parent.workspace_id = transcripts.workspace_id
+        AND parent.conversation_index = transcripts.parent_conversation_index
        WHERE transcripts.agent_name = ?
-         AND chats.creator_id = ?
-         AND chats.is_deleted = 0
+         AND workspaces.creator_id = ?
+         AND workspaces.is_deleted = 0
        LIMIT 1`,
     )
     .bind(args.agentName, args.ownerId)
@@ -62,7 +62,7 @@ export async function loadBuilderTranscriptBinding(
     ? {
         agentName: row.agent_name,
         chatInitialId: row.initial_id,
-        subchatIndex: row.subchat_index,
+        subchatIndex: row.conversation_index,
         parentAgentName: row.parent_agent_name ?? null,
       }
     : null;
@@ -79,11 +79,11 @@ export async function loadConversationScope(
 ): Promise<{ orgProjectId: string | null; closed: boolean; deleted: boolean }> {
   const row = await db
     .prepare(
-      `SELECT chats.org_project_id, chats.is_deleted,
-              transcripts.subchat_index < chats.last_subchat_index AS closed
-       FROM chat_transcripts AS transcripts
-       INNER JOIN chats ON chats.id = transcripts.chat_id
-       WHERE transcripts.agent_name = ? AND chats.creator_id = ?
+      `SELECT workspaces.org_project_id, workspaces.is_deleted,
+              transcripts.conversation_index < workspaces.last_conversation_index AS closed
+       FROM conversations AS transcripts
+       INNER JOIN workspaces ON workspaces.id = transcripts.workspace_id
+       WHERE transcripts.agent_name = ? AND workspaces.creator_id = ?
        LIMIT 1`,
     )
     .bind(args.agentName, args.ownerId)
