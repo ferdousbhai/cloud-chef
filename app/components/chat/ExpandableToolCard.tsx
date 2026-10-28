@@ -1,5 +1,5 @@
 import { CaretDownIcon, CaretUpIcon } from '@radix-ui/react-icons';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'motion/react';
 import type { ReactNode } from 'react';
 import { cubicEasingFn } from '~/utils/easings';
 

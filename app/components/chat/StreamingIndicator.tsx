@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { cubicEasingFn } from '~/utils/easings';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { useStore } from '@nanostores/react';

@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { memo, useState } from 'react';
 import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import type { PartId } from 'cloudchef-agent/partId';

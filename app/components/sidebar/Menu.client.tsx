@@ -1,4 +1,4 @@
-import { motion, MotionConfig, type Variants } from 'framer-motion';
+import { motion, MotionConfig, type Variants } from 'motion/react';
 import { memo, useEffect, useRef, useState } from 'react';
 import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import { cubicEasingFn } from '~/utils/easings';

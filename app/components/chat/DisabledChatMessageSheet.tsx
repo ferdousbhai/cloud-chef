@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Sheet } from '@ui/Sheet';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'motion/react';
 import { cubicEasingFn } from '~/utils/easings';
 
 /** Why the composer is closed. The live region stays mounted, so a reason that appears is announced. */

@@ -16,7 +16,7 @@ import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { HomeIntro } from './HomeIntro.client';
 import { LinkedProjectIntro } from './LinkedProjectIntro.client';
 import StreamingIndicator from './StreamingIndicator';
-import { MotionConfig } from 'framer-motion';
+import { MotionConfig } from 'motion/react';
 import { useStore } from '@nanostores/react';
 import { toast } from 'sonner';
 import { SubchatBar } from './SubchatBar';

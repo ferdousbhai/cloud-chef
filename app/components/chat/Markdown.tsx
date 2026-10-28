@@ -33,14 +33,15 @@ const markdownComponents = {
 
 export const Markdown = memo(function Markdown({ children }: MarkdownProps) {
   return (
-    <ReactMarkdown
-      allowedElements={allowedHTMLElements}
-      className={styles.MarkdownContent}
-      components={markdownComponents}
-      remarkPlugins={markdownRemarkPlugins}
-      rehypePlugins={markdownRehypePlugins}
-    >
-      {children}
-    </ReactMarkdown>
+    <div className={styles.MarkdownContent}>
+      <ReactMarkdown
+        allowedElements={allowedHTMLElements}
+        components={markdownComponents}
+        remarkPlugins={markdownRemarkPlugins}
+        rehypePlugins={markdownRehypePlugins}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
   );
 });

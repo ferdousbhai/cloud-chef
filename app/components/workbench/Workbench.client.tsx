@@ -1,4 +1,4 @@
-import { motion, MotionConfig, type HTMLMotionProps, type Variants } from 'framer-motion';
+import { motion, MotionConfig, type HTMLMotionProps, type Variants } from 'motion/react';
 import {
   lazy,
   memo,

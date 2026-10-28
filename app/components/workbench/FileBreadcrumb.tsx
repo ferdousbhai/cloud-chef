@@ -1,5 +1,5 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { AnimatePresence, motion, type Variants } from 'framer-motion';
+import { AnimatePresence, motion, type Variants } from 'motion/react';
 import { memo, useState } from 'react';
 import type { FileMap } from 'cloudchef-agent/types';
 import { classNames } from '~/utils/classNames';
