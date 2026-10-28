@@ -14,6 +14,7 @@ async function stubConnectedSession(page: Page) {
   await page.route('**/api/auth/session', (route) => route.fulfill({ json: authSession }));
   // The home lists the projects in the connected account; this one has none.
   await page.route('**/api/org-projects', (route) => route.fulfill({ json: { projects: [] } }));
+  await page.route('**/api/apps', (route) => route.fulfill({ json: { apps: [] } }));
 }
 
 async function startProject(page: Page) {
