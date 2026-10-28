@@ -8,7 +8,7 @@ import type { useEditChatDescription as UseEditChatDescription } from './useEdit
 const mocks = vi.hoisted(() => ({
   executeDataOperation: vi.fn(),
   setDescription: Symbol('setDescription'),
-  chatId: 'chat-1',
+  workspaceId: 'chat-1',
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -22,7 +22,7 @@ vi.mock('~/lib/cloudflare/data-api', () => ({
 }));
 vi.mock('~/lib/cloudflare/client', () => ({ executeDataOperation: mocks.executeDataOperation }));
 vi.mock('~/lib/stores/userId', () => ({ useUserIdOrNullOrLoading: () => 'user-1' }));
-vi.mock('~/lib/stores/chatId', () => ({ useChatId: () => mocks.chatId }));
+vi.mock('~/lib/stores/workspaceId', () => ({ useWorkspaceId: () => mocks.workspaceId }));
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, success: mocks.toastSuccess } }));
 
 import { useEditChatDescription } from './useEditChatDescription';
@@ -36,7 +36,7 @@ beforeEach(() => {
   mocks.executeDataOperation.mockReset();
   mocks.toastError.mockReset();
   mocks.toastSuccess.mockReset();
-  mocks.chatId = 'chat-1';
+  mocks.workspaceId = 'chat-1';
   const container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -149,7 +149,7 @@ describe('useEditChatDescription', () => {
       submit = latest.handleSubmit(submitEvent);
     });
 
-    mocks.chatId = 'chat-2';
+    mocks.workspaceId = 'chat-2';
     await act(async () => root?.render(<Harness initialDescription="Chat two" />));
     expect(latest).toMatchObject({ editing: false, currentDescription: 'Chat two' });
     act(() => latest.toggleEditMode());

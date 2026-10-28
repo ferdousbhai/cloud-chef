@@ -1,5 +1,5 @@
 import { routeAgentRequest } from 'agents';
-import { ensureInitialChat } from '~/lib/cloudflare/data/chat-repository.server';
+import { ensureInitialWorkspace } from '~/lib/cloudflare/data/workspace-repository.server';
 
 const MAX_CONVERSATION_AGENT_NAME_LENGTH = 512;
 const CANONICAL_ROOT_AGENT_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -60,7 +60,7 @@ export async function routeUserRuntimeAgentRequest(
 
 // Resolves to the denial response, or null when the user is authorized for the agent.
 async function authorizeAgentForUser(env: Env, agentName: string, userId: string): Promise<Response | null> {
-  const chat = await env.DB.prepare(
+  const workspace = await env.DB.prepare(
     `SELECT COUNT(*) AS match_count,
             SUM(CASE WHEN workspaces.is_deleted = 0 THEN 1 ELSE 0 END) AS active_match_count,
             MAX(CASE WHEN workspaces.creator_id <> ? THEN 1 ELSE 0 END) AS has_owner_conflict
@@ -70,12 +70,12 @@ async function authorizeAgentForUser(env: Env, agentName: string, userId: string
   )
     .bind(userId, agentName, agentName)
     .first<{ match_count: number; active_match_count: number; has_owner_conflict: number | null }>();
-  if (!chat || chat.match_count === 0) {
+  if (!workspace || workspace.match_count === 0) {
     if (!CANONICAL_ROOT_AGENT_NAME.test(agentName)) {
       return agentNotFoundResponse();
     }
     try {
-      await ensureInitialChat(env.DB, {
+      await ensureInitialWorkspace(env.DB, {
         id: crypto.randomUUID(),
         creatorId: userId,
         initialId: agentName,
@@ -99,7 +99,7 @@ async function authorizeAgentForUser(env: Env, agentName: string, userId: string
     }
     return null;
   }
-  if (chat.active_match_count === 0 || chat.has_owner_conflict !== 0) {
+  if (workspace.active_match_count === 0 || workspace.has_owner_conflict !== 0) {
     return Response.json({ error: 'Agent not found.' }, { status: 404 });
   }
   return null;

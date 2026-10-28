@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DURABLE_OBJECT_OVERLOADED_MESSAGE, internalErrorResponse } from './http.server';
-import { SubchatLimitError } from './errors';
+import { ConversationLimitError } from './errors';
 
 describe('internalErrorResponse', () => {
   it('does not reflect unexpected backend error messages to callers', async () => {
@@ -16,7 +16,7 @@ describe('internalErrorResponse', () => {
   });
 
   it('returns a conflict when a project reaches the subchat ceiling', async () => {
-    const response = internalErrorResponse(new SubchatLimitError(), 'Unknown data error');
+    const response = internalErrorResponse(new ConversationLimitError(), 'Unknown data error');
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'This project has reached the maximum number of subchats.' });

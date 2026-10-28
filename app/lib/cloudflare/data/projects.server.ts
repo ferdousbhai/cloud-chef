@@ -19,7 +19,7 @@ import {
   ProjectRepositoryError,
 } from '~/lib/.server/cloudflare/project-repository';
 import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
-import { ensureInitialChat, findChat, openLinkedChat } from './chat-repository.server';
+import { ensureInitialWorkspace, findWorkspace, openLinkedWorkspace } from './workspace-repository.server';
 import { cloneToken } from './clone-tokens.server';
 import { extractZip, ZipReadError } from '~/lib/.server/cloudflare/zip-extract';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
@@ -33,12 +33,12 @@ import { IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
  * A project's history and its ways out, for the browser: its commits, a clone command, a ZIP of any
- * commit, and a fork into a new project. A CloudChef app (a chat's own repository, `p-<chat>`) is its
+ * commit, and a fork into a new project. A CloudChef app (a workspace's own repository, `p-<workspace>`) is its
  * creator's alone; a team's project is whatever the control plane says this person may do with it, and
  * view is enough for all of these but a fork, which needs edit.
  */
 
-/** Which project: a chat (a CloudChef app, or the team project it works on) or a team project by id. */
+/** Which project: a workspace (a CloudChef app, or the team project it works on) or a team project by id. */
 type ProjectTarget = { chatInitialId?: string; orgProjectId?: string };
 
 type ResolvedProject = {
@@ -59,18 +59,18 @@ const accountRepositories: ProjectRepositoriesFactory = (env) => new ProjectRepo
 async function resolveProject(env: Env, sessionId: string, target: ProjectTarget): Promise<ResolvedProject> {
   let orgProjectId = target.orgProjectId ?? null;
   if (target.chatInitialId) {
-    const chat = await findChat(env.DB, { id: target.chatInitialId, sessionId });
-    if (!chat) {
+    const workspace = await findWorkspace(env.DB, { id: target.chatInitialId, sessionId });
+    if (!workspace) {
       throw new DataNotFoundError('Project not found');
     }
     const row = await env.DB.prepare('SELECT org_project_id FROM workspaces WHERE id = ?')
-      .bind(chat.id)
+      .bind(workspace.id)
       .first<{ org_project_id: string | null }>();
     orgProjectId = row?.org_project_id ?? null;
     if (!orgProjectId) {
       return {
-        repo: nativeProjectRepo(chat.initial_id),
-        name: chat.description?.trim() || 'project',
+        repo: nativeProjectRepo(workspace.initial_id),
+        name: workspace.description?.trim() || 'project',
         role: 'owner',
         orgProjectId: null,
       };
@@ -149,7 +149,7 @@ export async function projectCloneAccess(
 
 /**
  * A new CloudChef app copied from the project at `commit`, with its history up to there: its own repository
- * (`p-<new chat>`) and a new chat, whose workspace starts from that repository's main when it opens.
+ * (`p-<new workspace>`) and a new workspace, which starts from that repository's main when it opens.
  */
 export async function forkProject(
   env: Env,
@@ -168,12 +168,16 @@ export async function forkProject(
   }
   const initialId = crypto.randomUUID();
   await store.fork(project.repo, nativeProjectRepo(initialId), commit.hash === head ? {} : { commit: commit.hash });
-  const chat = await ensureInitialChat(env.DB, { id: crypto.randomUUID(), creatorId: args.sessionId, initialId });
+  const workspace = await ensureInitialWorkspace(env.DB, {
+    id: crypto.randomUUID(),
+    creatorId: args.sessionId,
+    initialId,
+  });
   // It holds the copied app already, so it is listed as one and never discarded as empty.
   await env.DB.prepare(
     `UPDATE workspaces SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
   )
-    .bind(`${project.name} (fork)`.slice(0, 200), chat.id)
+    .bind(`${project.name} (fork)`.slice(0, 200), workspace.id)
     .run();
   return { initialId };
 }
@@ -181,7 +185,7 @@ export async function forkProject(
 /**
  * Imports a repository from elsewhere (GitHub) as one of this person's projects, in the account this
  * runtime deploys into: the control plane records the project (and, for a private repository, says how
- * to read it), its history becomes the project's repository, and a chat opens on it as a team project's does.
+ * to read it), its history becomes the project's repository, and a workspace opens on it as a team project's does.
  */
 export async function importProject(
   env: Env,
@@ -267,7 +271,7 @@ export async function importProject(
       409,
     );
   }
-  const { initialId } = await openLinkedChat(env.DB, {
+  const { initialId } = await openLinkedWorkspace(env.DB, {
     sessionId: args.sessionId,
     id: crypto.randomUUID(),
     orgProjectId: registered.projectId,
@@ -364,7 +368,7 @@ export async function userRuntimeProjectUploadAction(
         }
       })(),
     );
-    const { initialId } = await openLinkedChat(args.env.DB, {
+    const { initialId } = await openLinkedWorkspace(args.env.DB, {
       sessionId: args.userId,
       id: crypto.randomUUID(),
       orgProjectId: projectId,
@@ -409,7 +413,7 @@ export async function userRuntimeProjectCreateEmptyAction(
         }
       })(),
     );
-    const { initialId } = await openLinkedChat(args.env.DB, {
+    const { initialId } = await openLinkedWorkspace(args.env.DB, {
       sessionId: args.userId,
       id: crypto.randomUUID(),
       orgProjectId: projectId,
@@ -462,7 +466,7 @@ export async function userRuntimeProjectReadAccessAction(
 const appReadAccessSchema = z.strictObject({ appId: z.string().uuid() });
 
 /**
- * `POST /v1/apps/read-access`: a short-lived read token for one of this person's apps (a chat's own repository),
+ * `POST /v1/apps/read-access`: a short-lived read token for one of this person's apps (a workspace's own repository),
  * for CloudChef to copy it or let someone read it while it is public.
  */
 export async function userRuntimeAppReadAccessAction(
@@ -474,7 +478,7 @@ export async function userRuntimeAppReadAccessAction(
     return Response.json({ error: 'Name the app.' }, { status: 400 });
   }
   try {
-    // One of this person's own apps: a chat of theirs that isn't a team project's.
+    // One of this person's own apps: a workspace of theirs that isn't a team project's.
     const app = await args.env.DB.prepare(
       'SELECT 1 AS found FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
     )
@@ -508,7 +512,7 @@ const appCopySchema = z.strictObject({
 });
 
 /**
- * `POST /v1/apps/copy`: a new app of this person's (its own repository `p-<new chat>`, and a chat on it) whose
+ * `POST /v1/apps/copy`: a new app of this person's (its own repository `p-<new workspace>`, and a workspace on it) whose
  * history is another app's, read from where CloudChef says with the token it got for it. Its workspace starts
  * from that history when it opens, as a fork's does.
  */
@@ -533,12 +537,16 @@ export async function userRuntimeAppCopyAction(
       await store.deleteRepo(repo).catch(() => undefined);
       throw error;
     }
-    const chat = await ensureInitialChat(args.env.DB, { id: crypto.randomUUID(), creatorId: args.userId, initialId });
+    const workspace = await ensureInitialWorkspace(args.env.DB, {
+      id: crypto.randomUUID(),
+      creatorId: args.userId,
+      initialId,
+    });
     // It holds the copied app already, so it is listed as one and never discarded as empty.
     await args.env.DB.prepare(
       `UPDATE workspaces SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
     )
-      .bind(name, chat.id)
+      .bind(name, workspace.id)
       .run();
     return Response.json({ initialId }, { status: 201, headers: { 'cache-control': 'no-store' } });
   } catch (error) {
@@ -612,7 +620,7 @@ export async function userRuntimeProjectCopyAction(
     } catch (error) {
       console.warn({ event: 'copy_deploy_not_started', message: String(error) });
     }
-    const { initialId } = await openLinkedChat(args.env.DB, {
+    const { initialId } = await openLinkedWorkspace(args.env.DB, {
       sessionId: args.userId,
       id: crypto.randomUUID(),
       orgProjectId: projectId,

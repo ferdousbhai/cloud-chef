@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ensureInitialChat = vi.hoisted(() => vi.fn());
+const ensureInitialWorkspace = vi.hoisted(() => vi.fn());
 const routeAgentRequest = vi.hoisted(() => vi.fn());
 
-vi.mock('~/lib/cloudflare/data/chat-repository.server', () => ({ ensureInitialChat }));
+vi.mock('~/lib/cloudflare/data/workspace-repository.server', () => ({ ensureInitialWorkspace }));
 vi.mock('agents', () => ({ routeAgentRequest }));
 
 import { routeUserRuntimeAgentRequest } from './agent-request-identity';
@@ -30,7 +30,7 @@ function route(pathname: string, env: Env, userId = 'owner') {
 
 describe('user-runtime Agent routing', () => {
   beforeEach(() => {
-    ensureInitialChat.mockReset().mockResolvedValue({ id: 'claimed-chat', created: true });
+    ensureInitialWorkspace.mockReset().mockResolvedValue({ id: 'claimed-chat', created: true });
     routeAgentRequest.mockReset().mockResolvedValue(new Response('routed'));
   });
 
@@ -124,7 +124,7 @@ describe('user-runtime Agent routing', () => {
   it('atomically claims a new canonical root Agent name', async () => {
     const agentName = 'e59066e3-07a0-4757-aead-a736431b9218';
     expect((await route(`/agents/conversation-agent/${agentName}`, envWithChats()))?.status).toBe(200);
-    expect(ensureInitialChat).toHaveBeenCalledWith(
+    expect(ensureInitialWorkspace).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ creatorId: 'owner', initialId: agentName }),
     );
@@ -134,18 +134,18 @@ describe('user-runtime Agent routing', () => {
     'does not provision an unrecognized non-root Agent name: %s',
     async (agentName) => {
       expect((await route(`/agents/conversation-agent/${agentName}`, envWithChats()))?.status).toBe(404);
-      expect(ensureInitialChat).not.toHaveBeenCalled();
+      expect(ensureInitialWorkspace).not.toHaveBeenCalled();
     },
   );
 
   it('still routes an existing legacy Agent name', async () => {
     const env = envWithChats([{ creatorId: 'owner' }]);
     expect((await route('/agents/conversation-agent/legacy-name', env))?.status).toBe(200);
-    expect(ensureInitialChat).not.toHaveBeenCalled();
+    expect(ensureInitialWorkspace).not.toHaveBeenCalled();
   });
 
   it('classifies a raced root Agent collision as not found', async () => {
-    ensureInitialChat.mockRejectedValue(new Error('UNIQUE constraint failed: conversations.agent_name'));
+    ensureInitialWorkspace.mockRejectedValue(new Error('UNIQUE constraint failed: conversations.agent_name'));
     const agentName = 'e59066e3-07a0-4757-aead-a736431b9218';
     const prepared: Array<{ query: string; values: unknown[] }> = [];
     const db = {
@@ -169,7 +169,7 @@ describe('user-runtime Agent routing', () => {
   });
 
   it('adopts a raced root Agent claim owned by the runtime subject', async () => {
-    ensureInitialChat.mockRejectedValue(new Error('UNIQUE constraint failed: conversations.agent_name'));
+    ensureInitialWorkspace.mockRejectedValue(new Error('UNIQUE constraint failed: conversations.agent_name'));
     const agentName = 'e59066e3-07a0-4757-aead-a736431b9218';
     const db = {
       prepare: vi.fn((query: string) => ({

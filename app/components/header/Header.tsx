@@ -1,6 +1,6 @@
 import { useStore } from '@nanostores/react';
 import { lazy, Suspense, useState } from 'react';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 import { ChatDescription } from '~/components/header/ChatDescription.client';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { CheckCircledIcon, ExitIcon, GearIcon, GlobeIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';

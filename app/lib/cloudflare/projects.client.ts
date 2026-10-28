@@ -152,6 +152,6 @@ function attachmentName(disposition: string | null): string | null {
 }
 
 /** Opens a project's chat with a full page load, which starts its workspace afresh. */
-export function openProjectChat(initialId: string): void {
+export function openProjectWorkspace(initialId: string): void {
   window.location.assign(`/chat/${encodeURIComponent(initialId)}`);
 }

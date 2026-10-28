@@ -4,8 +4,8 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserRuntimeRequestError } from './client';
-import { useAllSubchatsState } from './data-hooks';
-import { useChatHistory } from './chat-history-db';
+import { useAllConversationsState } from './data-hooks';
+import { useWorkspaceHistory } from './workspace-history-db';
 import { queryClient as collectionQueryClient } from '~/lib/stores/reactQueryClient';
 
 const executeDataOperation = vi.hoisted(() => vi.fn());
@@ -28,11 +28,11 @@ vi.mock('./client', () => {
 });
 
 function useProjectHistoryError() {
-  return useChatHistory('error-user').error;
+  return useWorkspaceHistory('error-user').error;
 }
 
 function useSubchatHistoryError() {
-  return useAllSubchatsState({ chatId: 'error-chat', sessionId: 'error-user' }).error;
+  return useAllConversationsState({ workspaceId: 'error-chat', sessionId: 'error-user' }).error;
 }
 
 async function waitForReactUpdate(assertion: () => void): Promise<void> {

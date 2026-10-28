@@ -5,14 +5,14 @@ import { useChatHomepage } from '~/lib/stores/startup';
 const EMPTY_MESSAGES: CloudChefMessage[] = [];
 
 export function HomepageChat({ initialId, initialPrompt }: { initialId: string; initialPrompt: string }) {
-  const { initializeChat, discardEmptyChat, onBuilderRequestStart, initialMessages, subchats, transcript } =
+  const { initializeWorkspace, discardEmptyWorkspace, onBuilderRequestStart, initialMessages, subchats, transcript } =
     useChatHomepage(initialId);
 
   return (
     <Chat
       initialMessages={initialMessages ?? EMPTY_MESSAGES}
-      initializeChat={initializeChat}
-      discardEmptyChat={discardEmptyChat}
+      initializeWorkspace={initializeWorkspace}
+      discardEmptyWorkspace={discardEmptyWorkspace}
       onBuilderRequestStart={onBuilderRequestStart}
       subchats={subchats}
       initialPrompt={initialPrompt}

@@ -183,7 +183,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
         <View {...slidingPosition({ view: 'terminal', selectedView: controller.selectedView })}>
           {controller.hasLoadedTerminal ? (
             <Suspense fallback={null}>
-              <TerminalPanel chatId={controller.projectId} />
+              <TerminalPanel workspaceId={controller.projectId} />
             </Suspense>
           ) : (
             <div />

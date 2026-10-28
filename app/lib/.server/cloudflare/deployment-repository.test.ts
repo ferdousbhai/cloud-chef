@@ -438,7 +438,7 @@ async function create(index: number, project = 'project') {
   return createDeployment({
     db,
     id: `deployment-${index}`,
-    chatId: 'chat-1',
+    workspaceId: 'chat-1',
     userId: 'user-1',
     connectionId: 'connection-1',
     connectionGeneration: 1,

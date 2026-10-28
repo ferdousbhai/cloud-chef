@@ -1,9 +1,9 @@
 import { format, isAfter, isThisWeek, isThisYear, isToday, isYesterday, subDays } from 'date-fns';
-import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
+import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 
-type Bin = { category: string; items: ChatHistorySummary[] };
+type Bin = { category: string; items: WorkspaceSummary[] };
 
-export function binDates(items: ChatHistorySummary[]) {
+export function binDates(items: WorkspaceSummary[]) {
   const list = [...items].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
   const bins = new Map<string, Bin>();

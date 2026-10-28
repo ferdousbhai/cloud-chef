@@ -60,7 +60,7 @@ vi.mock('~/lib/stores/workbench.client', async () => {
     },
   };
 });
-import { ChatIdProvider } from '~/lib/stores/chatId';
+import { WorkspaceIdProvider } from '~/lib/stores/workspaceId';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { useWorkbenchController } from './useWorkbenchController';
 
@@ -194,9 +194,9 @@ async function mountController() {
   root = createRoot(container);
   await act(async () =>
     root?.render(
-      <ChatIdProvider chatId="chat">
+      <WorkspaceIdProvider workspaceId="chat">
         <Harness />
-      </ChatIdProvider>,
+      </WorkspaceIdProvider>,
     ),
   );
   return () => controller;

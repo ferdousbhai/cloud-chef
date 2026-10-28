@@ -1,6 +1,6 @@
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { transcriptAgentName } from 'cloudchef-agent/transcript';
-import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
+import { EMPTY_WORKSPACE_DISCARD_PREDICATE } from './empty-workspace.server';
 
 export const AGENT_GC_SWEEP_LIMIT = 4;
 export const AGENT_GC_RETRY_BASE_MS = 30_000;
@@ -33,7 +33,7 @@ export function prepareAgentGcCandidatesStatement(
        FROM workspaces
        JOIN conversations AS transcripts ON transcripts.workspace_id = workspaces.id
        WHERE workspaces.creator_id = ? AND workspaces.initial_id = ?
-         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'workspaces.is_deleted = 0'}
+         AND ${args.requireEmpty ? EMPTY_WORKSPACE_DISCARD_PREDICATE : 'workspaces.is_deleted = 0'}
        ON CONFLICT(workspace_id, conversation_index) DO UPDATE SET
          not_before = MIN(agent_gc_candidates.not_before, excluded.not_before)`,
     )
@@ -87,7 +87,7 @@ async function destroyCandidateAgent(
     )
       .bind(retryAt, candidate.workspace_id, candidate.conversation_index, candidate.not_before)
       .run();
-    logger.warn('Unable to destroy deferred ConversationAgent', { subchatIndex: candidate.conversation_index });
+    logger.warn('Unable to destroy deferred ConversationAgent', { conversationIndex: candidate.conversation_index });
   }
 }
 

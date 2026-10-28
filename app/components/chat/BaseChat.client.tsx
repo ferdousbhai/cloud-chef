@@ -5,7 +5,7 @@ import { MessageInput } from './MessageInput';
 import { Messages } from './Messages.client';
 import { ActivityPanel } from './ActivityPanel';
 import { workbenchStore } from '~/lib/stores/workbench.client';
-import { useChatId } from '~/lib/stores/chatId';
+import { useWorkspaceId } from '~/lib/stores/workspaceId';
 import { setMessageInput } from '~/lib/stores/messageInput';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { classNames } from '~/utils/classNames';
@@ -20,11 +20,11 @@ import { MotionConfig } from 'framer-motion';
 import { useStore } from '@nanostores/react';
 import { toast } from 'sonner';
 import { SubchatBar } from './SubchatBar';
-import { refreshSubchats, useMutation } from '~/lib/cloudflare/data-hooks';
+import { refreshConversations, useMutation } from '~/lib/cloudflare/data-hooks';
 import { api } from '~/lib/cloudflare/data-api';
 import { subchatIndexStore, useIsSubchatLoaded } from '~/lib/stores/subchats';
 import type { BuildProgress } from './build-progress';
-import type { SubchatSummary } from './subchat-model';
+import type { ConversationSummary } from './subchat-model';
 import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
 import type { BuilderPublicationState } from '~/agents/builder-publication-progress';
 import { DeploymentStatus, type ProductionRequestOutcome } from './DeploymentStatus.client';
@@ -62,7 +62,7 @@ interface BaseChatProps {
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 
-  subchats?: SubchatSummary[];
+  subchats?: ConversationSummary[];
   onSubchatTitleChange?: (subchatIndex: number, title: string) => void;
 }
 
@@ -91,16 +91,16 @@ export function BaseChat({
 }: BaseChatProps) {
   const isStreaming = isStreamStatusActive(streamStatus);
   const currentSubchatIndex = useStore(subchatIndexStore) ?? 0;
-  const createSubchat = useMutation(api.subchats.create);
-  const setSubchatDescription = useMutation(api.subchats.setDescription);
+  const createConversation = useMutation(api.subchats.create);
+  const setConversationDescription = useMutation(api.subchats.setDescription);
   const isSubchatLoaded = useIsSubchatLoaded();
-  const chatId = useChatId();
+  const workspaceId = useWorkspaceId();
   const userId = useUserIdOrNullOrLoading();
-  const activeChatContextRef = React.useRef<{ chatId: string; userId: string | null | undefined } | null>(null);
+  const activeChatContextRef = React.useRef<{ workspaceId: string; userId: string | null | undefined } | null>(null);
   const createSubchatPendingRef = React.useRef<symbol | null>(null);
 
   React.useLayoutEffect(() => {
-    const context = { chatId, userId };
+    const context = { workspaceId, userId };
     activeChatContextRef.current = context;
     createSubchatPendingRef.current = null;
     return () => {
@@ -109,11 +109,16 @@ export function BaseChat({
       }
       createSubchatPendingRef.current = null;
     };
-  }, [chatId, userId]);
+  }, [workspaceId, userId]);
 
   const handleCreateSubchat = useCallback(async (): Promise<boolean> => {
     const context = activeChatContextRef.current;
-    if (!userId || context?.chatId !== chatId || context.userId !== userId || createSubchatPendingRef.current) {
+    if (
+      !userId ||
+      context?.workspaceId !== workspaceId ||
+      context.userId !== userId ||
+      createSubchatPendingRef.current
+    ) {
       return false;
     }
     const attempt = Symbol('create-subchat');
@@ -122,7 +127,7 @@ export function BaseChat({
     try {
       let subchatIndex: number;
       try {
-        subchatIndex = await createSubchat({ chatId });
+        subchatIndex = await createConversation({ chatId: workspaceId });
       } catch (error) {
         if (isActiveChat()) {
           toast.error(messageOf(error, 'Unable to create a new chat.'));
@@ -133,7 +138,7 @@ export function BaseChat({
         return true;
       }
       try {
-        await refreshSubchats({ chatId, sessionId: userId });
+        await refreshConversations({ workspaceId, sessionId: userId });
         if (!isActiveChat()) {
           return true;
         }
@@ -155,18 +160,18 @@ export function BaseChat({
         createSubchatPendingRef.current = null;
       }
     }
-  }, [createSubchat, chatId, userId]);
+  }, [createConversation, workspaceId, userId]);
   const handleRenameSubchat = useCallback(
     async (title: string): Promise<boolean> => {
       const context = activeChatContextRef.current;
-      if (!userId || context?.chatId !== chatId || context.userId !== userId) {
+      if (!userId || context?.workspaceId !== workspaceId || context.userId !== userId) {
         return false;
       }
       const isActiveChat = () =>
         activeChatContextRef.current === context && (subchatIndexStore.get() ?? 0) === currentSubchatIndex;
       try {
-        await setSubchatDescription({
-          chatId,
+        await setConversationDescription({
+          chatId: workspaceId,
           subchatIndex: currentSubchatIndex,
           description: title,
         });
@@ -178,7 +183,7 @@ export function BaseChat({
       }
 
       try {
-        await refreshSubchats({ chatId, sessionId: userId });
+        await refreshConversations({ workspaceId, sessionId: userId });
       } catch (error) {
         if (isActiveChat()) {
           toast.error(
@@ -193,7 +198,7 @@ export function BaseChat({
       }
       return true;
     },
-    [chatId, currentSubchatIndex, userId, setSubchatDescription, onSubchatTitleChange],
+    [workspaceId, currentSubchatIndex, userId, setConversationDescription, onSubchatTitleChange],
   );
 
   const lastUserMessage = messages.findLast((message) => message.role === 'user');
@@ -258,7 +263,7 @@ export function BaseChat({
                 ) : (
                   <>
                     <SubchatBar
-                      chatId={chatId}
+                      workspaceId={workspaceId}
                       subchats={subchats}
                       currentSubchatIndex={currentSubchatIndex}
                       isStreaming={isStreaming}

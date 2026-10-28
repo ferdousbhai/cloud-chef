@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-export const MAX_SUBCHAT_INDEX = 10_000;
+export const MAX_CONVERSATION_INDEX = 10_000;
 const MAX_IDENTIFIER_LENGTH = 512;
 const MAX_DESCRIPTION_LENGTH = 200;
 const identifierSchema = z.string().min(1).max(MAX_IDENTIFIER_LENGTH);
 const descriptionSchema = z.string().max(MAX_DESCRIPTION_LENGTH);
-const subchatIndexSchema = z.number().int().nonnegative().max(MAX_SUBCHAT_INDEX);
+const subchatIndexSchema = z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX);
 const chatIdentityArgsSchema = z.object({ id: identifierSchema });
 const chatArgsSchema = z.object({ chatId: identifierSchema });
 const commitSchema = z.string().regex(/^[0-9a-f]{40}$/);

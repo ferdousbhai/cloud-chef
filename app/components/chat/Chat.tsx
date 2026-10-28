@@ -3,11 +3,11 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type 
 import { useSnapScroll } from '~/lib/hooks/useSnapScroll';
 import { useUnsavedEditsGuard } from '~/lib/hooks/useUnsavedEditsGuard';
 import { useFileSaveStatus } from '~/lib/stores/file-save-status';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { BaseChat } from './BaseChat.client';
-import { useChatId } from '~/lib/stores/chatId';
+import { useWorkspaceId } from '~/lib/stores/workspaceId';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { authClient } from '~/lib/auth-client';
 import type { ChatProps } from './chat-types';
@@ -56,8 +56,8 @@ const logger = createScopedLogger('Chat');
 export const Chat = memo(
   ({
     initialMessages,
-    initializeChat,
-    discardEmptyChat,
+    initializeWorkspace,
+    discardEmptyWorkspace,
     onBuilderRequestStart,
     subchats,
     initialPrompt,
@@ -119,8 +119,8 @@ export const Chat = memo(
       <AuthenticatedChat
         accountId={userId}
         initialMessages={initialMessages}
-        initializeChat={initializeChat}
-        discardEmptyChat={discardEmptyChat}
+        initializeWorkspace={initializeWorkspace}
+        discardEmptyWorkspace={discardEmptyWorkspace}
         onBuilderRequestStart={onBuilderRequestStart}
         subchats={subchats}
         pendingInitialMessage={pendingInitialMessage}
@@ -294,8 +294,8 @@ const AuthenticatedChat = memo(
   ({
     accountId,
     initialMessages,
-    initializeChat,
-    discardEmptyChat,
+    initializeWorkspace,
+    discardEmptyWorkspace,
     onBuilderRequestStart,
     subchats,
     pendingInitialMessage,
@@ -306,7 +306,7 @@ const AuthenticatedChat = memo(
     pendingInitialMessage: string | null;
     clearPendingInitialMessage: () => void;
   }) => {
-    const chatInitialId = useChatId();
+    const chatInitialId = useWorkspaceId();
     const workspacePreparing = useStore(userWorkspacePreparingStore);
     const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
     const presentationId = workspacePresentationId(accountId, transcript.agentName);
@@ -417,8 +417,8 @@ const AuthenticatedChat = memo(
       messages,
       chatStarted,
       streamStatus,
-      initializeChat,
-      discardEmptyChat,
+      initializeWorkspace,
+      discardEmptyWorkspace,
       sendChatMessage,
       steerChatMessage: steerMessage,
       enableAutoScroll,

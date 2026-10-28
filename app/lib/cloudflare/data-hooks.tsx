@@ -10,13 +10,13 @@ import {
   type DataOperationArgs,
   type DataOperationPath,
   type DataOperationResult,
-  type SubchatSummary,
+  type ConversationSummary,
 } from './data-api';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { useQueryCacheError } from './use-query-cache-error';
 import { collectionCache, useCollectionRetry } from './query-collections';
 
-type SubchatQueryArgs = { chatId: string; sessionId: string };
+type ConversationQueryArgs = { workspaceId: string; sessionId: string };
 
 export function useMutation<Path extends DataOperationPath>(path: Path) {
   const { mutateAsync } = useTanStackMutation<DataOperationResult<Path>, Error, DataOperationArgs<Path>>({
@@ -26,24 +26,24 @@ export function useMutation<Path extends DataOperationPath>(path: Path) {
   return mutateAsync;
 }
 
-const subchatSummarySchema = z.object({
+const conversationSummarySchema = z.object({
   subchatIndex: z.number().int().nonnegative(),
   description: z.string().optional(),
   updatedAt: z.number().int(),
   transcript: transcriptIdentitySchema,
-}) satisfies z.ZodType<SubchatSummary>;
+}) satisfies z.ZodType<ConversationSummary>;
 
-export function subchatQueryKey(args: SubchatQueryArgs | 'skip') {
+export function conversationsQueryKey(args: ConversationQueryArgs | 'skip') {
   return ['cloudchef-data', api.subchats.get, args] as const;
 }
 
-function createSubchatCollection(args: SubchatQueryArgs) {
+function createSubchatCollection(args: ConversationQueryArgs) {
   return createCollection(
     queryCollectionOptions({
-      id: `subchats:${args.chatId}`,
-      schema: subchatSummarySchema,
-      queryKey: subchatQueryKey(args),
-      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, { chatId: args.chatId }, { signal }),
+      id: `conversations:${args.workspaceId}`,
+      schema: conversationSummarySchema,
+      queryKey: conversationsQueryKey(args),
+      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, { chatId: args.workspaceId }, { signal }),
       queryClient,
       getKey: (item) => item.subchatIndex,
     }),
@@ -53,24 +53,24 @@ function createSubchatCollection(args: SubchatQueryArgs) {
 const MAX_SUBCHAT_COLLECTIONS = 32;
 const subchatCollections = collectionCache<ReturnType<typeof createSubchatCollection>>(MAX_SUBCHAT_COLLECTIONS);
 
-function subchatScopeKey(args: SubchatQueryArgs): string {
-  return `${args.sessionId}:${args.chatId}`;
+function subchatScopeKey(args: ConversationQueryArgs): string {
+  return `${args.sessionId}:${args.workspaceId}`;
 }
 
-export async function refreshSubchats(args: SubchatQueryArgs): Promise<void> {
+export async function refreshConversations(args: ConversationQueryArgs): Promise<void> {
   const collection = subchatCollections.find(subchatScopeKey(args));
   if (collection) {
     await collection.utils.refetch({ throwOnError: true });
     return;
   }
-  await queryClient.invalidateQueries({ queryKey: subchatQueryKey(args) });
+  await queryClient.invalidateQueries({ queryKey: conversationsQueryKey(args) });
 }
 
-export function useAllSubchatsState(args: SubchatQueryArgs | 'skip') {
+export function useAllConversationsState(args: ConversationQueryArgs | 'skip') {
   const collection =
     args !== 'skip' ? subchatCollections.get(subchatScopeKey(args), () => createSubchatCollection(args)) : undefined;
   const query = useLiveQuery(() => collection, [collection]);
-  const error = useQueryCacheError(args === 'skip' ? undefined : subchatQueryKey(args));
+  const error = useQueryCacheError(args === 'skip' ? undefined : conversationsQueryKey(args));
   const retry = useCollectionRetry(collection);
   if (args === 'skip' || !collection) {
     return { subchats: undefined, error: undefined, retry };

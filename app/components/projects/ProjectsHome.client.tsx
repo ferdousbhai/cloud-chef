@@ -22,8 +22,8 @@ import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { authClient } from '~/lib/auth-client';
-import { useChatHistory } from '~/lib/cloudflare/chat-history-db';
-import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
+import { useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
+import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import {
   loadApps,
   loadTeamProjects,
@@ -35,7 +35,7 @@ import {
 } from '~/lib/cloudflare/org-projects.client';
 import {
   downloadProjectArchive,
-  openProjectChat,
+  openProjectWorkspace,
   retryProjectDeploy,
   type ProjectRef,
 } from '~/lib/cloudflare/projects.client';
@@ -130,7 +130,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
           name={dialog.name}
           canRevert={dialog.canRevert}
           canFork={dialog.canFork}
-          onOpenProject={openProjectChat}
+          onOpenProject={openProjectWorkspace}
           onClose={() => setDialog(null)}
         />
       ) : null}
@@ -143,7 +143,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
       {dialog?.kind === 'import' ? (
         <ImportFromGitHubDialog
           orgId={team?.orgId ?? null}
-          onOpenProject={openProjectChat}
+          onOpenProject={openProjectWorkspace}
           onClose={() => setDialog(null)}
         />
       ) : null}
@@ -173,7 +173,11 @@ export function ProjectsHome({ userId }: { userId: string }) {
         />
       ) : null}
       {dialog?.kind === 'copy' ? (
-        <CopyProjectDialog project={dialog.project} onOpenProject={openProjectChat} onClose={() => setDialog(null)} />
+        <CopyProjectDialog
+          project={dialog.project}
+          onOpenProject={openProjectWorkspace}
+          onClose={() => setDialog(null)}
+        />
       ) : null}
       {dialog?.kind === 'make-public' ? (
         <ConfirmationDialog
@@ -193,7 +197,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
         />
       ) : null}
       {dialog?.kind === 'upload' ? (
-        <UploadZipDialog onOpenProject={openProjectChat} onClose={() => setDialog(null)} />
+        <UploadZipDialog onOpenProject={openProjectWorkspace} onClose={() => setDialog(null)} />
       ) : null}
     </div>
   );
@@ -247,7 +251,7 @@ function OwnProjects({
   action: ReactNode;
   onDialog: (dialog: OpenDialog) => void;
 }) {
-  const history = useChatHistory(userId);
+  const history = useWorkspaceHistory(userId);
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
   const added = useConnectionProjects(!hideWhenEmpty, onDialog);
@@ -340,7 +344,7 @@ function OwnProjectCard({
   onChangeVisibility,
   onDialog,
 }: {
-  project: ChatHistorySummary;
+  project: WorkspaceSummary;
   /** The app as CloudChef records it; null until it has. */
   app: App | null;
   onChangeVisibility: (app: App, name: string, visibility: ProjectVisibility) => Promise<void>;

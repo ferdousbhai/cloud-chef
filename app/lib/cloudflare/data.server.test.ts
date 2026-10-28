@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from './data.server';
-import { ensureInitialChat } from './data/chat-repository.server';
+import { ensureInitialWorkspace } from './data/workspace-repository.server';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 
 describe('a new conversation in a chat', () => {
   it('closes the one before, then has it stop and hand its publication over to the new one', async () => {
     const { database, db } = userWorkspaceDatabase();
-    await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
+    await ensureInitialWorkspace(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
     const handover = { productionRevision: 'a'.repeat(64), publicationPending: true };
     const calls: unknown[] = [];
     const lastIndex = () => database.prepare('SELECT last_conversation_index AS last FROM workspaces').get()?.last;
@@ -34,7 +34,7 @@ describe('a new conversation in a chat', () => {
 
   it('is started even when the one before cannot hand over, and the new one publishes again', async () => {
     const { db } = userWorkspaceDatabase();
-    await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
+    await ensureInitialWorkspace(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
     const ConversationAgent = {
       getByName: () => ({
         getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),

@@ -10,13 +10,13 @@ import type {
 } from '~/components/editor/codemirror/CodeMirrorEditor';
 import useViewport from '~/lib/hooks/useViewport';
 import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench.client';
-import { chatStore, useChatId } from '~/lib/stores/chatId';
+import { chatStore, useWorkspaceId } from '~/lib/stores/workspaceId';
 import { messageOf } from '~/lib/json-request';
 
 const logger = createScopedLogger('WorkbenchController');
 
 export function useWorkbenchController(isStreaming?: boolean) {
-  const projectId = useChatId();
+  const projectId = useWorkspaceId();
   const siteState = useStore(workbenchStore.siteState);
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const selectedFile = useStore(workbenchStore.selectedFile);

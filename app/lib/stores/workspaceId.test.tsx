@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { createMemoryHistory, createRootRoute, createRoute, createRouter } from '@tanstack/react-router';
-import { chatUrlMask, maskedChatNavigation } from './chatId';
+import { chatUrlMask, maskedChatNavigation } from './workspaceId';
 
 describe('chat URL lifecycle', () => {
   it('builds a reload-safe mask for the resumable chat URL', () => {

@@ -2,22 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ensureInitialChat, openLinkedChat } from './chat-repository.server';
-import { discardEmptyChat } from './chat-service.server';
+import { ensureInitialWorkspace, openLinkedWorkspace } from './workspace-repository.server';
+import { discardEmptyWorkspace } from './workspace-service.server';
 
-describe('ensureInitialChat', () => {
+describe('ensureInitialWorkspace', () => {
   it('revives the empty chat a failed first message discarded', async () => {
     // The homepage keeps its chat id, so this is the ordinary "send failed, send again" path.
     const { sqlite, db } = workspaceDatabase();
     await expect(
-      ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' }),
+      ensureInitialWorkspace(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' }),
     ).resolves.toMatchObject({ id: 'chat-row', created: true });
-    await discardEmptyChat(db, { sessionId: 'session', id: 'chat' });
+    await discardEmptyWorkspace(db, { sessionId: 'session', id: 'chat' });
     expect(count(sqlite, 'agent_gc_candidates')).toBe(1);
     expect(count(sqlite, 'app_resource_gc_candidates')).toBe(1);
 
     await expect(
-      ensureInitialChat(db, { id: 'chat-row-2', creatorId: 'session', initialId: 'chat' }),
+      ensureInitialWorkspace(db, { id: 'chat-row-2', creatorId: 'session', initialId: 'chat' }),
     ).resolves.toMatchObject({ id: 'chat-row', is_deleted: 0, has_messages: 0, created: true });
 
     // One catalog row and one transcript identity, and the queued cleanup is withdrawn with them.
@@ -29,12 +29,12 @@ describe('ensureInitialChat', () => {
 
   it('leaves a discarded chat that accepted content deleted', async () => {
     const { sqlite, db } = workspaceDatabase();
-    await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
+    await ensureInitialWorkspace(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
     sqlite.exec("UPDATE workspaces SET has_messages = 1, is_deleted = 1 WHERE id = 'chat-row'");
 
-    await expect(ensureInitialChat(db, { id: 'chat-row-2', creatorId: 'session', initialId: 'chat' })).rejects.toThrow(
-      'Unable to initialize chat',
-    );
+    await expect(
+      ensureInitialWorkspace(db, { id: 'chat-row-2', creatorId: 'session', initialId: 'chat' }),
+    ).rejects.toThrow('Unable to initialize chat');
     expect(count(sqlite, 'workspaces')).toBe(1);
   });
 });
@@ -44,10 +44,10 @@ function count(sqlite: DatabaseSync, table: string): number {
 }
 
 /** The real user-workspace schema, so the partial unique index and agent_name uniqueness apply. */
-describe('openLinkedChat', () => {
+describe('openLinkedWorkspace', () => {
   it('opens one chat per team project, already bound to it, and returns to it after', async () => {
     const { sqlite, db } = workspaceDatabase();
-    const first = await openLinkedChat(db, { sessionId: 'session', id: 'first-id', orgProjectId: 'project-1' });
+    const first = await openLinkedWorkspace(db, { sessionId: 'session', id: 'first-id', orgProjectId: 'project-1' });
     expect(first).toEqual({ initialId: 'first-id', created: true });
     // Bound before its agent ever starts: seeding reads the project from the row.
     expect(sqlite.prepare("SELECT org_project_id FROM workspaces WHERE initial_id = 'first-id'").get()).toEqual({
@@ -56,10 +56,10 @@ describe('openLinkedChat', () => {
     expect(sqlite.prepare('SELECT agent_name FROM conversations').all()).toEqual([{ agent_name: 'first-id' }]);
 
     await expect(
-      openLinkedChat(db, { sessionId: 'session', id: 'second-id', orgProjectId: 'project-1' }),
+      openLinkedWorkspace(db, { sessionId: 'session', id: 'second-id', orgProjectId: 'project-1' }),
     ).resolves.toEqual({ initialId: 'first-id', created: false });
     await expect(
-      openLinkedChat(db, { sessionId: 'session', id: 'other-id', orgProjectId: 'project-2' }),
+      openLinkedWorkspace(db, { sessionId: 'session', id: 'other-id', orgProjectId: 'project-2' }),
     ).resolves.toEqual({ initialId: 'other-id', created: true });
   });
 });

@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { createSubchat, discardEmptyChat, getAllChats, getSubchats, removeChat } from './chat-service.server';
-import type { ChatRow, ChatTranscriptRow } from './types';
+import {
+  createConversation,
+  discardEmptyWorkspace,
+  getAllWorkspaces,
+  getConversations,
+  removeWorkspace,
+} from './workspace-service.server';
+import type { WorkspaceRow, ConversationRow } from './types';
 import { AGENT_GC_GRACE_PERIOD_MS } from './agent-gc.server';
 
 describe('empty chat lifecycle', () => {
@@ -23,8 +29,8 @@ describe('empty chat lifecycle', () => {
         .run(chatId);
     }
 
-    await discardEmptyChat(database.db, { sessionId: 'owner', id: 'empty' });
-    await discardEmptyChat(database.db, { sessionId: 'owner', id: 'message' });
+    await discardEmptyWorkspace(database.db, { sessionId: 'owner', id: 'empty' });
+    await discardEmptyWorkspace(database.db, { sessionId: 'owner', id: 'message' });
 
     expect(database.sqlite.prepare(`SELECT id, is_deleted FROM workspaces ORDER BY id`).all()).toEqual([
       { id: 'empty-row', is_deleted: 1 },
@@ -50,10 +56,10 @@ describe('chat reads', () => {
     });
     const bind = vi.fn(() => ({ all }));
     const prepare = vi.fn(() => ({ bind }));
-    // SAFETY: getAllChats calls only prepare().bind().all(), which this stub provides.
+    // SAFETY: getAllWorkspaces calls only prepare().bind().all(), which this stub provides.
     const db = { prepare } as unknown as D1Database;
 
-    const chats = await getAllChats(db, { sessionId: 'user-1' });
+    const chats = await getAllWorkspaces(db, { sessionId: 'user-1' });
 
     expect(chats.map((chat) => chat.initialId)).toEqual(['initial-c', 'initial-b', 'initial-a']);
     expect(prepare).toHaveBeenCalledWith(
@@ -64,7 +70,7 @@ describe('chat reads', () => {
     expect(bind).toHaveBeenCalledWith('user-1');
   });
 
-  it('lists every subchat of a chat in order', async () => {
+  it('lists every conversation of a chat in order', async () => {
     const subchatRows = [0, 1, 2].map((subchatIndex) => ({
       conversation_index: subchatIndex,
       description: null,
@@ -89,8 +95,11 @@ describe('chat reads', () => {
       }),
     }));
 
-    // SAFETY: getSubchats calls only prepare().bind().first() and .all(), which this stub provides.
-    const subchats = await getSubchats({ prepare } as unknown as D1Database, { sessionId: 'user-1', chatId: 'chat' });
+    // SAFETY: getConversations calls only prepare().bind().first() and .all(), which this stub provides.
+    const subchats = await getConversations({ prepare } as unknown as D1Database, {
+      sessionId: 'user-1',
+      chatId: 'chat',
+    });
 
     expect(subchats.map((item) => item.subchatIndex)).toEqual([0, 1, 2]);
     expect(binds).toEqual([['user-1', 'chat'], ['chat-row']]);
@@ -114,7 +123,7 @@ describe('chat deletion', () => {
       }),
     } as unknown as D1Database;
 
-    await removeChat(db, { sessionId: 'owner', id: 'chat' });
+    await removeWorkspace(db, { sessionId: 'owner', id: 'chat' });
 
     expect(statements).toHaveLength(3);
     expect(statements[0].query).toContain('INSERT INTO agent_gc_candidates');
@@ -126,28 +135,28 @@ describe('chat deletion', () => {
   });
 });
 
-describe('subchat creation', () => {
-  it('rejects subchat creation at the validated index ceiling', async () => {
-    const database = subchatDatabase();
+describe('conversation creation', () => {
+  it('rejects conversation creation at the validated index ceiling', async () => {
+    const database = conversationDatabase();
 
     await expect(
-      createSubchat(database.db, {
+      createConversation(database.db, {
         sessionId: 'user-1',
-        chat: { ...latestChat, last_conversation_index: 10_000 },
-        parent: latestTranscript,
+        workspace: { ...latestWorkspace, last_conversation_index: 10_000 },
+        parent: latestConversation,
         parentRevision: 0,
       }),
     ).rejects.toThrow('maximum number of subchats');
     expect(database.statements).toHaveLength(0);
   });
 
-  it('creates a subchat with its own agent identity and parent checkpoint', async () => {
-    const database = subchatDatabase();
+  it('creates a conversation with its own agent identity and parent checkpoint', async () => {
+    const database = conversationDatabase();
 
-    const created = await createSubchat(database.db, {
+    const created = await createConversation(database.db, {
       sessionId: 'user-1',
-      chat: latestChat,
-      parent: latestTranscript,
+      workspace: latestWorkspace,
+      parent: latestConversation,
       parentRevision: 9,
     });
 
@@ -161,14 +170,14 @@ describe('subchat creation', () => {
     expect(database.statements[1].query).toContain('last_conversation_index = ?');
   });
 
-  it('rejects subchat creation when the chat changes before the batch', async () => {
-    const database = subchatDatabase([0, 0]);
+  it('rejects conversation creation when the workspace changes before the batch', async () => {
+    const database = conversationDatabase([0, 0]);
 
     await expect(
-      createSubchat(database.db, {
+      createConversation(database.db, {
         sessionId: 'user-1',
-        chat: latestChat,
-        parent: latestTranscript,
+        workspace: latestWorkspace,
+        parent: latestConversation,
         parentRevision: 9,
       }),
     ).rejects.toThrow('Chat transcript changed while creating a subchat');
@@ -235,7 +244,7 @@ function emptyChatDatabase(): { sqlite: DatabaseSync; db: D1Database } {
 
 type BoundStatement = { query: string; values: unknown[] };
 
-const latestChat: ChatRow = {
+const latestWorkspace: WorkspaceRow = {
   id: 'chat-row',
   creator_id: 'user-1',
   initial_id: 'chat',
@@ -246,7 +255,7 @@ const latestChat: ChatRow = {
   is_deleted: 0,
 };
 
-const latestTranscript: ChatTranscriptRow = {
+const latestConversation: ConversationRow = {
   workspace_id: 'chat-row',
   conversation_index: 2,
   agent_name: 'chat--transcript-2-0',
@@ -259,9 +268,9 @@ const latestTranscript: ChatTranscriptRow = {
 };
 
 /** A database whose one batch reports `batchChanges` rows changed by each statement. */
-function subchatDatabase(batchChanges = [1, 1]) {
+function conversationDatabase(batchChanges = [1, 1]) {
   const statements: BoundStatement[] = [];
-  // SAFETY: createSubchat only prepares, binds, and batches statements, which this stub provides.
+  // SAFETY: createConversation only prepares, binds, and batches statements, which this stub provides.
   const db = {
     prepare: (query: string) => ({ bind: (...values: unknown[]) => ({ query, values }) }),
     batch: async (batch: BoundStatement[]) => {

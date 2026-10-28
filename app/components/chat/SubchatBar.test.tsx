@@ -63,7 +63,7 @@ describe('SubchatBar', () => {
     await act(async () => {
       root?.render(
         <SubchatBar
-          chatId="chat-1"
+          workspaceId="chat-1"
           subchats={[subchat(0, 'Initial build')]}
           currentSubchatIndex={0}
           isStreaming={false}
@@ -102,18 +102,18 @@ describe('SubchatBar', () => {
   it.each([
     {
       name: 'account',
-      initial: { userId: 'user-1', chatId: 'chat-1', index: 0 },
-      next: { userId: 'user-2', chatId: 'chat-1', index: 0 },
+      initial: { userId: 'user-1', workspaceId: 'chat-1', index: 0 },
+      next: { userId: 'user-2', workspaceId: 'chat-1', index: 0 },
     },
     {
       name: 'chat',
-      initial: { userId: 'user-1', chatId: 'chat-1', index: 0 },
-      next: { userId: 'user-1', chatId: 'chat-2', index: 0 },
+      initial: { userId: 'user-1', workspaceId: 'chat-1', index: 0 },
+      next: { userId: 'user-1', workspaceId: 'chat-2', index: 0 },
     },
     {
       name: 'subchat',
-      initial: { userId: 'user-1', chatId: 'chat-1', index: 0 },
-      next: { userId: 'user-1', chatId: 'chat-1', index: 1 },
+      initial: { userId: 'user-1', workspaceId: 'chat-1', index: 0 },
+      next: { userId: 'user-1', workspaceId: 'chat-1', index: 1 },
     },
   ])('does not let a pending create block or close a dialog in a new $name scope', async ({ initial, next }) => {
     const oldCreate = deferred<boolean>();
@@ -123,7 +123,7 @@ describe('SubchatBar', () => {
     root = createRoot(container);
     const render = (context: typeof initial) => (
       <SubchatBar
-        chatId={context.chatId}
+        workspaceId={context.workspaceId}
         subchats={[subchat(context.index, `Chat ${context.index + 1}`)]}
         currentSubchatIndex={context.index}
         isStreaming={false}
@@ -170,7 +170,7 @@ describe('SubchatBar', () => {
     root = createRoot(container);
     const render = (userId: string) => (
       <SubchatBar
-        chatId="chat-1"
+        workspaceId="chat-1"
         subchats={[subchat(0, 'Initial build')]}
         currentSubchatIndex={0}
         isStreaming={false}
@@ -222,7 +222,7 @@ describe('SubchatBar', () => {
     root = createRoot(container);
     const render = (userId: string, title: string) => (
       <SubchatBar
-        chatId="chat-1"
+        workspaceId="chat-1"
         subchats={[subchat(0, title)]}
         currentSubchatIndex={0}
         isStreaming={false}
@@ -273,13 +273,13 @@ describe('SubchatBar', () => {
   it.each([
     {
       name: 'subchat',
-      initial: { chatId: 'chat-1', index: 0, subchats: [subchat(0, 'First chat'), subchat(1, 'Second chat')] },
-      next: { chatId: 'chat-1', index: 1, subchats: [subchat(0, 'First chat'), subchat(1, 'Second chat')] },
+      initial: { workspaceId: 'chat-1', index: 0, subchats: [subchat(0, 'First chat'), subchat(1, 'Second chat')] },
+      next: { workspaceId: 'chat-1', index: 1, subchats: [subchat(0, 'First chat'), subchat(1, 'Second chat')] },
     },
     {
       name: 'chat',
-      initial: { chatId: 'chat-1', index: 0, subchats: [subchat(0, 'First project')] },
-      next: { chatId: 'chat-2', index: 0, subchats: [subchat(0, 'Second project')] },
+      initial: { workspaceId: 'chat-1', index: 0, subchats: [subchat(0, 'First project')] },
+      next: { workspaceId: 'chat-2', index: 0, subchats: [subchat(0, 'Second project')] },
     },
   ])('discards a stale rename when the active $name changes', async ({ initial, next }) => {
     const handleRenameSubchat = vi.fn().mockResolvedValue(true);
@@ -288,7 +288,7 @@ describe('SubchatBar', () => {
     root = createRoot(container);
     const render = (context: typeof initial) => (
       <SubchatBar
-        chatId={context.chatId}
+        workspaceId={context.workspaceId}
         subchats={context.subchats}
         currentSubchatIndex={context.index}
         isStreaming={false}
@@ -329,7 +329,7 @@ function renderSubchatBar({
 }) {
   return renderToStaticMarkup(
     <SubchatBar
-      chatId="chat-1"
+      workspaceId="chat-1"
       subchats={subchats}
       currentSubchatIndex={currentSubchatIndex}
       isStreaming={false}

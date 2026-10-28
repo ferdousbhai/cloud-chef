@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { fakeArtifacts } from '~/test/fake-artifacts';
-import { getAllChats } from './chat-service.server';
+import { getAllWorkspaces } from './workspace-service.server';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
 import {
   forkProject,
@@ -163,7 +163,7 @@ describe('forking a project', () => {
     expect(database.prepare('SELECT description FROM workspaces WHERE initial_id = ?').get(initialId)).toEqual({
       description: 'My Bakery (fork)',
     });
-    expect((await getAllChats(env.DB, { sessionId: OWNER })).map((chat) => chat.initialId)).toContain(initialId);
+    expect((await getAllWorkspaces(env.DB, { sessionId: OWNER })).map((chat) => chat.initialId)).toContain(initialId);
   });
 
   it('refuses a commit that is not in the project', async () => {

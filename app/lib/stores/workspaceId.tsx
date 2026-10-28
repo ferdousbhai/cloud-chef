@@ -5,36 +5,36 @@ import { createContext, useCallback, useContext, type ReactNode } from 'react';
 import { map } from 'nanostores';
 
 const logger = createScopedLogger('ChatId');
-const ChatIdContext = createContext<string | null>(null);
+const WorkspaceIdContext = createContext<string | null>(null);
 
-export function ChatIdProvider({ chatId, children }: { chatId: string; children: ReactNode }) {
-  return <ChatIdContext.Provider value={chatId}>{children}</ChatIdContext.Provider>;
+export function WorkspaceIdProvider({ workspaceId, children }: { workspaceId: string; children: ReactNode }) {
+  return <WorkspaceIdContext.Provider value={workspaceId}>{children}</WorkspaceIdContext.Provider>;
 }
 
-export function useChatId() {
-  const chatId = useContext(ChatIdContext);
-  if (!chatId) {
-    throw new Error('useChatId must be used inside a ChatIdProvider');
+export function useWorkspaceId() {
+  const workspaceId = useContext(WorkspaceIdContext);
+  if (!workspaceId) {
+    throw new Error('useWorkspaceId must be used inside a WorkspaceIdProvider');
   }
-  return chatId;
+  return workspaceId;
 }
 
-export function chatUrlMask(chatId: string) {
+export function chatUrlMask(workspaceId: string) {
   return {
     to: '/chat/$id',
-    params: { id: chatId },
+    params: { id: workspaceId },
     unmaskOnReload: true,
   } as const;
 }
 
-export function maskedChatNavigation(chatId: string) {
+export function maskedChatNavigation(workspaceId: string) {
   return {
     to: '/' as const,
     state: (previous: HistoryState) => ({
       ...previous,
-      cloudchefChatMaskId: chatId,
+      cloudchefChatMaskId: workspaceId,
     }),
-    mask: chatUrlMask(chatId),
+    mask: chatUrlMask(workspaceId),
     replace: true,
     resetScroll: false,
     ignoreBlocker: true,
@@ -51,16 +51,16 @@ export function useNavigateToChat() {
   const currentChatRouteId = params.id;
 
   return useCallback(
-    async (chatId: string): Promise<void> => {
+    async (workspaceId: string): Promise<void> => {
       try {
-        if (currentChatRouteId === chatId) {
+        if (currentChatRouteId === workspaceId) {
           return;
         }
 
         if (currentChatRouteId) {
           await navigate({
             to: '/chat/$id',
-            params: { id: chatId },
+            params: { id: workspaceId },
             replace: true,
             resetScroll: false,
             ignoreBlocker: true,
@@ -68,7 +68,7 @@ export function useNavigateToChat() {
           return;
         }
 
-        await navigate(maskedChatNavigation(chatId));
+        await navigate(maskedChatNavigation(workspaceId));
       } catch (error) {
         logger.warn('Unable to publish the resumable chat URL', error);
       }

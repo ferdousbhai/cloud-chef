@@ -14,7 +14,7 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 import { Spinner } from '@ui/Spinner';
 import { useFileSaveStatus } from '~/lib/stores/file-save-status';
 import { SubchatDialogs } from './SubchatDialogs';
-import { createSubchatOptions, getSubchatLabel, getSubchatNavigation, type SubchatSummary } from './subchat-model';
+import { createSubchatOptions, getSubchatLabel, getSubchatNavigation, type ConversationSummary } from './subchat-model';
 
 /** A dialog opened in one account, chat and subchat scope; the token tells it from a later one there. */
 type ScopedDialog = { context: string; token: symbol };
@@ -48,8 +48,8 @@ async function whilePending<T extends ScopedDialog>(
 }
 
 interface SubchatBarProps {
-  chatId: string;
-  subchats?: SubchatSummary[];
+  workspaceId: string;
+  subchats?: ConversationSummary[];
   currentSubchatIndex: number;
   isStreaming: boolean;
   chatDisabled: boolean;
@@ -60,7 +60,7 @@ interface SubchatBarProps {
 }
 
 export function SubchatBar({
-  chatId,
+  workspaceId,
   subchats,
   currentSubchatIndex,
   isStreaming,
@@ -70,7 +70,7 @@ export function SubchatBar({
   handleRenameSubchat,
   isSubchatLoaded,
 }: SubchatBarProps) {
-  const interactionContext = JSON.stringify([userId, chatId, currentSubchatIndex]);
+  const interactionContext = JSON.stringify([userId, workspaceId, currentSubchatIndex]);
   const [createDialog, setCreateDialog] = useState<ScopedDialog | null>(null);
   const activeCreateDialog = createDialog?.context === interactionContext ? createDialog : null;
   const [pendingCreates, setPendingCreates] = useState<ReadonlyMap<string, symbol>>(() => new Map());

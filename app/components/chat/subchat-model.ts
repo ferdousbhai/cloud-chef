@@ -1,6 +1,6 @@
-import type { SubchatSummary } from '~/lib/cloudflare/data-api';
+import type { ConversationSummary } from '~/lib/cloudflare/data-api';
 
-export type { SubchatSummary };
+export type { ConversationSummary };
 
 interface SubchatOption {
   label: string;
@@ -17,7 +17,7 @@ export function getSubchatLabel(subchatIndex: number, description?: string): str
   return normalizedDescription || (subchatIndex === 0 ? 'Initial chat' : `Chat ${subchatIndex + 1}`);
 }
 
-export function createSubchatOptions(subchats: SubchatSummary[] | undefined): SubchatOption[] {
+export function createSubchatOptions(subchats: ConversationSummary[] | undefined): SubchatOption[] {
   return (
     subchats?.map((subchat) => ({
       label: getSubchatLabel(subchat.subchatIndex, subchat.description),
@@ -38,10 +38,10 @@ export function getSubchatNavigation(subchatCount: number, currentSubchatIndex: 
 }
 
 export function applyLiveSubchatTitle(
-  subchats: SubchatSummary[] | undefined,
+  subchats: ConversationSummary[] | undefined,
   liveTitle: LiveSubchatTitle | null,
-  transcript: SubchatSummary['transcript'],
-): SubchatSummary[] | undefined {
+  transcript: ConversationSummary['transcript'],
+): ConversationSummary[] | undefined {
   if (!liveTitle) {
     return subchats;
   }

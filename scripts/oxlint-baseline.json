@@ -245,11 +245,11 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 6
     },
-    "app/lib/cloudflare/data/chat-repository.server.test.ts": {
+    "app/lib/cloudflare/data/workspace-repository.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
-    "app/lib/cloudflare/data/chat-service.server.test.ts": {
+    "app/lib/cloudflare/data/workspace-service.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 5,
       "anti-slop/no-known-value-widening": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 7

@@ -1,13 +1,13 @@
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
-import type { SubchatSummary } from './subchat-model';
+import type { ConversationSummary } from './subchat-model';
 
 export interface ChatProps {
   initialMessages: CloudChefMessage[];
-  initializeChat: () => Promise<{ created: boolean }>;
-  discardEmptyChat: () => Promise<void>;
+  initializeWorkspace: () => Promise<{ created: boolean }>;
+  discardEmptyWorkspace: () => Promise<void>;
   onBuilderRequestStart: () => void;
-  subchats?: SubchatSummary[];
+  subchats?: ConversationSummary[];
   initialPrompt?: string;
   transcript: TranscriptIdentity;
 }

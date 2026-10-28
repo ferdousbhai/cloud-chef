@@ -10,19 +10,19 @@ import { syncAccountApps } from '~/lib/.server/cloudflare/linked-project-client'
 import type { ConversationAgent } from '~/agents/conversation-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { DataOperationPath, DataOperationResult } from './data-api';
-import { dataOperationArgSchemas, MAX_SUBCHAT_INDEX } from './data-operation-schemas';
-import { findChat, openLinkedChat, requireChat } from './data/chat-repository.server';
+import { dataOperationArgSchemas, MAX_CONVERSATION_INDEX } from './data-operation-schemas';
+import { findWorkspace, openLinkedWorkspace, requireWorkspace } from './data/workspace-repository.server';
 import {
-  createSubchat,
-  discardEmptyChat,
-  getAllChats,
-  getChat,
-  getSubchats,
-  initializeChat,
-  removeChat,
+  createConversation,
+  discardEmptyWorkspace,
+  getAllWorkspaces,
+  getWorkspace,
+  getConversations,
+  initializeWorkspace,
+  removeWorkspace,
   setDescription,
-  setSubchatDescription,
-} from './data/chat-service.server';
+  setConversationDescription,
+} from './data/workspace-service.server';
 import { sweepAgentGcCandidatesBestEffort } from './data/agent-gc.server';
 import {
   forkProject,
@@ -33,14 +33,14 @@ import {
 } from './data/projects.server';
 import { sweepAppResourceGcCandidatesBestEffort } from './data/app-resource-gc.server';
 import { ensureDataBindings, internalErrorResponse } from './data/http.server';
-import { requireChatTranscript, transcriptIdentity } from './data/transcript-repository.server';
+import { requireConversation, transcriptIdentity } from './data/conversation-repository.server';
 import { retryDurableObjectRpc } from './durable-object-rpc.server';
 
 const dataOperationPathSchema = z.object(dataOperationArgSchemas).keyof();
 const dataRequestSchema = z.object({ path: dataOperationPathSchema, args: z.unknown() });
 const initialMessagesRequestSchema = z.object({
   chatId: z.string().min(1).max(512),
-  subchatIndex: z.number().int().nonnegative().max(MAX_SUBCHAT_INDEX).optional(),
+  subchatIndex: z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX).optional(),
 });
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const MAX_INITIAL_MESSAGES_REQUEST_BYTES = 8 * 1024;
@@ -69,25 +69,25 @@ export async function userRuntimeDataAction(args: {
   }
 }
 
-/** Tells CloudChef the apps a chat list has, with their live addresses; a failure only waits for the next list. */
+/** Tells CloudChef the apps a workspace list has, with their live addresses; a failure only waits for the next list. */
 async function syncAppsBestEffort(env: Env, listed: Promise<DataOperationResult<DataOperationPath>>): Promise<void> {
-  const chats = chatListSchema.safeParse(await listed.catch(() => null));
+  const workspaces = workspaceListSchema.safeParse(await listed.catch(() => null));
   const identity = runtimeConnectionIdentity(env);
-  if (!chats.success || !identity) {
+  if (!workspaces.success || !identity) {
     return;
   }
   await syncAccountApps(
     env,
     identity,
-    chats.data.map((chat) => ({
-      id: chat.initialId,
-      name: chat.description ?? 'Untitled app',
-      siteUrl: chat.productionUrl ?? null,
+    workspaces.data.map((workspace) => ({
+      id: workspace.initialId,
+      name: workspace.description ?? 'Untitled app',
+      siteUrl: workspace.productionUrl ?? null,
     })),
   ).catch((error: Error) => console.warn({ event: 'apps_sync_failed', message: error.message }));
 }
 
-const chatListSchema = z.array(
+const workspaceListSchema = z.array(
   z.object({ initialId: z.string(), description: z.string().optional(), productionUrl: z.string().optional() }),
 );
 
@@ -101,14 +101,14 @@ export async function userRuntimeInitialMessagesAction(args: {
     const body = initialMessagesRequestSchema.parse(
       await readJsonBodyWithLimit(args.request, MAX_INITIAL_MESSAGES_REQUEST_BYTES, 'Initial messages request'),
     );
-    const chat = await findChat(args.env.DB, { id: body.chatId, sessionId: args.userId });
-    if (!chat) {
+    const workspace = await findWorkspace(args.env.DB, { id: body.chatId, sessionId: args.userId });
+    if (!workspace) {
       return Response.json({ status: 'missing' });
     }
     const identity = transcriptIdentity(
-      await requireChatTranscript(args.env.DB, {
-        chatId: chat.id,
-        subchatIndex: body.subchatIndex ?? chat.last_conversation_index,
+      await requireConversation(args.env.DB, {
+        workspaceId: workspace.id,
+        conversationIndex: body.subchatIndex ?? workspace.last_conversation_index,
       }),
     );
     const durable = await getBuilderTranscriptSnapshot(args.env, identity, args.userId);
@@ -119,8 +119,8 @@ export async function userRuntimeInitialMessagesAction(args: {
     return Response.json({
       status: 'ready',
       version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
-      initialId: chat.initial_id,
-      description: chat.description ?? undefined,
+      initialId: workspace.initial_id,
+      description: workspace.description ?? undefined,
       transcript: identity,
       checkpoint,
       messages: checkpoint ? durable.messages : [],
@@ -156,25 +156,25 @@ function runKnownDataOperation(
   // Every operation acts for the signed-in user the runtime session belongs to, never one the request names.
   switch (path) {
     case 'messages.initializeChat':
-      return initializeChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return initializeWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.openLinkedChat':
-      return openLinkedChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return openLinkedWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.discardEmptyChat':
-      return discardEmptyChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return discardEmptyWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.get':
-      return getChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return getWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.getAll':
-      return getAllChats(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return getAllWorkspaces(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.setDescription':
       return setDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.remove':
-      return removeChat(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return removeWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.get':
-      return getSubchats(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return getConversations(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.create':
-      return createSubchatFromAgent(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return createConversationFromAgent(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.setDescription':
-      return setSubchatDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
+      return setConversationDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'projects.history':
       return withRepositoryErrors(projectHistory(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     case 'projects.cloneAccess':
@@ -192,23 +192,23 @@ function runKnownDataOperation(
 }
 
 /**
- * Starts the chat's next conversation, which continues the same project with a fresh context. The one it
+ * Starts the workspace's next conversation, which continues the same project with a fresh context. The one it
  * follows is closed from then on: it stops, and hands over its publication state to the new one.
  */
-async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatId: string }): Promise<number> {
-  const chat = await requireChat(env.DB, { id: args.chatId, sessionId: args.sessionId });
-  const parent = await requireChatTranscript(env.DB, {
-    chatId: chat.id,
-    subchatIndex: chat.last_conversation_index,
+async function createConversationFromAgent(env: Env, args: { sessionId: string; chatId: string }): Promise<number> {
+  const workspace = await requireWorkspace(env.DB, { id: args.chatId, sessionId: args.sessionId });
+  const parent = await requireConversation(env.DB, {
+    workspaceId: workspace.id,
+    conversationIndex: workspace.last_conversation_index,
   });
   const identity = transcriptIdentity(parent);
   const durable = await getBuilderTranscriptSnapshot(env, identity, args.sessionId);
   if (durable.checkpoint && !transcriptIdentitiesEqual(durable.checkpoint, identity)) {
     throw new Error('Parent transcript identity changed while creating a subchat.');
   }
-  const subchatIndex = await createSubchat(env.DB, {
+  const conversationIndex = await createConversation(env.DB, {
     sessionId: args.sessionId,
-    chat,
+    workspace,
     parent,
     parentRevision: durable.checkpoint?.revision ?? 0,
   });
@@ -217,14 +217,13 @@ async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatI
   try {
     const handover = await env.ConversationAgent.getByName(identity.agentName).settleForSuccessor(args.sessionId);
     if (handover) {
-      await env.ConversationAgent.getByName(transcriptAgentName(chat.initial_id, subchatIndex)).continuePublication(
-        args.sessionId,
-        handover,
-      );
+      await env.ConversationAgent.getByName(
+        transcriptAgentName(workspace.initial_id, conversationIndex),
+      ).continuePublication(args.sessionId, handover);
     }
   } catch {
     // The new conversation exists either way; without the handover, its first turn publishes the project again.
     console.warn('The earlier conversation did not hand the project over; the new one publishes it again');
   }
-  return subchatIndex;
+  return conversationIndex;
 }

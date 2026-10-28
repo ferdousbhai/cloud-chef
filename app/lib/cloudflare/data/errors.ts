@@ -13,10 +13,10 @@ export class ProjectForbiddenError extends Error {
   }
 }
 
-export class SubchatLimitError extends Error {
+export class ConversationLimitError extends Error {
   constructor() {
     super('This project has reached the maximum number of subchats.');
-    this.name = 'SubchatLimitError';
+    this.name = 'ConversationLimitError';
   }
 }
 

@@ -13,7 +13,7 @@ const CAPABILITY_REFRESH_MS = 60_000;
  * with their own tools (a coding agent such as Claude Code included). It reattaches to the same shell after a
  * reload or a dropped connection.
  */
-export function TerminalPanel({ chatId }: { chatId: string }) {
+export function TerminalPanel({ workspaceId }: { workspaceId: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<ConnectionState>('connecting');
 
@@ -36,7 +36,7 @@ export function TerminalPanel({ chatId }: { chatId: string }) {
       getWebSocketUrl: ({ cursor }) => {
         const url = new URL('/v1/terminal', session?.endpoint);
         url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
-        url.searchParams.set('chat', chatId);
+        url.searchParams.set('chat', workspaceId);
         url.searchParams.set('capability', session?.token ?? '');
         url.searchParams.set('cols', String(terminal.cols));
         url.searchParams.set('rows', String(terminal.rows));
@@ -60,7 +60,7 @@ export function TerminalPanel({ chatId }: { chatId: string }) {
     void refresh()
       .then(() => {
         if (!disposed) {
-          sandbox.connect({ sandboxId: chatId });
+          sandbox.connect({ sandboxId: workspaceId });
         }
       })
       .catch(() => {
@@ -78,7 +78,7 @@ export function TerminalPanel({ chatId }: { chatId: string }) {
       sandbox.dispose();
       terminal.dispose();
     };
-  }, [chatId]);
+  }, [workspaceId]);
 
   return (
     <div className="flex size-full min-h-0 flex-col bg-[#0b0d12]">

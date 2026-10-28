@@ -9,7 +9,7 @@ import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
 import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDialog.client';
 import { IMPORT_RETURN_PARAM, isImportReturn } from '~/lib/github-app.client';
 import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
-import { openProjectChat } from '~/lib/cloudflare/projects.client';
+import { openProjectWorkspace } from '~/lib/cloudflare/projects.client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
 import { MoreMenu, StatusBadge } from './SettingsLayout';
@@ -143,7 +143,11 @@ export function OrgProjectsSection({
       ) : null}
       <FeedbackLine feedback={feedback} className="" />
       {importing ? (
-        <ImportFromGitHubDialog orgId={orgId} onOpenProject={openProjectChat} onClose={() => setImporting(false)} />
+        <ImportFromGitHubDialog
+          orgId={orgId}
+          onOpenProject={openProjectWorkspace}
+          onClose={() => setImporting(false)}
+        />
       ) : null}
       {disconnecting ? (
         <ConfirmationDialog

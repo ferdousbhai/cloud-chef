@@ -16,16 +16,16 @@ import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { WorkspacePreparingLoading, WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
 import { PromptPrefillContext } from './chat/prompt-prefill';
 
-export function ExistingChat({ chatId }: { chatId: string }) {
+export function ExistingChat({ workspaceId }: { workspaceId: string }) {
   return (
     <>
-      <ExistingChatSessionView chatId={chatId} />
+      <ExistingChatSessionView workspaceId={workspaceId} />
       <Toaster />
     </>
   );
 }
 
-function ExistingChatSessionView({ chatId }: { chatId: string }) {
+function ExistingChatSessionView({ workspaceId }: { workspaceId: string }) {
   const userId = useUserIdOrNullOrLoading();
   if (userId === undefined) {
     return <Loading message="Checking your Cloudflare session…" />;
@@ -39,14 +39,14 @@ function ExistingChatSessionView({ chatId }: { chatId: string }) {
     );
   }
 
-  return <AuthenticatedExistingChat chatId={chatId} />;
+  return <AuthenticatedExistingChat workspaceId={workspaceId} />;
 }
 
-function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
+function AuthenticatedExistingChat({ workspaceId }: { workspaceId: string }) {
   const {
     initialMessages,
-    initializeChat,
-    discardEmptyChat,
+    initializeWorkspace,
+    discardEmptyWorkspace,
     onBuilderRequestStart,
     subchats,
     transcript,
@@ -54,7 +54,7 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     retryLoad,
     subchatLoadError,
     retrySubchats,
-  } = useExistingChat(chatId);
+  } = useExistingChat(workspaceId);
 
   if (loadError && initialMessages == null) {
     return <ProjectLoadError error={loadError} onRetry={retryLoad} />;
@@ -75,8 +75,8 @@ function AuthenticatedExistingChat({ chatId }: { chatId: string }) {
     <PromptPrefillContext.Provider value={false}>
       <Chat
         initialMessages={initialMessages}
-        initializeChat={initializeChat}
-        discardEmptyChat={discardEmptyChat}
+        initializeWorkspace={initializeWorkspace}
+        discardEmptyWorkspace={discardEmptyWorkspace}
         onBuilderRequestStart={onBuilderRequestStart}
         subchats={subchats}
         transcript={transcript}

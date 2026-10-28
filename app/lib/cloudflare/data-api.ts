@@ -7,7 +7,7 @@ type ChatSummary = {
   description?: string;
 };
 
-export type ChatHistorySummary = {
+export type WorkspaceSummary = {
   id: string;
   initialId: string;
   description?: string;
@@ -42,7 +42,7 @@ export type ProjectImportResult = {
   workersBuildsFromGitHub?: boolean;
 };
 
-export type SubchatSummary = {
+export type ConversationSummary = {
   subchatIndex: number;
   description?: string;
   updatedAt: number;
@@ -51,7 +51,7 @@ export type SubchatSummary = {
 
 type DataOperationResults = {
   'messages.get': ChatSummary | null;
-  'messages.getAll': ChatHistorySummary[];
+  'messages.getAll': WorkspaceSummary[];
   'messages.initializeChat': { created: boolean };
   'messages.openLinkedChat': { initialId: string; created: boolean };
   'messages.discardEmptyChat': null;
@@ -62,7 +62,7 @@ type DataOperationResults = {
   'projects.fork': { initialId: string };
   'projects.import': ProjectImportResult;
   'subchats.create': number;
-  'subchats.get': SubchatSummary[];
+  'subchats.get': ConversationSummary[];
   'subchats.setDescription': null;
 };
 

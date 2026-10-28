@@ -31,7 +31,7 @@ const revision = 'a'.repeat(64);
 function deployment(status: 'approved' | 'succeeded' = 'approved') {
   return {
     id: 'deployment-1',
-    chatId: 'chat-row-1',
+    workspaceId: 'chat-row-1',
     userId: 'user-1',
     connectionId: 'connection-1',
     connectionGeneration: 1,
@@ -70,7 +70,7 @@ describe('deployment handlers', () => {
     const result = await createOrReplayDeploymentPlanForUser({
       env: runtimeEnv(db),
       userId: 'user-1',
-      chatId: 'chat-1',
+      workspaceId: 'chat-1',
       deploymentId: 'deployment-1',
       projectId: 'agent-1',
       revision,
@@ -99,7 +99,7 @@ describe('deployment handlers', () => {
     const publication = {
       env: runtimeEnv(activeChatDb()),
       userId: 'user-1',
-      chatId: 'chat-1',
+      workspaceId: 'chat-1',
       deploymentId: 'deployment-1',
       projectId: 'agent-1',
       revision,

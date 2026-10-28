@@ -4,7 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { createBrowserHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChatIdProvider } from '~/lib/stores/chatId';
+import { WorkspaceIdProvider } from '~/lib/stores/workspaceId';
 import { description as descriptionStore } from '~/lib/stores/description';
 import { HistoryItem } from './HistoryItem';
 
@@ -31,9 +31,9 @@ describe('HistoryItem', () => {
     const item = { id: 'untitled', initialId: 'untitled', timestamp: new Date(0).toISOString() };
     const rootRoute = createRootRoute({
       component: () => (
-        <ChatIdProvider chatId="open-chat">
+        <WorkspaceIdProvider workspaceId="open-chat">
           <HistoryItem item={item} handleDeleteClick={() => undefined} onNavigate={() => undefined} />
-        </ChatIdProvider>
+        </WorkspaceIdProvider>
       ),
     });
     const router = createRouter({ routeTree: rootRoute, history: createBrowserHistory() });

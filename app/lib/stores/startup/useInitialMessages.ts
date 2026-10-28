@@ -15,8 +15,8 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 
 const logger = createScopedLogger('InitialMessages');
 
-function transcriptRequest(chatId: string, selection: TranscriptSelection): TranscriptRequest {
-  const request: TranscriptRequest = { chatId };
+function transcriptRequest(workspaceId: string, selection: TranscriptSelection): TranscriptRequest {
+  const request: TranscriptRequest = { chatId: workspaceId };
   if (selection.subchatIndex !== undefined) {
     request.subchatIndex = selection.subchatIndex;
   }
@@ -42,17 +42,17 @@ type InitialMessagesState = {
   retry: () => void;
 };
 
-export function useInitialMessagesState(chatId: string | undefined): InitialMessagesState {
+export function useInitialMessagesState(workspaceId: string | undefined): InitialMessagesState {
   const userId = useUserIdOrNullOrLoading();
   const subchatIndex = useStore(subchatIndexStore);
-  const scope = chatId && userId ? `${userId}:${chatId}` : undefined;
+  const scope = workspaceId && userId ? `${userId}:${workspaceId}` : undefined;
   const [selection, setSelection] = useState<TranscriptSelection>();
   // A new scope starts from its latest subchat, until its transcript says which one that is.
   const scopeStart = useMemo<TranscriptSelection | undefined>(() => (scope ? { scope } : undefined), [scope]);
   const activeSelection = selection?.scope === scope ? selection : scopeStart;
   const cached = useCachedChatTranscript(
     userId,
-    chatId && activeSelection ? transcriptRequest(chatId, activeSelection) : undefined,
+    workspaceId && activeSelection ? transcriptRequest(workspaceId, activeSelection) : undefined,
   );
 
   useEffect(() => {
@@ -97,7 +97,7 @@ export function useInitialMessagesState(chatId: string | undefined): InitialMess
 
   const initialMessages = useMemo<InitialMessages | null | undefined>(() => {
     const transcript = cached.transcript;
-    if (!chatId || !userId || !activeSelection || cached.isLoading || transcript === undefined) {
+    if (!workspaceId || !userId || !activeSelection || cached.isLoading || transcript === undefined) {
       return undefined;
     }
     if (transcript.status === 'missing') {
@@ -110,7 +110,7 @@ export function useInitialMessagesState(chatId: string | undefined): InitialMess
       loadedSubchatIndex: transcript.loadedSubchatIndex,
       transcript: transcript.transcript,
     };
-  }, [activeSelection, cached.isLoading, cached.transcript, chatId, userId]);
+  }, [activeSelection, cached.isLoading, cached.transcript, workspaceId, userId]);
 
   if (initialMessages && subchatIndex !== undefined && initialMessages.loadedSubchatIndex !== subchatIndex) {
     return { initialMessages: undefined, error: cached.error, retry: cached.retry };

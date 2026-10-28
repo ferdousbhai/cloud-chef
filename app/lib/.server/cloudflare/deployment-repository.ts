@@ -10,7 +10,7 @@ function projectReferencePrefix(projectId: string): string {
 
 export type Deployment = {
   id: string;
-  chatId: string;
+  workspaceId: string;
   userId: string;
   connectionId: string;
   connectionGeneration: number;
@@ -57,7 +57,7 @@ const DEPLOYMENT_COLUMNS = `id, workspace_id, user_id, connection_id, connection
 export async function createDeployment(args: {
   db: D1Database;
   id: string;
-  chatId: string;
+  workspaceId: string;
   userId: string;
   connectionId: string;
   connectionGeneration: number;
@@ -77,7 +77,7 @@ export async function createDeployment(args: {
         )
         .bind(
           args.id,
-          args.chatId,
+          args.workspaceId,
           args.userId,
           args.connectionId,
           args.connectionGeneration,
@@ -534,7 +534,7 @@ function requireCurrentConnection(
 function sameDeploymentIdentity(current: Deployment, expected: Deployment): boolean {
   return (
     current.id === expected.id &&
-    current.chatId === expected.chatId &&
+    current.workspaceId === expected.workspaceId &&
     current.userId === expected.userId &&
     current.connectionId === expected.connectionId &&
     current.connectionGeneration === expected.connectionGeneration &&
@@ -548,7 +548,7 @@ function sameDeploymentIdentity(current: Deployment, expected: Deployment): bool
 function deploymentFromRow(row: DeploymentRow): Deployment {
   return {
     id: row.id,
-    chatId: row.workspace_id,
+    workspaceId: row.workspace_id,
     userId: row.user_id,
     connectionId: row.connection_id,
     connectionGeneration: row.connection_generation,

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { HeaderActionButtons } from './HeaderActionButtons.client';
 

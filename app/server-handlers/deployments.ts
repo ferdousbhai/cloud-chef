@@ -16,7 +16,7 @@ import {
   type Deployment,
 } from '~/lib/.server/cloudflare/deployment-repository';
 import { appResourceIdentity } from '~/lib/cloudflare/app-resource-names';
-import { findChat } from '~/lib/cloudflare/data/chat-repository.server';
+import { findWorkspace } from '~/lib/cloudflare/data/workspace-repository.server';
 import {
   executeUserOwnedDeployment,
   terminalizeInterruptedUserOwnedDeployment,
@@ -40,7 +40,7 @@ type DeploymentSettle = { deployment: PublicDeployment; settled: boolean };
 export async function createOrReplayDeploymentPlanForUser(args: {
   env: Env;
   userId: string;
-  chatId: string;
+  workspaceId: string;
   deploymentId: string;
   projectId: string;
   revision: string;
@@ -56,9 +56,9 @@ export async function createOrReplayDeploymentPlanForUser(args: {
   });
   const existing = stored?.workspaceReference === reference ? stored : null;
   const connection = runtimeCloudflareIdentity(args.env, args.userId);
-  const chat = await findChat(args.env.DB, { id: args.chatId, sessionId: args.userId });
-  if (!chat) {
-    throw new DeploymentChatNotFoundError();
+  const workspace = await findWorkspace(args.env.DB, { id: args.workspaceId, sessionId: args.userId });
+  if (!workspace) {
+    throw new DeploymentWorkspaceNotFoundError();
   }
   const { plan, digest } = await buildDeploymentPlanFromSource({
     deploymentId: args.deploymentId,
@@ -78,7 +78,7 @@ export async function createOrReplayDeploymentPlanForUser(args: {
     await createDeployment({
       db: args.env.DB,
       id: args.deploymentId,
-      chatId: chat.id,
+      workspaceId: workspace.id,
       userId: args.userId,
       connectionId: connection.connectionId,
       connectionGeneration: connection.connectionGeneration,
@@ -200,10 +200,10 @@ export async function userRuntimeDeploymentAction(args: {
 async function requireActiveDeploymentChat(db: D1Database, deployment: Deployment): Promise<void> {
   const active = await db
     .prepare(`SELECT 1 AS found FROM workspaces WHERE id = ? AND creator_id = ? AND is_deleted = 0 LIMIT 1`)
-    .bind(deployment.chatId, deployment.userId)
+    .bind(deployment.workspaceId, deployment.userId)
     .first<{ found: number }>();
   if (!active) {
-    throw new DeploymentChatNotFoundError();
+    throw new DeploymentWorkspaceNotFoundError();
   }
 }
 
@@ -232,7 +232,7 @@ function deploymentErrorResponse(error: unknown): Response {
   if (error instanceof DeploymentConnectionRequiredError) {
     return Response.json({ error: 'Connect Cloudflare before deploying.' }, { status: 409 });
   }
-  if (error instanceof DeploymentChatNotFoundError || error instanceof DeploymentNotFoundError) {
+  if (error instanceof DeploymentWorkspaceNotFoundError || error instanceof DeploymentNotFoundError) {
     return Response.json({ error: error.message }, { status: 404 });
   }
   if (
@@ -247,9 +247,9 @@ function deploymentErrorResponse(error: unknown): Response {
 }
 
 class DeploymentConnectionRequiredError extends Error {}
-class DeploymentChatNotFoundError extends Error {
+class DeploymentWorkspaceNotFoundError extends Error {
   constructor() {
     super('Chat not found.');
-    this.name = 'DeploymentChatNotFoundError';
+    this.name = 'DeploymentWorkspaceNotFoundError';
   }
 }

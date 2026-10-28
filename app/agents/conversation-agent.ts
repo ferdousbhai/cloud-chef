@@ -47,13 +47,13 @@ import {
 } from './builder-publication-retry';
 import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
 import { generateModelTitle } from '~/lib/.server/llm/workers-ai-title';
-import { markChatStarted } from '~/lib/cloudflare/data/chat-repository.server';
+import { markWorkspaceStarted } from '~/lib/cloudflare/data/workspace-repository.server';
 import {
   setGeneratedProjectDescription,
-  setGeneratedSubchatDescription,
+  setGeneratedConversationDescription,
   setHeuristicProjectDescriptionIfMissing,
-  setHeuristicSubchatDescriptionIfMissing,
-} from '~/lib/cloudflare/data/chat-service.server';
+  setHeuristicConversationDescriptionIfMissing,
+} from '~/lib/cloudflare/data/workspace-service.server';
 import { messageText, replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
   transcriptCheckpointSchema,
@@ -770,7 +770,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         // The person is talking to the builder again: the publication of the last turn must not hold the
         // workspace this turn edits. It publishes again, with this turn's changes, when this turn ends.
         await this.stopAutomaticPublications();
-        await markChatStarted(this.env.DB, {
+        await markWorkspaceStarted(this.env.DB, {
           sessionId: durableIdentity.userId,
           chatId: chatInitialId,
           agentName: transcript.agentName,
@@ -1702,7 +1702,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
                 description: provisionalTitle,
               })
             : Promise.resolve(false),
-          setHeuristicSubchatDescriptionIfMissing(this.env.DB, {
+          setHeuristicConversationDescriptionIfMissing(this.env.DB, {
             sessionId: ownerId,
             id: args.chatInitialId,
             subchatIndex: args.subchatIndex,
@@ -1729,7 +1729,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
 
     if (conversationResult.status === 'fulfilled' && conversationResult.value) {
       try {
-        const savedSubchatTitle = await setGeneratedSubchatDescription(this.env.DB, {
+        const savedSubchatTitle = await setGeneratedConversationDescription(this.env.DB, {
           sessionId: ownerId,
           id: args.chatInitialId,
           subchatIndex: args.subchatIndex,

@@ -11,7 +11,7 @@ vi.mock('~/components/ClientRouteComponents', () => ({
 vi.mock('~/components/trust/TrustLinks', () => ({ TrustFooter: () => <footer data-testid="trust-footer" /> }));
 
 import { IndexShell } from './index';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 
 let root: Root | undefined;
 

@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
-import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
+import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import type { App, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { refreshSession } from '~/lib/auth-client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
@@ -26,7 +26,7 @@ const teamMember: WorkspaceContext = {
 const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3', role: 'admin', draftsAllowed: true };
 
 let context: WorkspaceContext = personal;
-let ownProjects: ChatHistorySummary[] = [];
+let ownProjects: WorkspaceSummary[] = [];
 let teamProjects: TeamProject[] = [];
 let apps: App[] = [];
 /** The workspace runtime's publish routes, or null where it hasn't been upgraded to have them. */

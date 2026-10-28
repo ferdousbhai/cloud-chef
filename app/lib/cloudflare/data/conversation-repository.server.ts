@@ -1,32 +1,32 @@
 import { transcriptAgentName, type TranscriptIdentity } from 'cloudchef-agent/transcript';
-import type { ChatTranscriptRow } from './types';
+import type { ConversationRow } from './types';
 
-export async function requireChatTranscript(
+export async function requireConversation(
   db: D1Database,
-  args: { chatId: string; subchatIndex: number },
-): Promise<ChatTranscriptRow> {
+  args: { workspaceId: string; conversationIndex: number },
+): Promise<ConversationRow> {
   const transcript = await db
     .prepare('SELECT * FROM conversations WHERE workspace_id = ? AND conversation_index = ?')
-    .bind(args.chatId, args.subchatIndex)
-    .first<ChatTranscriptRow>();
+    .bind(args.workspaceId, args.conversationIndex)
+    .first<ConversationRow>();
   if (!transcript) {
     throw new Error('Chat transcript not found');
   }
   return transcript;
 }
 
-export function transcriptIdentity(row: ChatTranscriptRow): TranscriptIdentity {
+export function transcriptIdentity(row: ConversationRow): TranscriptIdentity {
   return { agentName: row.agent_name, subchatIndex: row.conversation_index };
 }
 
-/** Inserts a subchat's transcript, only while its parent is a transcript of the owner's live chat. */
-export function prepareInsertChatTranscript(
+/** Inserts a conversation, only while its parent is a conversation of the owner's live workspace. */
+export function prepareInsertConversation(
   db: D1Database,
   args: {
-    chatId: string;
+    workspaceId: string;
     initialId: string;
-    subchatIndex: number;
-    parent: { subchatIndex: number; revision: number };
+    conversationIndex: number;
+    parent: { conversationIndex: number; revision: number };
     ownerId: string;
     transitionToken: string;
   },
@@ -47,16 +47,16 @@ export function prepareInsertChatTranscript(
         )`,
     )
     .bind(
-      args.chatId,
-      args.subchatIndex,
-      transcriptAgentName(args.initialId, args.subchatIndex),
-      args.parent.subchatIndex,
+      args.workspaceId,
+      args.conversationIndex,
+      transcriptAgentName(args.initialId, args.conversationIndex),
+      args.parent.conversationIndex,
       args.parent.revision,
       args.transitionToken,
       now,
       now,
-      args.chatId,
-      args.parent.subchatIndex,
+      args.workspaceId,
+      args.parent.conversationIndex,
       args.ownerId,
     );
 }

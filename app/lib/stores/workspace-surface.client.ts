@@ -1,4 +1,4 @@
-import { chatStore } from './chatId';
+import { chatStore } from './workspaceId';
 import { workbenchStore } from './workbench.client';
 
 const workspaceSurfaces = ['chat', 'code', 'preview', 'terminal'] as const;

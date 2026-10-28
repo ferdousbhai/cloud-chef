@@ -6,7 +6,7 @@ import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { workspaceHintsToTurnContext } from '~/utils/fileUtils';
 import { captureMessage, captureProductEvent } from '~/lib/telemetry.client';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { getChatRetryState, MAX_CHAT_RETRIES } from './chat-retry';
@@ -33,8 +33,8 @@ export function useChatMessageSubmission(args: {
   messages: CloudChefMessage[];
   chatStarted: boolean;
   streamStatus: StreamStatus;
-  initializeChat: () => Promise<{ created: boolean }>;
-  discardEmptyChat: () => Promise<void>;
+  initializeWorkspace: () => Promise<{ created: boolean }>;
+  discardEmptyWorkspace: () => Promise<void>;
   sendChatMessage: SendChatMessage;
   steerChatMessage: (input: { text: string; turnContext: ChatTurnContext }) => Promise<void>;
   enableAutoScroll: () => void;
@@ -98,8 +98,8 @@ export function useChatMessageSubmission(args: {
         args.onFirstPrompt(messageInput);
       }
       await runChatSubmissionLifecycle({
-        initializeChat: args.initializeChat,
-        discardEmptyChat: args.discardEmptyChat,
+        initializeWorkspace: args.initializeWorkspace,
+        discardEmptyWorkspace: args.discardEmptyWorkspace,
         onStartChat: args.onStartChat,
         onBuilderRequestStart: () => {
           args.onBuilderRequestStart();
@@ -208,13 +208,13 @@ export function appendPendingUserMessage(
 }
 
 export async function runChatSubmissionLifecycle(args: {
-  initializeChat: () => Promise<{ created: boolean }>;
-  discardEmptyChat: () => Promise<void>;
+  initializeWorkspace: () => Promise<{ created: boolean }>;
+  discardEmptyWorkspace: () => Promise<void>;
   onStartChat: () => void;
   onBuilderRequestStart: () => void;
   submit: (onRequestStart: () => void) => Promise<void>;
 }): Promise<void> {
-  const initializedChat = await args.initializeChat();
+  const initializedChat = await args.initializeWorkspace();
   let builderRequestStarted = false;
   args.onStartChat();
   try {
@@ -225,7 +225,7 @@ export async function runChatSubmissionLifecycle(args: {
   } catch (error) {
     if (initializedChat.created && !builderRequestStarted) {
       try {
-        await args.discardEmptyChat();
+        await args.discardEmptyWorkspace();
       } catch (discardError) {
         logger.warn('Failed to discard an empty chat after submission failed', discardError);
       }

@@ -60,7 +60,7 @@ export const ClientHomepage = createClientComponent<{ initialId: string }>(
   <HomepageLoadingFallback />,
 );
 
-export const ClientExistingChat = createClientComponent<{ chatId: string }>(
+export const ClientExistingChat = createClientComponent<{ workspaceId: string }>(
   getClientExistingChat,
   <Loading message="Loading project…" />,
 );

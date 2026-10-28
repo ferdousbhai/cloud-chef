@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { ClientHeader, ClientHomepage } from '~/components/ClientRouteComponents';
 import { createSocialPageHead } from '~/lib/social-meta';
 import { TrustFooter } from '~/components/trust/TrustLinks';
-import { ChatIdProvider, chatStore } from '~/lib/stores/chatId';
+import { WorkspaceIdProvider, chatStore } from '~/lib/stores/workspaceId';
 import { useState } from 'react';
 import { useStore } from '@nanostores/react';
 
@@ -33,17 +33,17 @@ function Index() {
 export function IndexShell({ initialId }: { initialId: string }) {
   // Publishing the masked resumable URL revalidates the active `/` loader.
   // The mounted live build must keep the identity it started with.
-  const [chatId] = useState(initialId);
+  const [workspaceId] = useState(initialId);
   // The footer belongs to the home page; once a chat starts here, the chat has the whole height.
   const chatStarted = useStore(chatStore).started;
 
   return (
-    <ChatIdProvider key={chatId} chatId={chatId}>
+    <WorkspaceIdProvider key={workspaceId} workspaceId={workspaceId}>
       <div className="flex size-full flex-col bg-bolt-elements-background-depth-1">
         <ClientHeader />
-        <ClientHomepage initialId={chatId} />
+        <ClientHomepage initialId={workspaceId} />
         {chatStarted ? null : <TrustFooter />}
       </div>
-    </ChatIdProvider>
+    </WorkspaceIdProvider>
   );
 }

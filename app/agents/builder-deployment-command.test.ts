@@ -354,7 +354,7 @@ describe('builder deployment command', () => {
     expect(mocks.createDeployment).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: 'user-1',
-        chatId: 'chat-1',
+        workspaceId: 'chat-1',
         deploymentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         projectId: 'workspace-1',
         revision: 'a'.repeat(64),

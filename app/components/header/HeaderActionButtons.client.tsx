@@ -3,7 +3,7 @@ import { ChatBubbleIcon, CodeIcon, KeyboardIcon, EyeOpenIcon } from '@radix-ui/r
 import { useEffect, type ReactNode } from 'react';
 import { Button } from '@ui/Button';
 import useViewport from '~/lib/hooks/useViewport';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { selectWorkspaceSurface } from '~/lib/stores/workspace-surface.client';
 import { classNames } from '~/utils/classNames';

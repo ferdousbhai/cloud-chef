@@ -2,19 +2,19 @@ import { motion, MotionConfig, type Variants } from 'framer-motion';
 import { memo, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
-import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
+import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import { cubicEasingFn } from '~/utils/easings';
 import { logger } from 'cloudchef-agent/utils/logger';
 import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
 import { classNames } from '~/utils/classNames';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { useChatId } from '~/lib/stores/chatId';
+import { useWorkspaceId } from '~/lib/stores/workspaceId';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
 import { PlusIcon } from '@radix-ui/react-icons';
-import { removeChatHistoryItem, useChatHistory } from '~/lib/cloudflare/chat-history-db';
+import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import { ProjectTitle } from '~/components/ProjectTitle';
 import { OrgProjectsList } from './OrgProjectsList.client';
 import { useStore } from '@nanostores/react';
@@ -56,16 +56,16 @@ interface MenuProps {
  */
 export async function removeProject(
   sessionId: string,
-  chatId: string,
+  workspaceId: string,
   openChatId: string | undefined,
-  remove = removeChatHistoryItem,
+  remove = removeWorkspaceHistoryItem,
 ): Promise<void> {
-  if (openChatId !== chatId) {
-    await remove(sessionId, chatId);
+  if (openChatId !== workspaceId) {
+    await remove(sessionId, workspaceId);
     return;
   }
   await leavePage(async () => {
-    await remove(sessionId, chatId);
+    await remove(sessionId, workspaceId);
     window.location.replace('/');
   });
 }
@@ -74,8 +74,8 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const userId = useUserIdOrNullOrLoading();
   const accountUserId = userId ?? null;
-  const activeChatId = useChatId();
-  const history = useChatHistory(accountUserId);
+  const activeChatId = useWorkspaceId();
+  const history = useWorkspaceHistory(accountUserId);
   // Projects come from the workspace in the user's Cloudflare account; while it's set up or updated, say so.
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
@@ -83,13 +83,13 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   // A member limited to the organization's GitHub projects can't start apps of their own here.
   const draftsAllowed = session?.context?.kind !== 'organization' || session.context.draftsAllowed;
   const list = history.projects;
-  const [deleteTarget, setDeleteTarget] = useState<ChatHistorySummary | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const search = searchQuery.trim().toLowerCase();
   const filteredList = search ? list.filter((item) => item.description?.toLowerCase().includes(search) ?? false) : list;
 
-  const deleteItem = async (item: ChatHistorySummary) => {
+  const deleteItem = async (item: WorkspaceSummary) => {
     if (!accountUserId) {
       return;
     }
@@ -141,7 +141,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
     };
   }, [deleteTarget, isOpen, onClose]);
 
-  const handleDeleteClick = (item: ChatHistorySummary) => {
+  const handleDeleteClick = (item: WorkspaceSummary) => {
     setDeleteTarget(item);
   };
 

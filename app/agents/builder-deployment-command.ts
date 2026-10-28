@@ -212,7 +212,7 @@ async function planValidatedRevision(args: {
     const planned = await createOrReplayDeploymentPlanForUser({
       env: args.context.env,
       userId: args.context.userId,
-      chatId: args.context.chatInitialId,
+      workspaceId: args.context.chatInitialId,
       deploymentId,
       projectId: args.workspace.projectId,
       revision: source.revision,

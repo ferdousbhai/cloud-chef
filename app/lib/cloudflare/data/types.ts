@@ -1,4 +1,4 @@
-export type ChatRow = {
+export type WorkspaceRow = {
   id: string;
   creator_id: string;
   initial_id: string;
@@ -9,7 +9,7 @@ export type ChatRow = {
   is_deleted: number;
 };
 
-export type ChatTranscriptRow = {
+export type ConversationRow = {
   workspace_id: string;
   conversation_index: number;
   agent_name: string;

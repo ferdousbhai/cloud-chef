@@ -3,7 +3,7 @@ import { CopyIcon, ExternalLinkIcon } from '@radix-ui/react-icons';
 import { Button, buttonClassNames } from '@ui/Button';
 import { ProjectTitle } from '~/components/ProjectTitle';
 import { loadPublicProjects, type PublicProject } from '~/lib/cloudflare/org-projects.client';
-import { openProjectChat } from '~/lib/cloudflare/projects.client';
+import { openProjectWorkspace } from '~/lib/cloudflare/projects.client';
 import { messageOf } from '~/lib/json-request';
 import { CopyProjectDialog } from './CopyProjectDialog.client';
 import { ProjectThumbnail } from './ProjectCard';
@@ -12,7 +12,7 @@ import { ProjectThumbnail } from './ProjectCard';
  * Everyone's public projects, newest first: each one's site, who made it, and a way to make a copy of it in
  * the account the person is working in.
  */
-export function Explore({ onOpenProject = openProjectChat }: { onOpenProject?: (initialId: string) => void }) {
+export function Explore({ onOpenProject = openProjectWorkspace }: { onOpenProject?: (initialId: string) => void }) {
   const [projects, setProjects] = useState<PublicProject[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);

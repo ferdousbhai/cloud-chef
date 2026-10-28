@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
-import type { ChatHistorySummary, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
+import type { WorkspaceSummary, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
 import type { Approval, Approvals } from '~/lib/cloudflare/approvals.client';
 import type { PublicProject, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
@@ -14,7 +14,7 @@ const RUNTIME_ORIGIN = 'https://e2e-projects-fixture.workers.dev';
 const SITE_ORIGIN = 'https://e2e-booking-site.workers.dev';
 const dataRequestSchema = z.object({ path: z.string() });
 
-const ownProjects: ChatHistorySummary[] = [
+const ownProjects: WorkspaceSummary[] = [
   {
     id: 'chat-booking',
     initialId: 'chat-booking',

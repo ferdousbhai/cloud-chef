@@ -14,7 +14,7 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 import { waitForAgentSocketOpen } from './agent-connection';
 import { WORKERS_PAID_REQUIRED_MARKER } from '~/lib/workers-paid';
 import { showWorkersPaidRequiredToast } from '~/lib/workers-paid.client';
-import { refreshChatHistory } from '~/lib/cloudflare/chat-history-db';
+import { refreshWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import { executeDataOperation } from '~/lib/cloudflare/client';
 import { api } from '~/lib/cloudflare/data-api';
 import { description as descriptionStore } from '~/lib/stores/description';
@@ -30,7 +30,7 @@ import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import { projectRevertStore } from '~/lib/stores/project-actions.client';
 import { useQueryClient } from '@tanstack/react-query';
-import { subchatQueryKey } from '~/lib/cloudflare/data-hooks';
+import { conversationsQueryKey } from '~/lib/cloudflare/data-hooks';
 import { settleBuilderStop } from './builder-stop';
 import {
   refreshUserRuntimeSession,
@@ -184,10 +184,10 @@ export function useConversationAgentChat(args: {
       }
       generatedSubchatTitleUpdatedAtRef.current = generatedTitle.updatedAt;
       args.onSubchatTitle(generatedTitle.subchatIndex, generatedTitle.title);
-      const chatId = args.chatInitialId;
-      if (chatId) {
+      const workspaceId = args.chatInitialId;
+      if (workspaceId) {
         void queryClient.invalidateQueries({
-          queryKey: subchatQueryKey({ chatId, sessionId: args.accountId }),
+          queryKey: conversationsQueryKey({ workspaceId, sessionId: args.accountId }),
         });
       }
     },
@@ -675,18 +675,18 @@ function asUiMessages(messages: CloudChefMessage[]): UIMessage[] {
 }
 
 async function refreshProjectMetadata(
-  chatId: string,
+  workspaceId: string,
   accountId: string,
   isActive: () => boolean,
   attempt = 0,
 ): Promise<void> {
-  if (!chatId || !isActive()) {
+  if (!workspaceId || !isActive()) {
     return;
   }
   try {
     const [, chat] = await Promise.all([
-      refreshChatHistory(accountId),
-      executeDataOperation(api.messages.get, { id: chatId }),
+      refreshWorkspaceHistory(accountId),
+      executeDataOperation(api.messages.get, { id: workspaceId }),
     ]);
     if (!isActive()) {
       return;
@@ -695,7 +695,7 @@ async function refreshProjectMetadata(
       descriptionStore.set(chat.description);
     } else if (attempt < 2) {
       window.setTimeout(
-        () => void refreshProjectMetadata(chatId, accountId, isActive, attempt + 1),
+        () => void refreshProjectMetadata(workspaceId, accountId, isActive, attempt + 1),
         (attempt + 1) * 1_000,
       );
     }

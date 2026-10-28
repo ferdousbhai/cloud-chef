@@ -72,7 +72,7 @@ import {
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
 } from '../../app/lib/cloudflare/data/projects.server';
-import { findChat } from '../../app/lib/cloudflare/data/chat-repository.server';
+import { findWorkspace } from '../../app/lib/cloudflare/data/workspace-repository.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { builderModelCatalogResponse } from '../../app/lib/.server/llm/workers-ai-model-catalog';
@@ -3215,7 +3215,7 @@ async function userRuntimeTerminalAction(
     return Response.json({ error: 'Expected a WebSocket upgrade' }, { status: 426 });
   }
   const chatId = url.searchParams.get('chat') ?? '';
-  if (!chatId || !(await findChat(env.DB, { id: chatId, sessionId: userId }))) {
+  if (!chatId || !(await findWorkspace(env.DB, { id: chatId, sessionId: userId }))) {
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
   // The chat's workspace, keyed as its agent keys it.

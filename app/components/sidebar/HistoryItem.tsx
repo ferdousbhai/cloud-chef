@@ -1,22 +1,22 @@
 import { Link } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
-import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
+import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import { useEditChatDescription } from '~/lib/hooks/useEditChatDescription';
 import { CheckIcon, FileTextIcon, Pencil1Icon, TrashIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
 import { format } from 'date-fns';
 import { ProjectTitle } from '~/components/ProjectTitle';
-import { useChatId } from '~/lib/stores/chatId';
+import { useWorkspaceId } from '~/lib/stores/workspaceId';
 
 interface HistoryItemProps {
-  item: ChatHistorySummary;
-  handleDeleteClick: (item: ChatHistorySummary) => void;
+  item: WorkspaceSummary;
+  handleDeleteClick: (item: WorkspaceSummary) => void;
   onNavigate: () => void;
 }
 
 export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItemProps) {
-  const activeChatId = useChatId();
+  const activeChatId = useWorkspaceId();
   const isActiveChat = activeChatId === item.initialId;
 
   const { editing, handleChange, handleBlur, handleSubmit, handleKeyDown, currentDescription, toggleEditMode } =

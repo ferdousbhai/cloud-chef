@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { cubicEasingFn } from '~/utils/easings';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { useStore } from '@nanostores/react';
-import { chatStore } from '~/lib/stores/chatId';
+import { chatStore } from '~/lib/stores/workspaceId';
 import { Spinner } from '@ui/Spinner';
 import { ExclamationTriangleIcon, ResetIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';

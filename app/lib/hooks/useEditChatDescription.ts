@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { description as descriptionStore } from '~/lib/stores/description';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { useChatId } from '~/lib/stores/chatId';
+import { useWorkspaceId } from '~/lib/stores/workspaceId';
 import { messageOf } from '~/lib/json-request';
 
 /** The data API's own limit; any characters are allowed, as in a generated title. */
@@ -17,7 +17,7 @@ interface EditChatDescriptionOptions {
 }
 
 /** The edit of one chat's name, from the name it started from: another chat or a new name starts over. */
-type EditState = { chatId: string | undefined; initialDescription: string; editing: boolean; value: string };
+type EditState = { workspaceId: string | undefined; initialDescription: string; editing: boolean; value: string };
 
 /** Editing a chat's name: a valid change is saved, and leaving the field or Escape puts the name back. */
 export function useEditChatDescription({
@@ -25,18 +25,18 @@ export function useEditChatDescription({
   customChatId,
   syncWithGlobalStore,
 }: EditChatDescriptionOptions) {
-  const chatIdFromRoute = useChatId();
+  const chatIdFromRoute = useWorkspaceId();
   const userId = useUserIdOrNullOrLoading();
-  const chatId = customChatId || chatIdFromRoute;
+  const workspaceId = customChatId || chatIdFromRoute;
   const [state, setState] = useState<EditState>({
-    chatId,
+    workspaceId,
     initialDescription,
     editing: false,
     value: initialDescription,
   });
   const current: EditState =
-    state.chatId !== chatId
-      ? { chatId, initialDescription, editing: false, value: initialDescription }
+    state.workspaceId !== workspaceId
+      ? { workspaceId, initialDescription, editing: false, value: initialDescription }
       : state.initialDescription !== initialDescription
         ? { ...state, initialDescription, value: initialDescription }
         : state;
@@ -44,14 +44,14 @@ export function useEditChatDescription({
   const submittingRef = useRef<string | null>(null);
 
   const revert = () => {
-    if (submittingRef.current !== chatId) {
+    if (submittingRef.current !== workspaceId) {
       setState({ ...current, editing: false, value: initialDescription });
     }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!chatId || !userId || submittingRef.current === chatId) {
+    if (!workspaceId || !userId || submittingRef.current === workspaceId) {
       return;
     }
     const description = current.value.trim();
@@ -63,10 +63,10 @@ export function useEditChatDescription({
       toast.error(`Description must be between 1 and ${MAX_DESCRIPTION_LENGTH} characters.`);
       return;
     }
-    submittingRef.current = chatId;
+    submittingRef.current = workspaceId;
     try {
-      await executeDataOperation(api.messages.setDescription, { id: chatId, description });
-      setState((latest) => (latest.chatId === chatId ? { ...latest, value: description } : latest));
+      await executeDataOperation(api.messages.setDescription, { id: workspaceId, description });
+      setState((latest) => (latest.workspaceId === workspaceId ? { ...latest, value: description } : latest));
       if (syncWithGlobalStore) {
         descriptionStore.set(description);
       }
@@ -74,10 +74,10 @@ export function useEditChatDescription({
     } catch (error) {
       toast.error('Failed to update chat description: ' + messageOf(error, 'unknown error'));
     } finally {
-      if (submittingRef.current === chatId) {
+      if (submittingRef.current === workspaceId) {
         submittingRef.current = null;
       }
-      setState((latest) => (latest.chatId === chatId ? { ...latest, editing: false } : latest));
+      setState((latest) => (latest.workspaceId === workspaceId ? { ...latest, editing: false } : latest));
     }
   };
 

@@ -9,18 +9,18 @@ import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-acc
 import { nativeProjectRepo, ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { AGENT_GC_GRACE_PERIOD_MS, retryDelay } from './agent-gc.server';
 import { forgetCloneTokens } from './clone-tokens.server';
-import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
+import { EMPTY_WORKSPACE_DISCARD_PREDICATE } from './empty-workspace.server';
 
 const APP_RESOURCE_GC_SWEEP_LIMIT = 2;
 /**
  * Deployments one sweep releases, across its candidates. Each is a handful of Cloudflare API calls, and a
  * sweep runs in the `waitUntil` of the request or cron that started it, within that invocation's
- * subrequest budget; a chat with more is finished over later sweeps, from where the last one stopped.
+ * subrequest budget; a workspace with more is finished over later sweeps, from where the last one stopped.
  */
 const APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP = 6;
-/** Deployments of one chat read per sweep; only a run of plans this build cannot read fills it. */
+/** Deployments of one workspace read per sweep; only a run of plans this build cannot read fills it. */
 const APP_RESOURCE_GC_DEPLOYMENT_PAGE = 50;
-/** Removed chats with leftover deployment records one scheduled sweep queues; later sweeps queue the rest. */
+/** Removed workspaces with leftover deployment records one scheduled sweep queues; later sweeps queue the rest. */
 const APP_RESOURCE_GC_REQUEUE_PER_SWEEP = 20;
 
 const logger = createScopedLogger('CloudflareAppResourceGc');
@@ -62,7 +62,7 @@ export function prepareAppResourceGcCandidateStatement(
        SELECT workspaces.id, ?, ?, 0
        FROM workspaces
        WHERE workspaces.initial_id = ? AND workspaces.creator_id = ?
-         AND ${args.requireEmpty ? EMPTY_CHAT_DISCARD_PREDICATE : 'workspaces.is_deleted = 0'}
+         AND ${args.requireEmpty ? EMPTY_WORKSPACE_DISCARD_PREDICATE : 'workspaces.is_deleted = 0'}
        ON CONFLICT(workspace_id) DO UPDATE SET
          not_before = MIN(app_resource_gc_candidates.not_before, excluded.not_before)`,
     )
@@ -107,7 +107,7 @@ export async function sweepAppResourceGcCandidates(
   const sweep: CleanupSweep = {
     budget: APP_RESOURCE_GC_DEPLOYMENTS_PER_SWEEP,
     // A team's draft can become one of its projects, keeping its repository, so only a person's own
-    // account deletes a removed chat's repositories.
+    // account deletes a removed workspace's repositories.
     repositories:
       env.CLOUDCHEF_USER_RUNTIME === '1' && env.CLOUDCHEF_SHARED_ACCOUNT !== '1' && env.ARTIFACTS
         ? new ProjectRepositories(env.ARTIFACTS)
@@ -124,18 +124,18 @@ export async function sweepAppResourceGcCandidates(
 
 type AppResourceGcSweepOptions = {
   /**
-   * First queue removed chats that still have deployment records but no candidate, as the scheduled
+   * First queue removed workspaces that still have deployment records but no candidate, as the scheduled
    * maintenance sweep does. A request's sweep leaves this to it, so a data request adds no write.
    */
   requeueRemovedChats?: boolean;
 };
 
 /**
- * Queues, a bounded number at a time, removed chats whose deployment records outlived their candidate:
+ * Queues, a bounded number at a time, removed workspaces whose deployment records outlived their candidate:
  * an older collector deleted their resources and receipt but not the records, and a deployment can
- * also be recorded after its chat's cleanup finished. Each is then released like any other candidate,
+ * also be recorded after its workspace's cleanup finished. Each is then released like any other candidate,
  * after the same grace period: what is left of its resources is deleted (a name already gone is
- * skipped) and its records with them. A chat that is not removed is never queued.
+ * skipped) and its records with them. A workspace that is not removed is never queued.
  */
 function requeueRemovedChatsWithDeployments(db: D1Database, now: number): Promise<D1Result> {
   return db
@@ -156,7 +156,7 @@ function requeueRemovedChatsWithDeployments(db: D1Database, now: number): Promis
 
 /**
  * What is left of one sweep's work: the deployments it may still release, and the account's repositories
- * when a removed chat's own go with it.
+ * when a removed workspace's own go with it.
  */
 type CleanupSweep = { budget: number; repositories: ProjectRepositories | null };
 
@@ -184,7 +184,7 @@ type AppResourceCleanupApi = Pick<
 /**
  * Releases the candidate's deployments oldest first, each once every resource it recorded or its plan
  * names is gone or belongs to a deployment released after it too: its row (and its resource records)
- * is then deleted, so a retry resumes after it rather than walking the chat's whole history again. A
+ * is then deleted, so a retry resumes after it rather than walking the workspace's whole history again. A
  * project's deployments share its resources, so the last of them deletes those, once. The receipt
  * completes once no deployment is left.
  */
@@ -244,7 +244,7 @@ async function cleanupCandidate(
       return;
     }
     if (sweep.repositories) {
-      await deleteChatRepository(db, sweep.repositories, candidate.workspace_id);
+      await deleteWorkspaceRepository(db, sweep.repositories, candidate.workspace_id);
     }
     await db
       .prepare(
@@ -259,16 +259,20 @@ async function cleanupCandidate(
   }
 }
 
-/** The repository of a removed chat's own app; a team project it worked on keeps its own. */
-async function deleteChatRepository(db: D1Database, repositories: ProjectRepositories, chatId: string): Promise<void> {
-  const chat = await db
+/** The repository of a removed workspace's own app; a team project it worked on keeps its own. */
+async function deleteWorkspaceRepository(
+  db: D1Database,
+  repositories: ProjectRepositories,
+  workspaceId: string,
+): Promise<void> {
+  const workspace = await db
     .prepare('SELECT initial_id, org_project_id FROM workspaces WHERE id = ?')
-    .bind(chatId)
+    .bind(workspaceId)
     .first<{ initial_id: string; org_project_id: string | null }>();
-  if (!chat || chat.org_project_id !== null) {
+  if (!workspace || workspace.org_project_id !== null) {
     return;
   }
-  const repo = nativeProjectRepo(chat.initial_id);
+  const repo = nativeProjectRepo(workspace.initial_id);
   await repositories.deleteRepo(repo);
   await forgetCloneTokens(db, repo);
 }
@@ -346,7 +350,7 @@ function cleanupTargets(
 }
 
 /**
- * The targets no deployment of the chat released after this one also has, by a record of the same
+ * The targets no deployment of the workspace released after this one also has, by a record of the same
  * provider id or a plan naming the same resource. A project's deployments all deploy onto its
  * resources, so releasing one leaves them to the deployments after it, and the last one deletes them.
  * A later plan is read as stored, so one this build cannot parse keeps what it names until a build
@@ -354,7 +358,7 @@ function cleanupTargets(
  */
 async function unsharedTargets(
   db: D1Database,
-  chatId: string,
+  workspaceId: string,
   deployment: DeploymentPlanRow,
   targets: readonly CleanupTarget[],
 ): Promise<CleanupTarget[]> {
@@ -384,7 +388,7 @@ async function unsharedTargets(
            )
          LIMIT 1`,
       )
-      .bind(chatId, deployment.id, target.type, target.value, target.name, deployment.created_at)
+      .bind(workspaceId, deployment.id, target.type, target.value, target.name, deployment.created_at)
       .first<{ found: number }>();
     if (!shared) {
       unshared.push(target);

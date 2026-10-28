@@ -1,22 +1,26 @@
-import { ensureInitialChat, findChat, requireChat } from './chat-repository.server';
-import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
-import { prepareInsertChatTranscript } from './transcript-repository.server';
-import type { ChatRow, ChatTranscriptRow } from './types';
+import { ensureInitialWorkspace, findWorkspace, requireWorkspace } from './workspace-repository.server';
+import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
+import { prepareInsertConversation } from './conversation-repository.server';
+import type { WorkspaceRow, ConversationRow } from './types';
 import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
-import { MAX_SUBCHAT_INDEX } from '~/lib/cloudflare/data-operation-schemas';
-import { DataNotFoundError, SubchatLimitError } from './errors';
-import { EMPTY_CHAT_DISCARD_PREDICATE } from './empty-chat.server';
+import { MAX_CONVERSATION_INDEX } from '~/lib/cloudflare/data-operation-schemas';
+import { DataNotFoundError, ConversationLimitError } from './errors';
+import { EMPTY_WORKSPACE_DISCARD_PREDICATE } from './empty-workspace.server';
 import { prepareAppResourceGcCandidateStatement } from './app-resource-gc.server';
 
-export async function initializeChat(
+export async function initializeWorkspace(
   db: D1Database,
   args: { sessionId: string; id: string },
 ): Promise<{ created: boolean }> {
-  const chat = await ensureInitialChat(db, { id: crypto.randomUUID(), creatorId: args.sessionId, initialId: args.id });
-  return { created: chat.created };
+  const workspace = await ensureInitialWorkspace(db, {
+    id: crypto.randomUUID(),
+    creatorId: args.sessionId,
+    initialId: args.id,
+  });
+  return { created: workspace.created };
 }
 
-export async function discardEmptyChat(db: D1Database, args: { sessionId: string; id: string }): Promise<null> {
+export async function discardEmptyWorkspace(db: D1Database, args: { sessionId: string; id: string }): Promise<null> {
   await db.batch([
     prepareAgentGcCandidatesStatement(db, { ownerId: args.sessionId, initialId: args.id, requireEmpty: true }),
     prepareAppResourceGcCandidateStatement(db, {
@@ -29,22 +33,22 @@ export async function discardEmptyChat(db: D1Database, args: { sessionId: string
         `UPDATE workspaces
          SET is_deleted = 1
          WHERE creator_id = ? AND initial_id = ?
-           AND ${EMPTY_CHAT_DISCARD_PREDICATE}`,
+           AND ${EMPTY_WORKSPACE_DISCARD_PREDICATE}`,
       )
       .bind(args.sessionId, args.id),
   ]);
   return null;
 }
 
-export async function getChat(db: D1Database, args: { id: string; sessionId: string }) {
-  const chat = await findChat(db, args);
-  if (!chat) {
+export async function getWorkspace(db: D1Database, args: { id: string; sessionId: string }) {
+  const workspace = await findWorkspace(db, args);
+  if (!workspace) {
     return null;
   }
-  return { description: chat.description ?? undefined };
+  return { description: workspace.description ?? undefined };
 }
 
-export async function getAllChats(db: D1Database, args: { sessionId: string }) {
+export async function getAllWorkspaces(db: D1Database, args: { sessionId: string }) {
   const { results } = await db
     .prepare(
       `SELECT
@@ -71,7 +75,7 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
        FROM workspaces
        WHERE workspaces.creator_id = ? AND workspaces.is_deleted = 0
          AND workspaces.has_messages = 1
-         -- A team project's chat is listed with the team's projects, not as an app of one's own.
+         -- A team project's workspace is listed with the team's projects, not as an app of one's own.
          AND workspaces.org_project_id IS NULL
        ORDER BY workspaces.timestamp DESC, workspaces.id DESC`,
     )
@@ -83,7 +87,7 @@ export async function getAllChats(db: D1Database, args: { sessionId: string }) {
       production_url: string | null;
     }>();
   return results.map((row) => {
-    const summary: ChatHistorySummary = {
+    const summary: WorkspaceSummary = {
       id: row.initial_id,
       initialId: row.initial_id,
       description: row.description ?? undefined,
@@ -100,10 +104,10 @@ export async function setDescription(
   db: D1Database,
   args: { sessionId: string; id: string; description: string },
 ): Promise<null> {
-  const chat = await requireChat(db, { id: args.id, sessionId: args.sessionId });
+  const workspace = await requireWorkspace(db, { id: args.id, sessionId: args.sessionId });
   await db
     .prepare(`UPDATE workspaces SET description = ?, description_source = 'user' WHERE id = ?`)
-    .bind(args.description, chat.id)
+    .bind(args.description, workspace.id)
     .run();
   return null;
 }
@@ -146,7 +150,7 @@ export async function setGeneratedProjectDescription(
 }
 
 /** Apply an automatic conversation title unless a manual rename or newer prompt won. */
-export async function setGeneratedSubchatDescription(
+export async function setGeneratedConversationDescription(
   db: D1Database,
   args: {
     sessionId: string;
@@ -176,7 +180,7 @@ export async function setGeneratedSubchatDescription(
   return result.meta.changes > 0;
 }
 
-export async function setHeuristicSubchatDescriptionIfMissing(
+export async function setHeuristicConversationDescriptionIfMissing(
   db: D1Database,
   args: { sessionId: string; id: string; subchatIndex: number; description: string; promptGeneration: number },
 ): Promise<boolean> {
@@ -197,7 +201,7 @@ export async function setHeuristicSubchatDescriptionIfMissing(
   return result.meta.changes > 0;
 }
 
-export async function setSubchatDescription(
+export async function setConversationDescription(
   db: D1Database,
   args: { sessionId: string; chatId: string; subchatIndex: number; description: string },
 ): Promise<null> {
@@ -219,7 +223,7 @@ export async function setSubchatDescription(
   return null;
 }
 
-export async function removeChat(db: D1Database, args: { sessionId: string; id: string }) {
+export async function removeWorkspace(db: D1Database, args: { sessionId: string; id: string }) {
   await db.batch([
     prepareAgentGcCandidatesStatement(db, { initialId: args.id, ownerId: args.sessionId }),
     prepareAppResourceGcCandidateStatement(db, { initialId: args.id, ownerId: args.sessionId }),
@@ -234,8 +238,8 @@ export async function removeChat(db: D1Database, args: { sessionId: string; id: 
   return { kind: 'success' } as const;
 }
 
-export async function getSubchats(db: D1Database, args: { sessionId: string; chatId: string }) {
-  const chat = await requireChat(db, { id: args.chatId, sessionId: args.sessionId });
+export async function getConversations(db: D1Database, args: { sessionId: string; chatId: string }) {
+  const workspace = await requireWorkspace(db, { id: args.chatId, sessionId: args.sessionId });
   const { results } = await db
     .prepare(
       `SELECT conversation_index, description, updated_at, agent_name
@@ -243,7 +247,7 @@ export async function getSubchats(db: D1Database, args: { sessionId: string; cha
        WHERE workspace_id = ?
        ORDER BY conversation_index ASC`,
     )
-    .bind(chat.id)
+    .bind(workspace.id)
     .all<{
       conversation_index: number;
       description: string | null;
@@ -259,25 +263,25 @@ export async function getSubchats(db: D1Database, args: { sessionId: string; cha
 }
 
 /**
- * Adds the chat's next subchat, continuing `parent`, its latest. The batch commits only while the chat
- * still ends at that parent, so values read earlier cannot add a second subchat at the same index.
+ * Adds the workspace's next conversation, continuing `parent`, its latest. The batch commits only while the
+ * workspace still ends at that parent, so values read earlier cannot add a second conversation at the same index.
  */
-export async function createSubchat(
+export async function createConversation(
   db: D1Database,
-  args: { sessionId: string; chat: ChatRow; parent: ChatTranscriptRow; parentRevision: number },
+  args: { sessionId: string; workspace: WorkspaceRow; parent: ConversationRow; parentRevision: number },
 ) {
-  const { chat, parent } = args;
-  if (chat.last_conversation_index >= MAX_SUBCHAT_INDEX) {
-    throw new SubchatLimitError();
+  const { workspace, parent } = args;
+  if (workspace.last_conversation_index >= MAX_CONVERSATION_INDEX) {
+    throw new ConversationLimitError();
   }
-  const newSubchatIndex = chat.last_conversation_index + 1;
+  const conversationIndex = workspace.last_conversation_index + 1;
   const transitionToken = crypto.randomUUID();
   const results = await db.batch([
-    prepareInsertChatTranscript(db, {
-      chatId: chat.id,
-      initialId: chat.initial_id,
-      subchatIndex: newSubchatIndex,
-      parent: { subchatIndex: parent.conversation_index, revision: args.parentRevision },
+    prepareInsertConversation(db, {
+      workspaceId: workspace.id,
+      initialId: workspace.initial_id,
+      conversationIndex,
+      parent: { conversationIndex: parent.conversation_index, revision: args.parentRevision },
       ownerId: args.sessionId,
       transitionToken,
     }),
@@ -290,10 +294,17 @@ export async function createSubchat(
            WHERE workspace_id = ? AND conversation_index = ? AND transition_token = ?
          )`,
       )
-      .bind(newSubchatIndex, chat.id, chat.last_conversation_index, chat.id, newSubchatIndex, transitionToken),
+      .bind(
+        conversationIndex,
+        workspace.id,
+        workspace.last_conversation_index,
+        workspace.id,
+        conversationIndex,
+        transitionToken,
+      ),
   ]);
   if (results.some((result) => result.meta.changes !== 1)) {
     throw new Error('Chat transcript changed while creating a subchat; retry the operation');
   }
-  return newSubchatIndex;
+  return conversationIndex;
 }

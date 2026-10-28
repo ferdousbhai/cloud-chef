@@ -79,7 +79,7 @@ vi.mock('./conversation-agent-auth', () => ({
   loadConversationAgentCapability: vi.fn(),
 }));
 vi.mock('~/lib/telemetry.client', () => ({ captureMessage: vi.fn() }));
-vi.mock('~/lib/cloudflare/chat-history-db', () => ({ refreshChatHistory: vi.fn() }));
+vi.mock('~/lib/cloudflare/workspace-history-db', () => ({ refreshChatHistory: vi.fn() }));
 vi.mock('~/lib/cloudflare/client', () => ({ executeDataOperation: mocks.executeDataOperation }));
 vi.mock('~/lib/cloudflare/data-api', () => ({ api: { messages: { get: {} } } }));
 vi.mock('~/lib/cloudflare/data-hooks', () => ({ subchatQueryKey: vi.fn(() => []) }));
