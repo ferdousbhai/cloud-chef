@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 724
-Inventory SHA-256: aafcbbc992bd1465068ec342daa8805948f5c5839d138c5cb59149180db1dce1
+Production packages: 723
+Inventory SHA-256: fac3c8e76dc514787858a38dd0f0aac24076fb4f1377d10d4bf698e6cb7023a9
 
 PACKAGE INVENTORY
 =================
@@ -1911,7 +1911,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 653b779005a3a4d64a7288c940f7b9a0e8f0b1e0375f6aa6af9473caf131e564)
 
-@tanstack/db@0.6.17
+@tanstack/db@0.15.2
 Declared license: MIT
 Author: Kyle Mathews
 Repository: {"type":"git","url":"git+https://github.com/TanStack/db.git","directory":"packages/db"}
@@ -1920,7 +1920,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 dd5fd3a2e8ca256521b80e46d7fb0aa953c842ef1420fb31f4b1f08ae31d82e7)
 
-@tanstack/db-ivm@0.1.18
+@tanstack/db-ivm@0.2.0
 Declared license: MIT
 Author: Sam Willis
 Repository: {"type":"git","url":"git+https://github.com/TanStack/db.git","directory":"packages/db-ivm"}
@@ -1956,7 +1956,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/query-db-collection@1.2.1
+@tanstack/query-db-collection@1.4.8
 Declared license: MIT
 Author: Kyle Mathews
 Repository: {"type":"git","url":"git+https://github.com/TanStack/db.git","directory":"packages/query-db-collection"}
@@ -1965,7 +1965,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 dd5fd3a2e8ca256521b80e46d7fb0aa953c842ef1420fb31f4b1f08ae31d82e7)
 
-@tanstack/react-db@0.1.95
+@tanstack/react-db@0.5.12
 Declared license: MIT
 Author: Kyle Mathews
 Repository: {"type":"git","url":"git+https://github.com/TanStack/db.git","directory":"packages/react-db"}
@@ -2395,7 +2395,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 8d8c55319c7729d57be811c747452636688d54f19701ee0752b6b15ad3771d9a)
 
-agents@0.29.0
+agents@0.31.0
 Declared license: MIT
 Author: Cloudflare Inc.
 Repository: {"directory":"packages/agents","type":"git","url":"git+https://github.com/cloudflare/agents.git"}
@@ -5779,15 +5779,6 @@ Homepage: https://sonner.emilkowal.ski/
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 da9201378c36ffd81f51ad0b305f3f0981e90bc558789210ad65d1161eec3b7d)
-
-sorted-btree@1.8.1
-Declared license: MIT
-Author: David Piepgrass
-Repository: {"type":"git","url":"git+https://github.com/qwertie/btree-typescript.git"}
-Homepage: https://github.com/qwertie/btree-typescript#readme
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 66fc8a9b85af6a102720d445a0a49faff7b1a3fe815d9ead09dee2480afd4340)
 
 source-map@0.7.6
 Declared license: BSD-3-Clause
@@ -13561,34 +13552,6 @@ either expressed or implied, of the FreeBSD Project.
 
 ----- END VERBATIM CONTENT -----
 
-SHA-256 66fc8a9b85af6a102720d445a0a49faff7b1a3fe815d9ead09dee2480afd4340
-Used by:
-- sorted-btree@1.8.1:LICENSE
------ BEGIN VERBATIM CONTENT -----
-MIT License
-
-Copyright (c) 2018 David Piepgrass
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
------ END VERBATIM CONTENT -----
-
 SHA-256 6895190430d809c4c57a7582ecc2f99acbc2ea39a5dfad20262a41d5b3e91733
 Used by:
 - @hono/node-server@2.0.10:LICENSE
@@ -19562,7 +19525,7 @@ SHA-256 b33ae783f02478cd31787cd07cbf61cd3a6fbee1a50b2baf832b8f0fb7c600f7
 Used by:
 - @cloudflare/ai-chat@0.12.2:LICENSE
 - @cloudflare/codemode@0.5.1:LICENSE
-- agents@0.29.0:LICENSE
+- agents@0.31.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License Copyright (c) 2025 Cloudflare, Inc.
 
@@ -22360,10 +22323,10 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 dd5fd3a2e8ca256521b80e46d7fb0aa953c842ef1420fb31f4b1f08ae31d82e7
 Used by:
-- @tanstack/db-ivm@0.1.18:LICENSE
-- @tanstack/db@0.6.17:LICENSE
-- @tanstack/query-db-collection@1.2.1:LICENSE
-- @tanstack/react-db@0.1.95:LICENSE
+- @tanstack/db-ivm@0.2.0:LICENSE
+- @tanstack/db@0.15.2:LICENSE
+- @tanstack/query-db-collection@1.4.8:LICENSE
+- @tanstack/react-db@0.5.12:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
