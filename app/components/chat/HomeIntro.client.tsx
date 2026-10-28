@@ -49,7 +49,7 @@ export function HomeIntro({
 
             {projectsOnly !== null ? (
               <div className="cloudchef-home-composer-stack" role="status">
-                <p className="app-page-lede mx-auto break-words text-center">
+                <p className="app-page-lede mx-auto wrap-break-word text-center">
                   {projectsOnly} lets you work on its team projects. Choose one below to start.
                 </p>
               </div>

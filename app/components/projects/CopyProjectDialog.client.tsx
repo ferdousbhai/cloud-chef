@@ -65,7 +65,7 @@ export function CopyProjectDialog({
           working in now, with all of its history. It’s yours to change and publish; the original stays as it is.
         </p>
         {error !== null ? (
-          <p role="alert" className="text-sm text-bolt-elements-icon-error [overflow-wrap:anywhere]">
+          <p role="alert" className="text-sm text-bolt-elements-icon-error wrap-anywhere">
             {error}
           </p>
         ) : null}

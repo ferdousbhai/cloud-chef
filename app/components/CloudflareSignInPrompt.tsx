@@ -86,9 +86,9 @@ export function CloudflareSignInPrompt({
 
   return (
     <PromptCard title={title}>
-      {description ? <p className="app-page-lede break-words">{description}</p> : null}
+      {description ? <p className="app-page-lede wrap-break-word">{description}</p> : null}
       {session ? (
-        <p className="app-page-lede break-words">
+        <p className="app-page-lede wrap-break-word">
           You&apos;re signed in as <span className="break-all">{session.user.email}</span>. Connect a Cloudflare account
           to build in it, or ask your team&apos;s admin to invite this address.
         </p>
@@ -146,7 +146,7 @@ export function CloudflareSignInPrompt({
           </div>
           {emailSentTo ? (
             <>
-              <p className="mt-3 break-words text-sm text-content-secondary" role="status">
+              <p className="mt-3 wrap-break-word text-sm text-content-secondary" role="status">
                 Check <span className="break-all">{emailSentTo}</span> for a sign-in link, and open it in this browser.
                 It works once, for 15 minutes.
               </p>
@@ -196,7 +196,7 @@ function PromptCard({ title, children }: { title: string; children: ReactNode })
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6">
       <section className="app-error-card app-card m-auto shrink-0" aria-labelledby="cloudflare-sign-in-heading">
         <BrandLink />
-        <h1 id="cloudflare-sign-in-heading" className="app-page-title mt-4 !text-2xl">
+        <h1 id="cloudflare-sign-in-heading" className="app-page-title mt-4 text-2xl!">
           {title}
         </h1>
         {children}

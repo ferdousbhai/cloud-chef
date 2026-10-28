@@ -33,9 +33,9 @@ export function ErrorDisplay({ error, resetErrorBoundary }: ErrorDisplayProps) {
           <BrandLink />
         </div>
 
-        <ExclamationTriangleIcon className="mb-4 size-7 text-[var(--cc-content-warning)]" aria-hidden />
-        <h1 className="app-page-title !text-2xl">This page could not load.</h1>
-        <p className="app-page-lede break-words">{message || 'CloudChef encountered an unexpected error.'}</p>
+        <ExclamationTriangleIcon className="mb-4 size-7 text-(--cc-content-warning)" aria-hidden />
+        <h1 className="app-page-title text-2xl!">This page could not load.</h1>
+        <p className="app-page-lede wrap-break-word">{message || 'CloudChef encountered an unexpected error.'}</p>
 
         <div className="mt-4 flex flex-wrap gap-2">
           <Button onClick={retry} icon={<ReloadIcon aria-hidden />}>

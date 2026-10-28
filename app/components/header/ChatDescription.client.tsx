@@ -48,7 +48,7 @@ export function ChatDescription() {
       ) : (
         <button
           type="button"
-          className="group flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-transparent px-1.5 py-1 text-sm font-semibold text-content-primary outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+          className="group flex min-w-0 max-w-full items-center gap-1.5 rounded-md bg-transparent px-1.5 py-1 text-sm font-semibold text-content-primary outline-hidden focus-visible:ring-2 focus-visible:ring-accent-500"
           title={`${currentDescription} — click to rename`}
           aria-label={`Rename project: ${currentDescription}`}
           onClick={toggleEditMode}

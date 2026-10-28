@@ -28,7 +28,7 @@ export function TrustFooter({ className = '' }: { className?: string }) {
       {/* One row, and no prose: "your Cloudflare account controls generated resources" said the
           same thing the hero lede already says, and a claim made twice reads as noise rather than
           reassurance. */}
-      <div className="mx-auto flex w-full max-w-[1080px] flex-wrap items-center justify-between gap-x-4 gap-y-1">
+      <div className="mx-auto flex w-full max-w-270 flex-wrap items-center justify-between gap-x-4 gap-y-1">
         <p className="text-xs text-content-tertiary">
           <a className="underline underline-offset-4" href="https://github.com/ferdousbhai/cloud-chef">
             Open source

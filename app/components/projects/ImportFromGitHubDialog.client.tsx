@@ -214,7 +214,7 @@ export function ImportFromGitHubDialog({
           )}
         </div>
         {error !== null ? (
-          <p role="alert" className="text-sm text-bolt-elements-icon-error [overflow-wrap:anywhere]">
+          <p role="alert" className="text-sm text-bolt-elements-icon-error wrap-anywhere">
             {error}
           </p>
         ) : null}
@@ -288,7 +288,7 @@ function ImportedProject({
         ) : 'switched' in answer ? (
           <p role="status">This site now goes live from CloudChef.</p>
         ) : (
-          <p role="status" className="[overflow-wrap:anywhere]">
+          <p role="status" className="wrap-anywhere">
             {answer.instruction}{' '}
             {answer.url ? (
               <a className="underline" href={answer.url} target="_blank" rel="noopener noreferrer">
@@ -298,7 +298,7 @@ function ImportedProject({
           </p>
         )}
         {error !== null ? (
-          <p role="alert" className="text-bolt-elements-icon-error [overflow-wrap:anywhere]">
+          <p role="alert" className="text-bolt-elements-icon-error wrap-anywhere">
             {error}
           </p>
         ) : null}

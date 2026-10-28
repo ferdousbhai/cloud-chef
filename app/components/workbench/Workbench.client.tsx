@@ -223,8 +223,8 @@ function WorkbenchFrame({
         transition={viewTransition}
         className={classNames('fixed z-0 transition-[left,width] duration-200 bolt-ease-cubic-bezier', {
           invisible: !visible && !isSmallViewport,
-          'inset-x-0 top-[var(--header-height)] bottom-0 w-full': isSmallViewport,
-          'left-[var(--workbench-left)] top-[calc(var(--header-height)+0.5rem)] bottom-2 w-[var(--workbench-inner-width)]':
+          'inset-x-0 top-(--header-height) bottom-0 w-full': isSmallViewport,
+          'left-(--workbench-left) top-[calc(var(--header-height)+0.5rem)] bottom-2 w-(--workbench-inner-width)':
             !isSmallViewport,
         })}
       >

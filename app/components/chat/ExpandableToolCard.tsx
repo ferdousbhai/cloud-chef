@@ -22,7 +22,7 @@ export function ExpandableToolCard({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.3, ease: cubicEasingFn }}
-        className="flex min-w-0 items-stretch overflow-hidden bg-bolt-elements-artifacts-background text-content-primary outline-none transition-colors hover:bg-bolt-elements-artifacts-backgroundHover focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
+        className="flex min-w-0 items-stretch overflow-hidden bg-bolt-elements-artifacts-background text-content-primary outline-hidden transition-colors hover:bg-bolt-elements-artifacts-backgroundHover focus-visible:relative focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500"
         onClick={onToggle}
       >
         <div className="min-w-0 flex-1 px-2.5 py-1 text-left">{header}</div>

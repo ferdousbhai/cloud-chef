@@ -131,7 +131,7 @@ export function SubchatBar({
   const chatTitle = userId ? (
     <button
       type="button"
-      className="group flex min-w-0 grow items-center gap-1.5 rounded-md bg-transparent text-left text-sm font-medium text-content-primary outline-none focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+      className="group flex min-w-0 grow items-center gap-1.5 rounded-md bg-transparent text-left text-sm font-medium text-content-primary outline-hidden focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
       title={`${currentSubchatLabel} — click to rename`}
       aria-label={`Rename current chat: ${currentSubchatLabel}`}
       disabled={!isSubchatLoaded || isRenaming}
@@ -204,7 +204,7 @@ export function SubchatBar({
             <Button
               size="sm"
               variant="neutral"
-              className="!size-11 !min-h-11 rounded-r-none border-0 !px-0"
+              className="size-11! min-h-11! rounded-r-none border-0 px-0!"
               icon={<ArrowLeftIcon />}
               inline
               aria-label="Previous chat"
@@ -217,7 +217,7 @@ export function SubchatBar({
             <Button
               size="sm"
               variant="neutral"
-              className="!size-11 !min-h-11 rounded-l-none border-0 border-l border-l-bolt-elements-borderColor !px-0"
+              className="size-11! min-h-11! rounded-l-none border-0 border-l border-l-bolt-elements-borderColor px-0!"
               icon={<ArrowRightIcon />}
               inline
               aria-label="Next chat"
@@ -239,7 +239,7 @@ export function SubchatBar({
                 <DropdownMenu.Trigger asChild disabled={interactionsDisabled}>
                   <button
                     type="button"
-                    className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-content-secondary outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="group flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-content-secondary outline-hidden transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label={`Switch chat. ${chatPositionLabel}: ${currentSubchatLabel}`}
                   >
                     <span>
@@ -254,7 +254,7 @@ export function SubchatBar({
                   align="start"
                   sideOffset={8}
                   collisionPadding={12}
-                  className="z-50 max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
+                  className="z-50 max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-hidden"
                   aria-label="Chat history"
                 >
                   <DropdownMenu.Label className="px-3 pb-2 pt-1.5 text-xs font-semibold uppercase tracking-widest text-content-secondary">
@@ -275,7 +275,7 @@ export function SubchatBar({
                         <DropdownMenu.RadioItem
                           key={String(option.value)}
                           value={String(option.value)}
-                          className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus:bg-bolt-elements-background-depth-2 data-[state=checked]:bg-bolt-elements-background-depth-2"
+                          className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-left outline-hidden transition-colors hover:bg-bolt-elements-background-depth-2 focus:bg-bolt-elements-background-depth-2 data-[state=checked]:bg-bolt-elements-background-depth-2"
                         >
                           <span className="flex size-7 shrink-0 items-center justify-center rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-xs font-semibold text-content-secondary">
                             {option.value + 1}
@@ -308,7 +308,7 @@ export function SubchatBar({
             <Button
               size="sm"
               variant="neutral"
-              className="!min-h-11 rounded-lg !px-3"
+              className="min-h-11! rounded-lg px-3!"
               icon={<PlusIcon />}
               disabled={chatDisabled || interactionsDisabled}
               inline

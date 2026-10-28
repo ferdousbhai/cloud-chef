@@ -31,7 +31,7 @@ export function LinkedProjectIntro({
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="linked-intro">
         <div className="cloudchef-home-hero">
           <div className="min-w-0">
-            <h1 id="linked-intro" className="cloudchef-home-title break-words">
+            <h1 id="linked-intro" className="cloudchef-home-title wrap-break-word">
               Working on {repository}
             </h1>
             <p className="mt-3 max-w-xl text-balance text-sm text-content-secondary">

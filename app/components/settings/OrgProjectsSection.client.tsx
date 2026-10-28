@@ -213,7 +213,7 @@ function ProjectRow({
             <Button
               size="xs"
               variant="subtle"
-              className="!text-content-error"
+              className="text-content-error!"
               aria-label={`Delete ${project.name}`}
               onClick={() => setDeleting(true)}
             >
@@ -272,12 +272,12 @@ export function MyOrgProjects({
   return (
     <>
       {projects.length > 0 ? (
-        <p className="mt-2 text-sm text-content-secondary [overflow-wrap:anywhere]">
+        <p className="mt-2 text-sm text-content-secondary wrap-anywhere">
           Your projects: {projects.map((project) => project.name).join(', ')}
         </p>
       ) : null}
       {requests.length > 0 ? (
-        <ul className="mt-2 grid gap-1.5 text-sm [overflow-wrap:anywhere]" aria-label="Your team project requests">
+        <ul className="mt-2 grid gap-1.5 text-sm wrap-anywhere" aria-label="Your team project requests">
           {requests.map((request) => (
             <li key={request.id} className="flex min-w-0 flex-wrap items-center gap-2">
               <span className="min-w-0">{request.title}</span>

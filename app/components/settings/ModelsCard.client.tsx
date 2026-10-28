@@ -363,7 +363,7 @@ function ProviderKeyRow({
         autoComplete="off"
         aria-label={`${label} API key`}
         placeholder={`Paste ${/^(?:[aeiou]|xai)/i.test(label) ? 'an' : 'a'} ${label} API key`}
-        className="min-w-0 grow basis-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-sm text-content-primary outline-none placeholder:text-content-tertiary focus-visible:border-accent-500"
+        className="min-w-0 grow basis-40 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-sm text-content-primary outline-hidden placeholder:text-content-tertiary focus-visible:border-accent-500"
         value={apiKey}
         disabled={busy}
         // Opened by "Replace key", so the field is where the person is about to type.
@@ -405,7 +405,7 @@ function ProviderKeyRow({
             <Button
               size="xs"
               variant="subtle"
-              className="!text-content-error"
+              className="text-content-error!"
               disabled={busy}
               onClick={() => void onUnlink()}
             >

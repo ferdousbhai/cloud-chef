@@ -36,7 +36,7 @@ export function Modal({
             }
           }}
           {...(!description ? { 'aria-describedby': undefined } : {})}
-          className="fixed inset-4 z-50 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-5 shadow-xl focus:outline-none"
+          className="fixed inset-4 z-50 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-5 shadow-xl focus:outline-hidden"
         >
           <div className="mb-3 flex items-start justify-between gap-3">
             {typeof title === 'string' ? (

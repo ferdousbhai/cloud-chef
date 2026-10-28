@@ -56,9 +56,9 @@ export function WorkspaceMenuItems() {
         >
           <CheckIcon aria-hidden className={option.connectionId === current?.connectionId ? '' : 'invisible'} />
           <span className="flex min-w-0 flex-col">
-            <span className="break-words">{shortLabel(option)}</span>
+            <span className="wrap-break-word">{shortLabel(option)}</span>
             {option.accountName ? (
-              <span className="break-words text-xs text-content-tertiary">{option.accountName}</span>
+              <span className="wrap-break-word text-xs text-content-tertiary">{option.accountName}</span>
             ) : null}
           </span>
         </MenuItem>

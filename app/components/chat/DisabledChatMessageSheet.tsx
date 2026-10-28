@@ -15,7 +15,7 @@ export function DisabledChatMessageSheet({ message }: { message: ReactNode | nul
             exit={{ translateY: '-100%', opacity: 0 }}
             transition={{ duration: 0.5, ease: cubicEasingFn }}
           >
-            <Sheet className="bg-util-accent/10 -mt-2 flex w-full flex-col gap-3 rounded-lg rounded-t-none p-4 shadow backdrop-blur-lg">
+            <Sheet className="bg-util-accent/10 -mt-2 flex w-full flex-col gap-3 rounded-lg rounded-t-none p-4 shadow-sm backdrop-blur-lg">
               {message}
             </Sheet>
           </motion.div>

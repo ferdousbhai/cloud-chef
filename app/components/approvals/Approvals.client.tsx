@@ -114,7 +114,7 @@ function RequestDetails({ request }: { request: Approval['request'] }) {
   return (
     <details className="text-xs text-content-secondary">
       <summary className="cursor-pointer">Show the exact request</summary>
-      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-md border border-bolt-elements-borderColor p-3 leading-5">
+      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-bolt-elements-borderColor p-3 leading-5">
         {`${request.method} ${request.url}`}
         {request.body === undefined ? '' : `\n\n${JSON.stringify(request.body, null, 2)}`}
       </pre>
@@ -140,7 +140,7 @@ function WaitingChange({ approval, onDecided }: { approval: Approval; onDecided:
   const who = approval.requester.name || approval.requester.email;
   const title = `${changeVerb(approval.request.method)} ${apiPath(approval.request.url)}`;
   return (
-    <li className="grid min-w-0 gap-2 rounded-md border border-accent-500/40 bg-bolt-elements-background-depth-2 p-3 text-sm [overflow-wrap:anywhere]">
+    <li className="grid min-w-0 gap-2 rounded-md border bg-bolt-elements-background-depth-2 p-3 text-sm wrap-anywhere">
       <span className="flex min-w-0 flex-wrap items-center gap-2">
         <StatusBadge tone="warning">Cloudflare change</StatusBadge>
         <span className="text-xs text-content-tertiary">
@@ -205,7 +205,7 @@ function DecidedChange({ approval }: { approval: Approval }) {
         ? 'text-content-error'
         : 'text-content-secondary';
   return (
-    <li className="grid min-w-0 gap-1 px-3 py-2 text-sm [overflow-wrap:anywhere]">
+    <li className="grid min-w-0 gap-1 px-3 py-2 text-sm wrap-anywhere">
       <span className="font-mono text-xs text-content-primary">
         {changeVerb(approval.request.method)} {apiPath(approval.request.url)}
       </span>
@@ -258,7 +258,7 @@ function ProductionRequestRow({ pending, onDecided }: { pending: ProductionReque
     });
   const who = pending.requesterName || pending.requesterEmail;
   return (
-    <li className="grid min-w-0 gap-1.5 rounded-md border border-accent-500/40 bg-bolt-elements-background-depth-2 p-3 text-sm [overflow-wrap:anywhere]">
+    <li className="grid min-w-0 gap-1.5 rounded-md border bg-bolt-elements-background-depth-2 p-3 text-sm wrap-anywhere">
       <span className="flex min-w-0 flex-wrap items-center gap-2">
         <StatusBadge tone="warning">Team project request</StatusBadge>
         <span className="text-xs text-content-tertiary">

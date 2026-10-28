@@ -50,14 +50,14 @@ export function Header() {
   return (
     <>
       <header
-        className="cloudchef-header flex h-[var(--header-height)] items-center overflow-x-auto overflow-y-hidden border-b px-3 py-0.5 sm:px-4"
+        className="cloudchef-header flex h-(--header-height) items-center overflow-x-auto overflow-y-hidden border-b px-3 py-0.5 sm:px-4"
         data-chat-started={chat.started}
       >
         <div className="z-40 flex shrink-0 items-center gap-3 text-content-primary">
           {showSidebarIcon && (
             <button
               type="button"
-              className="cloudchef-header__menu-button !size-11 sm:!size-9"
+              className="cloudchef-header__menu-button size-11! sm:size-9!"
               data-hamburger-menu
               aria-label={isMenuOpen ? 'Close project menu' : 'Open project menu'}
               aria-expanded={isMenuOpen}
@@ -96,7 +96,7 @@ export function Header() {
             <HeaderActionButtons />
           </Suspense>
           <ThemeSwitch
-            className={chat.started ? 'hidden lg:inline-flex' : '!size-11 !min-h-11 sm:!size-auto sm:!min-h-9'}
+            className={chat.started ? 'hidden lg:inline-flex' : 'size-11! min-h-11! sm:size-auto! sm:min-h-9!'}
           />
           {user && (
             <>

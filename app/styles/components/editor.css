@@ -61,7 +61,7 @@
   --cm-tooltip-backgroundColor: var(--cm-backgroundColor);
   --cm-tooltip-textColor: rgb(var(--content-primary-rgb));
 
-  --cm-tooltip-backgroundColorSelected: theme('colors.gray.500/0.2');
+  --cm-tooltip-backgroundColorSelected: rgb(115 115 115 / 0.2);
 
   --cm-tooltip-textColorSelected: rgb(var(--content-primary-rgb));
 
@@ -75,8 +75,8 @@ html.light {
   --bolt-elements-editor-gutter-activeLineTextColor: rgb(var(--content-primary-rgb));
   --bolt-elements-editor-foldGutter-textColorHover: rgb(var(--content-primary-rgb));
   --bolt-elements-editor-activeLineBackgroundColor: rgb(50 53 63 / 5%);
-  --bolt-elements-editor-search-button-backgroundColor: theme('colors.gray.100');
-  --bolt-elements-editor-search-button-backgroundColorHover: theme('colors.gray.900/0.1');
+  --bolt-elements-editor-search-button-backgroundColor: #f5f5f5;
+  --bolt-elements-editor-search-button-backgroundColorHover: rgb(23 23 23 / 0.1);
 }
 
 html.dark {
@@ -86,6 +86,6 @@ html.dark {
   --bolt-elements-editor-activeLineBackgroundColor: rgb(50 53 63 / 50%);
   --bolt-elements-editor-foldGutter-textColorHover: rgb(var(--content-primary-rgb));
   --bolt-elements-editor-matchingBracketBackgroundColor: rgba(66, 180, 255, 0.3);
-  --bolt-elements-editor-search-button-backgroundColor: theme('colors.gray.800');
-  --bolt-elements-editor-search-button-backgroundColorHover: theme('colors.white/0.1');
+  --bolt-elements-editor-search-button-backgroundColor: #262626;
+  --bolt-elements-editor-search-button-backgroundColorHover: rgb(255 255 255 / 0.1);
 }

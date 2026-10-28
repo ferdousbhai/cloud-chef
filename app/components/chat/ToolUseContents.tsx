@@ -126,7 +126,7 @@ function RunningToolContents({ invocation, progress }: { invocation: CloudChefTo
     <ToolResultFrame>
       <pre
         aria-live="polite"
-        className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-content-secondary"
+        className="max-h-56 overflow-auto whitespace-pre-wrap wrap-break-word text-xs text-content-secondary"
       >
         {preview}
       </pre>
@@ -178,7 +178,7 @@ const cloudflareRequestResultSchema = z.object({
 
 function CloudflareRequestLine({ request }: { request: CloudflareApiRequestDisplay }) {
   return (
-    <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-bolt-elements-borderColor p-3 text-xs leading-5 text-content-secondary">
+    <pre className="max-h-96 overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-bolt-elements-borderColor p-3 text-xs leading-5 text-content-secondary">
       {`${request.method} ${request.url}`}
       {request.body === undefined ? '' : `\n\n${JSON.stringify(request.body, null, 2)}`}
     </pre>
@@ -268,7 +268,7 @@ function CloudflareRequestContents({
         </div>
         {input ? <CloudflareRequestLine request={input} /> : null}
         {result.content ? (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-content-secondary">
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word text-xs text-content-secondary">
             {result.content}
           </pre>
         ) : null}
@@ -422,7 +422,7 @@ function CloudflareExecutionStatus({
       <p className={error ? 'text-bolt-elements-icon-error' : 'text-content-primary'}>{label}</p>
       {outcome?.summary ? <p className="text-xs text-content-secondary">{outcome.summary}</p> : null}
       {outcome?.content ? (
-        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-content-secondary">
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap wrap-break-word text-xs leading-5 text-content-secondary">
           {outcome.content}
         </pre>
       ) : null}
@@ -492,7 +492,7 @@ function ValidationToolContents({ invocation }: { invocation: CloudChefToolInvoc
             <span className="ml-2 text-xs text-content-tertiary">{Math.round(report.durationMs / 1_000)}s</span>
           )}
         </div>
-        <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-content-secondary">
+        <pre className="max-h-72 overflow-auto whitespace-pre-wrap wrap-break-word text-xs leading-5 text-content-secondary">
           {result.summary}
         </pre>
         {checks.length > 0 ? (

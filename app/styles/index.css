@@ -1,13 +1,177 @@
-@import 'fonts.css';
-@import 'variables.css';
-@import 'z-index.css';
-@import 'components/resize-handle.css';
-@import 'components/code.css';
-@import 'components/editor.css';
-@import 'home.css';
-@import 'app-shell.css';
-@import 'trust.css';
-@tailwind base;
+/*
+  The app's own stylesheets go first in the utilities layer, ahead of Tailwind's utilities, as they came before
+  them in v3: a utility wins over a rule as specific as itself, and a more specific rule (a component's own
+  selector) still wins over a utility. In `base` they would lose to every utility whatever their specificity.
+*/
+@layer theme, base, components, utilities;
+@import './fonts.css' layer(utilities);
+@import './variables.css' layer(utilities);
+@import './z-index.css' layer(utilities);
+@import './components/resize-handle.css' layer(utilities);
+@import './components/code.css' layer(utilities);
+@import './components/editor.css' layer(utilities);
+@import './home.css' layer(utilities);
+@import './app-shell.css' layer(utilities);
+@import './trust.css' layer(utilities);
+@import 'tailwindcss';
+
+@plugin 'tailwind-scrollbar';
+
+@source '../**/*.{js,jsx,ts,tsx}';
+
+@theme {
+  --font-display: var(--cc-font-mono);
+  --font-sans: var(--cc-font-mono);
+  --font-mono: var(--cc-font-mono);
+
+  --radius: var(--cc-radius);
+  --radius-sm: var(--cc-radius-sm);
+  --radius-md: var(--cc-radius);
+  --radius-lg: var(--cc-radius-lg);
+  --radius-xl: var(--cc-radius-lg);
+  --radius-2xl: var(--cc-radius-lg);
+  --radius-3xl: var(--cc-radius-lg);
+
+  --shadow-raised: var(--cc-shadow-raised);
+  --shadow-panel: var(--cc-shadow-panel);
+
+  --color-accent-500: var(--cc-accent);
+
+  --color-background-primary: rgb(var(--background-primary-rgb));
+  --color-background-secondary: rgb(var(--background-secondary-rgb));
+  --color-background-tertiary: var(--cc-background-tertiary);
+  --color-background-highlight: var(--cc-background-highlight);
+  --color-background-success: var(--cc-background-success);
+  --color-background-warning: var(--cc-background-warning);
+  --color-background-error: var(--cc-background-error);
+
+  --color-background-depth-1: var(--bolt-elements-bg-depth-1);
+  --color-background-depth-2: var(--bolt-elements-bg-depth-2);
+  --color-background-depth-3: var(--bolt-elements-bg-depth-3);
+
+  --color-border-transparent: var(--cc-border-transparent);
+  --color-border-selected: var(--cc-border-selected);
+
+  --color-content-primary: rgb(var(--content-primary-rgb));
+  --color-content-secondary: rgb(var(--content-secondary-rgb));
+  --color-content-tertiary: rgb(var(--content-tertiary-rgb));
+  --color-content-accent: var(--cc-content-accent);
+  --color-content-success: var(--cc-content-success);
+  --color-content-warning: var(--cc-content-warning);
+  --color-content-error: var(--cc-content-error);
+  --color-content-link: var(--cc-content-link);
+
+  --color-util-accent: rgb(122 162 247);
+  --color-util-success: rgb(158 206 106);
+  --color-util-warning: rgb(224 175 104);
+
+  --color-bolt-elements-borderColor: var(--cc-border-transparent);
+
+  --color-bolt-elements-background-depth-1: var(--bolt-elements-bg-depth-1);
+  --color-bolt-elements-background-depth-2: var(--bolt-elements-bg-depth-2);
+  --color-bolt-elements-background-depth-3: var(--bolt-elements-bg-depth-3);
+
+  --color-bolt-elements-code-background: var(--bolt-elements-code-background);
+  --color-bolt-elements-code-text: var(--bolt-elements-code-text);
+
+  --color-bolt-elements-button-primary-background: var(--bolt-elements-button-primary-background);
+  --color-bolt-elements-button-primary-backgroundHover: var(--bolt-elements-button-primary-backgroundHover);
+  --color-bolt-elements-button-primary-text: var(--bolt-elements-button-primary-text);
+
+  --color-bolt-elements-button-secondary-background: var(--bolt-elements-button-secondary-background);
+  --color-bolt-elements-button-secondary-backgroundHover: var(--bolt-elements-button-secondary-backgroundHover);
+  --color-bolt-elements-button-secondary-text: var(--bolt-elements-button-secondary-text);
+
+  --color-bolt-elements-button-danger-background: var(--bolt-elements-button-danger-background);
+  --color-bolt-elements-button-danger-backgroundHover: var(--bolt-elements-button-danger-backgroundHover);
+  --color-bolt-elements-button-danger-text: var(--bolt-elements-button-danger-text);
+
+  --color-bolt-elements-item-contentDefault: var(--bolt-elements-item-contentDefault);
+  --color-bolt-elements-item-contentActive: var(--bolt-elements-item-contentActive);
+  --color-bolt-elements-item-contentAccent: var(--bolt-elements-item-contentAccent);
+  --color-bolt-elements-item-contentDanger: var(--bolt-elements-item-contentDanger);
+  --color-bolt-elements-item-backgroundDefault: var(--bolt-elements-item-backgroundDefault);
+  --color-bolt-elements-item-backgroundActive: var(--bolt-elements-item-backgroundActive);
+  --color-bolt-elements-item-backgroundAccent: var(--bolt-elements-item-backgroundAccent);
+  --color-bolt-elements-item-backgroundDanger: var(--bolt-elements-item-backgroundDanger);
+
+  --color-bolt-elements-actions-background: var(--bolt-elements-actions-background);
+
+  --color-bolt-elements-actions-code-background: var(--bolt-elements-actions-code-background);
+
+  --color-bolt-elements-artifacts-background: var(--bolt-elements-artifacts-background);
+  --color-bolt-elements-artifacts-backgroundHover: var(--bolt-elements-artifacts-backgroundHover);
+  --color-bolt-elements-artifacts-borderColor: var(--bolt-elements-artifacts-borderColor);
+
+  --color-bolt-elements-artifacts-inlineCode-background: var(--bolt-elements-artifacts-inlineCode-background);
+  --color-bolt-elements-artifacts-inlineCode-text: var(--bolt-elements-artifacts-inlineCode-text);
+
+  --color-bolt-elements-messages-background: var(--bolt-elements-messages-background);
+  --color-bolt-elements-messages-linkColor: var(--bolt-elements-messages-linkColor);
+
+  --color-bolt-elements-messages-code-background: var(--bolt-elements-messages-code-background);
+
+  --color-bolt-elements-messages-inlineCode-background: var(--bolt-elements-messages-inlineCode-background);
+  --color-bolt-elements-messages-inlineCode-text: var(--bolt-elements-messages-inlineCode-text);
+
+  --color-bolt-elements-icon-success: var(--bolt-elements-icon-success);
+  --color-bolt-elements-icon-error: var(--bolt-elements-icon-error);
+
+  --color-bolt-elements-preview-addressBar-background: var(--bolt-elements-preview-addressBar-background);
+  --color-bolt-elements-preview-addressBar-backgroundHover: var(--bolt-elements-preview-addressBar-backgroundHover);
+  --color-bolt-elements-preview-addressBar-backgroundActive: var(--bolt-elements-preview-addressBar-backgroundActive);
+  --color-bolt-elements-preview-addressBar-text: var(--bolt-elements-preview-addressBar-text);
+  --color-bolt-elements-preview-addressBar-textActive: var(--bolt-elements-preview-addressBar-textActive);
+
+  --color-bolt-elements-loader-background: var(--bolt-elements-loader-background);
+  --color-bolt-elements-loader-progress: var(--bolt-elements-loader-progress);
+
+  --color-bolt-elements-prompt-background: var(--bolt-elements-prompt-background);
+
+  --color-gray-100: #f5f5f5;
+  --color-gray-400: #a3a3a3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+
+  --color-orange-500: #f79009;
+
+  --color-red-500: #ef4444;
+  --color-red-600: #dc2626;
+  --color-red-700: #b91c1c;
+
+  --color-macosScrollbar-thumb: rgba(155, 155, 155, 0.5);
+
+  --container-chat: var(--chat-max-width);
+
+  --default-transition-timing-function: var(--cc-ease);
+  --ease-base: var(--cc-ease);
+
+  --default-transition-duration: var(--cc-duration-fade);
+}
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: rgb(var(--border-transparent-rgb));
+  }
+}
+
+@utility bolt-ease-cubic-bezier {
+  transition-timing-function: var(--cc-ease);
+}
 
 @layer base {
   button {
@@ -16,28 +180,22 @@
   }
 }
 
-@tailwind utilities;
-
-html,
-body {
-  height: 100%;
-  width: 100%;
-}
-
-* {
-  scrollbar-width: thin !important;
-}
-
-html.light {
-  color-scheme: light;
-}
-
-html.dark {
-  color-scheme: dark;
-}
-
 @layer utilities {
-  .bolt-ease-cubic-bezier {
-    transition-timing-function: var(--cc-ease);
+  html,
+  body {
+    height: 100%;
+    width: 100%;
+  }
+
+  * {
+    scrollbar-width: thin !important;
+  }
+
+  html.light {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
   }
 }

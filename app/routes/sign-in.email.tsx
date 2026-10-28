@@ -67,11 +67,11 @@ function EmailSignIn() {
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6">
       <section className="app-error-card app-card m-auto shrink-0" aria-labelledby="email-sign-in-heading">
         <BrandLink />
-        <h1 id="email-sign-in-heading" className="app-page-title mt-4 !text-2xl">
+        <h1 id="email-sign-in-heading" className="app-page-title mt-4 text-2xl!">
           Sign in to CloudChef
         </h1>
         {email ? (
-          <p className="app-page-lede break-words">
+          <p className="app-page-lede wrap-break-word">
             This link signs you in as <strong className="break-all">{email}</strong>. Continue only if that is your
             address.
           </p>

@@ -161,10 +161,10 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
           aria-label={`Builder model. Current: ${model.label} (${currentProviderLabel})${effortLabel === null ? '' : `, reasoning effort ${effortLabel}`}${disabled ? '. Stop or wait for the current response to finish before switching models.' : ''}`}
           className={classNames(
             // A quiet label in the composer toolbar: the prompt is the focus, the model a setting.
-            'group inline-flex min-h-7 min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-content-tertiary outline-none transition-colors hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
+            'group inline-flex min-h-7 min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-content-tertiary outline-hidden transition-colors hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
             // Sized to its label. A fixed width here truncated the one value this control
             // exists to display.
-            'max-w-[16rem]',
+            'max-w-3xs',
           )}
           title={
             disabled
@@ -213,7 +213,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
             }
           }}
           aria-label="Builder model"
-          className="z-50 max-h-[min(32rem,var(--radix-dropdown-menu-content-available-height))] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none"
+          className="z-50 max-h-[min(32rem,var(--radix-dropdown-menu-content-available-height))] w-[min(24rem,calc(100vw-1.5rem))] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-hidden"
         >
           {listedModels.length > 8 && (
             <div className="relative mb-1.5">
@@ -225,7 +225,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
                 aria-label="Search models"
                 value={search}
                 placeholder="Search models"
-                className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1.5 pl-8 pr-2.5 text-sm text-content-primary outline-none placeholder:text-content-tertiary focus-visible:border-accent-500"
+                className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 py-1.5 pl-8 pr-2.5 text-sm text-content-primary outline-hidden placeholder:text-content-tertiary focus-visible:border-accent-500"
                 onChange={(event) => setSearch(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown') {
@@ -281,9 +281,9 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
                       aria-selected={activeProvider === slug}
                       tabIndex={activeProvider === slug ? 0 : -1}
                       className={classNames(
-                        'shrink-0 grow rounded px-2.5 py-1.5 text-xs font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-accent-500',
+                        'shrink-0 grow rounded px-2.5 py-1.5 text-xs font-medium outline-hidden transition-colors focus-visible:ring-2 focus-visible:ring-accent-500',
                         activeProvider === slug
-                          ? 'bg-bolt-elements-background-depth-1 text-content-primary shadow-sm'
+                          ? 'bg-bolt-elements-background-depth-1 text-content-primary shadow-xs'
                           : 'text-content-secondary hover:text-content-primary',
                       )}
                       onClick={() => {
@@ -320,7 +320,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
                     href="/settings#models"
                     aria-label={`Add a key for ${keylessProviders.map(providerLabel).join(' or ')} in Settings`}
                     title={`Add a key for ${keylessProviders.map(providerLabel).join(' or ')} in Settings → Models to use their models`}
-                    className="inline-flex shrink-0 items-center justify-center rounded px-2 py-1.5 text-content-tertiary outline-none transition-colors hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500"
+                    className="inline-flex shrink-0 items-center justify-center rounded px-2 py-1.5 text-content-tertiary outline-hidden transition-colors hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500"
                   >
                     <PlusIcon aria-hidden="true" className="size-3.5" />
                   </a>
@@ -345,7 +345,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
               ))}
             </div>
             {searching && visible.length === 0 && (
-              <p className="px-3 py-3 text-center text-xs text-content-tertiary">No models match “{search.trim()}”.</p>
+              <p className="text-center text-xs text-content-tertiary p-3">No models match “{search.trim()}”.</p>
             )}
           </DropdownMenu.RadioGroup>
           {reasoningLevels.length > 0 && (
@@ -421,7 +421,7 @@ function EffortItem({
       disabled={disabled}
       // Choosing an effort keeps the menu open, so the model list below stays in reach.
       onSelect={(event) => event.preventDefault()}
-      className="inline-flex min-h-8 cursor-pointer select-none items-center rounded-full border border-bolt-elements-borderColor px-2 text-xs font-medium text-content-secondary outline-none transition-colors data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500 data-[state=checked]:bg-accent-500/10 data-[state=checked]:text-content-accent"
+      className="inline-flex min-h-8 cursor-pointer select-none items-center rounded-full border border-bolt-elements-borderColor px-2 text-xs font-medium text-content-secondary outline-hidden transition-colors data-disabled:cursor-not-allowed data-disabled:opacity-50 data-highlighted:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500 data-[state=checked]:text-content-accent"
     >
       {label}
     </DropdownMenu.RadioItem>
@@ -457,7 +457,7 @@ function PinnedItem({ model, label, disabled }: { model: BuilderModel; label: st
       title={`${label}: ${model.label}`}
       aria-label={`${model.label}, ${label.toLowerCase()}`}
       disabled={disabled}
-      className="inline-flex min-h-8 min-w-0 max-w-full cursor-pointer select-none items-center gap-1.5 rounded-full border border-bolt-elements-borderColor py-1 pl-1 pr-2.5 text-xs outline-none transition-colors data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500 data-[state=checked]:bg-accent-500/10"
+      className="inline-flex min-h-8 min-w-0 max-w-full cursor-pointer select-none items-center gap-1.5 rounded-full border border-bolt-elements-borderColor py-1 pl-1 pr-2.5 text-xs outline-hidden transition-colors data-disabled:cursor-not-allowed data-disabled:opacity-50 data-highlighted:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500"
     >
       <ProviderMark provider={builderProviderFor(model)} />
       <span className="truncate font-medium text-content-primary">{model.label}</span>
@@ -486,7 +486,7 @@ function ModelItem({
       value={model.id}
       textValue={model.label}
       disabled={disabled}
-      className="group/model relative flex min-h-12 cursor-pointer select-none items-center gap-3 rounded-md px-2.5 py-2 outline-none transition-colors data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-bolt-elements-background-depth-2 data-[state=checked]:bg-bolt-elements-item-backgroundAccent"
+      className="group/model relative flex min-h-12 cursor-pointer select-none items-center gap-3 rounded-md px-2.5 py-2 outline-hidden transition-colors data-disabled:cursor-not-allowed data-disabled:opacity-50 data-highlighted:bg-bolt-elements-background-depth-2 data-[state=checked]:bg-bolt-elements-item-backgroundAccent"
     >
       <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 group-data-[state=checked]/model:border-accent-500 group-data-[state=checked]/model:bg-accent-500 group-data-[state=checked]/model:text-white">
         <DropdownMenu.ItemIndicator>
@@ -496,9 +496,9 @@ function ModelItem({
       <span className="min-w-0 grow">
         <span className="flex flex-wrap items-center gap-2">
           {showProvider && <ProviderMark provider={builderProviderFor(model)} />}
-          <span className="break-words text-sm font-semibold text-content-primary">{model.label}</span>
+          <span className="wrap-break-word text-sm font-semibold text-content-primary">{model.label}</span>
           {model.id === defaultModelId && (
-            <span className="shrink-0 rounded border border-accent-500/30 bg-accent-500/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-content-accent">
+            <span className="shrink-0 rounded border px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-content-accent">
               Default
             </span>
           )}

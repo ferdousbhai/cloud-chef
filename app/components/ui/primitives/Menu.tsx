@@ -35,7 +35,7 @@ export function Menu({ children, buttonProps }: MenuProps) {
           sideOffset={8}
           collisionPadding={8}
           aria-label={buttonProps.title}
-          className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-52 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-none backdrop-blur-xl"
+          className="z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-52 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1.5 text-content-primary shadow-panel outline-hidden backdrop-blur-xl"
         >
           {children}
         </DropdownMenu.Content>
@@ -56,7 +56,7 @@ export function MenuItem({
 }) {
   return (
     <DropdownMenu.Item
-      className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium outline-none transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:bg-bolt-elements-background-depth-2 ${danger ? 'text-content-error' : 'text-content-primary'}`}
+      className={`flex min-h-10 w-full items-center gap-2.5 rounded-lg border-0 bg-transparent px-3 py-2 text-left text-sm font-medium outline-hidden transition-colors hover:bg-bolt-elements-background-depth-2 focus-visible:bg-bolt-elements-background-depth-2 ${danger ? 'text-content-error' : 'text-content-primary'}`}
       onSelect={action}
     >
       {children}

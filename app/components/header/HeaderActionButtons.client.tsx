@@ -36,7 +36,7 @@ export function HeaderActionButtons() {
           tip={!canHideChat ? 'Cannot hide chat while code is closed' : showChat ? 'Hide chat' : 'Show chat'}
           onClick={() => chatStore.setKey('showChat', !showChat)}
           variant="neutral"
-          className="!size-11 !min-h-11 rounded-r-none border-r-0 !px-0 sm:!size-auto sm:!min-h-9 sm:!px-3"
+          className="size-11! min-h-11! rounded-r-none border-r-0 px-0! sm:size-auto! sm:min-h-9! sm:px-3!"
           icon={<ChatBubbleIcon className="my-px" />}
           aria-label={showChat ? 'Hide chat' : 'Show chat'}
         />
@@ -49,7 +49,7 @@ export function HeaderActionButtons() {
             workbenchStore.showWorkbench.set(!showWorkbench);
           }}
           variant="neutral"
-          className="!size-11 !min-h-11 rounded-l-none !px-0 sm:!size-auto sm:!min-h-9 sm:!px-3"
+          className="size-11! min-h-11! rounded-l-none px-0! sm:size-auto! sm:min-h-9! sm:px-3!"
           icon={<CodeIcon className="my-px" />}
           aria-label={showWorkbench ? 'Hide workbench' : 'Show workbench'}
           tip={showWorkbench ? 'Hide workbench' : 'Show workbench'}
@@ -119,7 +119,7 @@ function SurfaceButton({
     <button
       type="button"
       className={classNames(
-        'grid size-11 shrink-0 place-items-center border-r border-bolt-elements-borderColor text-content-secondary transition-colors last:border-r-0 hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500',
+        'grid size-11 shrink-0 place-items-center border-r border-bolt-elements-borderColor text-content-secondary transition-colors last:border-r-0 hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent-500',
         {
           'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent': selected,
         },

@@ -200,7 +200,7 @@ function PromptTextarea({
         ref={ref}
         rows={1}
         className={classNames(
-          'block w-full appearance-none resize-none overflow-hidden bg-transparent px-3 py-3 text-sm leading-snug text-content-primary outline-none placeholder-content-tertiary',
+          'block w-full appearance-none resize-none overflow-hidden bg-transparent text-sm leading-snug text-content-primary outline-hidden placeholder-content-tertiary p-3',
           'disabled:cursor-not-allowed disabled:opacity-50',
         )}
         disabled={disabled}

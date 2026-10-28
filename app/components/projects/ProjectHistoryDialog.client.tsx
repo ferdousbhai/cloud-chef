@@ -183,8 +183,8 @@ export function ProjectHistoryDialog({
                     className="grid min-w-0 gap-2 rounded-lg border border-bolt-elements-borderColor p-3 text-sm"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium text-content-primary [overflow-wrap:anywhere]">{title}</p>
-                      <p className="text-xs text-content-tertiary [overflow-wrap:anywhere]">
+                      <p className="font-medium text-content-primary wrap-anywhere">{title}</p>
+                      <p className="text-xs text-content-tertiary wrap-anywhere">
                         {commit.author.name || commit.author.email} ·{' '}
                         <time dateTime={new Date(commit.committedAt * 1_000).toISOString()}>
                           {formatDistanceToNowStrict(commit.committedAt * 1_000, { addSuffix: true })}
@@ -254,7 +254,7 @@ export function ProjectHistoryDialog({
           dialogTitle={`Restore ${shortCommit(confirmingRevert.hash)}?`}
           dialogBody={
             <div className="grid gap-2">
-              <p className="[overflow-wrap:anywhere]">{commitTitle(confirmingRevert.message)}</p>
+              <p className="wrap-anywhere">{commitTitle(confirmingRevert.message)}</p>
               <p>
                 {ownApp
                   ? 'The project goes back to this version, and files added since are removed. It is saved as a new version and published, so your live app shows it. Every version stays in the history.'

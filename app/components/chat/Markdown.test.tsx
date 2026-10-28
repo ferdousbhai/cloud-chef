@@ -60,7 +60,7 @@ describe('Markdown', () => {
 
   it('renders a project title inline, keeping only its emphasis and code', () => {
     expect(renderToStaticMarkup(<ProjectTitle>{'**My** _app_ `x`'}</ProjectTitle>)).toBe(
-      '<span><strong>My</strong> <em>app</em> <code class="rounded bg-[var(--cc-background-secondary)] px-1 py-0.5 font-mono">x</code></span>',
+      '<span><strong>My</strong> <em>app</em> <code class="rounded bg-(--cc-background-secondary) px-1 py-0.5 font-mono">x</code></span>',
     );
   });
 });

@@ -26,7 +26,7 @@ export function SettingsCard({
   return (
     <section
       id={id}
-      className={classNames('app-card w-full min-w-0 p-4 [overflow-wrap:anywhere] sm:p-5', className)}
+      className={classNames('app-card w-full min-w-0 p-4 wrap-anywhere sm:p-5', className)}
       aria-labelledby={headingId}
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-4 gap-y-2">

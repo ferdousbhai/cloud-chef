@@ -46,7 +46,7 @@ export function SiteThumbnail({ url }: { url: string }) {
     <div
       ref={containerRef}
       aria-hidden
-      className="relative aspect-[16/10] overflow-hidden bg-bolt-elements-background-depth-2"
+      className="relative aspect-16/10 overflow-hidden bg-bolt-elements-background-depth-2"
     >
       {visible && scale > 0 ? (
         <iframe
