@@ -293,7 +293,10 @@ const syncAppsSchema = z.strictObject({
       z.strictObject({
         id: z.string().uuid(),
         name: z.string().trim().min(1).max(200),
-        siteUrl: z.url({ protocol: /^https$/ }).max(2_048).nullable(),
+        siteUrl: z
+          .url({ protocol: /^https$/ })
+          .max(2_048)
+          .nullable(),
       }),
     )
     .max(1_000),

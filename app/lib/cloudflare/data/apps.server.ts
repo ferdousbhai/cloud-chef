@@ -6,7 +6,7 @@ import { freeSlug, type ProjectVisibility } from './org-projects.server';
  * repository, name and address name, whether they're public, and their live address as the owner's runtime's
  * deploys recorded it. Each runtime keeps its own person's rows current (`syncApps`).
  */
-export type App = {
+type App = {
   id: string;
   userId: string;
   connectionId: string;
