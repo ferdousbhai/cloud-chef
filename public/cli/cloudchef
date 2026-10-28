@@ -9,6 +9,7 @@ HOST="${HOST%/}"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cloudchef"
 TOKEN_FILE="$CONFIG_DIR/token"
 CONFIG_FILE="$CONFIG_DIR/config"
+# shellcheck disable=SC2088 # kept literal: it is shown to people and expanded where it is used
 DEFAULT_CLONE_DIR="~/cloudflare"
 TAB="$(printf '\t')"
 NL='
@@ -89,6 +90,7 @@ folder_safe() {
 }
 
 expand_home() {
+  # shellcheck disable=SC2088 # matching a literal ~/ to expand it
   case "$1" in
     "~") printf '%s' "$HOME" ;;
     "~/"*) printf '%s/%s' "$HOME" "${1#"~/"}" ;;
@@ -133,6 +135,7 @@ config_set() {
   local tmp
   (umask 077 && mkdir -p "$CONFIG_DIR") || die "Could not create $CONFIG_DIR."
   tmp="$CONFIG_FILE.tmp.$$"
+  # shellcheck disable=SC2015 # either step failing is the same failure
   { [ -f "$CONFIG_FILE" ] && grep -vE "^$1=" "$CONFIG_FILE"; printf '%s=%s\n' "$1" "$2"; } >"$tmp" &&
     mv "$tmp" "$CONFIG_FILE" || die "Could not write $CONFIG_FILE."
 }
@@ -729,6 +732,7 @@ self_command() {
 
 cmd_auth_setup_git() {
   local key="credential.$HOST"
+  # shellcheck disable=SC2015 # either step failing is the same failure
   git config --global "$key.helper" "" &&
     git config --global --add "$key.helper" "!$(self_command) auth git-credential" &&
     git config --global "$key.username" cloudchef ||
@@ -1417,6 +1421,7 @@ CLOUDCHEF_SKILL_END
 }
 
 write_skill() {
+  # shellcheck disable=SC2015 # either step failing is the same failure
   mkdir -p "$1/cloudchef" && skill_text >"$1/cloudchef/SKILL.md" || die "Could not write $1/cloudchef/SKILL.md."
   printf 'Installed the cloudchef skill: %s\n' "$1/cloudchef/SKILL.md"
 }
@@ -1452,6 +1457,7 @@ link_claude_skill() {
     fi
     remove_our_skill "$link" || die "Could not replace the earlier copy $link."
   fi
+  # shellcheck disable=SC2015 # either step failing is the same failure
   mkdir -p "$HOME/.claude/skills" && ln -s "$real" "$link" || die "Could not link $link to $real."
   printf 'Linked %s -> %s\n' "$link" "$real"
 }
