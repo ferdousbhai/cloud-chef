@@ -374,6 +374,50 @@ export async function userRuntimeProjectUploadAction(
   }
 }
 
+/**
+ * `POST /v1/projects/create-empty?name=<project name>`: a new project of this runtime's account with no commits yet,
+ * for history pushed from the person's own computer (`cloudchef repo create --push`); that push publishes it.
+ */
+export async function userRuntimeProjectCreateEmptyAction(
+  args: { url: URL; env: Env; userId: string },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  try {
+    const name = args.url.searchParams.get('name')?.trim().slice(0, 80) || 'New project';
+    const identity = runtimeConnectionIdentity(args.env);
+    if (!identity) {
+      throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+    }
+    const projectId = crypto.randomUUID();
+    const repo = importedProjectRepo(projectId);
+    const store = repositories(args.env);
+    await withRepositoryErrors(store.ensureRepo(repo));
+    await withRepositoryErrors(
+      (async () => {
+        try {
+          await registerUploadedProject(args.env, identity, { orgProjectId: projectId, name, repo, pushed: true });
+        } catch (error) {
+          if (error instanceof ProjectRefusalError) {
+            await store.deleteRepo(repo).catch(() => undefined);
+            throw error;
+          }
+          throw new ProjectUnavailableError(
+            "CloudChef couldn't confirm the project was made. Run cloudchef repo list: if it's there, it's ready.",
+          );
+        }
+      })(),
+    );
+    const { initialId } = await openLinkedChat(args.env.DB, {
+      sessionId: args.userId,
+      id: crypto.randomUUID(),
+      orgProjectId: projectId,
+    });
+    return Response.json({ projectId, initialId }, { status: 201, headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return internalErrorResponse(error, 'The project could not be made. Try again.');
+  }
+}
+
 const readAccessSchema = z.strictObject({ orgProjectId: z.string().uuid() });
 
 /**

@@ -67,6 +67,7 @@ import {
   userRuntimeProjectDeployLogAction,
   userRuntimeProjectDeployRetryAction,
   userRuntimeProjectCopyAction,
+  userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
 } from '../../app/lib/cloudflare/data/projects.server';
 import { findChat } from '../../app/lib/cloudflare/data/chat-repository.server';
@@ -3125,6 +3126,8 @@ async function handleUserRequest(
     response = await userRuntimeProjectArchiveAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/upload') {
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/create-empty') {
+    response = await userRuntimeProjectCreateEmptyAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/read-access') {
     response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {

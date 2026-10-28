@@ -60,6 +60,8 @@ const registerUploadSchema = z.strictObject({
   repo: REPO,
   /** A copy's source project, which the person must be able to read. */
   copiedFrom: z.string().uuid().optional(),
+  /** Made empty, for history pushed from the person's own computer. */
+  pushed: z.literal(true).optional(),
 });
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
@@ -312,6 +314,7 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
       name: body.name,
       repo: body.repo,
       copiedFrom: body.copiedFrom ?? null,
+      createdFrom: body.copiedFrom ? 'copy' : body.pushed ? 'push' : 'zip',
     });
     return json({ projectId: body.orgProjectId }, 201);
   });

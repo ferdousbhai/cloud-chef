@@ -447,8 +447,9 @@ export async function addUploadedProject(
     projectId: string;
     name: string;
     repo: string;
-    /** For a copy, the project it copies; null for an upload. */
+    /** For a copy, the project it copies; null otherwise. */
     copiedFrom: string | null;
+    createdFrom: Extract<ProjectCreatedFrom, 'zip' | 'copy' | 'push'>;
   },
 ): Promise<void> {
   const inserted = await db
@@ -465,7 +466,7 @@ export async function addUploadedProject(
       args.name,
       await freeSlug(db, args.actorId, args.name),
       args.repo,
-      args.copiedFrom ? 'copy' : 'zip',
+      args.createdFrom,
       args.copiedFrom,
       args.actorId,
       Date.now(),
