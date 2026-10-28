@@ -12,8 +12,7 @@ function resolveAgentRequestRoute(pathname: string): AgentRequestRoute {
   if (segments[0] !== 'agents') {
     return { kind: 'not-agent' };
   }
-  // `builder-agent` is the class's name before it was renamed, which browsers use until every runtime has the new one.
-  if (segments.length < 3 || (segments[1] !== 'conversation-agent' && segments[1] !== 'builder-agent')) {
+  if (segments.length < 3 || segments[1] !== 'conversation-agent') {
     return { kind: 'rejected' };
   }
 
@@ -52,10 +51,7 @@ export async function routeUserRuntimeAgentRequest(
   if (denial) {
     return denial;
   }
-  const url = new URL(request.url);
-  const renamed = url.pathname.replace(/^\/agents\/builder-agent\//, '/agents/conversation-agent/');
-  const routed = renamed === url.pathname ? request : new Request(new URL(renamed + url.search, url), request);
-  return (await routeAgentRequest(routed, env, { props: { userId } })) ?? agentNotFoundResponse();
+  return (await routeAgentRequest(request, env, { props: { userId } })) ?? agentNotFoundResponse();
 }
 
 // Resolves to the denial response, or null when the user is authorized for the agent.

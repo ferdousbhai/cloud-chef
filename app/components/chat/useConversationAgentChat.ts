@@ -146,8 +146,7 @@ export function useConversationAgentChat(args: {
   // Set while the workspace is being upgraded and the person's message waits to start.
   const [upgradeWaiting, setUpgradeWaiting] = useState(false);
   const conversationAgent = useAgent<ConversationAgent, ConversationAgentState>({
-    // Its old address until every runtime answers the new one (they upgrade one by one); the runtime takes both.
-    agent: 'BuilderAgent',
+    agent: 'ConversationAgent',
     name: transcript.agentName,
     host: runtimeEndpoint.host,
     protocol: runtimeEndpoint.protocol === 'https:' ? 'wss' : 'ws',

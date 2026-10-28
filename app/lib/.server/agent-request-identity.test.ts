@@ -58,7 +58,7 @@ describe('user-runtime Agent routing', () => {
     '/agents/conversation-agent-extra/chat',
     '/agents/ConversationAgent/chat',
     '/agents/%62uilder-agent/chat',
-    '/agents/builder-agent-extra/chat',
+    '/agents/builder-agent/chat',
     '/agents/%75nrecognized/chat',
     '/agents/conversation-agent',
   ])('rejects a non-ConversationAgent namespace or missing name before PartyServer routing: %s', async (pathname) => {
@@ -92,14 +92,6 @@ describe('user-runtime Agent routing', () => {
     expect(database.values).toEqual(['owner-1', '%C3%A9', '%C3%A9']);
     const routedRequest = routeAgentRequest.mock.calls[0]?.[0] as Request;
     expect(new URL(routedRequest.url).pathname.split('/').filter(Boolean)[2]).toBe(database.values[1]);
-  });
-
-  it('routes the old builder-agent address to the renamed agent, keeping the query', async () => {
-    await route('/agents/builder-agent/chat?capability=c', envWithChats([{ creatorId: 'owner-1' }]), 'owner-1');
-
-    const routed: Request = routeAgentRequest.mock.calls[0]?.[0];
-    expect(new URL(routed.url).pathname).toBe('/agents/conversation-agent/chat');
-    expect(new URL(routed.url).search).toBe('?capability=c');
   });
 
   it('leaves non-Agent requests for the application router', async () => {
