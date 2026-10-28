@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
@@ -11,6 +12,7 @@ import {
   commandLineCopyProjectAction,
   commandLineGitAction,
   commandLineProjectsAction,
+  commandLineRerunAction,
   commandLineRunsAction,
   commandLineVisibilityAction,
   exploreAction,
@@ -528,5 +530,74 @@ describe('a project’s publishes for the command line', () => {
       ['queued', 'production', 'main', 'ccccccc', expect.any(String), main.id],
       ['succeeded', 'preview', 'feature', 'ccccccc', expect.any(String), preview.id],
     ]);
+  });
+});
+
+describe('running a publish again from the command line', () => {
+  const SITE = '33333333-3333-4333-8333-333333333333';
+
+  async function world() {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt)
+        VALUES ('ada', 'Ada', 'ada@example.com', 1, 1, 1);
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1);
+    `);
+    const publish = async (branch: string, commit: string, state: 'succeeded' | 'failed', now: number) => {
+      const { deployment } = await claimDeployment(db, {
+        projectId: SITE,
+        branch,
+        commit: commit.repeat(40),
+        defaultBranch: 'main',
+        userId: 'ada',
+        now,
+      });
+      await reportDeployment(db, { id: deployment.id, userId: 'ada', state, now: now + 1 });
+      return deployment;
+    };
+    const token = (await createCommandLineToken(db, 'ada', 'Laptop')).token;
+    const rerun = async (deployment: string) => {
+      const answer = await commandLineRerunAction({
+        request: new Request('https://cloudchef.build/api/command-line/runs/rerun', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ project: SITE, deployment }),
+        }),
+        env: envWith({ DB: db }),
+      });
+      const { error } = z.object({ error: z.string().optional() }).parse(await answer.json());
+      return { status: answer.status, error };
+    };
+    return { publish, rerun };
+  }
+
+  it('says a publish that succeeded can’t run again, instead of failing', async () => {
+    const { publish, rerun } = await world();
+    const done = await publish('main', 'a', 'succeeded', 1_000);
+
+    expect(await rerun(done.id)).toEqual({
+      status: 409,
+      error: 'Only a failed publish can run again, and this one succeeded. To publish again, push a new commit.',
+    });
+  });
+
+  it('points to the newer publish when a failed one was followed by another of its branch', async () => {
+    const { publish, rerun } = await world();
+    const failed = await publish('main', 'a', 'failed', 1_000);
+    await publish('main', 'b', 'failed', 2_000);
+
+    expect(await rerun(failed.id)).toEqual({
+      status: 409,
+      error: 'A newer publish of main came after this one; run that one again instead.',
+    });
+  });
+
+  it('says a publish it doesn’t know isn’t the project’s', async () => {
+    const { rerun } = await world();
+
+    expect((await rerun('44444444-4444-4444-8444-444444444444')).status).toBe(404);
   });
 });

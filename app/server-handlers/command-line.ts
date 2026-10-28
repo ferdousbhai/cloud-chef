@@ -498,6 +498,26 @@ export async function commandLineRerunAction({ request, env }: { request: Reques
   if (!project) {
     return Response.json({ error: 'Not found.' }, { status: 404 });
   }
+  // Only a failed publish, and only the newest of its branch, starts again; anything else is said plainly here.
+  const runs = await latestDeployments(env.DB, project.id);
+  const run = runs.find((row) => row.id === body.data.deployment);
+  if (!run) {
+    return Response.json({ error: 'That publish isn’t one of the project’s recent ones.' }, { status: 404 });
+  }
+  if (run.state !== 'failed') {
+    return Response.json(
+      {
+        error: `Only a failed publish can run again, and this one ${run.state === 'succeeded' ? 'succeeded' : `is ${run.state.replace('_', ' ')}`}. To publish again, push a new commit.`,
+      },
+      { status: 409 },
+    );
+  }
+  if (runs.some((row) => row.branch === run.branch && row.createdAt > run.createdAt)) {
+    return Response.json(
+      { error: `A newer publish of ${run.branch} came after this one; run that one again instead.` },
+      { status: 409 },
+    );
+  }
   const runtime = await runtimeFor(request, env, userId, project.connectionId);
   if ('refusal' in runtime) {
     return Response.json({ error: runtime.refusal }, { status: runtime.status });
