@@ -25,9 +25,11 @@ import { authClient } from '~/lib/auth-client';
 import { useChatHistory } from '~/lib/cloudflare/chat-history-db';
 import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
 import {
+  loadApps,
   loadTeamProjects,
   openTeamProject,
   setProjectVisibility,
+  type App,
   type ProjectVisibility,
   type TeamProject,
 } from '~/lib/cloudflare/org-projects.client';
@@ -56,7 +58,7 @@ type OpenDialog =
   | { kind: 'import' }
   | { kind: 'upload' }
   | { kind: 'copy'; project: { id: string; name: string } }
-  | { kind: 'make-public'; project: TeamProject; connection: ConnectionProjects }
+  | { kind: 'make-public'; name: string; makePublic: () => void }
   | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string; live?: boolean }
   | {
       kind: 'use-wanted-worker';
@@ -178,10 +180,10 @@ export function ProjectsHome({ userId }: { userId: string }) {
           onClose={() => setDialog(null)}
           onConfirm={() => {
             setDialog(null);
-            void dialog.connection.changeVisibility(dialog.project, 'public');
+            dialog.makePublic();
           }}
           confirmText="Make public"
-          dialogTitle={`Make ${dialog.project.name} public?`}
+          dialogTitle={`Make ${dialog.name} public?`}
           dialogBody={
             <p>
               Anyone signed in to CloudChef will be able to find it in Explore, open its site, read its code and make
@@ -250,6 +252,7 @@ function OwnProjects({
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
   const added = useConnectionProjects(!hideWhenEmpty, onDialog);
   const chats = history.projects;
+  const apps = useApps(chats.map((chat) => chat.initialId).join(' '));
   const addedProjects = added.projects ?? [];
   const empty = chats.length === 0 && addedProjects.length === 0;
   const failed = history.error != null || added.loadFailed;
@@ -262,7 +265,15 @@ function OwnProjects({
     ...chats.map((chat) => ({
       key: chat.initialId,
       at: chat.timestamp,
-      card: <OwnProjectCard key={chat.initialId} project={chat} onDialog={onDialog} />,
+      card: (
+        <OwnProjectCard
+          key={chat.initialId}
+          project={chat}
+          app={apps.apps?.get(chat.initialId) ?? null}
+          onChangeVisibility={apps.changeVisibility}
+          onDialog={onDialog}
+        />
+      ),
     })),
     ...addedProjects.map((project) => ({
       key: project.id,
@@ -322,9 +333,14 @@ function OwnProjects({
 
 function OwnProjectCard({
   project,
+  app,
+  onChangeVisibility,
   onDialog,
 }: {
   project: ChatHistorySummary;
+  /** The app as CloudChef records it; null until it has. */
+  app: App | null;
+  onChangeVisibility: (app: App, name: string, visibility: ProjectVisibility) => Promise<void>;
   onDialog: (dialog: OpenDialog) => void;
 }) {
   const name = project.description?.trim() || 'Untitled project';
@@ -334,6 +350,8 @@ function OwnProjectCard({
       title={name}
       updatedAt={project.timestamp}
       siteUrl={project.productionUrl ?? null}
+      subtitle={app?.fullName}
+      isPublic={app?.visibility === 'public'}
       primary={
         <Link
           to="/chat/$id"
@@ -359,10 +377,111 @@ function OwnProjectCard({
             <DownloadIcon />
             Download ZIP
           </MenuItem>
+          {app ? (
+            <PublicAndCopyItems
+              project={{ id: app.id, name }}
+              visibility={app.visibility}
+              onChangeVisibility={(visibility) => void onChangeVisibility(app, name, visibility)}
+              onDialog={onDialog}
+            />
+          ) : null}
         </>
       }
     />
   );
+}
+
+/**
+ * A card's menu items for making the project public or private, for someone who may decide that, and for
+ * making a copy of it. Making it public asks first.
+ */
+function PublicAndCopyItems({
+  project,
+  visibility,
+  onChangeVisibility,
+  onDialog,
+}: {
+  project: { id: string; name: string };
+  visibility: ProjectVisibility;
+  /** Left out for someone who may not make it public or private. */
+  onChangeVisibility?: (visibility: ProjectVisibility) => void;
+  onDialog: (dialog: OpenDialog) => void;
+}) {
+  return (
+    <>
+      {onChangeVisibility ? (
+        visibility === 'public' ? (
+          <MenuItem action={() => onChangeVisibility('private')}>
+            <LockClosedIcon />
+            Make private
+          </MenuItem>
+        ) : (
+          <MenuItem
+            action={() =>
+              onDialog({ kind: 'make-public', name: project.name, makePublic: () => onChangeVisibility('public') })
+            }
+          >
+            <LockOpen1Icon />
+            Make public
+          </MenuItem>
+        )
+      ) : null}
+      <MenuItem action={() => onDialog({ kind: 'copy', project })}>
+        <CopyIcon />
+        Make a copy
+      </MenuItem>
+    </>
+  );
+}
+
+/** Makes a project public or private, and says how that went. Returns the visibility it has now, or null. */
+async function changeVisibilityOf(
+  project: { id: string; name: string },
+  visibility: ProjectVisibility,
+): Promise<ProjectVisibility | null> {
+  try {
+    const changed = await setProjectVisibility(project.id, visibility);
+    toast.success(changed === 'public' ? `${project.name} is public.` : `${project.name} is private again.`);
+    return changed;
+  } catch (error) {
+    toast.error(
+      messageOf(error, `${project.name} could not be made ${visibility === 'public' ? 'public' : 'private'}.`),
+    );
+    return null;
+  }
+}
+
+/**
+ * The person's apps as CloudChef records them, by id, asked for again when the chat list (`chatIds`) changes,
+ * since a new chat is recorded once it is listed. Null until loaded; an app missing from it has no address or
+ * visibility yet.
+ */
+function useApps(chatIds: string) {
+  const connectionId = authClient.useSession().data?.context?.connectionId ?? null;
+  const [apps, setApps] = useState<ReadonlyMap<string, App> | null>(null);
+
+  useEffect(() => {
+    if (chatIds === '') {
+      // No chats, so no apps to show.
+      return undefined;
+    }
+    const controller = new AbortController();
+    loadApps(controller.signal)
+      .then((loaded) => setApps(new Map(loaded.map((app) => [app.id, app]))))
+      .catch(() => {
+        // Without them, the cards have no address and no public or copy actions; the next list asks again.
+      });
+    return () => controller.abort();
+  }, [connectionId, chatIds]);
+
+  const changeVisibility = async (app: App, name: string, visibility: ProjectVisibility) => {
+    const changed = await changeVisibilityOf({ id: app.id, name }, visibility);
+    if (changed) {
+      setApps((current) => current && new Map(current).set(app.id, { ...app, visibility: changed }));
+    }
+  };
+
+  return { apps, changeVisibility };
 }
 
 /** The projects of the account the person works in, kept fresh while one is being published. */
@@ -458,16 +577,11 @@ function useConnectionProjects(
   };
 
   const changeVisibility = async (project: TeamProject, visibility: ProjectVisibility) => {
-    try {
-      const changed = await setProjectVisibility(project.id, visibility);
+    const changed = await changeVisibilityOf(project, visibility);
+    if (changed) {
       setProjects(
         (current) =>
           current?.map((listed) => (listed.id === project.id ? { ...listed, visibility: changed } : listed)) ?? null,
-      );
-      toast.success(changed === 'public' ? `${project.name} is public.` : `${project.name} is private again.`);
-    } catch (error) {
-      toast.error(
-        messageOf(error, `${project.name} could not be made ${visibility === 'public' ? 'public' : 'private'}.`),
       );
     }
   };
@@ -618,23 +732,14 @@ function ConnectionProjectCard({
               Share
             </MenuItem>
           ) : null}
-          {project.canManage ? (
-            project.visibility === 'public' ? (
-              <MenuItem action={() => void connection.changeVisibility(project, 'private')}>
-                <LockClosedIcon />
-                Make private
-              </MenuItem>
-            ) : (
-              <MenuItem action={() => onDialog({ kind: 'make-public', project, connection })}>
-                <LockOpen1Icon />
-                Make public
-              </MenuItem>
-            )
-          ) : null}
-          <MenuItem action={() => onDialog({ kind: 'copy', project: { id: project.id, name: project.name } })}>
-            <CopyIcon />
-            Make a copy
-          </MenuItem>
+          <PublicAndCopyItems
+            project={{ id: project.id, name: project.name }}
+            visibility={project.visibility ?? 'private'}
+            onChangeVisibility={
+              project.canManage ? (visibility) => void connection.changeVisibility(project, visibility) : undefined
+            }
+            onDialog={onDialog}
+          />
         </>
       }
     />

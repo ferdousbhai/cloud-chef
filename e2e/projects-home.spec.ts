@@ -59,6 +59,8 @@ async function stubSignedIn(page: Page, context: WorkspaceContext, teamProjects:
     route.fulfill({ json: { endpoint: RUNTIME_ORIGIN, token: 'e2e-capability', expiresAt: Date.now() + 600_000 } }),
   );
   await page.route('**/api/org-projects', (route) => route.fulfill({ json: { projects: teamProjects } }));
+  // CloudChef's record of the person's apps; none yet, so their cards have no public or copy choices.
+  await page.route('**/api/apps', (route) => route.fulfill({ json: { apps: [] } }));
   // The prompt's model selector reads the account's catalog from the same runtime.
   await page.route(`${RUNTIME_ORIGIN}/v1/models`, (route) =>
     route.fulfill({ json: { defaultModelId: DEFAULT_WORKERS_AI_MODEL.id, models: [DEFAULT_WORKERS_AI_MODEL] } }),
@@ -167,6 +169,7 @@ test('lists public projects in Explore, with their sites and a way to make a cop
   await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' });
   const publicProjects: PublicProject[] = [
     {
+      kind: 'project',
       id: '00000000-0000-4000-8000-000000000003',
       name: 'Booking site',
       fullName: 'grace/booking-site',

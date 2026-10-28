@@ -6,7 +6,7 @@ import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } fr
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
 import type { ChatHistorySummary } from '~/lib/cloudflare/data-api';
-import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
+import type { App, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { refreshSession } from '~/lib/auth-client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { toast } from 'sonner';
@@ -28,10 +28,12 @@ const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3
 let context: WorkspaceContext = personal;
 let ownProjects: ChatHistorySummary[] = [];
 let teamProjects: TeamProject[] = [];
+let apps: App[] = [];
 /** The workspace runtime's publish routes, or null where it hasn't been upgraded to have them. */
 let deployRoutes: { log: string } | null = null;
 const deployRequests: unknown[] = [];
 const visibilityRequests: unknown[] = [];
+const copyRequests: unknown[] = [];
 
 /** CloudChef's routes and the workspace runtime, as the home reaches them. */
 async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -47,6 +49,16 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   if (url === '/api/org-projects') {
     return Response.json({ projects: teamProjects });
+  }
+  if (url === '/api/projects/copy' && init?.method === 'POST') {
+    copyRequests.push(JSON.parse(String(init.body)));
+    return Response.json(
+      { projectId: 'app-9', initialId: 'chat-9', fullName: 'ada/booking-site-copy' },
+      { status: 201 },
+    );
+  }
+  if (url === '/api/apps') {
+    return Response.json({ apps });
   }
   if (url === '/api/projects/visibility' && init?.method === 'POST') {
     const body: { projectId: string; visibility: string } = JSON.parse(String(init.body));
@@ -84,9 +96,11 @@ beforeEach(() => {
   resetUserRuntimeSession();
   ownProjects = [];
   teamProjects = [];
+  apps = [];
   deployRoutes = null;
   deployRequests.length = 0;
   visibilityRequests.length = 0;
+  copyRequests.length = 0;
 });
 
 afterEach(async () => {
@@ -461,6 +475,85 @@ describe('ProjectsHome', () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.querySelector('input')?.value).toBe('Storefront');
     expect(dialog?.textContent).toContain('Acme');
+  });
+
+  it('gives an app made in a chat the same public and copy choices, once CloudChef has recorded it', async () => {
+    context = personal;
+    const at = new Date().toISOString();
+    ownProjects = [
+      { id: 'chat-1', initialId: 'chat-1', description: 'Booking site', timestamp: at },
+      { id: 'chat-2', initialId: 'chat-2', description: 'Garden club', timestamp: at },
+      { id: 'chat-3', initialId: 'chat-3', description: 'Just made', timestamp: at },
+    ];
+    apps = [
+      { id: 'chat-1', fullName: 'ada/booking-site', visibility: 'private' },
+      { id: 'chat-2', fullName: 'ada/garden-club', visibility: 'public' },
+    ];
+    await render('user-app-menu');
+    await vi.waitFor(() => expect(card('Garden club').textContent).toContain('ada/garden-club'));
+
+    expect(card('Garden club').textContent).toContain('Public');
+    expect(card('Booking site').textContent).toContain('ada/booking-site');
+    expect(card('Booking site').textContent).not.toContain('Public');
+    const booking = await moreChoices('Booking site');
+    expect(booking).toEqual(['History', 'Clone', 'Download ZIP', 'Make public', 'Make a copy']);
+    await closeMenu();
+    const garden = await moreChoices('Garden club');
+    expect(garden).toContain('Make private');
+    expect(garden).not.toContain('Make public');
+    await closeMenu();
+    // Not recorded yet: nothing to make public or copy.
+    expect(await moreChoices('Just made')).toEqual(['History', 'Clone', 'Download ZIP']);
+  });
+
+  it('asks before making an app public, and makes it private again without asking', async () => {
+    context = personal;
+    ownProjects = [
+      { id: 'chat-1', initialId: 'chat-1', description: 'Booking site', timestamp: new Date().toISOString() },
+    ];
+    apps = [{ id: 'chat-1', fullName: 'ada/booking-site', visibility: 'private' }];
+    await render('user-app-make-public');
+    await vi.waitFor(() => expect(card('Booking site').textContent).toContain('ada/booking-site'));
+
+    await moreChoices('Booking site');
+    await choose('Make public');
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Make Booking site public?');
+    expect(dialog?.textContent).toContain('Anyone signed in to CloudChef will be able to find it in Explore');
+    expect(visibilityRequests).toEqual([]);
+
+    await click(dialog!, 'Make public');
+    await vi.waitFor(() => expect(card('Booking site').textContent).toContain('Public'));
+    expect(visibilityRequests).toEqual([{ projectId: 'chat-1', visibility: 'public' }]);
+
+    await moreChoices('Booking site');
+    await choose('Make private');
+    await vi.waitFor(() => expect(card('Booking site').textContent).not.toContain('Public'));
+    expect(visibilityRequests).toEqual([
+      { projectId: 'chat-1', visibility: 'public' },
+      { projectId: 'chat-1', visibility: 'private' },
+    ]);
+  });
+
+  it('makes a copy of an app and opens it', async () => {
+    context = personal;
+    ownProjects = [
+      { id: 'chat-1', initialId: 'chat-1', description: 'Booking site', timestamp: new Date().toISOString() },
+    ];
+    apps = [{ id: 'chat-1', fullName: 'ada/booking-site', visibility: 'private' }];
+    await render('user-app-copy');
+    await vi.waitFor(() => expect(card('Booking site').textContent).toContain('ada/booking-site'));
+
+    await moreChoices('Booking site');
+    await choose('Make a copy');
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.querySelector('input')?.value).toBe('Booking site');
+    expect(dialog?.textContent).toContain('Personal');
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    await click(dialog!, 'Make a copy');
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/chat/chat-9'));
+    expect(copyRequests).toEqual([{ projectId: 'chat-1', name: 'Booking site' }]);
   });
 
   it("says an uploaded project is code only, or isn't published yet", async () => {

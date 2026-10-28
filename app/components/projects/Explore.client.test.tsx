@@ -94,6 +94,7 @@ async function render(element: ReactNode) {
 
 function project(overrides: Partial<PublicProject>): PublicProject {
   return {
+    kind: 'project',
     id: 'project-1',
     name: 'Storefront',
     fullName: 'ada/storefront',
@@ -180,6 +181,35 @@ describe('Explore', () => {
     await click(dialog, 'Make a copy');
     await vi.waitFor(() => expect(opened).toHaveBeenCalledWith('chat-9'));
     expect(copyRequests).toEqual([{ projectId: 'project-1', name: 'Storefront' }]);
+  });
+
+  it('shows an app made in a chat like a project, and makes a copy of it', async () => {
+    publicProjects = [
+      project({
+        kind: 'app',
+        id: 'chat-1',
+        name: 'Garden club',
+        fullName: 'grace/garden-club',
+        owner: { username: 'grace', name: 'Grace Hopper' },
+        siteUrl: 'https://garden.example.com',
+        siteFrameable: null,
+      }),
+    ];
+    copyAnswer = () =>
+      Response.json({ projectId: 'chat-9', initialId: 'chat-9', fullName: 'ada/garden-club' }, { status: 201 });
+    const opened = vi.fn();
+    await render(<Explore onOpenProject={opened} />);
+    await vi.waitFor(() => card('grace/garden-club'));
+
+    const garden = card('grace/garden-club');
+    expect(garden.textContent).toContain('By Grace Hopper');
+    expect(garden.querySelector('a[href="https://garden.example.com"]')?.textContent).toContain('Open site');
+    await click(garden, 'Make a copy');
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog.querySelector('input')?.value).toBe('Garden club');
+    await click(dialog, 'Make a copy');
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledWith('chat-9'));
+    expect(copyRequests).toEqual([{ projectId: 'chat-1', name: 'Garden club' }]);
   });
 });
 

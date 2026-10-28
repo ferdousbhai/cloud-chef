@@ -86,9 +86,33 @@ export async function setProjectVisibility(
   return (await postJson('/api/projects/visibility', { projectId, visibility }, schema)).visibility;
 }
 
+const appsSchema = z.object({
+  apps: z.array(
+    z.object({
+      /** The app's id, which is its chat's. */
+      id: z.string(),
+      /** Its address on CloudChef, `owner/slug`. */
+      fullName: z.string().nullable(),
+      visibility: projectVisibilitySchema,
+    }),
+  ),
+});
+
+export type App = z.infer<typeof appsSchema>['apps'][number];
+
+/**
+ * The person's apps (projects made in a chat) in the account they are working in now. One just made isn't
+ * listed until CloudChef has recorded it.
+ */
+export async function loadApps(signal?: AbortSignal): Promise<App[]> {
+  return (await getJson('/api/apps', appsSchema, undefined, signal)).apps;
+}
+
 const exploreSchema = z.object({
   projects: z.array(
     z.object({
+      /** A project, or an app made in a chat; either is copied the same way. */
+      kind: z.enum(['project', 'app']),
       id: z.string(),
       name: z.string(),
       fullName: z.string().nullable(),
