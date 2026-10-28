@@ -34,6 +34,7 @@ let deployRoutes: { log: string } | null = null;
 const deployRequests: unknown[] = [];
 const visibilityRequests: unknown[] = [];
 const copyRequests: unknown[] = [];
+const removeRequests: unknown[] = [];
 
 /** CloudChef's routes and the workspace runtime, as the home reaches them. */
 async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -56,6 +57,10 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
       { projectId: 'app-9', initialId: 'chat-9', fullName: 'ada/booking-site-copy' },
       { status: 201 },
     );
+  }
+  if (url === '/api/organizations/projects/unlink' && init?.method === 'POST') {
+    removeRequests.push(JSON.parse(String(init.body)));
+    return new Response(null, { status: 204 });
   }
   if (url === '/api/apps') {
     return Response.json({ apps });
@@ -101,6 +106,7 @@ beforeEach(() => {
   deployRequests.length = 0;
   visibilityRequests.length = 0;
   copyRequests.length = 0;
+  removeRequests.length = 0;
 });
 
 afterEach(async () => {
@@ -462,6 +468,28 @@ describe('ProjectsHome', () => {
       { projectId: 'project-1', visibility: 'public' },
       { projectId: 'project-1', visibility: 'private' },
     ]);
+  });
+
+  it('lets whoever manages a project remove it from CloudChef, after saying its site and code stay', async () => {
+    context = personal;
+    teamProjects = [
+      { id: 'project-1', name: 'Storefront', role: 'edit', repo: 'r', visibility: 'private', canManage: true },
+      { id: 'project-2', name: 'Notes', role: 'view', repo: 'r', visibility: 'private', canManage: false },
+    ];
+    await render('user-remove');
+    await vi.waitFor(() => card('Notes'));
+
+    expect(await moreChoices('Notes')).not.toContain('Remove');
+    await closeMenu();
+    expect(await moreChoices('Storefront')).toContain('Remove');
+    await choose('Remove');
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Its site and its code stay in your Cloudflare account');
+    expect(removeRequests).toEqual([]);
+
+    await click(dialog!, 'Remove');
+    await vi.waitFor(() => expect(document.body.textContent).not.toContain('Storefront'));
+    expect(removeRequests).toEqual([{ projectId: 'project-1' }]);
   });
 
   it('opens Make a copy with the project’s name', async () => {

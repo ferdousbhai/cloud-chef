@@ -13,6 +13,7 @@ import {
   Pencil1Icon,
   PersonIcon,
   PlusIcon,
+  TrashIcon,
   UploadIcon,
 } from '@radix-ui/react-icons';
 import { Button, buttonClassNames } from '@ui/Button';
@@ -41,7 +42,7 @@ import {
 } from '~/lib/cloudflare/projects.client';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { isImportReturn, IMPORT_RETURN_PARAM } from '~/lib/github-app.client';
-import { messageOf } from '~/lib/json-request';
+import { messageOf, noContentSchema, postJson } from '~/lib/json-request';
 import { CloneDialog } from './CloneDialog.client';
 import { CopyProjectDialog } from './CopyProjectDialog.client';
 import { DeployLogDialog } from './DeployLogDialog.client';
@@ -59,6 +60,7 @@ type OpenDialog =
   | { kind: 'upload' }
   | { kind: 'copy'; project: { id: string; name: string } }
   | { kind: 'make-public'; name: string; makePublic: () => void }
+  | { kind: 'remove'; project: TeamProject; connection: ConnectionProjects }
   | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string; live?: boolean }
   | {
       kind: 'use-wanted-worker';
@@ -197,6 +199,23 @@ export function ProjectsHome({ userId }: { userId: string }) {
             <p>
               Anyone signed in to CloudChef will be able to find it in Explore, open its site, read its code and make
               their own copy. Only people you’ve given access can change it.
+            </p>
+          }
+        />
+      ) : null}
+      {dialog?.kind === 'remove' ? (
+        <ConfirmationDialog
+          onClose={() => setDialog(null)}
+          onConfirm={() => {
+            setDialog(null);
+            void dialog.connection.remove(dialog.project);
+          }}
+          confirmText="Remove"
+          dialogTitle={`Remove ${dialog.project.name} from CloudChef?`}
+          dialogBody={
+            <p>
+              It goes from your projects, and nobody can open it here any more. Its site and its code stay in your
+              Cloudflare account: delete them there if you don’t want them.
             </p>
           }
         />
@@ -522,6 +541,7 @@ type ConnectionProjects = {
   retrying: string | null;
   retry: (project: TeamProject, deploymentId: string, options?: { toWantedWorker?: true }) => Promise<void>;
   changeVisibility: (project: TeamProject, visibility: ProjectVisibility) => Promise<void>;
+  remove: (project: TeamProject) => Promise<void>;
 };
 
 function useConnectionProjects(
@@ -614,6 +634,21 @@ function useConnectionProjects(
     }
   };
 
+  // Only from CloudChef: its repository and its Worker stay in the account.
+  const remove = async (project: TeamProject) => {
+    try {
+      await postJson(
+        '/api/organizations/projects/unlink',
+        { orgId: orgId ?? undefined, projectId: project.id },
+        noContentSchema,
+        `${project.name} couldn’t be removed. Try again.`,
+      );
+      setProjects((current) => current?.filter((listed) => listed.id !== project.id) ?? null);
+    } catch (error) {
+      toast.error(messageOf(error, `${project.name} couldn’t be removed. Try again.`));
+    }
+  };
+
   const open = async (project: TeamProject) => {
     setOpening(project.id);
     try {
@@ -635,6 +670,7 @@ function useConnectionProjects(
     retrying,
     retry,
     changeVisibility,
+    remove,
   };
 }
 
@@ -771,6 +807,12 @@ function ConnectionProjectCard({
             }
             onDialog={onDialog}
           />
+          {project.canManage ? (
+            <MenuItem danger action={() => onDialog({ kind: 'remove', project, connection })}>
+              <TrashIcon />
+              Remove
+            </MenuItem>
+          ) : null}
         </>
       }
     />
