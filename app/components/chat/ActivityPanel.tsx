@@ -144,7 +144,7 @@ function ActivityRun({
     <section ref={sectionRef} className="min-w-0 border-b border-bolt-elements-borderColor last:border-0">
       <button
         type="button"
-        className="w-full p-3 text-left text-xs text-content-secondary hover:text-content-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
+        className="w-full p-3 text-left text-xs text-content-secondary hover:text-content-primary focus-visible:outline-2 focus-visible:outline-accent-500"
         aria-expanded={open}
         onClick={() => setExpanded(!expanded)}
       >

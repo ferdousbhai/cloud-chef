@@ -75,7 +75,7 @@ export function Explore({ onOpenProject = openProjectWorkspace }: { onOpenProjec
 function PublicProjectCard({ project, onCopy }: { project: PublicProject; onCopy: () => void }) {
   const title = project.fullName ?? project.name;
   return (
-    <li className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-sm">
+    <li className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-xs">
       <ProjectThumbnail siteUrl={project.siteUrl} siteFramed={project.siteFrameable !== false} />
       <div className="flex min-w-0 flex-1 flex-col gap-3 border-t border-bolt-elements-borderColor p-3">
         <div className="min-w-0">

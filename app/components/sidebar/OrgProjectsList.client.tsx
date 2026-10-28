@@ -58,7 +58,7 @@ export function OrgProjectsList({
     return (
       <section aria-label={heading} className="pb-3">
         <div
-          className="rounded-lg border border-[var(--cc-content-warning)]/40 bg-[var(--cc-background-secondary)] p-3 text-xs text-content-secondary"
+          className="rounded-lg border border-(--cc-content-warning)/40 bg-(--cc-background-secondary) p-3 text-xs text-content-secondary"
           role="alert"
         >
           <p>{heading} could not be loaded.</p>
@@ -98,7 +98,7 @@ export function OrgProjectsList({
             type="button"
             disabled={opening !== null}
             onClick={() => void open(project)}
-            className="flex w-full min-w-0 flex-col rounded-lg px-3 py-2 text-left hover:bg-[var(--bolt-elements-item-backgroundActive)] disabled:opacity-60"
+            className="flex w-full min-w-0 flex-col rounded-lg px-3 py-2 text-left hover:bg-(--bolt-elements-item-backgroundActive) disabled:opacity-60"
           >
             <span className="truncate font-medium text-content-primary">
               {opening === project.id ? `Opening ${project.name}…` : project.name}

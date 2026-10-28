@@ -45,7 +45,7 @@ export function buttonClassNames({
   inline,
 }: Pick<ButtonVisualProps, 'className' | 'variant' | 'size' | 'inline'>) {
   return classNames(
-    'cc-button inline-flex shrink-0 items-center justify-center gap-1.5 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
+    'cc-button inline-flex shrink-0 items-center justify-center gap-1.5 font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
     inline ? 'w-auto' : '',
     variantClasses[variant],
     sizeClasses[size],

@@ -166,7 +166,7 @@ export function WorkspaceRuntimeConnectionError({
         <h1 id="workspace-connection-heading" className="font-display text-2xl font-bold text-content-primary">
           CloudChef could not prepare your workspace.
         </h1>
-        <p className="mt-3 break-words text-sm text-content-secondary" role="alert">
+        <p className="mt-3 wrap-break-word text-sm text-content-secondary" role="alert">
           {message}
         </p>
         {planRequired ? (

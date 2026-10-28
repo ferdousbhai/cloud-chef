@@ -75,7 +75,7 @@ export function DeployLogDialog({
       ) : (
         <pre
           aria-label="What happened"
-          className="max-h-[60dvh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 font-mono text-xs text-content-primary"
+          className="max-h-[60dvh] overflow-auto whitespace-pre-wrap wrap-break-word rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 font-mono text-xs text-content-primary"
         >
           {withoutTerminalColors(log).trim() || 'Nothing was written down for this one.'}
         </pre>

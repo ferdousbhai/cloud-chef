@@ -65,7 +65,7 @@ export function ProjectCard({
 }) {
   const publishing = deploy !== undefined && deployInProgress(deploy.state);
   return (
-    <li className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-sm">
+    <li className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-xs">
       <div className="relative">
         <ProjectThumbnail
           siteUrl={siteUrl}
@@ -74,7 +74,7 @@ export function ProjectCard({
             publishing ? (
               <div
                 role="status"
-                className="flex aspect-[16/10] items-center justify-center gap-2 bg-bolt-elements-background-depth-2 text-xs text-content-secondary"
+                className="flex aspect-16/10 items-center justify-center gap-2 bg-bolt-elements-background-depth-2 text-xs text-content-secondary"
               >
                 <Spinner />
                 <PublishProgress deploy={deploy} />
@@ -87,7 +87,7 @@ export function ProjectCard({
           // The site stays up while its next version is published.
           <span
             role="status"
-            className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-0.5 text-xs text-content-secondary shadow-sm"
+            className="absolute left-2 top-2 flex items-center gap-1.5 rounded-full border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 py-0.5 text-xs text-content-secondary shadow-xs"
           >
             <Spinner className="size-3" />
             {deploy?.step ? <PublishProgress deploy={deploy} /> : 'Updating…'}
@@ -173,14 +173,14 @@ export function ProjectThumbnail({
   if (siteUrl) {
     // A site that refuses to be shown in a frame (as many do, against clickjacking) is named instead.
     return (
-      <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 px-4 text-center text-sm text-content-secondary">
+      <div className="flex aspect-16/10 items-center justify-center bg-bolt-elements-background-depth-2 px-4 text-center text-sm text-content-secondary">
         <span className="truncate">{siteHost(siteUrl)}</span>
       </div>
     );
   }
   return (
     placeholder ?? (
-      <div className="flex aspect-[16/10] items-center justify-center bg-bolt-elements-background-depth-2 text-xs text-content-tertiary">
+      <div className="flex aspect-16/10 items-center justify-center bg-bolt-elements-background-depth-2 text-xs text-content-tertiary">
         {unpublished}
       </div>
     )
@@ -317,7 +317,7 @@ export function ProjectCardSkeletons({ count = 3 }: { count?: number }) {
           key={index}
           className="flex min-w-0 flex-col overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 motion-safe:animate-pulse"
         >
-          <div className="aspect-[16/10] bg-bolt-elements-background-depth-2" />
+          <div className="aspect-16/10 bg-bolt-elements-background-depth-2" />
           <div className="flex flex-col gap-2 border-t border-bolt-elements-borderColor p-3">
             <div className="h-4 w-2/3 rounded-sm bg-bolt-elements-background-depth-3" />
             <div className="h-3 w-1/3 rounded-sm bg-bolt-elements-background-depth-2" />

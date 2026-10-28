@@ -49,7 +49,7 @@ export function WorkspaceFilesNotice({ status, hasFiles }: { status: WorkspaceFi
           {heading}
         </h2>
         {detail ? (
-          <p className="mt-2 break-words text-sm text-content-secondary" role="alert">
+          <p className="mt-2 wrap-break-word text-sm text-content-secondary" role="alert">
             {detail}
           </p>
         ) : null}

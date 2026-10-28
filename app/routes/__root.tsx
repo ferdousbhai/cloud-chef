@@ -176,7 +176,7 @@ function RootNotFoundComponent() {
           <BrandLink />
           <span className="app-status-badge">404</span>
         </div>
-        <h1 id="not-found-heading" className="app-page-title !text-2xl">
+        <h1 id="not-found-heading" className="app-page-title text-2xl!">
           This page does not exist.
         </h1>
         <div className="mt-4">

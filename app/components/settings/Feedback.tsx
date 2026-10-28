@@ -15,7 +15,7 @@ export function FeedbackLine({ feedback, className = 'mt-2' }: { feedback: Feedb
   }
   return (
     <p
-      className={`${className} text-sm ${feedback.error ? 'text-bolt-elements-icon-error' : 'text-content-secondary'} [overflow-wrap:anywhere]`}
+      className={`${className} text-sm ${feedback.error ? 'text-bolt-elements-icon-error' : 'text-content-secondary'} wrap-anywhere`}
       role={feedback.error ? 'alert' : 'status'}
     >
       {feedback.text}

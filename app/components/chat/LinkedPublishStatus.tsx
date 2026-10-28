@@ -19,7 +19,7 @@ export function LinkedPublishStatus({ messages }: { messages: readonly CloudChef
       data-testid="linked-publish-status"
       role="status"
       aria-live="polite"
-      className="mb-2 break-words space-y-1.5 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-xs"
+      className="mb-2 wrap-break-word space-y-1.5 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2.5 text-xs"
     >
       <p
         className={

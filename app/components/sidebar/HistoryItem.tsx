@@ -34,10 +34,10 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
   return (
     <div
       className={classNames(
-        'group relative flex min-w-0 items-center gap-1 overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-[var(--cc-background-tertiary)] p-1.5 text-sm text-content-secondary transition-[border-color,background-color,box-shadow,transform]',
-        'hover:border-accent-500/50 hover:bg-[var(--bolt-elements-sidebar-active-item-background)] hover:shadow-sm',
+        'group relative flex min-w-0 items-center gap-1 overflow-hidden rounded-lg border border-bolt-elements-borderColor bg-(--cc-background-tertiary) p-1.5 text-sm text-content-secondary transition-[border-color,background-color,box-shadow,transform]',
+        'hover:bg-(--bolt-elements-sidebar-active-item-background) hover:shadow-xs',
         {
-          'border-accent-500/70 bg-[var(--bolt-elements-sidebar-active-item-background)] shadow-sm': isActiveChat,
+          'bg-(--bolt-elements-sidebar-active-item-background) shadow-xs': isActiveChat,
         },
       )}
     >
@@ -72,9 +72,9 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
             params={{ id: item.initialId }}
             onClick={onNavigate}
             aria-current={isActiveChat ? 'page' : undefined}
-            className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg p-2 text-content-primary no-underline hover:no-underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-500"
+            className="flex min-w-0 flex-1 items-start gap-2.5 rounded-lg p-2 text-content-primary no-underline hover:no-underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent-500"
           >
-            <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-[var(--cc-background-secondary)] text-content-accent shadow-sm">
+            <span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-(--cc-background-secondary) text-content-accent shadow-xs">
               <FileTextIcon className="size-4" aria-hidden />
             </span>
             <span className="flex min-w-0 flex-1 flex-col">

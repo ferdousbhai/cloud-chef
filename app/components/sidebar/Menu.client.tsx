@@ -158,12 +158,12 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
       style={{ width: 'min(320px, calc(100dvw - 24px))' }}
       className={classNames(
         'side-menu fixed left-0 top-0 flex h-full max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-r-lg',
-        'bg-[var(--bolt-elements-sidebar-background)] border-r border-border-transparent',
+        'bg-(--bolt-elements-sidebar-background) border-r border-border-transparent',
         'shadow-panel text-sm',
         'z-30',
       )}
     >
-      <div aria-hidden className="h-[var(--header-height)] shrink-0 border-b" />
+      <div aria-hidden className="h-(--header-height) shrink-0 border-b" />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="min-w-0 space-y-3 px-4 pb-5 pt-4">
           {draftsAllowed ? (
@@ -210,7 +210,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
           </div>
           {history.error != null && (
             <div
-              className="mb-3 rounded-lg border border-[var(--cc-content-warning)]/40 bg-[var(--cc-background-secondary)] p-3 text-xs text-content-secondary"
+              className="mb-3 rounded-lg border border-(--cc-content-warning)/40 bg-(--cc-background-secondary) p-3 text-xs text-content-secondary"
               role="alert"
             >
               <p>Projects could not be refreshed.</p>
@@ -235,7 +235,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
           )}
           {binDates(filteredList).map(({ category, items }) => (
             <section key={category} aria-label={category} className="mt-4 space-y-2 first:mt-0">
-              <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--bolt-elements-sidebar-background)] px-1 py-1.5 text-xs font-bold tracking-wider text-content-tertiary uppercase">
+              <div className="sticky top-0 z-10 flex items-center gap-2 bg-(--bolt-elements-sidebar-background) px-1 py-1.5 text-xs font-bold tracking-wider text-content-tertiary uppercase">
                 <span>{category}</span>
                 <span aria-hidden className="h-px flex-1 bg-border-transparent" />
               </div>

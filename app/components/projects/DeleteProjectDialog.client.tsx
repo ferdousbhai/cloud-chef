@@ -111,7 +111,7 @@ export function DeleteProjectDialog({
           />
         </label>
         {error !== null ? (
-          <p role="alert" className="text-bolt-elements-icon-error [overflow-wrap:anywhere]">
+          <p role="alert" className="text-bolt-elements-icon-error wrap-anywhere">
             {error}
           </p>
         ) : null}
@@ -139,7 +139,7 @@ function PreviewList({ preview }: { preview: ProjectDeletionPreview }) {
     <div className="grid gap-2 text-content-secondary">
       <div>
         <p className="text-content-primary">Deleted from the Cloudflare account:</p>
-        <ul className="ml-4 list-disc [overflow-wrap:anywhere]">
+        <ul className="ml-4 list-disc wrap-anywhere">
           {removed.map((item) => (
             <li key={item}>{item}</li>
           ))}
@@ -148,7 +148,7 @@ function PreviewList({ preview }: { preview: ProjectDeletionPreview }) {
       {preview.kept.length > 0 ? (
         <div>
           <p className="text-content-primary">Kept:</p>
-          <ul className="ml-4 list-disc [overflow-wrap:anywhere]">
+          <ul className="ml-4 list-disc wrap-anywhere">
             {preview.kept.map((resource) => (
               <li key={`${resource.kind}:${resource.id}`}>
                 {resourceLabel(resource)}: {resource.reason}

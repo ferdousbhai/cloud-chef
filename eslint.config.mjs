@@ -1,5 +1,6 @@
 import blitzPlugin from '@blitz/eslint-plugin';
 import { getNamingConventionRule, tsFileExtensions } from '@blitz/eslint-plugin/dist/configs/typescript.js';
+import { fileURLToPath } from 'node:url';
 import tailwindcss from 'eslint-plugin-tailwindcss';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooksPlugin from 'eslint-plugin-react-hooks';
@@ -145,8 +146,12 @@ export default [
       ],
     },
   },
-  ...tailwindcss.configs['flat/recommended'],
+  tailwindcss.configs.recommended,
   {
+    settings: {
+      // The Tailwind v4 theme lives in the stylesheet itself.
+      tailwindcss: { cssConfigPath: fileURLToPath(new URL('./app/styles/index.css', import.meta.url)) },
+    },
     rules: {
       'tailwindcss/classnames-order': 'off',
     },

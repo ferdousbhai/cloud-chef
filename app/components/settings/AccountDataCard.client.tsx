@@ -176,7 +176,7 @@ export function AccountDataCard() {
       ) : null}
 
       <ul className="mt-4 grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
-        <li className="grid min-w-0 gap-2 px-3 py-3">
+        <li className="grid min-w-0 gap-2 p-3">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
             <div className="min-w-0 flex-1 basis-52">
               <h3 className="text-sm font-medium text-content-primary">Account data</h3>
@@ -231,13 +231,13 @@ export function AccountDataCard() {
           ) : null}
           <FeedbackLine feedback={errorFeedback(exportError)} className="" />
         </li>
-        <li className="min-w-0 px-3 py-3">
+        <li className="min-w-0 p-3">
           <h3 className="text-sm font-medium text-content-primary">Project code</h3>
           <p className="text-xs text-content-tertiary">
             Use <strong>Download code</strong> in a project&apos;s header for a ZIP. Secret files are left out.
           </p>
         </li>
-        <li className="min-w-0 px-3 py-3">
+        <li className="min-w-0 p-3">
           <details className="text-xs text-content-tertiary">
             <summary className="cursor-pointer text-sm font-medium text-content-primary">Clear this browser</summary>
             <p className="mt-1">
@@ -259,7 +259,7 @@ export function AccountDataCard() {
         .
       </p>
 
-      <div className="mt-5 rounded-md border border-red-600/40 px-3 py-3">
+      <div className="mt-5 rounded-md border border-red-600/40 p-3">
         {phase === 'deleted' ? (
           <div className="grid gap-2 text-sm text-content-secondary" role="status">
             <p>

@@ -127,7 +127,7 @@ function Join() {
   if (joinedWithoutAccount) {
     return (
       <JoinCard title={`You've joined ${invite.orgName}`}>
-        <p className="app-page-lede break-words">
+        <p className="app-page-lede wrap-break-word">
           You&apos;ve joined {invite.orgName}. Its Cloudflare account isn&apos;t ready yet, so there&apos;s nothing to
           build in there. Once its admin connects it, choose {invite.orgName} from your account menu.
         </p>
@@ -159,13 +159,13 @@ function Join() {
 
   return (
     <JoinCard title="Join your team on CloudChef">
-      <p className="app-page-lede break-words">
+      <p className="app-page-lede wrap-break-word">
         {invite.inviterName} invited you to {invite.orgName}. You&apos;re signed in as{' '}
         <span className="break-all">{session.user.email}</span>. What you build is stored in the team&apos;s Cloudflare
         account, where its administrators can see it.
       </p>
       {signedInAsInvited ? null : (
-        <p className="mt-2 break-words text-sm text-content-secondary">
+        <p className="mt-2 wrap-break-word text-sm text-content-secondary">
           This invite is for <span className="break-all">{invite.email}</span>. Use that account to join.
         </p>
       )}
@@ -176,7 +176,7 @@ function Join() {
       )}
       {needsProof && !linkSentTo ? (
         <>
-          <p className="mt-4 break-words text-sm text-content-secondary">
+          <p className="mt-4 wrap-break-word text-sm text-content-secondary">
             Confirm this address with Google, or with a link emailed to{' '}
             <span className="break-all">{session.user.email}</span>: open it in this browser, then join.
           </p>
@@ -201,7 +201,7 @@ function Join() {
         </>
       ) : null}
       {linkSentTo ? (
-        <p className="mt-4 break-words text-sm text-content-secondary" role="status">
+        <p className="mt-4 wrap-break-word text-sm text-content-secondary" role="status">
           Open the link sent to <span className="break-all">{linkSentTo}</span> in this browser, then join.
         </p>
       ) : null}
@@ -222,7 +222,7 @@ function JoinCard({ title, children }: { title: string; children: ReactNode }) {
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6">
       <section className="app-error-card app-card m-auto shrink-0" aria-labelledby="join-heading">
         <BrandLink />
-        <h1 id="join-heading" className="app-page-title mt-4 !text-2xl">
+        <h1 id="join-heading" className="app-page-title mt-4 text-2xl!">
           {title}
         </h1>
         {children}
@@ -255,7 +255,7 @@ function SignInToJoin({
   });
   return (
     <JoinCard title={`Join ${invite.orgName} on CloudChef`}>
-      <p className="app-page-lede break-words">
+      <p className="app-page-lede wrap-break-word">
         {invite.inviterName} invited <span className="break-all">{invite.email}</span>. Sign in as that address to join;
         you&apos;ll come straight back here.
       </p>
@@ -265,12 +265,12 @@ function SignInToJoin({
         </p>
       ) : null}
       {linkSentTo ? (
-        <p className="mt-4 break-words text-sm text-content-secondary" role="status">
+        <p className="mt-4 wrap-break-word text-sm text-content-secondary" role="status">
           Check <span className="break-all">{linkSentTo}</span> for a sign-in link, and open it in this browser.
         </p>
       ) : (
         <>
-          <p className="mt-4 break-words text-sm text-content-secondary">
+          <p className="mt-4 wrap-break-word text-sm text-content-secondary">
             Continue with Google, or get a sign-in link at <span className="break-all">{invite.email}</span> and open it
             in this browser.
           </p>

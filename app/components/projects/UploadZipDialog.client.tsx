@@ -94,7 +94,7 @@ export function UploadZipDialog({
           starts from inside it. Only the files come along, not earlier versions of them. Up to 24 MB.
         </p>
         {error !== null ? (
-          <p role="alert" className="text-sm text-bolt-elements-icon-error [overflow-wrap:anywhere]">
+          <p role="alert" className="text-sm text-bolt-elements-icon-error wrap-anywhere">
             {error}
           </p>
         ) : null}

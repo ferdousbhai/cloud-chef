@@ -21,7 +21,7 @@ interface StreamingIndicatorProps {
   resendMessage: () => void;
 }
 
-const WarningIcon = () => <ExclamationTriangleIcon className="text-[var(--cc-content-warning)]" />;
+const WarningIcon = () => <ExclamationTriangleIcon className="text-(--cc-content-warning)" />;
 const LoadingIcon = () => <Spinner />;
 
 export const STATUS_MESSAGES = {
@@ -105,13 +105,13 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
             <button
               type="button"
               title="Show in Activity"
-              className="min-w-0 flex-1 break-words text-left decoration-dotted underline-offset-4 hover:text-content-primary hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent-500"
+              className="min-w-0 flex-1 wrap-break-word text-left decoration-dotted underline-offset-4 hover:text-content-primary hover:underline focus-visible:outline-2 focus-visible:outline-accent-500"
               onClick={revealActivity}
             >
               {message}
             </button>
           ) : (
-            <span className="min-w-0 flex-1 break-words">{message}</span>
+            <span className="min-w-0 flex-1 wrap-break-word">{message}</span>
           )}
           {retryLabel && (
             <Button type="button" size="xs" variant="neutral" onClick={props.resendMessage} icon={<ResetIcon />}>

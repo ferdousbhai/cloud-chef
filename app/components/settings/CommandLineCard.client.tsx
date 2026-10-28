@@ -123,7 +123,7 @@ export function CommandLineCard() {
           <p className="text-content-primary">Copy your token now. It won&apos;t be shown again.</p>
           <div className="flex min-w-0 items-start gap-2">
             <code
-              className="min-w-0 flex-1 select-all rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 font-mono text-xs text-content-primary [overflow-wrap:anywhere]"
+              className="min-w-0 flex-1 select-all rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 font-mono text-xs text-content-primary wrap-anywhere"
               aria-label="New token"
             >
               {created}

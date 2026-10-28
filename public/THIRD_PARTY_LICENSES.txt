@@ -8,7 +8,7 @@ This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
 Production packages: 723
-Inventory SHA-256: eae39a8c2c5425829349c8d51f4299eeee32b1a082db9e4a6266c874938f7434
+Inventory SHA-256: b61c45016644ee70fdcdbd36670d53cda7dee02aeb3c446e2f0a495847124573
 
 PACKAGE INVENTORY
 =================
@@ -4030,15 +4030,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 b916888fb16893c3a1df138543f994b96bb6892d74b6777c3a080d9cd2520c48)
 
-jiti@1.21.7
-Declared license: MIT
-Author: <not published>
-Repository: unjs/jiti
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082)
-
 jiti@2.7.0
 Declared license: MIT
 Author: <not published>
@@ -5931,6 +5922,15 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 896c9fd6b5fc48ac31800b9d29a6e3ffcb0c2d534ed077ebfa5c2fa388cc38b7)
+
+sugarss@5.0.2
+Declared license: MIT
+Author: Andrey Sitnik <andrey@sitnik.es>
+Repository: postcss/sugarss
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 6aa28d22dd74d574f822e645ca3baf0e95d93c87e615afdbd595942989238e53)
 
 supports-color@8.1.1
 Declared license: MIT
@@ -10033,7 +10033,6 @@ THE SOFTWARE.
 
 SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082
 Used by:
-- jiti@1.21.7:LICENSE
 - jiti@2.7.0:LICENSE
 - srvx@1.0.8:LICENSE
 - ufo@1.6.4:LICENSE
@@ -13693,6 +13692,33 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+----- END VERBATIM CONTENT -----
+
+SHA-256 6aa28d22dd74d574f822e645ca3baf0e95d93c87e615afdbd595942989238e53
+Used by:
+- sugarss@5.0.2:LICENSE
+----- BEGIN VERBATIM CONTENT -----
+The MIT License (MIT)
+
+Copyright 2016 Andrey Sitnik <andrey@sitnik.es>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ----- END VERBATIM CONTENT -----
 

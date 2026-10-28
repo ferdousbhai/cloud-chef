@@ -40,7 +40,7 @@ export const CodeBlock = memo(function CodeBlock({ code, language }: { code: str
           tip={copied ? 'Copied' : 'Copy code'}
         />
       </div>
-      <pre className="shiki !pr-14" style={{ backgroundColor: highlighted?.bg, color: highlighted?.fg }}>
+      <pre className="shiki pr-14!" style={{ backgroundColor: highlighted?.bg, color: highlighted?.fg }}>
         <code>
           {highlighted?.tokens.map((line, lineIndex) => (
             <Fragment key={lineIndex}>

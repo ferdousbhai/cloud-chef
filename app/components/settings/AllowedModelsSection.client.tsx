@@ -272,7 +272,7 @@ function ModelRow({
   return (
     <li>
       <label
-        className="flex min-w-0 cursor-pointer items-start gap-2.5 px-3 py-2 has-[:disabled]:cursor-default"
+        className="flex min-w-0 cursor-pointer items-start gap-2.5 px-3 py-2 has-disabled:cursor-default"
         title={
           isDefault ? 'The default model is always allowed. Choose another default above to leave it out.' : undefined
         }

@@ -216,7 +216,7 @@ export function BaseChat({
   return (
     <MotionConfig reducedMotion="user">
       <div
-        className={classNames(styles.BaseChat, 'relative flex h-full w-full overflow-hidden')}
+        className={classNames(styles.BaseChat, 'relative flex overflow-hidden size-full')}
         data-chat-visible={showChat}
       >
         <div
@@ -229,13 +229,9 @@ export function BaseChat({
         >
           <div className="flex size-full min-h-0 grow flex-col lg:flex-row">
             <div
-              className={classNames(
-                styles.Chat,
-                'flex min-w-0 flex-1 flex-col lg:min-w-[var(--chat-min-width)] h-full',
-                {
-                  'items-stretch': !chatStarted,
-                },
-              )}
+              className={classNames(styles.Chat, 'flex min-w-0 flex-1 flex-col lg:min-w-(--chat-min-width) h-full', {
+                'items-stretch': !chatStarted,
+              })}
               data-chat-started={chatStarted}
             >
               <div

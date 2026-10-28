@@ -35,7 +35,7 @@ export function Preview({
           className="flex items-center gap-3 border-b border-red-500/20 bg-red-500/10 px-4 py-2 text-xs text-content-error"
           role="status"
         >
-          <span className="min-w-0 flex-1 break-words">
+          <span className="min-w-0 flex-1 wrap-break-word">
             {error ?? 'Publishing the latest changes failed.'} The site still shows the last version that published.
           </span>
           <Button size="xs" variant="neutral" disabled={requesting} onClick={onPublish}>
@@ -100,7 +100,7 @@ function PreviewEmpty({
         : 'Your app appears here once it is published.';
   return (
     <div className="flex size-full flex-col overflow-y-auto p-6 text-center">
-      <div className="m-auto w-full max-w-sm shrink-0 break-words">
+      <div className="m-auto w-full max-w-sm shrink-0 wrap-break-word">
         <p className="font-medium text-content-primary">{title}</p>
         {message && (
           <p className="mt-2 text-sm text-content-secondary" aria-live="polite">
@@ -122,7 +122,7 @@ function LinkedSitePreview({ site, reloadKey }: { site: BuilderLinkedSite | null
   if (!site) {
     return (
       <div className="flex size-full flex-col overflow-y-auto bg-bolt-elements-background-depth-1 p-6 text-center">
-        <div className="m-auto w-full max-w-sm shrink-0 break-words">
+        <div className="m-auto w-full max-w-sm shrink-0 wrap-break-word">
           <p className="font-medium text-content-primary">Not published yet</p>
           <p className="mt-2 text-sm text-content-secondary">The site shows here once it is published.</p>
         </div>
@@ -144,7 +144,7 @@ function LinkedSitePreview({ site, reloadKey }: { site: BuilderLinkedSite | null
       <div className="relative min-h-0 flex-1">
         {site.frameable === false ? (
           <div className="flex size-full flex-col overflow-y-auto p-6 text-center">
-            <div className="m-auto w-full max-w-sm shrink-0 break-words">
+            <div className="m-auto w-full max-w-sm shrink-0 wrap-break-word">
               <p className="font-medium text-content-primary">This site can&apos;t be shown here</p>
               <p className="mt-2 text-sm text-content-secondary">
                 It asks browsers not to show it inside other pages. Open it in a new tab instead.

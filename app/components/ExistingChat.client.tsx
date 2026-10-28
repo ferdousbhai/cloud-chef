@@ -121,7 +121,7 @@ export function ProjectLoadError({ error, onRetry }: { error: Error; onRetry: ()
         <h1 id="project-load-heading" className="font-display text-2xl font-bold text-content-primary">
           CloudChef could not load this project.
         </h1>
-        <p className="mx-auto mt-3 max-w-md text-sm break-words text-content-secondary" role="alert">
+        <p className="mx-auto mt-3 max-w-md text-sm wrap-break-word text-content-secondary" role="alert">
           {message}
         </p>
         <Button className="mt-4" onClick={retry}>
