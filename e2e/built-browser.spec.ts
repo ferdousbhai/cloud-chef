@@ -155,6 +155,15 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await page.goto('/settings');
   // Settings opens on Account; each tab shows its own cards.
   await expect(page.getByRole('heading', { name: 'Cloudflare account' })).toBeVisible();
+  // The theme is chosen here, not in the header: System until a theme is picked, and the page follows the choice.
+  const theme = page.getByRole('radiogroup', { name: 'Theme' });
+  await expect(theme.getByRole('radio', { name: 'System' })).toHaveAttribute('aria-checked', 'true');
+  await theme.getByRole('radio', { name: 'Dark' }).click();
+  await expect(page.locator('html')).toHaveClass('dark');
+  await page.getByRole('heading', { name: 'Appearance' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('appearance.png') });
+  await theme.getByRole('radio', { name: 'Light' }).click();
+  await expect(page.locator('html')).toHaveClass('light');
   await page.getByRole('tab', { name: 'Models' }).click();
   await expect(
     page.getByRole('region').filter({ has: page.getByRole('heading', { name: 'Models', exact: true }) }),
@@ -198,9 +207,9 @@ test('keeps account details discoverable and clears a cancelled deletion', async
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(deletionRequests).toBe(0);
   const cards = page.locator('section.app-card');
-  // Account, Cloudflare account, Command line, Models, AI request logs, Teams and Your data: every card is
-  // measured below.
-  await expect(cards).toHaveCount(7);
+  // Account, Cloudflare account, Command line, Appearance, Models, AI request logs, Teams and Your data: every
+  // card is measured below.
+  await expect(cards).toHaveCount(8);
   // Classic scrollbars can leave only 310 CSS pixels inside a 320px window.
   for (const width of [1280, 320, 310]) {
     await page.setViewportSize({ width, height: 800 });

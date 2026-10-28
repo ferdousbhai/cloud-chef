@@ -1,7 +1,5 @@
-import { useStore } from '@nanostores/react';
-import { CodeIcon, CounterClockwiseClockIcon, DownloadIcon, MoonIcon, SunIcon } from '@radix-ui/react-icons';
+import { CodeIcon, CounterClockwiseClockIcon, DownloadIcon } from '@radix-ui/react-icons';
 import { workbenchStore } from '~/lib/stores/workbench.client';
-import { themeStore, toggleTheme } from '~/lib/stores/theme';
 import { projectDialogStore } from '~/lib/stores/project-actions.client';
 import { Button } from '@ui/Button';
 import { MenuItem } from '@ui/Menu';
@@ -39,8 +37,6 @@ export function DownloadButton() {
 }
 
 export function MobileProjectMenuItems() {
-  const theme = useStore(themeStore);
-
   return (
     <>
       <MenuItem action={() => projectDialogStore.set('history')}>
@@ -54,10 +50,6 @@ export function MobileProjectMenuItems() {
       <MenuItem action={() => void workbenchStore.downloadZip()}>
         <DownloadIcon />
         Download code
-      </MenuItem>
-      <MenuItem action={toggleTheme}>
-        {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
-        {theme === 'dark' ? 'Use light theme' : 'Use dark theme'}
       </MenuItem>
     </>
   );

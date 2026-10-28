@@ -1,14 +1,6 @@
 {
-  "total": 862,
+  "total": 857,
   "counts": {
-    "app/agents/conversation-agent-identity.test.ts": {
-      "anti-slop/no-unsafe-dictionary-type": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 5
-    },
-    "app/agents/conversation-agent.ts": {
-      "anti-slop/no-unknown-parameters": 3,
-      "anti-slop/no-unknown-returns": 1
-    },
     "app/agents/builder-deployment-command.test.ts": {
       "anti-slop/no-module-mocking": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
@@ -29,6 +21,14 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
+    "app/agents/conversation-agent-identity.test.ts": {
+      "anti-slop/no-unsafe-dictionary-type": 1,
+      "anti-slop/require-safety-comment-for-type-assertion": 5
+    },
+    "app/agents/conversation-agent.ts": {
+      "anti-slop/no-unknown-parameters": 3,
+      "anti-slop/no-unknown-returns": 1
+    },
     "app/components/chat/SubchatBar.test.tsx": {
       "anti-slop/no-module-mocking": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
@@ -45,15 +45,15 @@
     "app/components/chat/useBuildProgress.ts": {
       "anti-slop/no-runtime-typeof": 1
     },
+    "app/components/chat/useChatMessageSubmission.ts": {
+      "anti-slop/no-unknown-returns": 1
+    },
     "app/components/chat/useConversationAgentChat.test.tsx": {
       "anti-slop/no-known-value-widening": 1,
       "anti-slop/no-module-mocking": 19,
       "anti-slop/no-unknown-parameters": 2,
       "anti-slop/no-unknown-returns": 3,
       "anti-slop/require-safety-comment-for-type-assertion": 5
-    },
-    "app/components/chat/useChatMessageSubmission.ts": {
-      "anti-slop/no-unknown-returns": 1
     },
     "app/components/chat/useMessageInputController.continue.test.tsx": {
       "anti-slop/no-module-mocking": 4,
@@ -245,6 +245,14 @@
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 6
     },
+    "app/lib/cloudflare/data/cloudflare-auth-retention.server.test.ts": {
+      "anti-slop/no-chained-type-assertions": 2,
+      "anti-slop/no-known-value-widening": 1,
+      "anti-slop/require-safety-comment-for-type-assertion": 8
+    },
+    "app/lib/cloudflare/data/http.server.ts": {
+      "anti-slop/no-unknown-parameters": 2
+    },
     "app/lib/cloudflare/data/workspace-repository.server.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
@@ -253,14 +261,6 @@
       "anti-slop/no-chained-type-assertions": 5,
       "anti-slop/no-known-value-widening": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 7
-    },
-    "app/lib/cloudflare/data/cloudflare-auth-retention.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 2,
-      "anti-slop/no-known-value-widening": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 8
-    },
-    "app/lib/cloudflare/data/http.server.ts": {
-      "anti-slop/no-unknown-parameters": 2
     },
     "app/lib/cloudflare/durable-object-rpc.server.ts": {
       "anti-slop/no-unknown-parameters": 2
@@ -297,9 +297,6 @@
     "app/lib/stores/startup/useInitialMessages.test.tsx": {
       "anti-slop/no-module-mocking": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
-    "app/lib/stores/theme.ts": {
-      "anti-slop/no-runtime-typeof": 5
     },
     "app/lib/stores/tool-activity.client.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 12

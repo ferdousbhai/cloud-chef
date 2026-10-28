@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { useRouterState } from '@tanstack/react-router';
 import { ArrowLeftIcon, AvatarIcon, IdCardIcon, LockClosedIcon, MagicWandIcon } from '@radix-ui/react-icons';
 import { ProfileCard } from '~/components/settings/ProfileCard';
+import { AppearanceCard } from '~/components/settings/AppearanceCard';
 import { Toaster } from '~/components/ui/Toaster';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { BrandLink } from '~/components/BrandLink';
@@ -29,6 +30,7 @@ const TAB_FOR_HASH = {
   profile: 'account',
   cloudflare: 'account',
   'command-line': 'account',
+  appearance: 'account',
   teams: 'teams',
   organizations: 'teams',
   models: 'models',
@@ -154,6 +156,7 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
                 <ProfileCard />
                 <CloudflareCard initialError={authorizationError} />
                 <CommandLineCard />
+                <AppearanceCard />
               </>,
             )}
             {panel('teams', <OrganizationsCard />)}

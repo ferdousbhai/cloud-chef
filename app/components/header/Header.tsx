@@ -11,7 +11,6 @@ import { logOut } from '~/lib/account-actions.client';
 import { WorkspaceMenuItems, WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
-import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
@@ -95,9 +94,6 @@ export function Header() {
           <Suspense fallback={null}>
             <HeaderActionButtons />
           </Suspense>
-          <ThemeSwitch
-            className={chat.started ? 'hidden lg:inline-flex' : 'size-11! min-h-11! sm:size-auto! sm:min-h-9!'}
-          />
           {user && (
             <>
               <div className="hidden items-center gap-1 lg:flex">
