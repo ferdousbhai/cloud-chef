@@ -63,6 +63,7 @@ const migrationPolicies = [
       '0045_public_projects_and_copies.sql': '3d13ba3566414a00adad5cdf8a2817e11cd25ec861a0dcc5dc8bd0dc5c8f76d0',
       '0046_apps.sql': '8316793cea4e79accd2289e03f70df809dd2902c26b06113b62aee4444f8dfd5',
       '0047_approval_requests.sql': '7a6cd0e2b99fe965f75337de75807fe5b9a16ee4bd16b21ea6c1b0f5b44ac8dc',
+      '0048_drop_unused_request_storage.sql': '4f70f804b55f95534d9863579ce07c682c1c177d435270196c2570f432c47b0a',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -111,6 +112,9 @@ const migrationPolicies = [
       // Rebuilds org_projects for public projects and copies (created_from's CHECK gains 'copy'), dropping the
       // `origin` column and rollout triggers 0039 and 0040 left for the release after; its dependents step aside.
       '0045_public_projects_and_copies.sql',
+      // GitHub approval states and production requests' snapshot and claim columns, unread since drafts are approved
+      // into their own Artifacts repository.
+      '0048_drop_unused_request_storage.sql',
     ],
   },
   {

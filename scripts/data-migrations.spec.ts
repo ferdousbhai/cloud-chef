@@ -13,7 +13,6 @@ const controlPlaneTables = [
   'command_line_logins',
   'command_line_tokens',
   'email_sign_in_tokens',
-  'github_approval_states',
   'github_install_states',
   'github_installations',
   'google_sign_in_states',
