@@ -265,6 +265,18 @@ export class ProjectRepositories {
     });
   }
 
+  /**
+   * The local secret files (`.env`, `.dev.vars` and their variants, not `.env.example` and the like) `commit` adds
+   * or changes compared with `base`: what the workspace's own commit hook refuses, for a push from anywhere.
+   */
+  async secretFilesChanged(repo: string, base: string, commit: string): Promise<string[]> {
+    const [before, after] = await Promise.all([this.readTreeAt(repo, base), this.readTreeAt(repo, commit)]);
+    const earlier = new Map(before.files.map((file) => [file.path, file.oid]));
+    return after.files
+      .filter((file) => isSecretFilePath(file.path) && earlier.get(file.path) !== file.oid)
+      .map((file) => file.path);
+  }
+
   /** Commits on `ref`'s first-parent chain, newest first. */
   async log(repo: string, options: { ref?: string; limit: number; offset?: number }): Promise<RepositoryCommit[]> {
     if (!(await this.exists(repo))) {
@@ -871,4 +883,9 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
         'unavailable',
       );
   }
+}
+
+/** `.env`, `.env.*`, `.dev.vars` and `.dev.vars.*` at any depth, except the example files projects keep. */
+function isSecretFilePath(path: string): boolean {
+  return /(^|\/)(\.env|\.dev\.vars)(\.[^/]*)?$/.test(path) && !/(^|\/)\.env\.(example|sample|template)$/.test(path);
 }

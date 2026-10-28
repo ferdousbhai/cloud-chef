@@ -370,6 +370,8 @@ export type GitProxyDependencies = {
    * (the walk ran too long): a push moves main only when its old commit is one.
    */
   isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean | null>;
+  /** The local secret files `commit` adds or changes compared with `base` (`ProjectRepositories.secretFilesChanged`). */
+  secretFilesChanged(repo: string, base: string, commit: string): Promise<string[]>;
   /** The workspace's saved branches' prefix (`workspaceRefsPrefix`): the only refs besides branches and tags it may write or see. */
   workspaceRefs: string;
   /** A branch or tag a push updated; never one of the workspace's saved branches. */
@@ -584,6 +586,14 @@ async function moveMain(
   }
   if (!fastForward) {
     return MAIN_REWRITE_REFUSAL;
+  }
+  // Main is what gets published, so a secret file never reaches it, whichever computer the push came from.
+  const secrets = await deps.secretFilesChanged(repo, update.oldOid, update.newOid).catch(() => null);
+  if (secrets === null) {
+    return 'CloudChef couldn’t check this push against main. Try again.';
+  }
+  if (secrets[0] !== undefined) {
+    return `${secrets[0]} holds secrets and can't go on main: remove it from your commits. Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf).`;
   }
   // From `oldOid` only: if main moved since git read it, the repository refuses this, as it would git's own push.
   const moved = await updateRemoteRef(deps.fetch, remote, update, await emptyPack()).catch(() => null);

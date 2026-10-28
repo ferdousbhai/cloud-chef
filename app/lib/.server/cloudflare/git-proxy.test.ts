@@ -39,6 +39,7 @@ function harness(
       revoked.push(tokenId);
     },
     isAncestor: async (_repo, ancestor, commit) => (options.isAncestor ? options.isAncestor(ancestor, commit) : true),
+    secretFilesChanged: async () => [],
     recordPush: async (update) => {
       recorded.push(update);
     },
@@ -430,6 +431,7 @@ describe("main's history in the repository itself", () => {
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
       isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
+      secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
       recordPush: async (update) => {
         recorded.push(update);
       },
@@ -437,7 +439,7 @@ describe("main's history in the repository itself", () => {
       fetch: artifacts.fetch,
       waitUntil: () => undefined,
     };
-    return { artifacts, deps, recorded, first, second, rewritten };
+    return { artifacts, repositories, deps, recorded, first, second, rewritten };
   }
 
   it('refuses a force push of main and leaves main as it was', async () => {
@@ -461,6 +463,23 @@ describe("main's history in the repository itself", () => {
     expect(answer).toContain('ok refs/heads/main');
     expect(await artifacts.head('p-site')).toBe(second);
     expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: first, newOid: second }]);
+  });
+
+  it('keeps a secret file off main, whichever computer pushed it, but lets an example file through', async () => {
+    const { artifacts, repositories, deps, recorded, first } = await project();
+    const secret = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'two', 'api/.dev.vars': 'KEY=1' });
+    await repositories.resetMain('p-site', first);
+
+    const refused = await text(await handleGitProxyRequest(push([`${first} ${secret} refs/heads/main`]), deps));
+
+    expect(refused).toContain('ng refs/heads/main api/.dev.vars holds secrets');
+    expect(await artifacts.head('p-site')).toBe(first);
+    expect(recorded).toEqual([]);
+
+    const example = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'two', '.env.example': 'KEY=' });
+    await repositories.resetMain('p-site', first);
+    const allowed = await text(await handleGitProxyRequest(push([`${first} ${example} refs/heads/main`]), deps));
+    expect(allowed).toContain('ok refs/heads/main');
   });
 
   it('lets another branch be rewritten', async () => {
