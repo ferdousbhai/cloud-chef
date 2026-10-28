@@ -299,6 +299,10 @@ export function fakeArtifacts(): FakeArtifacts {
     const lines: string[] = ['unpack ok\n'];
     if (current !== oldOid) {
       lines.push(`ng ${ref} stale info\n`);
+    } else if (newOid === ZERO) {
+      await isogit.deleteRef({ fs: repo.fs, gitdir: repo.gitdir, ref });
+      pushes.push({ repo: name, ref, oldOid, newOid });
+      lines.push(`ok ${ref}\n`);
     } else if (!(await readCommit(repo, newOid))) {
       lines.push(`ng ${ref} missing necessary objects\n`);
     } else {

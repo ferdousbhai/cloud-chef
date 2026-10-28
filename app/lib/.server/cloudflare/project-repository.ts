@@ -45,6 +45,8 @@ const IMPORT_MAX_PACK_BYTES = 1024 * 1024 * 1024;
 /** A new repository or fork is ready within seconds to minutes; it is followed this long. */
 const READY_WAIT_MS = 5 * 60_000;
 const READY_POLL_MS = 1_000;
+/** Commit times drift between machines: an ancestor's history is walked this far before it, in seconds. */
+const DAY_SECONDS = 24 * 60 * 60;
 
 export type RepositoryAuthor = { name: string; email: string };
 
@@ -229,6 +231,39 @@ export class ProjectRepositories {
       }
       const [head] = await handle.log({ ref, limit: 1 });
       return head ? toCommit(head) : null;
+    });
+  }
+
+  /**
+   * Whether `ancestor` is `commit` or in its history (every parent, not only the first), reading at most
+   * `limit` commits; null when the walk stops there. Commits made over a day before `ancestor` aren't walked
+   * past, so a history that doesn't hold it ends soon.
+   */
+  async isAncestor(repo: string, ancestor: string, commit: string, limit = 5_000): Promise<boolean | null> {
+    return this.#withRepo(repo, async (handle) => {
+      const oldest = await handle.readCommit(ancestor);
+      if (!oldest) {
+        return false;
+      }
+      const seen = new Set<string>();
+      const queue = [commit];
+      for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+        if (next === ancestor) {
+          return true;
+        }
+        if (seen.has(next)) {
+          continue;
+        }
+        seen.add(next);
+        if (seen.size > limit) {
+          return null;
+        }
+        const read = await handle.readCommit(next);
+        if (read && read.committedAt >= oldest.committedAt - DAY_SECONDS) {
+          queue.push(...read.parents);
+        }
+      }
+      return false;
     });
   }
 
