@@ -304,7 +304,7 @@ function OwnProjects({
     })),
     ...addedProjects.map((project) => ({
       key: project.id,
-      at: project.lastCommitAt ?? '',
+      at: project.createdAt ?? '',
       card: (
         <ConnectionProjectCard
           key={project.id}
@@ -746,7 +746,7 @@ function ConnectionProjectCard({
   return (
     <ProjectCard
       title={project.name}
-      updatedAt={project.lastCommitAt ?? null}
+      updatedAt={project.createdAt ?? null}
       siteUrl={project.siteUrl ?? null}
       siteFramed={project.siteFrameable !== false}
       subtitle={project.fullName}

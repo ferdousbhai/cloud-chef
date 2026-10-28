@@ -11,10 +11,13 @@ import { useWorkspaceId } from '~/lib/stores/workspaceId';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
-import { PlusIcon } from '@radix-ui/react-icons';
+import { CheckCircledIcon, GlobeIcon, PlusIcon } from '@radix-ui/react-icons';
 import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import { AppDeletionNotice, DeleteProjectDialog } from '~/components/projects/DeleteProjectDialog.client';
-import { OrgProjectsList } from './OrgProjectsList.client';
+import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
+import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
+import { WorkspaceSwitcher } from '~/components/header/WorkspaceSwitcher';
+import { useWaitingApprovals } from '~/lib/cloudflare/approvals.client';
 import { useStore } from '@nanostores/react';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
@@ -46,6 +49,11 @@ interface MenuProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+/** One row of the sidebar's projects: one of the person's own apps, or a project kept in the account. */
+type ListedProject =
+  | { kind: 'app'; key: string; timestamp: string; item: WorkspaceSummary }
+  | { kind: 'project'; key: string; timestamp: string; project: TeamProject };
 
 /**
  * Removes one of this person's projects. Removing the open one leaves it, so over editor edits not yet
@@ -79,12 +87,36 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   const { data: session } = authClient.useSession();
   // A member limited to the organization's GitHub projects can't start apps of their own here.
   const draftsAllowed = session?.context?.kind !== 'organization' || session.context.draftsAllowed;
-  const list = history.projects;
+  // Approvals gather every team's this person is an admin of.
+  const teamAdmin =
+    session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
+  const waitingApprovals = useWaitingApprovals(teamAdmin);
+  const added = useEditableProjects(accountUserId);
+  const { opening, open } = useOpenProject(onClose);
+  // Every project in one list, however it began: made here, imported from GitHub, uploaded, or the team's.
+  const list: ListedProject[] = [
+    ...history.projects.map((item) => ({
+      kind: 'app' as const,
+      key: item.initialId,
+      timestamp: item.timestamp,
+      item,
+    })),
+    ...added.projects.map((project) => ({
+      kind: 'project' as const,
+      key: project.id,
+      timestamp: project.createdAt ?? new Date(0).toISOString(),
+      project,
+    })),
+  ];
   const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const search = searchQuery.trim().toLowerCase();
-  const filteredList = search ? list.filter((item) => item.description?.toLowerCase().includes(search) ?? false) : list;
+  const filteredList = search
+    ? list.filter((entry) =>
+        (entry.kind === 'app' ? (entry.item.description ?? '') : entry.project.name).toLowerCase().includes(search),
+      )
+    : list;
 
   const deleteItem = async (item: WorkspaceSummary) => {
     if (!accountUserId) {
@@ -111,7 +143,8 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
       if (!(target instanceof Element)) {
         return;
       }
-      const clickedMenuToggle = target.closest('[data-hamburger-menu]');
+      // The space switcher's menu opens outside the sidebar, and choosing from it shouldn't close the sidebar first.
+      const clickedMenuToggle = target.closest('[data-hamburger-menu], [role="menu"]');
       if (clickedMenuToggle) {
         return;
       }
@@ -166,6 +199,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
       <div aria-hidden className="h-(--header-height) shrink-0 border-b" />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="min-w-0 space-y-3 px-4 pb-5 pt-4">
+          <WorkspaceSwitcher className="w-full justify-between!" />
           {draftsAllowed ? (
             <LinkButton
               className="min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-lg px-4 no-underline"
@@ -188,26 +222,24 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             />
           </div>
         </div>
-        {/* One scroller for both lists, so team projects never squeeze the user's own off a phone screen. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-5">
-          <OrgProjectsList
-            userId={accountUserId}
-            heading={
-              session?.context?.kind !== 'organization'
-                ? 'Imported projects'
-                : session.context.role === 'admin'
-                  ? 'Team projects'
-                  : 'Shared with me'
-            }
-            query={searchQuery}
-            onNavigate={onClose}
-          />
           <div className="flex items-baseline justify-between gap-3 px-1 pb-2 pt-1">
             <h2 className="text-xs font-bold tracking-widest text-content-secondary uppercase">Projects</h2>
             <span className="text-xs tabular-nums text-content-tertiary">
               {list.length} {list.length === 1 ? 'project' : 'projects'}
             </span>
           </div>
+          {added.loadFailed && (
+            <div
+              className="mb-3 rounded-lg border border-(--cc-content-warning)/40 bg-(--cc-background-secondary) p-3 text-xs text-content-secondary"
+              role="alert"
+            >
+              <p>Some projects could not be loaded.</p>
+              <Button className="mt-2" size="xs" variant="neutral" onClick={added.retry}>
+                Try again
+              </Button>
+            </div>
+          )}
           {history.error != null && (
             <div
               className="mb-3 rounded-lg border border-(--cc-content-warning)/40 bg-(--cc-background-secondary) p-3 text-xs text-content-secondary"
@@ -240,14 +272,23 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
                 <span aria-hidden className="h-px flex-1 bg-border-transparent" />
               </div>
               <div className="space-y-1.5">
-                {items.map((item) => (
-                  <HistoryItem
-                    key={item.initialId}
-                    item={item}
-                    handleDeleteClick={handleDeleteClick}
-                    onNavigate={onClose}
-                  />
-                ))}
+                {items.map((entry) =>
+                  entry.kind === 'app' ? (
+                    <HistoryItem
+                      key={entry.key}
+                      item={entry.item}
+                      handleDeleteClick={handleDeleteClick}
+                      onNavigate={onClose}
+                    />
+                  ) : (
+                    <ProjectItem
+                      key={entry.key}
+                      project={entry.project}
+                      opening={opening}
+                      onOpen={(project) => void open(project)}
+                    />
+                  ),
+                )}
               </div>
             </section>
           ))}
@@ -261,6 +302,30 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             />
           )}
         </div>
+        <nav aria-label="More" className="shrink-0 space-y-1 border-t px-3 py-3">
+          <LinkButton
+            variant="subtle"
+            size="xs"
+            className="w-full justify-start"
+            to="/explore"
+            onClick={onClose}
+            icon={<GlobeIcon />}
+          >
+            Explore
+          </LinkButton>
+          {teamAdmin ? (
+            <LinkButton
+              variant="subtle"
+              size="xs"
+              className="w-full justify-start"
+              to="/approvals"
+              onClick={onClose}
+              icon={<CheckCircledIcon />}
+            >
+              {waitingApprovals > 0 ? `Approvals (${waitingApprovals})` : 'Approvals'}
+            </LinkButton>
+          ) : null}
+        </nav>
       </div>
     </motion.aside>
   );

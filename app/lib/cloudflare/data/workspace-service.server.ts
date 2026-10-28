@@ -122,6 +122,8 @@ export async function setHeuristicProjectDescriptionIfMissing(
       `UPDATE workspaces
        SET description = ?, description_source = 'heuristic'
        WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
+         -- A team or imported project's workspace goes by the project's name, never its first message's.
+         AND org_project_id IS NULL
          AND description_source IS NULL
          AND NULLIF(TRIM(description), '') IS NULL`,
     )
@@ -140,6 +142,7 @@ export async function setGeneratedProjectDescription(
       `UPDATE workspaces
        SET description = ?, description_source = 'generated'
        WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
+         AND org_project_id IS NULL
          AND (
            description_source = 'heuristic'
            OR (description_source IS NULL AND NULLIF(TRIM(description), '') IS NULL)

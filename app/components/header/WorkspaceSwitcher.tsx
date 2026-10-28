@@ -1,4 +1,4 @@
-import { CheckIcon, PlusIcon } from '@radix-ui/react-icons';
+import { CheckIcon, ChevronDownIcon, PlusIcon } from '@radix-ui/react-icons';
 import { useNavigate } from '@tanstack/react-router';
 import { Menu, MenuItem } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
@@ -7,10 +7,10 @@ import type { WorkspaceContext } from '~/lib/.server/auth';
 
 /**
  * Which Cloudflare account the builder works in: the person's own, or an organization's they belong
- * to. Always there once signed in, so organizations can be found: it lists every account to switch to,
- * and leads to creating and managing organizations.
+ * to. At the top of the projects sidebar, since it decides which projects are listed there; it lists every
+ * account to switch to, and leads to creating and managing organizations.
  */
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ className }: { className?: string }) {
   const { data: session } = authClient.useSession();
   if (!session) {
     return null;
@@ -19,11 +19,17 @@ export function WorkspaceSwitcher() {
   return (
     <Menu
       buttonProps={{
-        variant: 'subtle',
+        variant: 'neutral',
         size: 'xs',
+        className,
         // The button names the workspace briefly; its Cloudflare account is in the tooltip and the menu.
         title: current ? `${fullLabel(current)}. Switch account or manage teams` : 'Manage teams',
-        children: <span className="max-w-56 truncate">{current ? shortLabel(current) : 'No workspace'}</span>,
+        children: (
+          <>
+            <span className="min-w-0 truncate">{current ? shortLabel(current) : 'No workspace'}</span>
+            <ChevronDownIcon aria-hidden className="shrink-0" />
+          </>
+        ),
       }}
     >
       <WorkspaceMenuItems />
@@ -31,11 +37,8 @@ export function WorkspaceSwitcher() {
   );
 }
 
-/**
- * The switcher's items: every account to build in, the current one checked, then creating or managing
- * organizations. Also in the small-screen user menu, where the switcher itself doesn't fit.
- */
-export function WorkspaceMenuItems() {
+/** The switcher's items: every account to build in, the current one checked, then creating or managing organizations. */
+function WorkspaceMenuItems() {
   const { data: session } = authClient.useSession();
   const navigate = useNavigate();
   if (!session) {

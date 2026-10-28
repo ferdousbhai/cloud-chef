@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createBrowserHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUnsavedEditsGuard } from '~/lib/hooks/useUnsavedEditsGuard';
-import { OrgProjectsList } from './OrgProjectsList.client';
+import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
 
 let root: Root | undefined;
 
@@ -30,7 +30,11 @@ async function renderInChatWithUnsavedEdits() {
   const rootRoute = createRootRoute({
     component: function ChatWithUnsavedEdits() {
       useUnsavedEditsGuard(true);
-      return <OrgProjectsList userId="user-a" query="" onNavigate={() => undefined} />;
+      const { projects } = useEditableProjects('user-a');
+      const { opening, open } = useOpenProject(() => undefined);
+      return projects.map((project) => (
+        <ProjectItem key={project.id} project={project} opening={opening} onOpen={(listed) => void open(listed)} />
+      ));
     },
   });
   const router = createRouter({ routeTree: rootRoute, history: createBrowserHistory() });
@@ -48,7 +52,7 @@ function projectButton() {
   return button;
 }
 
-describe('OrgProjectsList', () => {
+describe('ProjectItem', () => {
   it('asks before opening a project over unsaved edits, and leaves every project usable when the person stays', async () => {
     const fetchImpl = vi.fn(async () =>
       Response.json({ projects: [{ id: 'project-a', name: 'Site', role: 'edit', repo: 't-project-a' }] }),

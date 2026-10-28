@@ -40,7 +40,8 @@ const teamProjectsSchema = z.object({
       siteUrl: z.url({ protocol: /^https$/ }).nullish(),
       /** Whether the site lets CloudChef show it in a frame; unknown until checked. */
       siteFrameable: z.boolean().nullish(),
-      lastCommitAt: z.iso.datetime().nullish(),
+      /** When it was added to CloudChef. */
+      createdAt: z.iso.datetime().nullish(),
       /** Who builds and publishes it: Workers Builds (imported from GitHub), or CloudChef itself (uploaded). */
       deploysWith: z.enum(['workers_builds', 'cloudchef']).nullish(),
       /** For a project CloudChef publishes, its newest publish of main, however it went; null before the first. */

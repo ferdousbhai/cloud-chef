@@ -8,9 +8,11 @@ type MenuProps = {
   buttonProps: Pick<ButtonVisualProps, 'children' | 'className' | 'icon' | 'inline' | 'size' | 'variant'> & {
     title: string;
   };
+  /** Which edge of the trigger the menu lines up with: its end by default, its start for one at the left. */
+  align?: 'start' | 'end';
 };
 
-export function Menu({ children, buttonProps }: MenuProps) {
+export function Menu({ children, buttonProps, align = 'end' }: MenuProps) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
@@ -31,7 +33,7 @@ export function Menu({ children, buttonProps }: MenuProps) {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          align="end"
+          align={align}
           sideOffset={8}
           collisionPadding={8}
           aria-label={buttonProps.title}

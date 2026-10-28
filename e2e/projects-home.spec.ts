@@ -128,6 +128,34 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await assertClean();
 });
 
+test('lists every project in one sidebar list, under the space they are in', async ({ page }, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' }, [
+    {
+      id: 'project-glossary',
+      name: 'alberta-plan-glossary',
+      role: 'edit',
+      repo: 't-project-glossary',
+      createdAt: new Date(Date.now() - 1_800_000).toISOString(),
+    },
+  ]);
+
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Open project menu' }).click();
+  const sidebar = page.getByRole('complementary', { name: 'Projects' });
+  // An imported project is listed with the ones made here, by when each was added: no separate heading.
+  await expect(sidebar.getByRole('heading')).toHaveText(['Projects']);
+  await expect(sidebar).toContainText('3 projects');
+  await expect(sidebar.getByRole('button', { name: /alberta-plan-glossary/ })).toBeVisible();
+  await expect(sidebar.getByRole('link', { name: /Booking site/ })).toBeVisible();
+  // The space and the pages beyond the projects are here, not in the header.
+  await expect(sidebar.getByRole('button', { name: /^Personal · Test account/ })).toBeVisible();
+  await expect(sidebar.getByRole('link', { name: 'Explore' })).toBeVisible();
+  await expect(page.locator('header').getByRole('link', { name: 'Explore' })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('sidebar.png') });
+  await assertClean();
+});
+
 test('shows a team member the projects shared with them, and Edit only where they can edit', async ({
   page,
 }, testInfo) => {
@@ -184,13 +212,9 @@ test('lists public projects in Explore, with their sites and a way to make a cop
   await page.route('**/api/explore', (route) => route.fulfill({ json: { projects: publicProjects } }));
 
   await page.goto('/');
-  // Explore is in the header (on a phone, in its user menu).
-  if (testInfo.project.name !== 'mobile-chromium') {
-    await page.getByRole('link', { name: 'Explore' }).click();
-  } else {
-    await page.getByRole('button', { name: 'User menu' }).click();
-    await page.getByRole('menuitem', { name: 'Explore' }).click();
-  }
+  // Explore is in the projects sidebar, under the list.
+  await page.getByRole('button', { name: 'Open project menu' }).click();
+  await page.getByRole('link', { name: 'Explore' }).click();
 
   await expect(page).toHaveURL(/\/explore$/);
   await expect(page).toHaveTitle('Explore | CloudChef');
@@ -213,7 +237,7 @@ test('lists public projects in Explore, with their sites and a way to make a cop
   await assertClean();
 });
 
-test("shows a team admin what their members asked for, from the header's Approvals link", async ({
+test("shows a team admin what their members asked for, from the sidebar's Approvals link", async ({
   page,
 }, testInfo) => {
   const assertClean = collectBrowserDiagnostics(page, testInfo);
@@ -283,13 +307,9 @@ test("shows a team admin what their members asked for, from the header's Approva
   await page.route('**/api/approvals', (route) => route.fulfill({ json: approvals }));
 
   await page.goto('/');
-  // On a phone the header's links sit in the user menu.
-  if (testInfo.project.name !== 'mobile-chromium') {
-    await page.getByRole('link', { name: 'Approvals (2)' }).click();
-  } else {
-    await page.getByRole('button', { name: 'User menu' }).click();
-    await page.getByRole('menuitem', { name: 'Approvals (2)' }).click();
-  }
+  // The sidebar's button says approvals are waiting; the sidebar links to them.
+  await page.getByRole('button', { name: 'Open project menu (2 waiting for approval)' }).click();
+  await page.getByRole('link', { name: 'Approvals (2)' }).click();
 
   await expect(page).toHaveURL(/\/approvals$/);
   await expect(page).toHaveTitle('Approvals | CloudChef');

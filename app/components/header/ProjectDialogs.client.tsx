@@ -8,7 +8,7 @@ import { description } from '~/lib/stores/description';
 import { projectDialogStore } from '~/lib/stores/project-actions.client';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 
-/** The open project's History and Clone dialogs, opened from the header. */
+/** The open project's History and Clone dialogs, opened from its menu in the header. */
 export function ProjectDialogs() {
   const open = useStore(projectDialogStore);
   const workspaceId = useWorkspaceId();
@@ -16,7 +16,7 @@ export function ProjectDialogs() {
   // A team project's conversation reverts in its workspace too, but a fork is made from one's own projects.
   const linkedProject = useStore(workbenchStore.linkedProject);
   const conversationClosed = useStore(workbenchStore.conversationClosed);
-  const name = title?.trim() || 'Untitled project';
+  const name = linkedProject?.repository ?? (title?.trim() || 'Untitled project');
   const project = { chatInitialId: workspaceId };
   const close = () => projectDialogStore.set(null);
   // Leaving the project closes its dialogs, so another project never opens on one.

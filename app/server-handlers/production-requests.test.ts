@@ -157,6 +157,7 @@ describe('production requests', () => {
           visibility: 'private',
           canManage: false,
           importRepoFullName: null,
+          createdAt: expect.any(String),
           siteUrl: null,
           siteFrameable: null,
           deploysWith: 'workers_builds',

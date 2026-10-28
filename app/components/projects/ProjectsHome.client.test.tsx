@@ -225,7 +225,7 @@ describe('ProjectsHome', () => {
   it("lists a project uploaded to the person's own account among their projects, with how its publishing went", async () => {
     context = personal;
     ownProjects = [{ id: 'chat-1', initialId: 'chat-1', description: 'Draft', timestamp: '2026-10-01T00:00:00.000Z' }];
-    teamProjects = [{ ...uploaded({ state: 'building' }), lastCommitAt: '2026-10-20T00:00:00.000Z' }];
+    teamProjects = [{ ...uploaded({ state: 'building' }), createdAt: '2026-10-20T00:00:00.000Z' }];
     await render('user-personal-upload');
     await vi.waitFor(() => card('Storefront'));
 

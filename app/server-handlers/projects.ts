@@ -83,7 +83,7 @@ export function listMyProjectsAction({
     return Response.json(
       {
         projects: projects.map(
-          ({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith, ...rest }) => {
+          ({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith, createdAt, ...rest }) => {
             const deployment = deployments.get(id);
             return {
               id,
@@ -95,6 +95,8 @@ export function listMyProjectsAction({
               // Its owner (a person's own account) or a team's admin may change who can see it.
               canManage: session.context?.kind !== 'organization' || session.context.role === 'admin',
               importRepoFullName: importSource?.fullName ?? null,
+              // When it was added, as a person's own app is dated by when it was made.
+              createdAt: new Date(createdAt).toISOString(),
               siteUrl,
               siteFrameable,
               deploysWith,

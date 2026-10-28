@@ -1,25 +1,18 @@
 import { useStore } from '@nanostores/react';
 import { lazy, Suspense, useState } from 'react';
 import { chatStore } from '~/lib/stores/workspaceId';
-import { ChatDescription } from '~/components/header/ChatDescription.client';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { CheckCircledIcon, ExitIcon, GearIcon, GlobeIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';
+import { ExitIcon, GearIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';
 import { useWaitingApprovals } from '~/lib/cloudflare/approvals.client';
-import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
+import { Menu as MenuComponent, MenuItem as MenuItemComponent, MenuSeparator } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
-import { WorkspaceMenuItems, WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { BrandLink } from '~/components/BrandLink';
-import { Button } from '@ui/Button';
-import { LinkButton } from '~/components/ui/LinkButton';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm.client';
 
-const DownloadButton = lazy(() => import('./DownloadButton').then((module) => ({ default: module.DownloadButton })));
-const MobileProjectMenuItems = lazy(() =>
-  import('./DownloadButton').then((module) => ({ default: module.MobileProjectMenuItems })),
-);
+const ProjectMenu = lazy(() => import('./ProjectMenu.client').then((module) => ({ default: module.ProjectMenu })));
 const ProjectDialogs = lazy(() =>
   import('./ProjectDialogs.client').then((module) => ({ default: module.ProjectDialogs })),
 );
@@ -41,10 +34,9 @@ export function Header() {
   const user = session?.user ?? null;
   const teamAdmin =
     session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
+  // Approvals are in the sidebar; while some wait, its button says so.
   const waitingApprovals = useWaitingApprovals(teamAdmin);
-  const approvalsLabel = waitingApprovals > 0 ? `Approvals (${waitingApprovals})` : 'Approvals';
-
-  const handleSettingsClick = () => void navigate({ to: '/settings' });
+  const menuLabel = isMenuOpen ? 'Close project menu' : 'Open project menu';
 
   return (
     <>
@@ -56,9 +48,9 @@ export function Header() {
           {showSidebarIcon && (
             <button
               type="button"
-              className="cloudchef-header__menu-button size-11! sm:size-9!"
+              className="cloudchef-header__menu-button relative size-11! sm:size-9!"
               data-hamburger-menu
-              aria-label={isMenuOpen ? 'Close project menu' : 'Open project menu'}
+              aria-label={waitingApprovals > 0 ? `${menuLabel} (${waitingApprovals} waiting for approval)` : menuLabel}
               aria-expanded={isMenuOpen}
               aria-controls="project-sidebar"
               onClick={(e) => {
@@ -67,6 +59,9 @@ export function Header() {
               }}
             >
               <HamburgerMenuIcon aria-hidden />
+              {waitingApprovals > 0 ? (
+                <span aria-hidden className="absolute right-1.5 top-1.5 size-2 rounded-full bg-accent-500" />
+              ) : null}
             </button>
           )}
           <BrandLink
@@ -78,80 +73,41 @@ export function Header() {
             nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
           />
         </div>
-        {chat.started && (
-          <div className="hidden min-w-0 flex-1 px-4 text-center text-content-primary lg:block">
-            <ChatDescription />
-          </div>
-        )}
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 flex-1 px-2 sm:px-4">
           {chat.started && (
             <Suspense fallback={null}>
-              <div className="hidden lg:block">
-                <DownloadButton />
-              </div>
+              <ProjectMenu />
             </Suspense>
           )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
           <Suspense fallback={null}>
             <HeaderActionButtons />
           </Suspense>
           {user && (
-            <>
-              <div className="hidden items-center gap-1 lg:flex">
-                <WorkspaceSwitcher />
-                <LinkButton variant="subtle" size="xs" to="/explore" icon={<GlobeIcon />}>
-                  Explore
-                </LinkButton>
-                {teamAdmin ? (
-                  <LinkButton variant="subtle" size="xs" to="/approvals" icon={<CheckCircledIcon />}>
-                    {approvalsLabel}
-                  </LinkButton>
-                ) : null}
-                <LinkButton variant="subtle" size="xs" to="/settings" icon={<GearIcon />}>
-                  Settings
-                </LinkButton>
-                <Button variant="subtle" size="xs" onClick={() => void logOut()} icon={<ExitIcon />}>
-                  Log out
-                </Button>
+            <MenuComponent
+              buttonProps={{
+                variant: 'neutral',
+                title: 'Account',
+                inline: true,
+                className: '!size-11 !min-h-11 sm:!size-9 sm:!min-h-9 rounded !p-1',
+                icon: <ProfileAvatar avatar={user.image} username={user.name} />,
+              }}
+            >
+              <div className="px-3 py-2 text-xs text-content-secondary">
+                <div className="truncate font-semibold text-content-primary">{user.name}</div>
+                <div className="truncate">{user.email}</div>
               </div>
-              <div className="lg:hidden">
-                <MenuComponent
-                  buttonProps={{
-                    variant: 'neutral',
-                    title: 'User menu',
-                    inline: true,
-                    className: '!size-11 !min-h-11 rounded !p-1.5',
-                    icon: <ProfileAvatar avatar={user.image} username={user.name} />,
-                  }}
-                >
-                  {/* The workspace switcher doesn't fit beside the menu here: its accounts lead the menu instead. */}
-                  <WorkspaceMenuItems />
-                  <div role="separator" className="my-1 border-t border-bolt-elements-borderColor" />
-                  {chat.started && (
-                    <Suspense fallback={null}>
-                      <MobileProjectMenuItems />
-                    </Suspense>
-                  )}
-                  <MenuItemComponent action={() => void navigate({ to: '/explore' })}>
-                    <GlobeIcon className="text-content-secondary" />
-                    Explore
-                  </MenuItemComponent>
-                  {teamAdmin ? (
-                    <MenuItemComponent action={() => void navigate({ to: '/approvals' })}>
-                      <CheckCircledIcon className="text-content-secondary" />
-                      {approvalsLabel}
-                    </MenuItemComponent>
-                  ) : null}
-                  <MenuItemComponent action={handleSettingsClick}>
-                    <GearIcon className="text-content-secondary" />
-                    Settings
-                  </MenuItemComponent>
-                  <MenuItemComponent action={() => void logOut()}>
-                    <ExitIcon className="text-content-secondary" />
-                    Log out
-                  </MenuItemComponent>
-                </MenuComponent>
-              </div>
-            </>
+              <MenuSeparator />
+              <MenuItemComponent action={() => void navigate({ to: '/settings' })}>
+                <GearIcon className="text-content-secondary" />
+                Settings
+              </MenuItemComponent>
+              <MenuItemComponent action={() => void logOut()}>
+                <ExitIcon className="text-content-secondary" />
+                Log out
+              </MenuItemComponent>
+            </MenuComponent>
           )}
         </div>
       </header>
@@ -175,11 +131,11 @@ function ProfileAvatar({ avatar, username }: { avatar?: string | null; username?
     <img
       src={avatar}
       alt={username ? `${username} profile` : 'User profile'}
-      className="size-8 min-w-8 rounded object-cover"
+      className="size-full rounded object-cover"
       loading="eager"
       decoding="sync"
     />
   ) : (
-    <PersonIcon className="size-8 min-w-8 rounded border text-content-secondary" />
+    <PersonIcon className="size-5 text-content-secondary" />
   );
 }

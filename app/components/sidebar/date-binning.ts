@@ -1,12 +1,10 @@
 import { format, isAfter, isThisWeek, isThisYear, isToday, isYesterday, subDays } from 'date-fns';
-import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
+type Bin<T> = { category: string; items: T[] };
 
-type Bin = { category: string; items: WorkspaceSummary[] };
-
-export function binDates(items: WorkspaceSummary[]) {
+export function binDates<T extends { timestamp: string }>(items: T[]) {
   const list = [...items].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
 
-  const bins = new Map<string, Bin>();
+  const bins = new Map<string, Bin<T>>();
 
   for (const item of list) {
     const category = dateCategory(new Date(item.timestamp));
