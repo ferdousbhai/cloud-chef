@@ -292,11 +292,17 @@ function projectSlug(name: string): string {
   );
 }
 
-/** The address name for a new project of `authorId` called `name`: its slug, or with -2, -3… when that is theirs. */
-async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
+/**
+ * The address name for a new project or app of `authorId` called `name`: its slug, or with -2, -3… when one of
+ * their projects or apps has it.
+ */
+export async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
   const slug = projectSlug(name);
   const { results } = await db
-    .prepare(`SELECT slug FROM org_projects WHERE created_by = ? AND (slug = ?2 OR slug LIKE ?2 || '-%')`)
+    .prepare(
+      `SELECT slug FROM org_projects WHERE created_by = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')
+       UNION SELECT slug FROM apps WHERE user_id = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')`,
+    )
     .bind(authorId, slug)
     .all<{ slug: string }>();
   const taken = new Set(results.map((row) => row.slug));
