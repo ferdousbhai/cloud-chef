@@ -8,7 +8,7 @@ import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError
 import {
   forkProject,
   importProject,
-  projectCloneAccess,
+  projectGitAddress,
   projectHistory,
   userRuntimeProjectArchiveAction,
   userRuntimeAppCopyAction,
@@ -16,6 +16,7 @@ import {
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectUploadAction,
+  userRuntimeRevokeReadAccessAction,
   withRepositoryErrors,
 } from './projects.server';
 import { zipStream } from '~/lib/.server/cloudflare/zip-archive';
@@ -139,16 +140,27 @@ describe("a project's history", () => {
   });
 });
 
-describe("a project's clone access", () => {
-  it('is a git clone command with a read token, and when it expires', async () => {
-    const { env, commit, store } = await setup();
+describe("a project's git address", () => {
+  it('names an app by its own id and a team project by its id, handing out no token of the repository', async () => {
+    const { env, artifacts, database, commit } = await setup();
     await commit(`p-${CHAT}`, 'v1', 'First');
-    expect(await projectCloneAccess(env, { sessionId: OWNER, chatInitialId: CHAT }, store)).toEqual({
-      remote: `https://artifacts.test/git/cloudchef/p-${CHAT}.git`,
-      token: 'art_v2_x_0123456789abcdef',
-      expiresAt: Date.parse('2030-01-01T00:00:00.000Z'),
-      command: `git clone https://x:art_v2_x_0123456789abcdef@artifacts.test/git/cloudchef/p-${CHAT}.git my-bakery`,
+    const tokensBefore = artifacts.tokens.length;
+    expect(await projectGitAddress(env, { sessionId: OWNER, chatInitialId: CHAT })).toEqual({ projectId: CHAT });
+
+    database.exec(`UPDATE workspaces SET org_project_id = '${TEAM_PROJECT}'`);
+    controlPlane('view', 't-site');
+    expect(await projectGitAddress(env, { sessionId: OWNER, chatInitialId: CHAT })).toEqual({
+      projectId: TEAM_PROJECT,
     });
+    expect(artifacts.tokens).toHaveLength(tokensBefore);
+  });
+
+  it('is refused once the person can no longer see the team project, so a removed member has nothing to clone with', async () => {
+    const { env } = await setup();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ error: 'Not a member.' }, { status: 403 }));
+    await expect(projectGitAddress(env, { sessionId: OWNER, orgProjectId: TEAM_PROJECT })).rejects.toBeInstanceOf(
+      ProjectForbiddenError,
+    );
   });
 });
 
@@ -495,5 +507,36 @@ describe('copying an app into a new app of this person', () => {
       );
 
     expect((await ask('99999999-9999-4999-8999-999999999999')).status).toBe(404);
+  });
+
+  it('gives a read token good for one copy, which is revoked by its id once the copy is done', async () => {
+    const { env, artifacts, commit, store } = await setup();
+    await commit(`p-${CHAT}`, 'v1', 'First');
+    const answer = await userRuntimeAppReadAccessAction(
+      {
+        request: new Request('https://runtime.test/v1/apps/read-access', {
+          method: 'POST',
+          body: JSON.stringify({ appId: CHAT }),
+        }),
+        env,
+        userId: OWNER,
+      },
+      store,
+    );
+    const { tokenId } = z.object({ tokenId: z.string() }).parse(await answer.json());
+    expect(artifacts.tokens.find((token) => token.id === tokenId)).toMatchObject({ scope: 'read', ttl: 35 * 60 });
+
+    const revoked = await userRuntimeRevokeReadAccessAction(
+      {
+        request: new Request('https://runtime.test/v1/read-access/revoke', {
+          method: 'POST',
+          body: JSON.stringify({ appId: CHAT, tokenId }),
+        }),
+        env,
+      },
+      store,
+    );
+    expect(revoked.status).toBe(204);
+    expect(artifacts.revoked).toContain(tokenId);
   });
 });

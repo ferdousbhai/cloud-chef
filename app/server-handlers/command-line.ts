@@ -668,7 +668,13 @@ async function readerRuntime(request: Request, env: Env, userId: string, target:
     : owners;
 }
 
-const readAccessSchema = z.object({ url: z.string(), authorization: z.string(), branch: z.string() });
+/** A read token for one import; `tokenId` revokes it (a runtime from before it was revoked sends none). */
+const readAccessSchema = z.object({
+  url: z.string(),
+  authorization: z.string(),
+  branch: z.string(),
+  tokenId: z.string().optional(),
+});
 
 /**
  * A copy of `source` (which `userId` may read) in the account `connectionId` is: a project's copy is a project there,
@@ -694,17 +700,49 @@ async function copyReadable(
   if (!readAnswer.ok || !access.success) {
     return { refusal: 'It couldn’t be read just now. Try again.', status: 502 };
   }
+  const { tokenId, ...from } = access.data;
+  try {
+    return await copyFrom(request, env, { ...args, from });
+  } finally {
+    // The token was for this one copy, made or not: the copier's runtime, in their own account, read with it.
+    if (tokenId) {
+      await fetch(new URL('/v1/read-access/revoke', reader.endpoint), {
+        method: 'POST',
+        headers: { authorization: `Bearer ${reader.token}`, origin, 'content-type': 'application/json' },
+        body: JSON.stringify(app ? { appId: args.source.id, tokenId } : { orgProjectId: args.source.id, tokenId }),
+      })
+        .then((answer) => answer.body?.cancel())
+        .catch(() => undefined);
+    }
+  }
+}
+
+/** The copier's runtime makes the copy of `source`, reading it where `from` says, with the token it carries. */
+async function copyFrom(
+  request: Request,
+  env: Env,
+  args: {
+    userId: string;
+    source: Readable;
+    connectionId: string;
+    name: string;
+    from: { url: string; authorization: string; branch: string };
+  },
+): Promise<{ projectId: string; initialId: string; fullName: string | null } | { refusal: string; status: number }> {
   const target = await runtimeFor(request, env, args.userId, args.connectionId);
   if ('refusal' in target) {
     return target;
   }
+  const app = args.source.kind === 'app';
   const copyAnswer = await fetch(new URL(app ? '/v1/apps/copy' : '/v1/projects/copy', target.endpoint), {
     method: 'POST',
-    headers: { authorization: `Bearer ${target.token}`, origin, 'content-type': 'application/json' },
+    headers: {
+      authorization: `Bearer ${target.token}`,
+      origin: publicOrigin(request),
+      'content-type': 'application/json',
+    },
     body: JSON.stringify(
-      app
-        ? { name: args.name, source: access.data }
-        : { name: args.name, copiedFrom: args.source.id, source: access.data },
+      app ? { name: args.name, source: args.from } : { name: args.name, copiedFrom: args.source.id, source: args.from },
     ),
   });
   const answered: unknown = await copyAnswer.json().catch(() => null);

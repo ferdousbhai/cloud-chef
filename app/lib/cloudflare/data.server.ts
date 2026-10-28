@@ -27,7 +27,7 @@ import { sweepAgentGcCandidatesBestEffort } from './data/agent-gc.server';
 import {
   forkProject,
   importProject,
-  projectCloneAccess,
+  projectGitAddress,
   projectHistory,
   withRepositoryErrors,
 } from './data/projects.server';
@@ -177,10 +177,8 @@ function runKnownDataOperation(
       return setConversationDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'projects.history':
       return withRepositoryErrors(projectHistory(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
-    case 'projects.cloneAccess':
-      return withRepositoryErrors(
-        projectCloneAccess(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }),
-      );
+    case 'projects.gitAddress':
+      return projectGitAddress(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'projects.fork':
       return withRepositoryErrors(forkProject(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     case 'projects.import':

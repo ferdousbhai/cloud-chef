@@ -268,7 +268,7 @@ describe('ProjectRepositories', () => {
     expect(artifacts.revoked.slice(1)).toEqual(writes);
   });
 
-  it('hands out a read token without its expiry suffix', async () => {
+  it('hands out a read token for one import, without its expiry suffix', async () => {
     const { artifacts, repositories } = setup();
     await artifacts.create('p-1');
     const access = await repositories.readAccess('p-1');
@@ -278,6 +278,8 @@ describe('ProjectRepositories', () => {
       token: 'art_v2_x_0123456789abcdef',
       expiresAt: '2030-01-01T00:00:00.000Z',
     });
+    // As long as an import may take, not the year a clone token lasted.
+    expect(artifacts.tokens.at(-1)).toMatchObject({ repo: 'p-1', scope: 'read', ttl: 35 * 60 });
   });
 
   it('streams a commit as a ZIP archive', async () => {

@@ -55,8 +55,8 @@ export type FakeArtifacts = Artifacts & {
   pushes: { repo: string; ref: string; oldOid: string; newOid: string }[];
   /** Forks and imports stay in progress for this many reads. */
   setPending(count: number): void;
-  /** Tokens made, by scope and id, and the ids revoked since. */
-  tokens: { repo: string; id: string; scope: 'read' | 'write' }[];
+  /** Tokens made, by scope, id and lifetime in seconds, and the ids revoked since. */
+  tokens: { repo: string; id: string; scope: 'read' | 'write'; ttl: number | undefined }[];
   revoked: string[];
 };
 
@@ -189,10 +189,10 @@ export function fakeArtifacts(): FakeArtifacts {
       async readFile() {
         return null;
       },
-      async createToken(scope = 'write') {
+      async createToken(scope = 'write', ttl) {
         // The first token is `token`, as a test that takes one reads it.
         const id = tokens.length === 0 ? 'token' : `token-${tokens.length + 1}`;
-        tokens.push({ repo: name, id, scope });
+        tokens.push({ repo: name, id, scope, ttl });
         return { id, plaintext: `${SECRET}?expires=1893456000`, scope, expiresAt: '2030-01-01T00:00:00.000Z' };
       },
       async listTokens() {

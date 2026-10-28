@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
-import type { WorkspaceSummary, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
+import type { WorkspaceSummary, ProjectCommit, ProjectGitAddress } from '~/lib/cloudflare/data-api';
 import type { Approval, Approvals } from '~/lib/cloudflare/approvals.client';
 import type { PublicProject, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
@@ -45,13 +45,7 @@ const commits: ProjectCommit[] = [
   },
 ];
 
-const cloneAccess: ProjectCloneAccess = {
-  remote: 'https://e2e.artifacts.cloudflare.net/git/cloudchef/p-chat-booking.git',
-  token: 'e2e-read-token',
-  expiresAt: Date.now() + 3_600_000,
-  command:
-    'git clone https://x:e2e-read-token@e2e.artifacts.cloudflare.net/git/cloudchef/p-chat-booking.git booking-site',
-};
+const gitAddress: ProjectGitAddress = { projectId: 'chat-booking' };
 
 async function stubSignedIn(page: Page, context: WorkspaceContext, teamProjects: TeamProject[] = []) {
   const session: CloudflareAuthSession = { ...authSession, context, contexts: [context] };
@@ -73,8 +67,8 @@ async function stubSignedIn(page: Page, context: WorkspaceContext, teamProjects:
         ? ownProjects
         : path === 'projects.history'
           ? commits
-          : path === 'projects.cloneAccess'
-            ? cloneAccess
+          : path === 'projects.gitAddress'
+            ? gitAddress
             : null;
     return route.fulfill({ json: { result } });
   });
@@ -121,7 +115,11 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await booking.getByRole('button', { name: 'More for Booking site' }).click();
   await page.getByRole('menuitem', { name: 'Clone' }).click();
   const clone = page.getByRole('dialog', { name: 'Clone' });
-  await expect(clone.getByLabel('Clone command')).toHaveText(cloneAccess.command);
+  // Through CloudChef's own address, which checks who is asking each time: no token in the command.
+  await expect(clone.getByLabel('cloudchef command', { exact: true })).toHaveText('cloudchef repo clone chat-booking');
+  const origin = new URL(page.url()).origin;
+  await expect(clone.getByLabel('git command', { exact: true })).toHaveText(`git clone ${origin}/git/chat-booking.git`);
+  await page.screenshot({ path: testInfo.outputPath('clone.png'), fullPage: true });
   await clone.getByRole('button', { name: 'Close dialog' }).click();
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(

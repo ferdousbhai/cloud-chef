@@ -18,9 +18,8 @@ import {
   ProjectRepositories,
   ProjectRepositoryError,
 } from '~/lib/.server/cloudflare/project-repository';
-import type { DataOperationResult, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
+import type { DataOperationResult, ProjectCommit, ProjectGitAddress } from '~/lib/cloudflare/data-api';
 import { ensureInitialWorkspace, findWorkspace, openLinkedWorkspace } from './workspace-repository.server';
-import { cloneToken } from './clone-tokens.server';
 import { extractZip, ZipReadError } from '~/lib/.server/cloudflare/zip-extract';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
 import {
@@ -32,7 +31,7 @@ import { internalErrorResponse } from './http.server';
 import { IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
- * A project's history and its ways out, for the browser: its commits, a clone command, a ZIP of any
+ * A project's history and its ways out, for the browser: its commits, its git address, a ZIP of any
  * commit, and a fork into a new project. A CloudChef app (a workspace's own repository, `p-<workspace>`) is its
  * creator's alone; a team's project is whatever the control plane says this person may do with it, and
  * view is enough for all of these but a fork, which needs edit.
@@ -120,31 +119,21 @@ export async function projectHistory(
   });
 }
 
-/** A `git clone` command for the project, with the person's read-only token, good for a year. */
-export async function projectCloneAccess(
+/**
+ * The id CloudChef's git address names the project by (`cloudchef.build/git/<id>.git`): its team project's, or a
+ * CloudChef app's own. Cloning goes through that address, which checks the person's access on every request, so no
+ * token of the repository's own leaves CloudChef.
+ */
+export async function projectGitAddress(
   env: Env,
   args: ProjectTarget & { sessionId: string },
-  repositories: ProjectRepositoriesFactory = accountRepositories,
-): Promise<ProjectCloneAccess> {
+): Promise<ProjectGitAddress> {
   const project = await resolveProject(env, args.sessionId, args);
-  const store = repositories(env);
-  if (!project.repo || !(await store.head(project.repo))) {
-    throw new DataNotFoundError('This project has no saved versions yet.');
+  const projectId = project.orgProjectId ?? args.chatInitialId;
+  if (!projectId) {
+    throw new DataNotFoundError('Project not found');
   }
-  const access = await cloneToken(env.DB, store, {
-    repo: project.repo,
-    userId: args.sessionId,
-    orgProjectId: project.orgProjectId,
-  });
-  const url = new URL(access.remote);
-  url.username = 'x';
-  url.password = access.token;
-  return {
-    remote: access.remote,
-    token: access.token,
-    expiresAt: access.expiresAt,
-    command: `git clone ${url.toString()} ${folderName(project.name)}`,
-  };
+  return { projectId };
 }
 
 /**
@@ -427,9 +416,10 @@ export async function userRuntimeProjectCreateEmptyAction(
 const readAccessSchema = z.strictObject({ orgProjectId: z.string().uuid() });
 
 /**
- * `POST /v1/projects/read-access`: a short-lived read token for a project of this runtime's account, for git to
- * read its history with. CloudChef asks for it to make a copy of a project for someone who may read it, a public
- * one among them; the person this runtime is for may read it (the control plane checks that before it asks).
+ * `POST /v1/projects/read-access`: a read token for a project of this runtime's account, good for one import, for
+ * git to read its history with. CloudChef asks for it to make a copy of a project for someone who may read it, a
+ * public one among them; the person this runtime is for may read it (the control plane checks that before it asks).
+ * CloudChef revokes it (`/v1/read-access/revoke`, by `tokenId`) once the copy is made or has failed.
  */
 export async function userRuntimeProjectReadAccessAction(
   args: { request: Request; env: Env },
@@ -454,6 +444,7 @@ export async function userRuntimeProjectReadAccessAction(
         url: access.remote,
         authorization: `Basic ${btoa(`x:${access.token}`)}`,
         branch: project.defaultBranch,
+        tokenId: access.tokenId,
         expiresAt: Date.parse(access.expiresAt),
       },
       { headers: { 'cache-control': 'no-store' } },
@@ -466,8 +457,8 @@ export async function userRuntimeProjectReadAccessAction(
 const appReadAccessSchema = z.strictObject({ appId: z.string().uuid() });
 
 /**
- * `POST /v1/apps/read-access`: a short-lived read token for one of this person's apps (a workspace's own repository),
- * for CloudChef to copy it or let someone read it while it is public.
+ * `POST /v1/apps/read-access`: a read token for one of this person's apps (a workspace's own repository), good for one
+ * import, for CloudChef to copy it; revoked as a project's is.
  */
 export async function userRuntimeAppReadAccessAction(
   args: { request: Request; env: Env; userId: string },
@@ -493,12 +484,50 @@ export async function userRuntimeAppReadAccessAction(
         url: access.remote,
         authorization: `Basic ${btoa(`x:${access.token}`)}`,
         branch: MAIN_BRANCH,
+        tokenId: access.tokenId,
         expiresAt: Date.parse(access.expiresAt),
       },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (error) {
     return internalErrorResponse(error, 'The app could not be read. Try again.');
+  }
+}
+
+const revokeReadAccessSchema = z.union([
+  z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().min(1).max(256) }),
+  z.strictObject({ appId: z.string().uuid(), tokenId: z.string().min(1).max(256) }),
+]);
+
+/**
+ * `POST /v1/read-access/revoke`: ends a read token `/v1/projects/read-access` or `/v1/apps/read-access` gave out, once
+ * the copy it was for is made or has failed. One already gone is done.
+ */
+export async function userRuntimeRevokeReadAccessAction(
+  args: { request: Request; env: Env },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = revokeReadAccessSchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the token.' }, { status: 400 });
+  }
+  try {
+    let repo: string | null;
+    if ('appId' in parsed.data) {
+      repo = nativeProjectRepo(parsed.data.appId);
+    } else {
+      const identity = runtimeConnectionIdentity(args.env);
+      if (!identity) {
+        throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+      }
+      repo = (await openProject(args.env, identity, parsed.data.orgProjectId)).repo;
+    }
+    if (repo) {
+      await repositories(args.env).revokeToken(repo, parsed.data.tokenId);
+    }
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return internalErrorResponse(error, 'The token could not be revoked. Try again.');
   }
 }
 

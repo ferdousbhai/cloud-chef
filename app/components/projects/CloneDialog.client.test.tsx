@@ -1,17 +1,13 @@
 // @vitest-environment jsdom
 
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProjectCloneAccess } from '~/lib/cloudflare/data-api';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { CloneDialog } from './CloneDialog.client';
 
 const RUNTIME = 'https://runtime.example.workers.dev';
-const COMMAND =
-  'git clone https://x:secret@example.artifacts.cloudflare.net/git/cloudchef/t-project-1.git booking-site';
-
-let access: ProjectCloneAccess;
+const TEAM_PROJECT = '11111111-1111-4111-8111-111111111111';
 const bodies: string[] = [];
 
 async function runtime(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -21,7 +17,7 @@ async function runtime(input: RequestInfo | URL, init?: RequestInit): Promise<Re
   }
   if (url === `${RUNTIME}/v1/data`) {
     bodies.push(String(init?.body));
-    return Response.json({ result: access });
+    return Response.json({ result: { projectId: TEAM_PROJECT } });
   }
   return Response.json({ error: 'Not here.' }, { status: 404 });
 }
@@ -44,49 +40,44 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-async function render() {
+async function render(element: ReactNode) {
   root = createRoot(document.body.appendChild(document.createElement('div')));
-  await act(async () =>
-    root?.render(<CloneDialog project={{ orgProjectId: 'project-1' }} name="Booking site" onClose={() => undefined} />),
-  );
-  await vi.waitFor(() => expect(document.body.textContent).not.toContain('Making a clone command'));
+  await act(async () => root?.render(element));
+  await vi.waitFor(() => expect(document.body.textContent).not.toContain('Finding its address'));
 }
 
+const command = (label: string) => document.querySelector(`[aria-label="${label}"]`)?.textContent;
+
 describe('CloneDialog', () => {
-  it('shows the command, copies it, and says until when it works', async () => {
-    access = {
-      remote: 'https://example.artifacts.cloudflare.net/git/cloudchef/t-project-1.git',
-      token: 'secret',
-      expiresAt: Date.now() + 3_600_000,
-      command: COMMAND,
-    };
+  it('clones a project by its name through CloudChef, with no token in the command, and copies it', async () => {
     const writeText = vi.fn(async () => undefined);
     vi.stubGlobal('navigator', { clipboard: { writeText } });
-    await render();
+    await render(
+      <CloneDialog
+        project={{ orgProjectId: TEAM_PROJECT }}
+        name="Booking site"
+        fullName="sara/booking-site"
+        onClose={() => undefined}
+      />,
+    );
 
-    expect(JSON.parse(bodies[0] ?? 'null')).toEqual({
-      path: 'projects.cloneAccess',
-      args: { orgProjectId: 'project-1' },
-    });
-    expect(document.querySelector('[aria-label="Clone command"]')?.textContent).toBe(COMMAND);
-    expect(document.body.textContent).toMatch(/Anyone with this command can download the code until .+\./);
+    // A team project's own id needs no asking.
+    expect(bodies).toEqual([]);
+    expect(command('cloudchef command')).toBe('cloudchef repo clone sara/booking-site');
+    expect(command('git command')).toBe(`git clone ${window.location.origin}/sara/booking-site.git`);
+    expect(document.body.textContent).not.toContain('artifacts');
 
-    const copy = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Copy');
+    const copy = document.querySelector<HTMLButtonElement>('button[aria-label="Copy the cloudchef command"]');
     await act(async () => copy?.click());
-    expect(writeText).toHaveBeenCalledWith(COMMAND);
+    expect(writeText).toHaveBeenCalledWith('cloudchef repo clone sara/booking-site');
     expect(document.body.textContent).toContain('Copied');
   });
 
-  it('offers a new command once the token has expired', async () => {
-    access = {
-      remote: 'https://example.artifacts.cloudflare.net/git/cloudchef/t-project-1.git',
-      token: 'secret',
-      expiresAt: Date.now() - 1_000,
-      command: COMMAND,
-    };
-    await render();
+  it('asks which project a chat works on, and clones it by its id when it has no name', async () => {
+    await render(<CloneDialog project={{ chatInitialId: 'chat-1' }} name="Booking site" onClose={() => undefined} />);
 
-    expect(document.body.textContent).toContain('This command has expired.');
-    expect(document.querySelector('[aria-label="Clone command"]')).toBeNull();
+    expect(JSON.parse(bodies[0] ?? 'null')).toEqual({ path: 'projects.gitAddress', args: { chatInitialId: 'chat-1' } });
+    expect(command('cloudchef command')).toBe(`cloudchef repo clone ${TEAM_PROJECT}`);
+    expect(command('git command')).toBe(`git clone ${window.location.origin}/git/${TEAM_PROJECT}.git`);
   });
 });

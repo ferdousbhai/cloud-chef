@@ -26,13 +26,8 @@ export type ProjectCommit = {
   revision?: string;
 };
 
-/** A short-lived read token for cloning; `expiresAt` is in milliseconds since the epoch. */
-export type ProjectCloneAccess = {
-  remote: string;
-  token: string;
-  expiresAt: number;
-  command: string;
-};
+/** The id CloudChef's git address names a project by: `cloudchef.build/git/<projectId>.git`. */
+export type ProjectGitAddress = { projectId: string };
 
 export type ProjectImportResult = {
   /** The imported project: a team project's id in a team, the new chat's initial id otherwise. */
@@ -58,7 +53,7 @@ type DataOperationResults = {
   'messages.remove': { kind: 'success' };
   'messages.setDescription': null;
   'projects.history': ProjectCommit[];
-  'projects.cloneAccess': ProjectCloneAccess;
+  'projects.gitAddress': ProjectGitAddress;
   'projects.fork': { initialId: string };
   'projects.import': ProjectImportResult;
   'subchats.create': number;
@@ -83,7 +78,7 @@ export const api = {
   },
   projects: {
     history: 'projects.history',
-    cloneAccess: 'projects.cloneAccess',
+    gitAddress: 'projects.gitAddress',
     fork: 'projects.fork',
     import: 'projects.import',
   },

@@ -71,6 +71,7 @@ import {
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
+  userRuntimeRevokeReadAccessAction,
 } from '../../app/lib/cloudflare/data/projects.server';
 import { findWorkspace } from '../../app/lib/cloudflare/data/workspace-repository.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
@@ -3159,6 +3160,8 @@ async function handleUserRequest(
     response = await userRuntimeAppCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/read-access') {
     response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
+  } else if (request.method === 'POST' && url.pathname === '/v1/read-access/revoke') {
+    response = await userRuntimeRevokeReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {
     response = await userRuntimeProjectCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/deploy') {
