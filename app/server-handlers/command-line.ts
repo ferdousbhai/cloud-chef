@@ -436,7 +436,9 @@ export async function commandLineUserAction({ request, env }: { request: Request
   return Response.json(user, { headers: { 'Cache-Control': 'no-store' } });
 }
 
-/** `GET /api/command-line/runs?project=<id>`: the project's recent publishes, newest first. */
+/** `GET /api/command-line/runs?project=<id>`: the project's recent publishes, newest first. With `format=tsv` its
+ * columns are state, kind, branch, commit, updated and id, and `with=url` adds each one's address (`-` when it has
+ * none) after the id; a command line from before the address reads the id as the rest of its line. */
 export async function commandLineRunsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   const userId = await tokenUser(request, env);
   if (!userId) {
@@ -464,7 +466,18 @@ export async function commandLineRunsAction({ request, env }: { request: Request
     updatedAt: new Date(run.updatedAt).toISOString(),
   }));
   if (url.searchParams.get('format') === 'tsv') {
-    return tsv(runs.map((run) => [run.state, run.kind, run.branch, run.commit.slice(0, 7), run.updatedAt, run.id]));
+    const withUrl = url.searchParams.get('with') === 'url';
+    return tsv(
+      runs.map((run) => [
+        run.state,
+        run.kind,
+        run.branch,
+        run.commit.slice(0, 7),
+        run.updatedAt,
+        run.id,
+        ...(withUrl ? [run.url ?? '-'] : []),
+      ]),
+    );
   }
   return Response.json({ runs }, { headers: { 'Cache-Control': 'no-store' } });
 }

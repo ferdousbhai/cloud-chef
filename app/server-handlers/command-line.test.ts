@@ -6,10 +6,12 @@ import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-token
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
 import { findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
+import { claimDeployment, reportDeployment } from '~/lib/cloudflare/data/project-deployments.server';
 import {
   commandLineCopyProjectAction,
   commandLineGitAction,
   commandLineProjectsAction,
+  commandLineRunsAction,
   commandLineVisibilityAction,
   exploreAction,
   isCommandLineGitPath,
@@ -451,5 +453,80 @@ describe('copying a public project', () => {
     expect((await copy()).status).toBe(500);
 
     expect(calls.at(-1)).toEqual(REVOKED);
+  });
+});
+
+describe('a project’s publishes for the command line', () => {
+  const SITE = '22222222-2222-4222-8222-222222222222';
+  const COMMIT = 'c'.repeat(40);
+
+  async function world() {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt)
+        VALUES ('ada', 'Ada', 'ada@example.com', 1, 1, 1);
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1);
+    `);
+    const claim = async (branch: string, now: number) =>
+      (
+        await claimDeployment(db, {
+          projectId: SITE,
+          branch,
+          commit: COMMIT,
+          defaultBranch: 'main',
+          userId: 'ada',
+          now,
+        })
+      ).deployment;
+    const preview = await claim('feature', 1_000);
+    await reportDeployment(db, {
+      id: preview.id,
+      userId: 'ada',
+      state: 'succeeded',
+      url: 'https://feature-site.ada.workers.dev',
+      now: 2_000,
+    });
+    const main = await claim('main', 3_000);
+    const token = (await createCommandLineToken(db, 'ada', 'Laptop')).token;
+    const runs = async (query: string) =>
+      (
+        await commandLineRunsAction({
+          request: new Request(`https://cloudchef.build/api/command-line/runs?project=${SITE}${query}`, {
+            headers: { authorization: `Bearer ${token}` },
+          }),
+          env: envWith({ DB: db }),
+        })
+      ).text();
+    return { runs, preview, main };
+  }
+
+  const rows = (text: string) =>
+    text
+      .trimEnd()
+      .split('\n')
+      .map((line) => line.split('\t'));
+
+  it('add each one’s address after its id only when asked, so an older command line still reads the id', async () => {
+    const { runs, preview, main } = await world();
+
+    expect(rows(await runs('&format=tsv&with=url'))).toEqual([
+      ['queued', 'production', 'main', 'ccccccc', expect.any(String), main.id, '-'],
+      [
+        'succeeded',
+        'preview',
+        'feature',
+        'ccccccc',
+        expect.any(String),
+        preview.id,
+        'https://feature-site.ada.workers.dev',
+      ],
+    ]);
+    expect(rows(await runs('&format=tsv'))).toEqual([
+      ['queued', 'production', 'main', 'ccccccc', expect.any(String), main.id],
+      ['succeeded', 'preview', 'feature', 'ccccccc', expect.any(String), preview.id],
+    ]);
   });
 });

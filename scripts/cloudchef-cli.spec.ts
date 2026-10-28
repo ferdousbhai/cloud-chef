@@ -241,22 +241,36 @@ class FakeCloudChef {
     }
     if (route === 'GET /api/command-line/runs') {
       const project = url.searchParams.get('project');
+      // Each row's last value is its address, sent only when asked for `with=url`.
       let rows: string[][] = [];
+      let answersUrl = url.searchParams.get('with') === 'url';
       if (project === 'proj-beta') {
         rows = [
-          ['failed', 'production', 'main', 'abcdef1234567890', '2026-10-27T10:00:00Z', 'run-2'],
-          ['succeeded', 'preview', 'feature', '1234567aaaaaaaa', '2026-10-26T10:00:00Z', 'run-1'],
+          ['failed', 'production', 'main', 'abcdef1234567890', '2026-10-27T10:00:00Z', 'run-2', '-'],
+          [
+            'succeeded',
+            'preview',
+            'feature',
+            '1234567aaaaaaaa',
+            '2026-10-26T10:00:00Z',
+            'run-1',
+            'https://feature-glossary.ferdous.workers.dev',
+          ],
         ];
       } else if (project === 'proj-watched') {
         this.watchPolls += 1;
         const state = ['queued', 'building', 'building', 'succeeded'][Math.min(this.watchPolls - 1, 3)];
-        rows = [[state, 'production', 'main', 'feedface00000000', '2026-10-27T11:00:00Z', 'run-w']];
+        const address = state === 'succeeded' ? 'https://watched.ferdous.workers.dev' : '-';
+        rows = [[state, 'production', 'main', 'feedface00000000', '2026-10-27T11:00:00Z', 'run-w', address]];
       } else if (project === 'proj-broken') {
-        rows = [['failed', 'production', 'main', 'deadbeef0000000', '2026-10-27T12:00:00Z', 'run-b']];
+        // A server from before the address: no url column, whatever the command line asks.
+        answersUrl = false;
+        rows = [['failed', 'production', 'main', 'deadbeef0000000', '2026-10-27T12:00:00Z', 'run-b', '-']];
       } else {
         return json(404, { error: 'Not found.' });
       }
-      return text(200, rows.map((row) => row.join('\t')).join('\n') + '\n');
+      const columns = answersUrl ? 7 : 6;
+      return text(200, rows.map((row) => row.slice(0, columns).join('\t')).join('\n') + '\n');
     }
     if (route === 'GET /api/command-line/log') {
       if (url.searchParams.get('project') !== 'proj-beta' || url.searchParams.get('deployment') !== 'run-2') {
@@ -980,20 +994,53 @@ describe('cloudchef run', () => {
     expect(older.stdout).toMatch(/branch:\s+feature/);
   });
 
+  it("shows where a run can be seen: a preview's address, or the site for a publish", async () => {
+    const home = makeHome();
+    const preview = await cli(home, ['run', 'view', 'run-1', '--project', 'proj-beta']);
+    expect(preview.stdout).toMatch(/^url:\s+https:\/\/feature-glossary\.ferdous\.workers\.dev$/m);
+    // A failed publish has no address, and the project has no site.
+    expect((await cli(home, ['run', 'view', '--project', 'proj-beta'])).stdout).not.toContain('url:');
+    // A server from before the address sends no url column: no url, and the id is read whole.
+    const older = await cli(home, ['run', 'view', '--project', 'ferdous/broken']);
+    expect(older.stdout).toMatch(/^id:\s+run-b$/m);
+    expect(older.stdout).not.toContain('url:');
+  });
+
   it('watches until the run finishes and exits by its outcome', async () => {
     const home = makeHome();
     const succeeded = await cli(home, ['run', 'watch', '--project', 'watched', '--interval', '0']);
     expect(succeeded.code).toBe(0);
-    const states = succeeded.stdout
-      .trimEnd()
-      .split('\n')
-      .map((line) => line.split(/\s+/)[1]);
-    expect(states).toEqual(['queued', 'building', 'succeeded']);
+    const lines = succeeded.stdout.trimEnd().split('\n');
+    expect(lines.slice(0, -1).map((line) => line.split(/\s+/)[1])).toEqual(['queued', 'building', 'succeeded']);
+    expect(lines.at(-1)).toBe('Live at https://watched.ferdous.workers.dev');
+
+    const preview = await cli(home, ['run', 'watch', 'run-1', '--project', 'proj-beta', '--interval', '0']);
+    expect(preview.code).toBe(0);
+    expect(preview.stdout).toMatch(/succeeded {2}preview feature 1234567\nPreview at https:\/\/feature-glossary\./);
 
     // gh's -R names the project too.
     const failed = await cli(home, ['run', 'watch', '-R', 'broken', '--interval', '0']);
     expect(failed.code).toBe(1);
     expect(failed.stdout).toContain('cloudchef run view run-b --project ferdous/broken --log');
+  });
+
+  it("browse opens the current branch's preview in a clone, and the site on main", async () => {
+    const home = makeHome();
+    expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
+    expect((await cli(home, ['repo', 'clone', 'ferdous/alberta-plan-glossary'])).code).toBe(0);
+    const clone = join(home, 'cloudflare/ferdous/alberta-plan-glossary');
+    const browse = () => cli(home, ['browse', '--no-browser'], { cwd: clone });
+
+    // The project has no site yet, so main opens the projects page.
+    expect((await browse()).stdout).toBe(`${fake.host}/\n`);
+    git(clone, 'switch', '-q', '-c', 'feature');
+    expect(await browse()).toMatchObject({ code: 0, stdout: 'https://feature-glossary.ferdous.workers.dev\n' });
+    git(clone, 'switch', '-q', '-c', 'unbuilt');
+    const unbuilt = await browse();
+    expect(unbuilt.stdout).toBe(`${fake.host}/\n`);
+    expect(unbuilt.stderr).toContain('No preview of unbuilt to open yet');
+    // Naming the project opens its site wherever you are.
+    expect((await cli(home, ['browse', 'proj-beta', '--no-browser'], { cwd: clone })).stdout).toBe(`${fake.host}/\n`);
   });
 
   it('reruns the newest publish', async () => {

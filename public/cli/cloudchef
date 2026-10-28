@@ -388,40 +388,58 @@ dash_to_empty() {
 
 # ---------- runs ----------
 
+# Rows of state, kind, branch, commit, updated, id and url (`-` when not known); a server from before the url leaves
+# that column out, which reads as no url.
 runs_tsv() {
-  api_get "/api/command-line/runs?project=$(urlencode "$1")&format=tsv"
+  api_get "/api/command-line/runs?project=$(urlencode "$1")&format=tsv&with=url"
   RUNS_TSV="$HTTP_BODY"
 }
 
-# find_run RUN_ID|"" : sets R_STATE R_KIND R_BRANCH R_COMMIT R_UPDATED R_ID from RUNS_TSV (the newest without an id).
-find_run() {
-  local want="$1" state kind branch commit updated id
+# find_run_where id|commit|branch VALUE: sets R_STATE R_KIND R_BRANCH R_COMMIT R_UPDATED R_ID R_URL from the newest
+# row of RUNS_TSV whose id, commit or branch is VALUE, or from the newest row when VALUE is empty.
+find_run_where() {
+  local field="$1" want="$2" state kind branch commit updated id url have
   R_ID=""
-  while IFS="$TAB" read -r state kind branch commit updated id; do
+  [ "$field" != "commit" ] || want="${want:0:7}"
+  while IFS="$TAB" read -r state kind branch commit updated id url; do
     [ -n "$id" ] && [ "$id" != "id" ] || continue
-    if [ -z "$want" ] || [ "$id" = "$want" ]; then
+    case "$field" in
+      id) have="$id" ;;
+      commit) have="${commit:0:7}" ;;
+      branch) have="$branch" ;;
+    esac
+    if [ -z "$want" ] || [ "$have" = "$want" ]; then
       R_STATE="$state" R_KIND="$kind" R_BRANCH="$branch" R_COMMIT="$commit" R_UPDATED="$updated" R_ID="$id"
+      R_URL="$(dash_to_empty "$url")"
       return 0
     fi
   done <<EOF
 $RUNS_TSV
 EOF
   return 1
+}
+
+# find_run RUN_ID|"" : the run with that id, or the newest without one.
+find_run() {
+  find_run_where id "$1"
 }
 
 # find_run_for_commit COMMIT: the newest run of that commit.
 find_run_for_commit() {
-  local want="$1" state kind branch commit updated id
-  while IFS="$TAB" read -r state kind branch commit updated id; do
-    [ -n "$id" ] && [ "$id" != "id" ] || continue
-    if [ "${commit:0:7}" = "${want:0:7}" ]; then
-      R_STATE="$state" R_KIND="$kind" R_BRANCH="$branch" R_COMMIT="$commit" R_UPDATED="$updated" R_ID="$id"
-      return 0
-    fi
-  done <<EOF
-$RUNS_TSV
-EOF
-  return 1
+  [ -n "$1" ] || return 1
+  find_run_where commit "$1"
+}
+
+# run_address: where the found run can be seen, or nothing when that isn't known: a preview's own address, or the
+# project's site for a publish of main.
+run_address() {
+  local site
+  site="$(dash_to_empty "$P_SITE")"
+  if [ "$R_KIND" = "production" ] && [ -n "$site" ]; then
+    printf '%s' "$site"
+  else
+    printf '%s' "$R_URL"
+  fi
 }
 
 is_finished() {
@@ -464,7 +482,7 @@ Publishes
   run rerun [RUN_ID]   Publish the same commit again
 
 More
-  browse [PROJECT]     Open a project's site
+  browse [PROJECT]     Open a project's site, or the current branch's preview
   api PATH             Make an authenticated request to the CloudChef API
   config               Read and change settings (clone-dir)
   skill install        Install the cloudchef skill for coding agents
@@ -607,10 +625,10 @@ Usage: cloudchef run <list|view|watch|rerun>
 EOF
       ;;
     "run list") echo "Usage: cloudchef run list [PROJECT] [--json]" ;;
-    "run view") echo "Usage: cloudchef run view [RUN_ID] [--project PROJECT] [--log]${NL}${NL}Without RUN_ID, the newest publish." ;;
-    "run watch") echo "Usage: cloudchef run watch [RUN_ID] [--project PROJECT] [--interval SECONDS]${NL}${NL}Waits for a publish to finish (inside a clone: the publish of its current commit) and${NL}exits 0 if it succeeded, 1 if not." ;;
+    "run view") echo "Usage: cloudchef run view [RUN_ID] [--project PROJECT] [--log]${NL}${NL}Without RUN_ID, the newest publish. url: is where to see it: the preview's address for a branch,${NL}the site for main." ;;
+    "run watch") echo "Usage: cloudchef run watch [RUN_ID] [--project PROJECT] [--interval SECONDS]${NL}${NL}Waits for a publish to finish (inside a clone: the publish of its current commit) and${NL}exits 0 if it succeeded, 1 if not. On success it prints where to see it: Live at the site for main,${NL}Preview at the preview's address for another branch." ;;
     "run rerun") echo "Usage: cloudchef run rerun [RUN_ID] [--project PROJECT]${NL}${NL}Without RUN_ID, the newest publish." ;;
-    browse) echo "Usage: cloudchef browse [PROJECT] [--no-browser]${NL}${NL}Opens the project's site (or the projects page when it has none). --no-browser prints the address." ;;
+    browse) echo "Usage: cloudchef browse [PROJECT] [--no-browser]${NL}${NL}Opens the project's site (or the projects page when it has none); inside a clone on a branch other${NL}than main, that branch's preview. --no-browser prints the address." ;;
     api) echo "Usage: cloudchef api PATH [-X METHOD] [-d DATA]${NL}${NL}Requests $HOST/PATH with your token and prints the answer. -d sends JSON and defaults the method to POST." ;;
     config)
       cat <<EOF
@@ -1243,7 +1261,7 @@ cmd_run_list() {
   fi
   {
     printf 'STATE\tKIND\tBRANCH\tCOMMIT\tUPDATED\tID\n'
-    printf '%s\n' "$RUNS_TSV" | awk -F '\t' 'NF >= 6 && $6 != "id" { $4 = substr($4, 1, 7); print }' OFS='\t'
+    printf '%s\n' "$RUNS_TSV" | awk -F '\t' 'NF >= 6 && $6 != "id" { print $1, $2, $3, substr($4, 1, 7), $5, $6 }' OFS='\t'
   } | print_table
 }
 
@@ -1256,6 +1274,7 @@ need_run() {
 }
 
 cmd_run_view() {
+  local url
   parse_run_args "$@"
   resolve_project "$PROJECT_ARG"
   need_run "$RUN_ARG"
@@ -1272,13 +1291,15 @@ cmd_run_view() {
   printf 'commit:   %s\n' "${R_COMMIT:0:7}"
   printf 'updated:  %s\n' "$R_UPDATED"
   printf 'id:       %s\n' "$R_ID"
+  url="$(run_address)"
+  [ -z "$url" ] || printf 'url:      %s\n' "$url"
   if [ "$R_STATE" = "failed" ]; then
     printf '\nRead its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_REF"
   fi
 }
 
 cmd_run_watch() {
-  local head="" last="" waited=0 found
+  local head="" last="" waited=0 found url
   parse_run_args "$@"
   resolve_project "$PROJECT_ARG"
   # Inside a clone of the project, wait for the publish of its current commit, which may not have started yet.
@@ -1313,7 +1334,12 @@ cmd_run_watch() {
       fi
       if is_finished "$R_STATE"; then
         if [ "$R_STATE" = "succeeded" ]; then
-          [ "$R_KIND" != "production" ] || [ "$(dash_to_empty "$P_SITE")" = "" ] || printf 'Live at %s\n' "$P_SITE"
+          url="$(run_address)"
+          if [ -n "$url" ] && [ "$R_KIND" = "production" ]; then
+            printf 'Live at %s\n' "$url"
+          elif [ -n "$url" ]; then
+            printf 'Preview at %s\n' "$url"
+          fi
           return 0
         fi
         printf 'Read its log: cloudchef run view %s --project %s --log\n' "$R_ID" "$P_REF"
@@ -1355,7 +1381,7 @@ cmd_run() {
 # ---------- browse, api, config, skill ----------
 
 cmd_browse() {
-  local project="" print_only="" url
+  local project="" print_only="" url branch
   while [ $# -gt 0 ]; do
     case "$1" in
       -h | --help) usage browse; return 0 ;;
@@ -1366,7 +1392,19 @@ cmd_browse() {
     shift
   done
   resolve_project "$project"
-  url="$(dash_to_empty "$P_SITE")"
+  url=""
+  # Inside a clone on a branch other than main, that branch's preview, once one has been built.
+  if [ -z "$project" ] && remote_is_project; then
+    branch="$(git symbolic-ref -q --short HEAD 2>/dev/null)"
+    if [ -n "$branch" ] && [ "$branch" != "main" ]; then
+      require_token
+      http GET "/api/command-line/runs?project=$(urlencode "$P_ID")&format=tsv&with=url"
+      case "$HTTP_STATUS" in 2??) RUNS_TSV="$HTTP_BODY" ;; *) RUNS_TSV="" ;; esac
+      if find_run_where branch "$branch" && [ "$R_KIND" = "preview" ]; then url="$R_URL"; fi
+      [ -n "$url" ] || note "No preview of $branch to open yet; opening the site."
+    fi
+  fi
+  [ -n "$url" ] || url="$(dash_to_empty "$P_SITE")"
   [ -n "$url" ] || url="$HOST/"
   if [ -n "$print_only" ]; then
     printf '%s\n' "$url"
@@ -1491,12 +1529,13 @@ CloudChef keeps each project as a git repository and publishes it to the project
 ## After a push
 
 1. `cloudchef run watch` waits for the publish of what you pushed. It exits 0 when the publish succeeded and 1 when it
-   failed.
+   failed. When it succeeds it prints where to see it: `Live at` the site for `main`, `Preview at` the preview's
+   address for any other branch. `cloudchef run view` shows the same address as `url:`.
 2. When it failed, `cloudchef run view --log` prints the publish log. Find the error, fix it, commit, push, and watch
    again.
 3. `cloudchef run rerun` publishes the same commit again, for failures the code didn't cause (a timeout, a service
    outage).
-4. `cloudchef browse` opens the live site.
+4. `cloudchef browse` opens the live site, or, on a branch other than `main`, that branch's preview.
 
 Run these inside the clone. Elsewhere, name the project: `cloudchef run watch --project ferdous/alberta-plan-glossary`.
 

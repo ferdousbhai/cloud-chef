@@ -49,12 +49,13 @@ CloudChef keeps each project as a git repository and publishes it to the project
 ## After a push
 
 1. `cloudchef run watch` waits for the publish of what you pushed. It exits 0 when the publish succeeded and 1 when it
-   failed.
+   failed. When it succeeds it prints where to see it: `Live at` the site for `main`, `Preview at` the preview's
+   address for any other branch. `cloudchef run view` shows the same address as `url:`.
 2. When it failed, `cloudchef run view --log` prints the publish log. Find the error, fix it, commit, push, and watch
    again.
 3. `cloudchef run rerun` publishes the same commit again, for failures the code didn't cause (a timeout, a service
    outage).
-4. `cloudchef browse` opens the live site.
+4. `cloudchef browse` opens the live site, or, on a branch other than `main`, that branch's preview.
 
 Run these inside the clone. Elsewhere, name the project: `cloudchef run watch --project ferdous/alberta-plan-glossary`.
 
