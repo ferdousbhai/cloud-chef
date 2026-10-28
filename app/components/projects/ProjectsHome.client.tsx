@@ -456,6 +456,9 @@ async function changeVisibilityOf(
  * since a new chat is recorded once it is listed. Null until loaded; an app missing from it has no address or
  * visibility yet.
  */
+/** How long after the chat list a new app is asked for again, once its record has had time to be made. */
+const APPS_RETRY_MS = 4_000;
+
 function useApps(chatIds: string) {
   const connectionId = authClient.useSession().data?.context?.connectionId ?? null;
   const [apps, setApps] = useState<ReadonlyMap<string, App> | null>(null);
@@ -466,12 +469,25 @@ function useApps(chatIds: string) {
       return undefined;
     }
     const controller = new AbortController();
-    loadApps(controller.signal)
-      .then((loaded) => setApps(new Map(loaded.map((app) => [app.id, app]))))
-      .catch(() => {
-        // Without them, the cards have no address and no public or copy actions; the next list asks again.
-      });
-    return () => controller.abort();
+    let retry: number | undefined;
+    const load = (again: boolean) =>
+      loadApps(controller.signal)
+        .then((loaded) => {
+          setApps(new Map(loaded.map((app) => [app.id, app])));
+          // Listing the chats tells CloudChef about a new app in the background: if one isn't known yet, ask once more.
+          const known = new Set(loaded.map((app) => app.id));
+          if (again && chatIds.split(' ').some((id) => !known.has(id))) {
+            retry = window.setTimeout(() => void load(false), APPS_RETRY_MS);
+          }
+        })
+        .catch(() => {
+          // Without them, the cards have no address and no public or copy actions; the next list asks again.
+        });
+    void load(true);
+    return () => {
+      controller.abort();
+      window.clearTimeout(retry);
+    };
   }, [connectionId, chatIds]);
 
   const changeVisibility = async (app: App, name: string, visibility: ProjectVisibility) => {
