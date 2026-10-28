@@ -13,8 +13,6 @@ export const TERMINAL_HOME = '/home/user';
 /** The container's own disk, wiped on every restart: where caches and installed tools go instead. */
 const CONTAINER_HOME = '/root';
 
-const TERMINAL_HOME_NOTE = `Your home folder, ${TERMINAL_HOME}, is kept with this workspace: sign-ins and settings saved there stay after a restart. Installed tools and caches don't.`;
-
 /**
  * Downloads and installs that would otherwise land in the kept home: caches, npm's and pnpm's stores, and
  * per-user installs (XDG data and state, where installers such as Claude Code's put their binaries). Logins
@@ -35,15 +33,8 @@ export function terminalEnvironment() {
   };
 }
 
-/** A login shell (started in the project folder, its `cwd`), creating the home the first time with a one-line note about it. */
+/** A login shell (started in the project folder, its `cwd`), creating the home the first time. The terminal panel says what is kept. */
 export function terminalCommand() {
   const home = shellQuote(TERMINAL_HOME);
-  return [
-    '/bin/bash',
-    '-c',
-    [
-      `if [ ! -d ${home} ]; then mkdir -p ${home} && printf '%s\\n\\n' ${shellQuote(TERMINAL_HOME_NOTE)}; fi`,
-      'exec /bin/bash -l',
-    ].join('\n'),
-  ] as const;
+  return ['/bin/bash', '-c', [`mkdir -p ${home}`, 'exec /bin/bash -l'].join('\n')] as const;
 }

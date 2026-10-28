@@ -23,19 +23,18 @@ describe('workspace terminal', () => {
     expect(env.TERM).toBe('xterm-256color');
   });
 
-  it('creates the home and says it is kept only the first time, then starts a login shell', () => {
+  it('creates the home quietly, then starts a login shell', () => {
     const home = join(mkdtempSync(join(tmpdir(), 'terminal-home-')), 'user');
     const [shell, flag, script] = terminalCommand();
     expect(script).toMatch(/\nexec \/bin\/bash -l$/);
     const testScript = script.replace('exec /bin/bash -l', 'echo started').replaceAll(TERMINAL_HOME, home);
     const run = () => spawnSync(shell, [flag, testScript], { encoding: 'utf8' });
 
+    // What the workspace keeps is said in the terminal panel, never typed into the shell.
     const first = run();
     expect(first.status).toBe(0);
     expect(existsSync(home)).toBe(true);
-    expect(first.stdout).toBe(
-      `Your home folder, ${home}, is kept with this workspace: sign-ins and settings saved there stay after a restart. Installed tools and caches don't.\n\nstarted\n`,
-    );
+    expect(first.stdout).toBe('started\n');
 
     const again = run();
     expect(again.status).toBe(0);
