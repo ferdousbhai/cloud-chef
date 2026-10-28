@@ -287,12 +287,12 @@ describe('ModelsCard', () => {
 
       expect(groupOf('Workers AI').textContent).toContain('2 of 2 allowed');
       expect(groupOf('Anthropic').textContent).toContain('2 of 2 allowed');
-      expect(rowFor('GLM 5.3 Flash').textContent).toBe(
-        'GLM 5.3 FlashDefaultNeeds Workers PaidWorks with about 983K words at once · Thinks before answering · Reads images',
+      expect(rowFor('DeepSeek V4.1 Flash').textContent).toBe(
+        'DeepSeek V4.1 FlashDefaultNeeds Workers PaidWorks with about 786K words at once · Thinks before answering · Reads images',
       );
       expect(rowFor('DeepSeek V4 Pro').textContent).toBe('DeepSeek V4 ProWorks with about 98K words at once');
       // The default can't be left out; another default is chosen first.
-      expect(checkboxOf('GLM 5.3 Flash')).toMatchObject({ checked: true, disabled: true });
+      expect(checkboxOf('DeepSeek V4.1 Flash')).toMatchObject({ checked: true, disabled: true });
       expect(checkboxOf('Claude Fable 5')).toMatchObject({ checked: true, disabled: false });
       expect(button('Save models')).toBeUndefined();
     });
@@ -309,7 +309,7 @@ describe('ModelsCard', () => {
       expect(groupOf('Anthropic').textContent).toContain('1 of 2 allowed');
       // "Allow none" leaves the default ticked.
       await act(async () => button('Allow none', groupOf('Workers AI'))?.click());
-      expect(checkboxOf('GLM 5.3 Flash').checked).toBe(true);
+      expect(checkboxOf('DeepSeek V4.1 Flash').checked).toBe(true);
       expect(checkboxOf('DeepSeek V4 Pro').checked).toBe(false);
       await act(async () => button('Save models')?.click());
       await settle();
@@ -365,7 +365,7 @@ describe('ModelsCard', () => {
       const retry = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Try again');
       await act(async () => retry?.click());
       await settle();
-      expect(checkboxOf('GLM 5.3 Flash').checked).toBe(true);
+      expect(checkboxOf('DeepSeek V4.1 Flash').checked).toBe(true);
     });
   });
 });

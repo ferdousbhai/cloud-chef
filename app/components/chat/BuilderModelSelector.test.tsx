@@ -22,8 +22,8 @@ import { BuilderModelSelector } from './BuilderModelSelector.client';
 
 const alternativeModel: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-  label: 'DeepSeek V4.1 Flash 1017',
+  id: '@cf/zai-org/glm-5.3-flash',
+  label: 'GLM 5.3 Flash',
   description: 'Cloudflare-hosted open-weight reasoning model.',
   vision: false,
 };
@@ -61,7 +61,7 @@ describe('BuilderModelSelector', () => {
     await renderSelector();
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
-    expect(trigger?.getAttribute('aria-label')).toContain('GLM 5.3 Flash');
+    expect(trigger?.getAttribute('aria-label')).toContain('DeepSeek V4.1 Flash');
     expect(trigger?.getAttribute('aria-haspopup')).toBe('menu');
 
     await act(async () => {
@@ -72,7 +72,7 @@ describe('BuilderModelSelector', () => {
     expect(menu?.textContent).toContain('Workers AI');
     expect(document.querySelectorAll('#builder-provider-models [role="menuitemradio"]')).toHaveLength(2);
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
-      item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
+      item.textContent?.includes('GLM 5.3 Flash'),
     );
 
     await act(async () => alternative?.click());
@@ -92,12 +92,12 @@ describe('BuilderModelSelector', () => {
     });
 
     const alternative = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find((item) =>
-      item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
+      item.textContent?.includes('GLM 5.3 Flash'),
     );
     expect(alternative?.textContent).toContain('New');
     expect(alternative?.textContent).toContain('added Aug 26, 2026');
     // The pinned default keeps the top row even though the other model is newer.
-    expect(document.querySelectorAll('[role="menuitemradio"]')[0]?.textContent).toContain('GLM 5.3 Flash');
+    expect(document.querySelectorAll('[role="menuitemradio"]')[0]?.textContent).toContain('DeepSeek V4.1 Flash');
     expect(builderNewModelsStore.get()).toEqual([]);
     expect(JSON.parse(localStorage.getItem('cloudchef_seen_builder_models_v1') ?? 'null')).toEqual([
       CLOUDFLARE_WORKERS_AI_MODEL,
@@ -275,7 +275,7 @@ describe('BuilderModelSelector', () => {
         ?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
     );
     const row = [...document.querySelectorAll<HTMLElement>('#builder-provider-models [role="menuitemradio"]')].find(
-      (item) => item.textContent?.includes('DeepSeek V4.1 Flash 1017'),
+      (item) => item.textContent?.includes('GLM 5.3 Flash'),
     );
     expect(row?.querySelector('.line-clamp-2')?.textContent).toBe('added Aug 26, 2026');
   });
@@ -287,7 +287,7 @@ describe('BuilderModelSelector', () => {
       document.querySelector('button')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
     );
     const pins = [...document.querySelectorAll('[aria-label="Quick switch"] [role="menuitemradio"]')];
-    expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual(['GLM 5.3 Flash, team default']);
+    expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual(['DeepSeek V4.1 Flash, team default']);
   });
 
   it('pins the default and recent models and restores the last provider tab', async () => {
@@ -304,8 +304,8 @@ describe('BuilderModelSelector', () => {
     expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Anthropic');
     const pins = [...document.querySelectorAll('[aria-label="Quick switch"] [role="menuitemradio"]')];
     expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual([
-      'GLM 5.3 Flash, team default',
-      'DeepSeek V4.1 Flash 1017, recent',
+      'DeepSeek V4.1 Flash, team default',
+      'GLM 5.3 Flash, recent',
     ]);
     // The provider list stays whole: the restored Anthropic tab lists its own models.
     expect(
@@ -387,7 +387,7 @@ describe('BuilderModelSelector without a catalog', () => {
         `New messages still use your saved model, ${savedModel}`,
       );
 
-      const defaultItem = items.find((item) => item.textContent?.includes('GLM 5.3 Flash'));
+      const defaultItem = items.find((item) => item.textContent?.includes('DeepSeek V4.1 Flash'));
       await freshAct(async () => defaultItem?.click());
       expect(fresh.builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
     } finally {

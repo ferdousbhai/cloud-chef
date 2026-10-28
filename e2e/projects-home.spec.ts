@@ -184,7 +184,13 @@ test('lists public projects in Explore, with their sites and a way to make a cop
   await page.route('**/api/explore', (route) => route.fulfill({ json: { projects: publicProjects } }));
 
   await page.goto('/');
-  await page.getByRole('region', { name: 'My projects' }).getByRole('link', { name: 'Explore' }).click();
+  // Explore is in the header (on a phone, in its user menu).
+  if (testInfo.project.name !== 'mobile-chromium') {
+    await page.getByRole('link', { name: 'Explore' }).click();
+  } else {
+    await page.getByRole('button', { name: 'User menu' }).click();
+    await page.getByRole('menuitem', { name: 'Explore' }).click();
+  }
 
   await expect(page).toHaveURL(/\/explore$/);
   await expect(page).toHaveTitle('Explore | CloudChef');

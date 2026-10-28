@@ -904,7 +904,9 @@ describe('the models the picker offers', () => {
     const withoutPin = await allowed(admin.cookie, [OPUS], env);
     expect(withoutPin.status).toBe(409);
     expect(await withoutPin.json()).toEqual({
-      error: expect.stringContaining('GLM 5.3 Flash, has to stay allowed. To leave it out, choose another default'),
+      error: expect.stringContaining(
+        'DeepSeek V4.1 Flash 1017, has to stay allowed. To leave it out, choose another default',
+      ),
     });
     // Nothing at all would leave the default out too.
     expect((await allowed(admin.cookie, [], env)).status).toBe(409);

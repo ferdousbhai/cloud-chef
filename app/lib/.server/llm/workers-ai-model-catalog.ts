@@ -9,6 +9,7 @@ import {
   MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS,
   modelIdLabel,
   NO_ACCOUNT_MODEL_SETTINGS,
+  olderBuilderModelIds,
   type AccountModelSettings,
   type BuilderModel,
   type BuilderModelCatalogPayload,
@@ -274,7 +275,10 @@ export function compatibleBuilderModels(
   workersAiModels: readonly BuilderModel[],
   gatewayKeys: readonly Pick<GatewayKey, 'provider'>[],
 ): BuilderModel[] {
-  return [...workersAiModels, ...gatewayBuilderModels(gatewayKeys.map(({ provider }) => provider))];
+  const models = [...workersAiModels, ...gatewayBuilderModels(gatewayKeys.map(({ provider }) => provider))];
+  // Only the newest of each family: an older version a newer one replaces isn't offered (`olderBuilderModelIds`).
+  const older = olderBuilderModelIds(models);
+  return models.filter(({ id }) => !older.has(id));
 }
 
 /**

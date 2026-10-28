@@ -73,8 +73,8 @@ export type BuilderModel = {
   createdAt?: string;
 };
 
-/** GLM is the default when a team has not chosen another. */
-export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/zai-org/glm-5.3-flash' satisfies WorkersAiModelId;
+/** DeepSeek V4.1 Flash is the default when a team has not chosen another. */
+export const CLOUDFLARE_WORKERS_AI_MODEL = '@cf/deepseek-ai/deepseek-v4.1-flash-1017' satisfies WorkersAiModelId;
 
 /**
  * Titles must come from a model that speaks the OpenAI completions response shape, because every
@@ -102,9 +102,9 @@ export const MINIMUM_BUILDER_MODEL_CONTEXT_TOKENS = 32_768;
  */
 export const DEFAULT_WORKERS_AI_MODEL: BuilderModel = {
   id: CLOUDFLARE_WORKERS_AI_MODEL,
-  label: 'GLM 5.3 Flash',
-  description: 'Latest fast GLM model for coding, reasoning, and tool-driven builds.',
-  contextTokens: 1_310_720,
+  label: 'DeepSeek V4.1 Flash',
+  description: 'Fast DeepSeek model for coding, reasoning, and tool-driven builds, with a million-token window.',
+  contextTokens: 1_048_576,
   requiresPaid: true,
   reasoning: true,
   vision: true,
@@ -292,4 +292,126 @@ function modelIdWord(part: string): string {
     return part;
   }
   return part.charAt(0).toUpperCase() + part.slice(1);
+}
+
+/**
+ * A token that dates a snapshot of a model rather than naming a different one, standing alone or in
+ * parentheses: `(2024-05-13)`, `(08-2024)`, `06-05`, `0731`, `2512`, `(0902)`.
+ */
+const SNAPSHOT_TOKEN = /(?<=^|\s)\(?(\d{4}-\d{2}-\d{2}|\d{2}-\d{4}|\d{2}-\d{2}|\d{4})\)?(?=\s|$)/g;
+/** What follows a number that says how big the model is (`27B`, `2.4T`, `A3B`, `8x22B`, `16E`), not which generation it is. */
+const SIZE_UNIT = /^(?:[xX]\d|[bBtTmMeE](?![a-zA-Z]))/;
+
+type ModelLineage = {
+  /** The provider and the label's words without its generation or snapshot: `anthropic/claude opus`. */
+  family: string;
+  /** The label's first version number, each part after the first read as a decimal: 4.20 is 4.2. */
+  generation: readonly number[] | null;
+  /** The snapshot's date as one number (MM-YYYY reordered to YYYYMM), or null for the undated name. */
+  snapshot: number | null;
+};
+
+function modelLineage(model: BuilderModel): ModelLineage {
+  let snapshot: number | null = null;
+  const name = model.label
+    // OpenRouter labels lead with the vendor ("OpenAI: GPT-5.5"), though not all of them.
+    .replace(/^[^:]*:\s*/, '')
+    .replace(SNAPSHOT_TOKEN, (_token, date: string) => {
+      const parts = date.split('-');
+      const digits = parts.length === 2 && parts[1]?.length === 4 ? `${parts[1]}${parts[0]}` : parts.join('');
+      snapshot = Math.max(snapshot ?? 0, Number(digits));
+      return ' ';
+    });
+  const version = [...name.matchAll(/\d+(?:\.\d+)*/g)].find(
+    (match) => !SIZE_UNIT.test(name.slice(match.index + match[0].length)),
+  );
+  const words = version ? `${name.slice(0, version.index)} ${name.slice(version.index + version[0].length)}` : name;
+  return {
+    family: `${gatewayModelProvider(model.id) ?? 'workers'}/${words
+      .toLowerCase()
+      .replace(/[^a-z0-9+]+/g, ' ')
+      .trim()}`,
+    generation: version
+      ? version[0].split('.').map((part, index) => (index === 0 ? Number(part) : Number(`0.${part}`)))
+      : null,
+    snapshot,
+  };
+}
+
+function compareGenerations(left: readonly number[], right: readonly number[]): number {
+  for (let index = 0; index < Math.max(left.length, right.length); index++) {
+    const difference = (left[index] ?? 0) - (right[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+  return 0;
+}
+
+/**
+ * The models a newer one of the same family supersedes, which the picker leaves out. Pi exposes no
+ * release dates, so this reads labels, per provider:
+ *
+ * - A label's family is its words without its generation and snapshot, ignoring case, punctuation,
+ *   and an OpenRouter vendor prefix; parameter sizes and qualifiers stay in it. So "Claude Opus 4.7"
+ *   and "Claude Opus 5.5" are one family, as are "Claude 3.7 Sonnet" and "Claude Sonnet 4.6", while
+ *   "GPT-5.2" and "GPT-5.2 mini", "Kimi K2.6" and "Kimi K2.7 Code", or "Gemma 3 12B" and "Gemma 3 27B"
+ *   are not.
+ * - Its generation is its first number that is not a size or a date; the highest in a family stays.
+ *   Parts after the first are decimals, so "Grok 4.20" is older than "Grok 4.7".
+ * - Snapshots of one generation (dated labels) collapse to the undated name, which providers point at
+ *   their newest snapshot, or else to the newest date: "GPT-4o" over "GPT-4o (2024-11-20)", "DeepSeek
+ *   V4 Flash 0731" over "DeepSeek V4 Flash 0423".
+ * - A label with no generation ("GPT OSS 120B", "Mistral Large") is never superseded by one with a
+ *   generation, only by its own undated name or a newer snapshot.
+ * - Labels that read the same once normalized (name, generation and snapshot) keep only the one the
+ *   catalog added last, when the catalog dates them (Workers AI does; Pi doesn't date the others).
+ */
+export function olderBuilderModelIds(models: readonly BuilderModel[]): ReadonlySet<BuilderModelId> {
+  const lineages = models.map((model) => ({ id: model.id, added: addedAt(model), ...modelLineage(model) }));
+  const newestGeneration = new Map<string, readonly number[]>();
+  for (const { family, generation } of lineages) {
+    const newest = newestGeneration.get(family);
+    if (generation && (!newest || compareGenerations(generation, newest) > 0)) {
+      newestGeneration.set(family, generation);
+    }
+  }
+  const release = ({ family, generation }: ModelLineage) => `${family}@${generation?.join('.') ?? ''}`;
+  // Per release, the snapshot that stays: null once an undated name is listed.
+  const newestSnapshot = new Map<string, number | null>();
+  for (const lineage of lineages) {
+    const key = release(lineage);
+    const newest = newestSnapshot.get(key);
+    newestSnapshot.set(
+      key,
+      lineage.snapshot === null || newest === null ? null : Math.max(lineage.snapshot, newest ?? 0),
+    );
+  }
+  // Models whose labels say the same name, generation and snapshot: the catalog's date, where there is one, tells
+  // which was added last.
+  const sameName = (lineage: ModelLineage) => `${release(lineage)}#${lineage.snapshot ?? ''}`;
+  const newestAdded = new Map<string, number>();
+  for (const lineage of lineages) {
+    if (lineage.added !== null) {
+      newestAdded.set(sameName(lineage), Math.max(lineage.added, newestAdded.get(sameName(lineage)) ?? 0));
+    }
+  }
+  return new Set(
+    lineages
+      .filter((lineage) => {
+        const newest = newestGeneration.get(lineage.family);
+        const superseded =
+          lineage.generation !== null && newest !== undefined && compareGenerations(lineage.generation, newest) < 0;
+        const olderSnapshot = lineage.snapshot !== null && newestSnapshot.get(release(lineage)) !== lineage.snapshot;
+        const addedEarlier = lineage.added !== null && lineage.added < (newestAdded.get(sameName(lineage)) ?? 0);
+        return superseded || olderSnapshot || addedEarlier;
+      })
+      .map(({ id }) => id),
+  );
+}
+
+/** When the catalog added `model`, as milliseconds, or null when it doesn't say. */
+function addedAt(model: BuilderModel): number | null {
+  const added = model.createdAt ? Date.parse(model.createdAt) : Number.NaN;
+  return Number.isFinite(added) ? added : null;
 }

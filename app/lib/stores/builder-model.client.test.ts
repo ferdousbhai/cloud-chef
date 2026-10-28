@@ -6,6 +6,7 @@ import {
   DEFAULT_WORKERS_AI_MODEL,
   type BuilderModel,
   type BuilderModelCatalogPayload,
+  olderBuilderModelIds,
 } from '~/lib/workers-ai-model';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import {
@@ -13,7 +14,6 @@ import {
   builderProviderStore,
   builderRecentModelsStore,
   setBuilderProvider,
-  olderBuilderModelIds,
   builderModelsStore,
   builderModelStore,
   builderModelRequestFields,
@@ -394,6 +394,23 @@ describe('provider picker preferences', () => {
     const current: BuilderModel = { ...claudeModel, id: 'anthropic/claude-sonnet-4-6', label: 'Claude Sonnet 4.6' };
     const undated: BuilderModel = { ...claudeModel, id: 'anthropic/experimental', label: 'Experimental' };
     expect([...olderBuilderModelIds([old, current, undated, claudeModel])]).toEqual([old.id]);
+  });
+
+  it('keeps the one the catalog added last when two labels read the same, and dates nothing it does not know', () => {
+    const earlier: BuilderModel = {
+      ...DEFAULT_WORKERS_AI_MODEL,
+      id: '@cf/example/coder',
+      label: 'Coder 2',
+      createdAt: '2026-05-01T00:00:00.000Z',
+    };
+    const later: BuilderModel = {
+      ...earlier,
+      id: '@cf/example/coder-v2',
+      label: 'Coder-2',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    };
+    const undated: BuilderModel = { ...earlier, id: '@cf/example/coder-2', label: 'coder 2', createdAt: undefined };
+    expect([...olderBuilderModelIds([earlier, later, undated])]).toEqual([earlier.id]);
   });
 
   it("keeps only the newest of each family in Pi's labels, by generation and then snapshot", () => {

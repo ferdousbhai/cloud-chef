@@ -10,6 +10,7 @@ import {
   builderReasoningLevelSchema,
   type BuilderModel,
   type BuilderReasoningLevel,
+  olderBuilderModelIds,
 } from '~/lib/workers-ai-model';
 import {
   type BuilderProvider,
@@ -18,7 +19,6 @@ import {
   builderProviderStore,
   builderRecentModelsStore,
   setBuilderProvider,
-  olderBuilderModelIds,
   builderModelFor,
   builderModelCatalogRefusalStore,
   builderModelCatalogStatusStore,

@@ -412,13 +412,11 @@ describe('ProjectsHome', () => {
     expect(deployRequests).toEqual([{ orgProjectId: 'project-1', deploymentId: 'deployment-1', toWantedWorker: true }]);
   });
 
-  it('offers Explore beside the projects, whether or not the person may add any', async () => {
+  it('leaves Explore to the header: the projects home has no link of its own', async () => {
     context = teamMember;
-    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
-    await render('user-member-explore');
-    await vi.waitFor(() => card('Storefront'));
-
-    expect(document.querySelector('#team-projects')?.parentElement?.querySelector('a[href="/explore"]')).not.toBeNull();
+    await render('user-explore-link');
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Shared with me'));
+    expect(document.querySelector('a[href="/explore"]')).toBeNull();
   });
 
   it('offers to make a project public or private only to someone who manages it, and a copy to everyone', async () => {

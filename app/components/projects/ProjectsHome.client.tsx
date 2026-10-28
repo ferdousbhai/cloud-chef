@@ -7,7 +7,6 @@ import {
   CounterClockwiseClockIcon,
   DownloadIcon,
   GitHubLogoIcon,
-  GlobeIcon,
   LockClosedIcon,
   LockOpen1Icon,
   Pencil1Icon,
@@ -21,7 +20,6 @@ import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { Menu, MenuItem } from '@ui/Menu';
 import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
-import { LinkButton } from '~/components/ui/LinkButton';
 import { authClient } from '~/lib/auth-client';
 import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
@@ -102,14 +100,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
   }, []);
 
   // Beside the first section's heading: the team's in a team, the person's own otherwise.
-  const addProject = (
-    <div className="flex flex-wrap items-center gap-2">
-      <LinkButton variant="subtle" size="xs" to="/explore" icon={<GlobeIcon />}>
-        Explore
-      </LinkButton>
-      {canImport ? <AddProjectMenu onDialog={setDialog} /> : null}
-    </div>
-  );
+  const addProject = canImport ? <AddProjectMenu onDialog={setDialog} /> : null;
 
   return (
     <div className="mx-auto mt-8 grid w-full max-w-6xl gap-10 pb-10">

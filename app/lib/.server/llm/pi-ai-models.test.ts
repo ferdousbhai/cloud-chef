@@ -74,6 +74,7 @@ describe('Pi Workers AI catalog thinking formats', () => {
     ).toEqual([
       ['@cf/deepseek-ai/deepseek-v4-flash-0731', 'deepseek'],
       ['@cf/deepseek-ai/deepseek-v4-pro-0813', 'deepseek'],
+      ['@cf/deepseek-ai/deepseek-v4.1-flash-1017', 'deepseek'],
     ]);
   });
 });

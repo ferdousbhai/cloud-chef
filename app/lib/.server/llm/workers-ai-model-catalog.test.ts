@@ -7,6 +7,7 @@ import {
   GATEWAY_PROVIDER_SLUGS,
   gatewayModelProvider,
   NO_ACCOUNT_MODEL_SETTINGS,
+  olderBuilderModelIds,
   validateBuilderModelCatalogPayload,
   type AccountModelSettings,
   type GatewayKey,
@@ -69,7 +70,7 @@ describe('Workers AI live model catalog', () => {
         model('@cf/deepseek-ai/deepseek-v4-pro-0813'),
         model('@cf/openai/gpt-oss-120b'),
         // Compatible on Cloudflare's word, but Pi does not list it, so its request shape would be a guess.
-        model('@cf/deepseek-ai/deepseek-v4.1-flash-1017'),
+        model('@cf/example/unlisted-builder'),
         model('@hf/example/partner'),
         model('@cf/moonshotai/kimi-k2.6', {
           properties: [{ property_id: 'context_window', value: '262144' }],
@@ -237,7 +238,7 @@ describe('the builder catalog an account is offered', () => {
     expect(without.models.map(({ id }) => id)).toEqual([CLOUDFLARE_WORKERS_AI_MODEL, pro.id]);
     const ids = linked.models.map(({ id }) => id);
     expect(ids).toEqual(
-      expect.arrayContaining(['anthropic/claude-opus-5-5', 'anthropic/claude-haiku-5-5', 'grok/grok-4.3']),
+      expect.arrayContaining(['anthropic/claude-opus-5-5', 'anthropic/claude-haiku-5-5', 'grok/grok-4.7']),
     );
     // Only the providers the account has a key for.
     expect(new Set(ids.map((id) => gatewayModelProvider(id)))).toEqual(new Set([null, 'anthropic', 'grok']));
@@ -266,7 +267,7 @@ describe('the builder catalog an account is offered', () => {
       new Set([null, ...GATEWAY_PROVIDER_SLUGS]),
     );
     expect(all.models.map(({ id }) => id)).toEqual(
-      expect.arrayContaining(['openai/gpt-5', 'openrouter/openai/gpt-5', 'openrouter/anthropic/claude-fable-5']),
+      expect.arrayContaining(['openai/gpt-5.5', 'openrouter/openai/gpt-5.5', 'openrouter/anthropic/claude-fable-5.1']),
     );
     expect(validateBuilderModelCatalogPayload(builderModelCatalogPayloadSchema.parse(all))).toEqual(all);
   });
@@ -293,7 +294,7 @@ describe('the builder catalog an account is offered', () => {
     }
     expect(ids.filter((id) => id.endsWith(':batch') || id.startsWith('openrouter/openrouter/'))).toEqual([]);
     // The same models stay offered in every form that can build.
-    expect(ids).toEqual(expect.arrayContaining(['openrouter/openai/gpt-5', 'openrouter/google/gemma-4-31b-it:free']));
+    expect(ids).toEqual(expect.arrayContaining(['openrouter/openai/gpt-5.5', 'openrouter/google/gemma-4-31b-it:free']));
   });
 
   it("offers each reasoning model the efforts Pi lists for it, never off, and none to a model that doesn't reason", () => {
@@ -306,10 +307,9 @@ describe('the builder catalog an account is offered', () => {
     const levelsOf = (id: string) => models.find((model) => model.id === id)?.reasoningLevels;
 
     expect(levelsOf('anthropic/claude-opus-5-5')).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
-    expect(levelsOf('anthropic/claude-sonnet-4-5')).toEqual(['low', 'medium', 'high']);
-    expect(levelsOf('openai/gpt-5')).toEqual(['minimal', 'low', 'medium', 'high']);
+    expect(levelsOf('openai/gpt-5.5')).toEqual(['low', 'medium', 'high', 'xhigh']);
     expect(levelsOf('openai/gpt-6-luna')).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
-    expect(levelsOf('grok/grok-4.3')).toEqual(['low', 'medium', 'high']);
+    expect(levelsOf('grok/grok-4.7')).toEqual(['low', 'medium', 'high', 'xhigh']);
     for (const model of models) {
       if (!model.reasoning) {
         expect(model.reasoningLevels, model.id).toBeUndefined();
@@ -470,7 +470,29 @@ describe("the models an account's admin allows", () => {
     expect(models.map(({ id }) => id)).toEqual(
       compatibleBuilderModels([DEFAULT_WORKERS_AI_MODEL, pro, oss], anthropicKey).map(({ id }) => id),
     );
-    expect(models.map(({ id }) => id)).toContain('anthropic/claude-fable-5');
+    expect(models.map(({ id }) => id)).toContain('anthropic/claude-fable-5-1');
+  });
+
+  it("leaves exactly one model per family and generation across Pi's whole catalog", () => {
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, revision: 'key@1' }));
+    const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: everyKey,
+    });
+    // Run again over what was offered, the rule finds nothing older left: the filtering is complete.
+    expect([...olderBuilderModelIds(models)]).toEqual([]);
+    expect(models.length).toBeGreaterThan(20);
+  });
+
+  it('offers only the newest of each family: an older version a newer one replaces is not offered', () => {
+    const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: anthropicKey,
+    });
+    const ids = models.map(({ id }) => id);
+    expect(ids).toEqual(expect.arrayContaining(['anthropic/claude-fable-5-1', 'anthropic/claude-sonnet-5-5']));
+    expect(ids).not.toContain('anthropic/claude-fable-5');
+    expect(ids).not.toContain('anthropic/claude-sonnet-4-5');
   });
 
   it('lists only the allowed models, so one added later is not offered until allowed', () => {

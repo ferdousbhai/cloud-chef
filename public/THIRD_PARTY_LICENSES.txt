@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 725
-Inventory SHA-256: 253af77f2c49e9216c3d34beb93a67a5747fb0a108ec719133071e1a5169bb0f
+Production packages: 731
+Inventory SHA-256: f38d780a25ffc145d7489221cfa9a9e338b8b833468d42fc9ad203f04186c89d
 
 PACKAGE INVENTORY
 =================
@@ -78,7 +78,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 18c295fdd68d4f68418b0209829f241481e93549d9e7b9fcd4b4c029322c8a45)
 
-@aws-sdk/core@3.978.1
+@aws-sdk/core@3.978.6
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/core"}
@@ -87,7 +87,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d)
 
-@aws-sdk/credential-provider-env@3.972.72
+@aws-sdk/credential-provider-env@3.972.77
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-env"}
@@ -96,7 +96,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
 
-@aws-sdk/credential-provider-http@3.972.74
+@aws-sdk/credential-provider-http@3.972.79
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-http"}
@@ -104,7 +104,7 @@ Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/crede
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@aws-sdk/credential-provider-ini@3.973.17
+@aws-sdk/credential-provider-ini@3.973.22
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-ini"}
@@ -113,7 +113,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
 
-@aws-sdk/credential-provider-login@3.972.79
+@aws-sdk/credential-provider-login@3.972.84
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-login"}
@@ -121,7 +121,7 @@ Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/crede
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@aws-sdk/credential-provider-node@3.972.84
+@aws-sdk/credential-provider-node@3.972.89
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-node"}
@@ -130,7 +130,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
 
-@aws-sdk/credential-provider-process@3.972.72
+@aws-sdk/credential-provider-process@3.972.77
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-process"}
@@ -139,7 +139,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2ef1e48ea743d9c82313e6887858f7c1feaddd636f5a3f43926aab0143e67ebd)
 
-@aws-sdk/credential-provider-sso@3.973.16
+@aws-sdk/credential-provider-sso@3.973.21
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-sso"}
@@ -148,7 +148,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2ef1e48ea743d9c82313e6887858f7c1feaddd636f5a3f43926aab0143e67ebd)
 
-@aws-sdk/credential-provider-web-identity@3.972.78
+@aws-sdk/credential-provider-web-identity@3.972.83
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/credential-provider-web-identity"}
@@ -157,7 +157,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2ef1e48ea743d9c82313e6887858f7c1feaddd636f5a3f43926aab0143e67ebd)
 
-@aws-sdk/eventstream-handler-node@3.972.35
+@aws-sdk/eventstream-handler-node@3.972.39
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/eventstream-handler-node"}
@@ -166,7 +166,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 07364a5f7d0177a59a05a0002187431f8f899320983c0dc049d72df015e8064c)
 
-@aws-sdk/middleware-eventstream@3.972.30
+@aws-sdk/middleware-eventstream@3.972.34
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/middleware-eventstream"}
@@ -175,7 +175,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 e345c2ee7df4446e739de7b91535f0c10ddcd909b9753889e943ee637b05db8c)
 
-@aws-sdk/middleware-websocket@3.972.54
+@aws-sdk/middleware-websocket@3.972.59
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/middleware-websocket"}
@@ -184,7 +184,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 07364a5f7d0177a59a05a0002187431f8f899320983c0dc049d72df015e8064c)
 
-@aws-sdk/nested-clients@3.997.46
+@aws-sdk/nested-clients@3.997.51
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages/nested-clients"}
@@ -192,7 +192,7 @@ Homepage: https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@aws-sdk/signature-v4-multi-region@3.996.47
+@aws-sdk/signature-v4-multi-region@3.996.49
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages/signature-v4-multi-region"}
@@ -210,7 +210,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
 
-@aws-sdk/token-providers@3.1138.0
+@aws-sdk/token-providers@3.1157.0
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages/token-providers"}
@@ -219,7 +219,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
 
-@aws-sdk/types@3.974.6
+@aws-sdk/types@3.975.0
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/aws/aws-sdk-js-v3.git","directory":"packages-internal/types"}
@@ -543,6 +543,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
+@babel/runtime@7.29.10
+Declared license: MIT
+Author: The Babel Team (https://babel.dev/team)
+Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-runtime"}
+Homepage: https://babel.dev/docs/en/next/babel-runtime
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
+
 @babel/runtime@7.29.7
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
@@ -836,7 +845,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@earendil-works/pi-agent-core@1.3.0
+@earendil-works/pi-agent-core@1.4.0
 Declared license: MIT
 Author: Mario Zechner
 Repository: {"type":"git","url":"git+https://github.com/earendil-works/pi.git","directory":"packages/agent"}
@@ -844,7 +853,7 @@ Homepage: <not published>
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@earendil-works/pi-ai@1.3.0
+@earendil-works/pi-ai@1.4.0
 Declared license: MIT
 Author: Mario Zechner
 Repository: {"type":"git","url":"git+https://github.com/earendil-works/pi.git","directory":"packages/ai"}
@@ -852,7 +861,7 @@ Homepage: <not published>
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@earendil-works/pi-telemetry@1.3.0
+@earendil-works/pi-telemetry@1.4.0
 Declared license: MIT
 Author: Mario Zechner
 Repository: {"type":"git","url":"git+https://github.com/earendil-works/pi.git","directory":"packages/telemetry"}
@@ -1866,6 +1875,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 07364a5f7d0177a59a05a0002187431f8f899320983c0dc049d72df015e8064c)
 
+@smithy/core@3.37.0
+Declared license: Apache-2.0
+Author: {"name":"AWS Smithy Team","email":"","url":"https://smithy.io"}
+Repository: {"type":"git","url":"https://github.com/smithy-lang/smithy-typescript.git","directory":"packages/core"}
+Homepage: https://github.com/smithy-lang/smithy-typescript/tree/main/packages/core
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 07364a5f7d0177a59a05a0002187431f8f899320983c0dc049d72df015e8064c)
+
 @smithy/credential-provider-imds@4.5.2
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","url":"https://aws.amazon.com/sdk-for-javascript/"}
@@ -1885,6 +1903,15 @@ Published license/notice files:
 - LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
 
 @smithy/node-http-handler@4.12.1
+Declared license: Apache-2.0
+Author: {"name":"AWS SDK for JavaScript Team","email":"","url":"https://aws.amazon.com/sdk-for-javascript/"}
+Repository: {"type":"git","url":"https://github.com/smithy-lang/smithy-typescript.git","directory":"packages/node-http-handler"}
+Homepage: https://github.com/smithy-lang/smithy-typescript/tree/main/packages/node-http-handler
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e)
+
+@smithy/node-http-handler@4.13.0
 Declared license: Apache-2.0
 Author: {"name":"AWS SDK for JavaScript Team","email":"","url":"https://aws.amazon.com/sdk-for-javascript/"}
 Repository: {"type":"git","url":"https://github.com/smithy-lang/smithy-typescript.git","directory":"packages/node-http-handler"}
@@ -2263,6 +2290,15 @@ Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
 
 @types/node@26.1.2
+Declared license: MIT
+Author: <not published>
+Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/node"}
+Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/node
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
+
+@types/node@26.6.5
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/node"}
@@ -3500,7 +3536,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 773e131a7684726005a7e4688a80b4620033bc08499bc1404dd1a1eb3bca725e)
 
-gaxios@7.3.0
+gaxios@7.3.1
 Declared license: Apache-2.0
 Author: Google, LLC
 Repository: {"type":"git","directory":"core/packages/gaxios","url":"https://github.com/googleapis/google-cloud-node.git"}
@@ -3585,6 +3621,15 @@ Declared license: Apache-2.0
 Author: Google API Authors
 Repository: {"type":"git","directory":"dev-packages/logging-utils","url":"https://github.com/googleapis/google-cloud-node-core.git"}
 Homepage: https://github.com/googleapis/google-cloud-node-core/tree/main/dev-packages/logging-utils
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30)
+
+google-logging-utils@1.2.0
+Declared license: Apache-2.0
+Author: Google API Authors
+Repository: {"type":"git","directory":"core/packages/logging-utils","url":"https://github.com/googleapis/google-cloud-node.git"}
+Homepage: https://github.com/googleapis/google-cloud-node/tree/main/core/packages/logging-utils
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30)
@@ -5239,7 +5284,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 5d0698266086f217bb11ea0499d33453e401fe479fb9126ad04e625e63d3557b)
 
-protobufjs@7.6.5
+protobufjs@7.6.6
 Declared license: BSD-3-Clause
 Author: Daniel Wirtz <dcode+protobufjs@dcode.io>
 Repository: protobufjs/protobuf.js
@@ -6212,6 +6257,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27)
 
+undici-types@8.9.0
+Declared license: MIT
+Author: <not published>
+Repository: {"type":"git","url":"git+https://github.com/nodejs/undici.git"}
+Homepage: https://undici.nodejs.org
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27)
+
 unified@11.0.5
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
@@ -6454,7 +6508,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b)
 
-ws@8.21.0
+ws@8.22.0
 Declared license: MIT
 Author: Einar Otto Stangvik <einaros@gmail.com> (http://2x.io)
 Repository: {"type":"git","url":"git+https://github.com/websockets/ws.git"}
@@ -7186,10 +7240,11 @@ THE SOFTWARE.
 
 SHA-256 07364a5f7d0177a59a05a0002187431f8f899320983c0dc049d72df015e8064c
 Used by:
-- @aws-sdk/eventstream-handler-node@3.972.35:LICENSE
-- @aws-sdk/middleware-websocket@3.972.54:LICENSE
-- @aws-sdk/signature-v4-multi-region@3.996.47:LICENSE
+- @aws-sdk/eventstream-handler-node@3.972.39:LICENSE
+- @aws-sdk/middleware-websocket@3.972.59:LICENSE
+- @aws-sdk/signature-v4-multi-region@3.996.49:LICENSE
 - @smithy/core@3.35.1:LICENSE
+- @smithy/core@3.37.0:LICENSE
 - @smithy/types@4.19.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
                                 Apache License
@@ -7808,6 +7863,7 @@ Used by:
 - @babel/plugin-proposal-decorators@8.0.2:LICENSE
 - @babel/plugin-syntax-decorators@8.0.1:LICENSE
 - @babel/runtime-corejs3@7.29.7:LICENSE
+- @babel/runtime@7.29.10:LICENSE
 - @babel/runtime@7.29.7:LICENSE
 - @babel/template@7.29.7:LICENSE
 - @babel/template@8.0.0:LICENSE
@@ -8876,7 +8932,7 @@ SOFTWARE.
 
 SHA-256 2b29dcfe0d6471f7e8c92c5fb38c9f93edee10330937055440192f1832b1ecef
 Used by:
-- ws@8.21.0:LICENSE
+- ws@8.22.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 Copyright (c) 2013 Arnout Kazemier and contributors
@@ -9138,9 +9194,9 @@ SOFTWARE.
 
 SHA-256 2ef1e48ea743d9c82313e6887858f7c1feaddd636f5a3f43926aab0143e67ebd
 Used by:
-- @aws-sdk/credential-provider-process@3.972.72:LICENSE
-- @aws-sdk/credential-provider-sso@3.973.16:LICENSE
-- @aws-sdk/credential-provider-web-identity@3.972.78:LICENSE
+- @aws-sdk/credential-provider-process@3.972.77:LICENSE
+- @aws-sdk/credential-provider-sso@3.973.21:LICENSE
+- @aws-sdk/credential-provider-web-identity@3.972.83:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Apache License
                            Version 2.0, January 2004
@@ -10367,7 +10423,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 SHA-256 49d6a1c9a623784c61c6cb70f773f3457faceb1914a13c8560a9823b7631950c
 Used by:
-- protobufjs@7.6.5:LICENSE
+- protobufjs@7.6.6:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 This license applies to all parts of protobuf.js except those files
 either explicitly including or referencing a different license or
@@ -10413,7 +10469,7 @@ support library is itself covered by the above license.
 
 SHA-256 4ab87e6e3c0c0b78e47c77d49ec10c048f8a519fb8062e6e3217e3e6e9b0c6e9
 Used by:
-- protobufjs@7.6.5:google/LICENSE
+- protobufjs@7.6.6:google/LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright 2014, Google Inc.  All rights reserved.
 
@@ -19022,6 +19078,7 @@ SOFTWARE.
 SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27
 Used by:
 - undici-types@8.3.0:LICENSE
+- undici-types@8.9.0:LICENSE
 - undici@7.30.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -20564,6 +20621,7 @@ Used by:
 - @types/mdast@4.0.4:LICENSE
 - @types/ms@2.1.0:LICENSE
 - @types/node@26.1.2:LICENSE
+- @types/node@26.6.5:LICENSE
 - @types/react-dom@19.2.4:LICENSE
 - @types/react@19.2.18:LICENSE
 - @types/unist@2.0.11:LICENSE
@@ -21434,10 +21492,11 @@ SOFTWARE.
 SHA-256 cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
 Used by:
 - @google/genai@2.21.0:LICENSE
-- gaxios@7.3.0:LICENSE
+- gaxios@7.3.1:LICENSE
 - gcp-metadata@8.1.2:LICENSE
 - google-auth-library@10.9.1:LICENSE
 - google-logging-utils@1.1.3:LICENSE
+- google-logging-utils@1.2.0:LICENSE
 - long@5.3.2:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 
@@ -22057,16 +22116,17 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 SHA-256 d82ceb8cbd004a2d4834085c557d55459f528e30268d95159ee1e4030a693a6e
 Used by:
-- @aws-sdk/credential-provider-env@3.972.72:LICENSE
-- @aws-sdk/credential-provider-ini@3.973.17:LICENSE
-- @aws-sdk/credential-provider-node@3.972.84:LICENSE
+- @aws-sdk/credential-provider-env@3.972.77:LICENSE
+- @aws-sdk/credential-provider-ini@3.973.22:LICENSE
+- @aws-sdk/credential-provider-node@3.972.89:LICENSE
 - @aws-sdk/token-providers@3.1127.0:LICENSE
-- @aws-sdk/token-providers@3.1138.0:LICENSE
-- @aws-sdk/types@3.974.6:LICENSE
+- @aws-sdk/token-providers@3.1157.0:LICENSE
+- @aws-sdk/types@3.975.0:LICENSE
 - @aws-sdk/xml-builder@3.972.41:LICENSE
 - @smithy/credential-provider-imds@4.5.2:LICENSE
 - @smithy/fetch-http-handler@5.8.0:LICENSE
 - @smithy/node-http-handler@4.12.1:LICENSE
+- @smithy/node-http-handler@4.13.0:LICENSE
 - @smithy/signature-v4@5.7.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Apache License
@@ -23176,7 +23236,7 @@ THE SOFTWARE.
 
 SHA-256 e345c2ee7df4446e739de7b91535f0c10ddcd909b9753889e943ee637b05db8c
 Used by:
-- @aws-sdk/middleware-eventstream@3.972.30:LICENSE
+- @aws-sdk/middleware-eventstream@3.972.34:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
                                 Apache License
                            Version 2.0, January 2004
@@ -23678,7 +23738,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 edea91454b811f127fbdea3d86f378f6719bd372ed440abf82b232f6fca06c3d
 Used by:
-- @aws-sdk/core@3.978.1:LICENSE
+- @aws-sdk/core@3.978.6:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Apache License
                            Version 2.0, January 2004

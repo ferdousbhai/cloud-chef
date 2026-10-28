@@ -14,8 +14,8 @@ import { NewModelsNotice } from './NewModelsNotice.client';
 const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
 const deepseek: BuilderModel = {
   ...DEFAULT_WORKERS_AI_MODEL,
-  id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-  label: 'DeepSeek V4.1 Flash 1017',
+  id: '@cf/zai-org/glm-5.3-flash',
+  label: 'GLM 5.3 Flash',
   createdAt: '2026-08-26T00:00:00.000Z',
 };
 
@@ -53,7 +53,7 @@ describe('NewModelsNotice', () => {
 
     const notice = document.querySelector('[role="status"]');
     expect(notice?.textContent).toContain('New models');
-    expect(notice?.textContent).toContain('DeepSeek V4.1 Flash 1017');
+    expect(notice?.textContent).toContain('GLM 5.3 Flash');
     expect(notice?.textContent).toContain('available in the model picker');
 
     await act(async () => notice?.querySelector('button')?.click());
@@ -87,7 +87,7 @@ describe('NewModelsNotice', () => {
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
     const notice = document.querySelector('[role="status"]');
     expect(notice?.textContent).toContain(
-      'Model changed: DeepSeek V4.1 Flash 1017 isn’t offered in this account any more, so new messages use GLM 5.3 Flash.',
+      'Model changed: GLM 5.3 Flash isn’t offered in this account any more, so new messages use DeepSeek V4.1 Flash.',
     );
 
     await act(async () => notice?.querySelector('button')?.click());
