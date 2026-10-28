@@ -50,6 +50,7 @@ import {
   reloadBuilderModelCatalog,
 } from '~/lib/stores/builder-model.client';
 import { messageOf } from '~/lib/json-request';
+import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 
 const logger = createScopedLogger('Chat');
 
@@ -252,16 +253,15 @@ const CLOSED_CONVERSATION_REASON = 'A newer chat continues this project. Open th
  * too: a message sent then would only fail, so the composer says it's paused and offers the retry.
  */
 function chatDisabledReason(
-  conversationClosed: boolean,
+  closed: { conversation: boolean; adopted: boolean },
   hasUnsavedFiles: boolean,
   state: WorkspacePresentationState,
   failure: string | null,
   onRetry: () => void,
 ): ReactNode | null {
-  if (conversationClosed) {
-    return hasUnsavedFiles
-      ? `${CLOSED_CONVERSATION_REASON} Editor changes you had not saved can't be saved here.`
-      : CLOSED_CONVERSATION_REASON;
+  if (closed.conversation) {
+    const reason = closed.adopted ? ADOPTED_APP_MESSAGE : CLOSED_CONVERSATION_REASON;
+    return hasUnsavedFiles ? `${reason} Editor changes you had not saved can't be saved here.` : reason;
   }
   if (state === 'failed') {
     return (
@@ -332,6 +332,8 @@ const AuthenticatedChat = memo(
     const linkedProject = useStore(workbenchStore.linkedProject);
     // A newer conversation in this chat continues the project: this one stays to read, not to work in.
     const conversationClosed = useStore(workbenchStore.conversationClosed);
+    // A team adopted this app as one of its projects: it closes too, and says where to work on it now.
+    const conversationAdopted = useStore(workbenchStore.conversationAdopted);
     const hasUnsavedFiles = useStore(workbenchStore.unsavedFiles).size > 0;
     // Switching project resets the workbench and drops its buffers, so leaving asks first.
     useUnsavedEditsGuard(useFileSaveStatus() !== null);
@@ -454,7 +456,7 @@ const AuthenticatedChat = memo(
         buildProgress={buildProgress}
         messages={visibleMessages}
         disabledReason={chatDisabledReason(
-          conversationClosed,
+          { conversation: conversationClosed, adopted: conversationAdopted },
           hasUnsavedFiles,
           workspacePresentationState,
           workspaceFailure,

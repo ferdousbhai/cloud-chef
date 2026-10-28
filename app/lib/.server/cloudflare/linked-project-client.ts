@@ -212,6 +212,14 @@ export async function syncAccountApps(
   await readAnswer(response, z.object({ synced: z.number() }), 'CloudChef could not update your apps.');
 }
 
+/** The team project an app's repository became when an admin approved it as a draft, or null. */
+export async function appAdoption(env: RuntimeEnv, identity: Identity, repo: string): Promise<string | null> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/adoption', { repo }, OPEN_TIMEOUT_MS);
+  return (
+    await readAnswer(response, z.object({ orgProjectId: z.string().nullable() }), 'CloudChef could not check the app.')
+  ).orgProjectId;
+}
+
 /** What Workers Builds reports for a commit of the project so far. */
 export async function projectBuildStatus(
   env: RuntimeEnv,

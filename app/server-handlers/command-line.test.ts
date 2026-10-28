@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
@@ -14,6 +14,10 @@ import {
 } from './command-line';
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 async function setup() {
   const { database, db } = controlPlaneDatabase();
@@ -210,6 +214,54 @@ describe('public projects', () => {
     expect(await push.text()).toContain('Make a copy');
     const pack = await git('/git-receive-pack', { method: 'POST', headers: basic(bo), body: '0000' });
     expect(pack.status).toBe(403);
+  });
+
+  it('stay readable through a teammate’s runtime after whoever made them leaves the team', async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username) VALUES
+        ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 'ada'), ('bo', 'Bo', 'bo@example.com', 1, 1, 1, 'bo'),
+        ('cy', 'Cy', 'cy@example.com', 1, 1, 1, 'cy'), ('di', 'Di', 'di@example.com', 1, 1, 1, 'di');
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('team', 'Sites', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('team', 'di', 'member', 1), ('team', 'cy', 'admin', 2);
+      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
+        VALUES ('team-connection', 'team', 'account', 'active', 1, 1);
+      INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with,
+        created_by, created_at, visibility)
+        VALUES ('${SITE}', 'team-connection', 'team', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1, 'public');
+      INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
+        runtime_version, status, last_error, created_at, updated_at, protocol_version) VALUES
+        ('di', 'team-connection', 1, 'di-worker', 'https://di-runtime.test', 'old', 'ready', NULL, 1, 1, 2),
+        ('cy', 'team-connection', 1, 'cy-worker', 'https://cy-runtime.test', 'old', 'ready', NULL, 1, 1, 2);
+    `);
+    const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    const bo = (await createCommandLineToken(db, 'bo', 'Laptop')).token;
+    const forwarded: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      forwarded.push(new URL(String(input)).origin);
+      return new Response('refs');
+    });
+    const clone = () =>
+      commandLineGitAction({
+        request: new Request('https://cloudchef.build/ada/site.git/info/refs?service=git-upload-pack', {
+          headers: { authorization: `Basic ${btoa(`x:${bo}`)}` },
+        }),
+        env,
+      });
+
+    // Ada made it and has left: an admin's runtime reads it, ahead of a member's who wasn't given it.
+    expect((await clone()).status).toBe(200);
+    expect(forwarded).toEqual(['https://cy-runtime.test']);
+
+    database.exec(`DELETE FROM organization_members WHERE user_id = 'cy'`);
+    const nobody = await clone();
+    expect(nobody.status).toBe(409);
+    database.exec(
+      `INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('${SITE}', 'di', 'view', 1)`,
+    );
+    expect((await clone()).status).toBe(200);
+    expect(forwarded).toEqual(['https://cy-runtime.test', 'https://di-runtime.test']);
   });
 
   it('can be copied only by someone who may read them', async () => {

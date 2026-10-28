@@ -280,6 +280,10 @@ describe("a draft's production request", () => {
         sent.push(JSON.parse(String(init?.body)));
         return Response.json({ outcome: 'requested' });
       }
+      // Not approved yet: the draft's repository is still only the app's.
+      if (String(input).includes('runtime-projects/adoption')) {
+        return Response.json({ orgProjectId: null });
+      }
       return new Response('unavailable', { status: 503 });
     });
     const harness = await conversationAgentHarness({

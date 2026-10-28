@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
+import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import {
   abandonProjectImport,
+  appAdoption,
   ensureProjectRepository,
   openProject,
   ProjectAccessError,
@@ -486,6 +488,14 @@ export async function userRuntimeAppReadAccessAction(
       .first<{ found: number }>();
     if (!app) {
       throw new DataNotFoundError('That app is not here.');
+    }
+    // A team's draft an admin approved is the team project now: it is read and copied as the project, if at all.
+    const identity = runtimeConnectionIdentity(args.env);
+    if (
+      args.env.CLOUDCHEF_SHARED_ACCOUNT === '1' &&
+      (!identity || (await appAdoption(args.env, identity, nativeProjectRepo(parsed.data.appId))))
+    ) {
+      throw new ProjectForbiddenError(ADOPTED_APP_MESSAGE);
     }
     const access = await repositories(args.env).readAccess(nativeProjectRepo(parsed.data.appId));
     return Response.json(

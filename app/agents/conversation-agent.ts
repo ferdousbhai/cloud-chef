@@ -72,6 +72,7 @@ import {
   builderTranscriptBindingsEqual,
   loadBuilderTranscriptBinding,
   loadConversationScope,
+  recordAppAdoption,
   requireBuilderRequestScope,
   requireBuilderTranscriptIdentity,
   type BuilderTranscriptBinding,
@@ -122,7 +123,9 @@ import {
   withLinkedBuildResult,
   type LinkedBuildWatch,
 } from './linked-project-build';
+import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import {
+  appAdoption,
   ensureProjectRepository,
   openProject,
   ProjectAccessError,
@@ -402,9 +405,11 @@ export type ConversationAgentState = {
   linkedSite?: BuilderLinkedSite | null;
   /**
    * A newer conversation in the chat continues the project, so this one is kept to read: only the newest
-   * conversation changes the project.
+   * conversation changes the project. Also set for an app a team adopted as one of its projects.
    */
   conversationClosed?: boolean;
+  /** An admin approved this CloudChef app as a draft: it is the team's project now, changed only from there. */
+  conversationAdopted?: boolean;
 };
 
 /**
@@ -742,10 +747,10 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     const durableIdentity = await this.requireDurableIdentity('chat_message');
     const body = options?.body ?? {};
     const messages = this.messages;
-    // A conversation a newer one took over is kept to read: only the newest one changes the project.
-    if ((await loadConversationScope(this.env.DB, { agentName: this.name, ownerId: durableIdentity.userId })).closed) {
-      throw new Response(CLOSED_CONVERSATION_MESSAGE, { status: 409 });
-    }
+    // A conversation a newer one took over is kept to read: only the newest one changes the project. So is an app
+    // a team adopted as one of its projects.
+    await this.learnAdoption();
+    await this.refuseIfClosed();
     const { chatInitialId, subchatIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
       body,
       durableIdentity.transcript,
@@ -1237,11 +1242,39 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   /** Why this conversation may no longer change its project, or null while it may. */
   private async closedConversationMessage(): Promise<string | null> {
     const ownerId = this.userId ?? (await this.requireDurableIdentity('closed_check')).userId;
-    const { closed, deleted } = await loadConversationScope(this.env.DB, { agentName: this.name, ownerId });
+    const { closed, deleted, adoptedBy } = await loadConversationScope(this.env.DB, {
+      agentName: this.name,
+      ownerId,
+    });
     if (deleted) {
       return DELETED_CONVERSATION_MESSAGE;
     }
+    if (adoptedBy) {
+      return ADOPTED_APP_MESSAGE;
+    }
     return closed ? CLOSED_CONVERSATION_MESSAGE : null;
+  }
+
+  /**
+   * In a team's account, asks CloudChef whether an admin has approved this CloudChef app as a draft: its repository
+   * is then the team project's, so its workspace is recorded as kept to read (`adopted_by_org_project_id`). Asked
+   * before anything here changes the app's repository or publishes it.
+   */
+  private async learnAdoption(): Promise<void> {
+    const identity = runtimeConnectionIdentity(this.env);
+    const transcript = this.transcriptBinding;
+    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity || !transcript || !this.userId) {
+      return;
+    }
+    const ownerId = this.userId;
+    const scope = await loadConversationScope(this.env.DB, { agentName: this.name, ownerId });
+    if (scope.orgProjectId || scope.adoptedBy || scope.deleted) {
+      return;
+    }
+    const orgProjectId = await appAdoption(this.env, identity, nativeProjectRepo(transcript.chatInitialId));
+    if (orgProjectId) {
+      await recordAppAdoption(this.env.DB, { agentName: this.name, ownerId, orgProjectId });
+    }
   }
 
   /**
@@ -1258,6 +1291,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (await this.workspace.linkedProject()) {
       throw new Error("This is already one of the team's projects: ask the agent to publish it.");
     }
+    // Sent again once approved, it would commit this workspace over what the team has done since.
+    await this.learnAdoption();
     await this.refuseIfClosed();
     const checkpoint = await this.workspace.checkpoint();
     const title = input.title.trim().slice(0, 80);
@@ -1301,6 +1336,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (this.state.activeTurn || this.startingTurns > 0) {
       throw new Response('Stop the agent before restoring a version.', { status: 409 });
     }
+    await this.learnAdoption();
     await this.refuseIfClosed();
     const linked = await this.workspace.linkedProject();
     let repo = nativeProjectRepo(durableIdentity.transcript.chatInitialId);
@@ -1339,7 +1375,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
 
   /**
    * Tells the browser whether this is a team project, so it never offers what only a CloudChef app has, and
-   * whether a newer conversation continues the project, so it offers nothing here that would change it.
+   * whether a newer conversation continues the project or a team adopted this app as one of its projects, so it
+   * offers nothing here that would change it.
    */
   private async publishWorkspaceSummary(): Promise<void> {
     const linked = await this.workspace.linkedProject();
@@ -1351,11 +1388,17 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (linked && this.state.linkedSite?.kind !== 'preview') {
       void this.showLiveSite(linked.orgProjectId);
     }
-    const closed =
-      this.userId !== null &&
-      (await loadConversationScope(this.env.DB, { agentName: this.name, ownerId: this.userId })).closed;
-    if ((this.state.conversationClosed ?? false) !== closed) {
-      this.setState({ ...this.state, conversationClosed: closed });
+    if (!linked) {
+      await this.learnAdoption().catch(() => logger.warn('Unable to ask whether a team adopted this app'));
+    }
+    const scope =
+      this.userId === null
+        ? null
+        : await loadConversationScope(this.env.DB, { agentName: this.name, ownerId: this.userId });
+    const adopted = scope?.adoptedBy != null;
+    const closed = scope !== null && (scope.closed || adopted);
+    if ((this.state.conversationClosed ?? false) !== closed || (this.state.conversationAdopted ?? false) !== adopted) {
+      this.setState({ ...this.state, conversationClosed: closed, conversationAdopted: adopted });
     }
   }
 
@@ -1487,6 +1530,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   @callable()
   async deployValidatedRevision(): Promise<BuilderDeploymentState> {
     await this.requireDurableIdentity('deploy_validated_revision');
+    await this.learnAdoption();
     await this.refuseIfClosed();
     if (await this.workspace.linkedProject()) {
       throw new Error('Ask the agent to publish this project.');

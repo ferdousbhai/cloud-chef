@@ -610,7 +610,7 @@ type Readable = {
   name: string;
   fullName: string | null;
   connectionId: string;
-  /** Its author or owner, whose runtime reads it for someone who has none in its account. */
+  /** An app's owner, whose runtime reads it for someone who has none in its account; null for a project. */
   ownerId: string | null;
   /** Read only because it is public: nothing but reading goes to the owner's runtime for them. */
   readsAsPublic: boolean;
@@ -631,7 +631,7 @@ async function findReadable(
       name: project.name,
       fullName: project.fullName,
       connectionId: project.connectionId,
-      ownerId: project.createdBy,
+      ownerId: null,
       readsAsPublic: project.role === 'public',
       mayPush: project.role === 'edit',
     };
@@ -653,19 +653,49 @@ async function findReadable(
 
 /**
  * A runtime that may read `target` for `userId`: their own in its account, else (a public one, read by someone
- * with no runtime there) its owner's. It is asked only to read: the callers check that.
+ * with no runtime there) one of its account's. An app is read by its owner's; a project by any active member's who
+ * may see it, an admin's first (a team's admins see every project), whoever made it, so it stays readable after
+ * they leave. It is asked only to read: the callers check that.
  */
 async function readerRuntime(request: Request, env: Env, userId: string, target: Readable) {
   if (!target.readsAsPublic) {
     return runtimeFor(request, env, userId, target.connectionId);
   }
-  if (!target.ownerId) {
-    return { refusal: 'This can’t be read now: its author is no longer here.', status: 409 };
+  const readers =
+    target.kind === 'app' ? (target.ownerId ? [target.ownerId] : []) : await projectReaders(env.DB, target);
+  for (const reader of readers) {
+    const runtime = await runtimeFor(request, env, reader, target.connectionId);
+    if (!('refusal' in runtime)) {
+      return runtime;
+    }
   }
-  const owners = await runtimeFor(request, env, target.ownerId, target.connectionId);
-  return 'refusal' in owners
-    ? { refusal: 'This can’t be read until its author opens CloudChef again.', status: 503 }
-    : owners;
+  return readers.length === 0
+    ? { refusal: 'This can’t be read now: nobody who works on it is here any more.', status: 409 }
+    : { refusal: 'This can’t be read until someone who works on it opens CloudChef again.', status: 503 };
+}
+
+/**
+ * Who may read a project in its account, best first: in a team's account its active admins, then the active
+ * members given access to it; in a person's own account, that person.
+ */
+async function projectReaders(db: D1Database, target: Readable): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT user_id FROM (
+         SELECT members.user_id, members.role = 'admin' AS admin, members.joined_at
+         FROM cloudflare_connections AS connections
+         JOIN organization_members AS members ON members.org_id = connections.org_id
+         WHERE connections.id = ?1 AND members.paused_at IS NULL
+           AND (members.role = 'admin' OR EXISTS (
+             SELECT 1 FROM org_project_access AS access
+             WHERE access.project_id = ?2 AND access.user_id = members.user_id))
+         UNION ALL
+         SELECT user_id, 1, 0 FROM cloudflare_connections WHERE id = ?1 AND org_id IS NULL AND user_id IS NOT NULL
+       ) ORDER BY admin DESC, joined_at`,
+    )
+    .bind(target.connectionId, target.id)
+    .all<{ user_id: string }>();
+  return results.map((row) => row.user_id);
 }
 
 const readAccessSchema = z.object({ url: z.string(), authorization: z.string(), branch: z.string() });
