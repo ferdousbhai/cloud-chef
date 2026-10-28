@@ -148,6 +148,61 @@ describe('ToolCall', () => {
       false,
     );
   });
+  it("shows a team member's change as waiting for a team admin, with no buttons, then what came of it", async () => {
+    const request = { method: 'POST', url: 'https://api.cloudflare.com/client/v4/accounts/a/workers/domains' };
+    const invocation = (output: CloudChefToolInvocation['output']): CloudChefToolInvocation => ({
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: 'cloudflare-request-3',
+      toolName: 'cloudflare_request',
+      input: request,
+      output,
+    });
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-3', 0)}
+          invocation={invocation({
+            kind: 'cloudflare_request_filed',
+            status: 'awaiting_team_admin',
+            approvalId: 'approval-1',
+            accountId: 'a',
+            request,
+            riskNote: 'One of the team’s admins approves or rejects it.',
+            expiresAt: Date.now() + 60_000,
+            note: 'Filed.',
+          })}
+          onCloudflareExecutionDecision={vi.fn()}
+        />,
+      ),
+    );
+    await act(async () => container.querySelector('button')?.click());
+
+    expect(container.textContent).toContain('Waiting for a team admin to approve it.');
+    expect(container.textContent).toContain('POST https://api.cloudflare.com/client/v4/accounts/a/workers/domains');
+    expect([...container.querySelectorAll('button')].some((button) => button.textContent?.includes('Approve'))).toBe(
+      false,
+    );
+
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-3', 0)}
+          invocation={invocation({
+            kind: 'cloudflare_request_final_result',
+            executionId: 'approval-1',
+            accountId: 'a',
+            proposalSha256: 'c'.repeat(64),
+            status: 'rejected',
+            outcome: { status: 'denied', summary: 'A team admin rejected this change.' },
+          })}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain('Rejected. Nothing was sent to Cloudflare.');
+    expect(container.textContent).toContain('A team admin rejected this change.');
+  });
+
   it('names the file a streaming write is filling, with how much has arrived', async () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',

@@ -41,7 +41,8 @@ const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
   'another account is rejected. It takes the JSON `cf <command> --dry-run` prints in the workspace, unchanged ' +
   '(`cf cli search "<task>"` finds a command and `cf schema <command>` describes it): cf has no credential in the ' +
   'workspace, so only this tool sends requests. GET runs immediately; any other method is stored for the ' +
-  "person's approval and ends the turn until they decide.";
+  "person's approval and ends the turn until they decide. A team member's changes go to the team's admins instead, " +
+  'and a member reads nothing.';
 
 export function createWorkersAiTools(
   workspace: BuilderWorkspaceApi,

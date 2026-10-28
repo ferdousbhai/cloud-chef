@@ -158,9 +158,10 @@ import { reviewDomainChange } from './cloudflare-domain-review';
 import {
   BuilderCloudflareExecutionRepository,
   CLOUDFLARE_EXECUTION_RISK_NOTE,
-  containsCredentialishCloudflareContent,
+  cloudflareExecutionStatusForOutcome,
   isCloudflareExecutionTerminal,
   publicExecutionState,
+  safeCloudflareExecutionOutcome,
   sameCloudflareConnectionIdentity,
   type CloudflareExecutionBinding,
   type CloudflareExecutionRecord,
@@ -174,7 +175,7 @@ import {
   type CloudflareExecutionDecisionResult,
   type CloudflareExecutionPublicState,
   type CloudflareExecutionSafeOutcome,
-  type CloudflareExecutionStatus,
+  type CloudflareRequestFiled,
   type CloudflareRequestFinalResult,
   type CloudflareRequestImmediateResult,
   type CloudflareRequestProposal,
@@ -188,6 +189,7 @@ import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cl
 import {
   confirmUserWorkspaceAccess,
   modelRequestAccess,
+  postRuntimeRoute,
   readAccountModelSettings,
   reportUserWorkspaceModelUsage,
   resolveUserWorkspaceCloudflareAccessToken,
@@ -295,6 +297,37 @@ const transcriptOwnerIdSchema = z.string().min(1).max(512);
 const contextCompactionJobSchema = z.object({ throughMessageId: z.string().min(1) });
 
 const cloudflareExecutionDecisionSchema = z.object({ executionId: z.string().uuid() }).strict();
+
+const TEAM_READ_REFUSAL =
+  'In a team’s account only its admins read the account directly. Propose the change itself: it goes to the ' +
+  'team’s admins to approve.';
+const TEAM_APPROVAL_NOTE =
+  'This changes the team’s Cloudflare account. One of the team’s admins approves or rejects it on their Approvals ' +
+  'page; approving sends this exact request once.';
+const filedApprovalSchema = z.object({
+  approvalId: z.string(),
+  expiresAt: z.number(),
+  warning: z.string().nullable(),
+});
+const refusalSchema = z.object({ error: z.string() });
+const approvalOutcomeSchema = z.object({
+  agentName: z.string(),
+  toolCallId: z.string(),
+  requestSha256: z.string(),
+  status: z.enum(['pending', 'sending', 'done', 'rejected', 'expired']),
+  result: z.enum(['succeeded', 'failed', 'indeterminate']).nullable(),
+  outcome: z
+    .object({
+      status: z.enum(['success', 'failure', 'insufficient_scope', 'indeterminate', 'denied']),
+      summary: z.string(),
+      content: z.string().optional(),
+      requestId: z.string().nullable().optional(),
+      httpStatus: z.number().nullable().optional(),
+      truncated: z.boolean().optional(),
+      sensitiveContentWithheld: z.boolean().optional(),
+    })
+    .nullable(),
+});
 const cloudflareExecutionFiberSchema = z
   .object({ executionId: z.string().uuid(), proposalSha256: z.string().regex(/^[a-f0-9]{64}$/) })
   .strict();
@@ -2037,19 +2070,121 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   private async createCloudflareApiToolContext(
     transcript: BuilderTranscriptBinding,
   ): Promise<CloudflareApiModelToolContext | undefined> {
-    const expectedIdentity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
     if (
-      !expectedIdentity ||
       !this.userId ||
-      expectedIdentity.userId !== this.userId ||
       !this.transcriptBinding ||
       !builderTranscriptBindingsEqual(this.transcriptBinding, transcript)
     ) {
       return undefined;
     }
+    const expectedIdentity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
+    if (expectedIdentity) {
+      return expectedIdentity.userId === this.userId
+        ? { request: (input, options) => this.handleCloudflareRequest(input, options, expectedIdentity, transcript) }
+        : undefined;
+    }
+    // A team's member: their changes go to the team's admins, and CloudChef sends what an admin approves.
+    const member = runtimeConnectionIdentity(this.env);
+    return member && member.userId === this.userId && this.env.CLOUDCHEF_SHARED_ACCOUNT === '1'
+      ? { request: (input, options) => this.fileTeamCloudflareRequest(input, options, member, transcript) }
+      : undefined;
+  }
+
+  /**
+   * A team member's change, filed for the team's admins. The member's workspace never holds the team account's
+   * authorization: reads are refused, and a change is checked and sent by CloudChef once an admin approves it.
+   */
+  private async fileTeamCloudflareRequest(
+    input: CloudflareApiRequestInput,
+    options: ModelToolExecutionOptions,
+    identity: RuntimeConnectionIdentity,
+    transcript: BuilderTranscriptBinding,
+  ): Promise<CloudflareRequestImmediateResult | CloudflareRequestFiled> {
+    options.abortSignal?.throwIfAborted();
+    let request: CloudflareApiRequest;
+    try {
+      request = normalizeCloudflareApiRequest(input, identity.accountId);
+    } catch (error) {
+      if (!(error instanceof CloudflareApiRequestRejectedError)) {
+        throw error;
+      }
+      return cloudflareRequestFailure(identity.accountId, error.message);
+    }
+    if (cloudflareApiRequestIsRead(request)) {
+      return cloudflareRequestFailure(identity.accountId, TEAM_READ_REFUSAL);
+    }
+    const answer = await postRuntimeRoute(this.env, identity, 'runtime-projects/approvals/file', {
+      agentName: transcript.agentName,
+      toolCallId: options.toolCallId,
+      requestJson: JSON.stringify(request),
+    });
+    const body: unknown = await answer.json().catch(() => null);
+    const filed = filedApprovalSchema.safeParse(body);
+    if (!answer.ok || !filed.success) {
+      return cloudflareRequestFailure(
+        identity.accountId,
+        refusalSchema.safeParse(body).data?.error ?? 'The change couldn’t be sent to the team’s admins. Try again.',
+      );
+    }
     return {
-      request: (input, options) => this.handleCloudflareRequest(input, options, expectedIdentity, transcript),
+      kind: 'cloudflare_request_filed',
+      status: 'awaiting_team_admin',
+      approvalId: filed.data.approvalId,
+      accountId: identity.accountId,
+      request,
+      riskNote: filed.data.warning ? `${filed.data.warning} ${TEAM_APPROVAL_NOTE}` : TEAM_APPROVAL_NOTE,
+      expiresAt: filed.data.expiresAt,
+      note:
+        'Filed for the team’s admins, who approve or reject it on their Approvals page; CloudChef then sends it once. ' +
+        'Tell the person a team admin needs to approve it. Its result replaces this one when they decide.',
     };
+  }
+
+  /**
+   * A team admin decided a change this conversation filed: its result replaces the filed step's output. Answers
+   * whether it did; the control plane is asked what was decided, so nothing the caller says is taken on trust.
+   */
+  async settleTeamApproval(input: { approvalId: string; ownerId: string }): Promise<boolean> {
+    const durable = await this.readDurableIdentity();
+    const identity = runtimeConnectionIdentity(this.env);
+    if (
+      durable === 'missing' ||
+      durable === 'stale' ||
+      durable.userId !== input.ownerId ||
+      identity?.userId !== input.ownerId
+    ) {
+      return false;
+    }
+    const answer = await postRuntimeRoute(this.env, identity, 'runtime-projects/approvals/outcome', {
+      approvalId: input.approvalId,
+    });
+    const decided = approvalOutcomeSchema.safeParse(await answer.json().catch(() => null));
+    if (!answer.ok || !decided.success || decided.data.agentName !== this.name) {
+      return false;
+    }
+    const { status, result, outcome, toolCallId, requestSha256 } = decided.data;
+    const final: CloudflareRequestFinalResult['status'] | null =
+      status === 'done' ? result : status === 'rejected' || status === 'expired' ? status : null;
+    if (!final) {
+      return false;
+    }
+    const output: CloudflareRequestFinalResult = {
+      kind: 'cloudflare_request_final_result',
+      executionId: input.approvalId,
+      accountId: identity.accountId,
+      proposalSha256: requestSha256,
+      status: final,
+      outcome: outcome ?? { status: 'denied', summary: 'No team admin decided before the request expired.' },
+    };
+    const messages = replaceToolCallPart(this.messages, toolCallId, (part, invocation) =>
+      invocation.toolName === 'cloudflare_request' && invocation.state === 'output-available'
+        ? { ...part, output }
+        : null,
+    );
+    if (messages) {
+      await this.persistReplacedToolOutput(messages);
+    }
+    return true;
   }
 
   private async waitForCloudflareDecisionBoundary(): Promise<void> {
@@ -3104,33 +3239,6 @@ function cloudflareRequestFailure(accountId: string, content: string): Cloudflar
     httpStatus: null,
     truncated: false,
   };
-}
-
-function safeCloudflareExecutionOutcome(outcome: CloudflareApiOutcome): CloudflareExecutionSafeOutcome {
-  const metadata = { requestId: outcome.requestId, httpStatus: outcome.httpStatus, truncated: outcome.truncated };
-  if (outcome.status === 'success') {
-    if (containsCredentialishCloudflareContent(outcome.content)) {
-      return {
-        status: 'success',
-        summary: 'Cloudflare applied the approved request, but sensitive-looking response content was withheld.',
-        ...metadata,
-        sensitiveContentWithheld: true,
-      };
-    }
-    return {
-      status: 'success',
-      summary: 'Cloudflare applied the approved request.',
-      content: outcome.content,
-      ...metadata,
-    };
-  }
-  return { status: outcome.status, summary: outcome.content, ...metadata };
-}
-
-function cloudflareExecutionStatusForOutcome(
-  outcome: CloudflareApiOutcome,
-): Extract<CloudflareExecutionStatus, 'succeeded' | 'failed' | 'indeterminate'> {
-  return outcome.status === 'success' ? 'succeeded' : outcome.status === 'indeterminate' ? 'indeterminate' : 'failed';
 }
 
 /** Whether every one of `promises` settled within `timeoutMs`. */

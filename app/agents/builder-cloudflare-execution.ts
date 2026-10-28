@@ -7,6 +7,7 @@ import {
   type CloudflareExecutionStatus,
 } from 'cloudchef-agent/cloudflare-api';
 import { sha256Hex } from '~/lib/hex-digest';
+import type { CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import type { RuntimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { builderTranscriptBindingsEqual, type BuilderTranscriptBinding } from './builder-request-policy';
 import { z } from 'zod';
@@ -357,7 +358,7 @@ export function publicExecutionState(record: CloudflareExecutionRecord): Cloudfl
   };
 }
 
-export function containsCredentialishCloudflareContent(value: string): boolean {
+function containsCredentialishCloudflareContent(value: string): boolean {
   return credentialishPatterns.some((pattern) => pattern.test(value));
 }
 
@@ -430,6 +431,34 @@ function parseStatus(value: string): CloudflareExecutionStatus {
     throw new Error('Stored Cloudflare execution status is invalid.');
   }
   return status.data;
+}
+
+/** What is kept of an approved change's answer: sensitive-looking content is withheld. */
+export function safeCloudflareExecutionOutcome(outcome: CloudflareApiOutcome): CloudflareExecutionSafeOutcome {
+  const metadata = { requestId: outcome.requestId, httpStatus: outcome.httpStatus, truncated: outcome.truncated };
+  if (outcome.status === 'success') {
+    if (containsCredentialishCloudflareContent(outcome.content)) {
+      return {
+        status: 'success',
+        summary: 'Cloudflare applied the approved request, but sensitive-looking response content was withheld.',
+        ...metadata,
+        sensitiveContentWithheld: true,
+      };
+    }
+    return {
+      status: 'success',
+      summary: 'Cloudflare applied the approved request.',
+      content: outcome.content,
+      ...metadata,
+    };
+  }
+  return { status: outcome.status, summary: outcome.content, ...metadata };
+}
+
+export function cloudflareExecutionStatusForOutcome(
+  outcome: CloudflareApiOutcome,
+): Extract<CloudflareExecutionStatus, 'succeeded' | 'failed' | 'indeterminate'> {
+  return outcome.status === 'success' ? 'succeeded' : outcome.status === 'indeterminate' ? 'indeterminate' : 'failed';
 }
 
 type CloudflareConnectionIdentity = Omit<CloudflareExecutionBinding, 'transcript'>;

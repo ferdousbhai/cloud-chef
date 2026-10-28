@@ -1,5 +1,6 @@
 import type {
   CloudflareApiRequestInput,
+  CloudflareRequestFiled,
   CloudflareRequestImmediateResult,
   CloudflareRequestProposal,
 } from 'cloudchef-agent/cloudflare-api';
@@ -14,5 +15,5 @@ export type CloudflareApiModelToolContext = {
   request: (
     input: CloudflareApiRequestInput,
     options: ModelToolExecutionOptions,
-  ) => Promise<CloudflareRequestImmediateResult | CloudflareRequestProposal>;
+  ) => Promise<CloudflareRequestImmediateResult | CloudflareRequestProposal | CloudflareRequestFiled>;
 };

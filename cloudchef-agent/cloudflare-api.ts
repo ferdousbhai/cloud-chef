@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 export const CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS = 15 * 60_000;
+/** How long a team member's change waits for one of the team's admins on the Approvals page. */
+export const TEAM_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000;
 
 const CLOUDFLARE_API_ORIGIN = 'https://api.cloudflare.com';
 const CLOUDFLARE_API_PATH_PREFIX = '/client/v4/';
@@ -181,6 +183,21 @@ export type CloudflareRequestProposal = {
   proposalSha256: string;
   riskNote: string;
   expiresAt: number;
+};
+
+/**
+ * A team member's change, filed for the team's admins: one of them approves or rejects it on the Approvals page,
+ * and CloudChef itself sends it. The result replaces this output once it is decided.
+ */
+export type CloudflareRequestFiled = {
+  kind: 'cloudflare_request_filed';
+  status: 'awaiting_team_admin';
+  approvalId: string;
+  accountId: string;
+  request: CloudflareApiRequest;
+  riskNote: string;
+  expiresAt: number;
+  note: string;
 };
 
 export type CloudflareRequestImmediateResult = {

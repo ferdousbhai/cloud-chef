@@ -14,7 +14,6 @@ import {
   orgGitHubSchema,
   orgProjectSchema,
   ownRequestSchema,
-  productionRequestSchema,
 } from './OrgProjectsSection.client';
 import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
@@ -56,7 +55,6 @@ const organizationsSchema = z.object({
         .nullable(),
       github: orgGitHubSchema,
       projects: z.array(orgProjectSchema),
-      productionRequests: z.array(productionRequestSchema).nullable(),
       ownRequests: z.array(ownRequestSchema),
     }),
   ),
@@ -444,7 +442,6 @@ function OrganizationRow({
             github={organization.github}
             projects={projects}
             members={organization.members ?? []}
-            productionRequests={organization.productionRequests ?? []}
             onChanged={onChanged}
           />
         </>

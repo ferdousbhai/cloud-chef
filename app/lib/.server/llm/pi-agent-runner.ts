@@ -462,9 +462,12 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     if (event.type === 'tool_execution_end') {
       const result = piToolResultDetails(event.result);
       toolIndeterminateError ??= event.isError ? toolIndeterminateErrorFromResult(event.result) : undefined;
-      // A proposal is a completed tool result, but it deliberately ends this Pi run before another model step.
+      // A proposal (or a change filed for a team's admins) is a completed tool result, but it deliberately ends
+      // this Pi run before another model step.
       cloudflareApprovalPending ||=
-        event.toolName === 'cloudflare_request' && isRecord(result) && result.kind === 'cloudflare_request_proposal';
+        event.toolName === 'cloudflare_request' &&
+        isRecord(result) &&
+        (result.kind === 'cloudflare_request_proposal' || result.kind === 'cloudflare_request_filed');
       if (event.isError && !hasStructuredToolResult(event.result)) {
         await writer.write({
           type: 'tool-output-error',

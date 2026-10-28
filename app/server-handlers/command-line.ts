@@ -112,7 +112,7 @@ async function tokenUser(request: Request, env: Env): Promise<string | null> {
  * The person's workspace runtime in the account `connectionId` is, and a capability for it: where a request of
  * theirs goes on to. Null when they may not use the account, or have no runtime in it yet.
  */
-async function runtimeFor(
+export async function runtimeFor(
   request: Request,
   env: Env,
   userId: string,

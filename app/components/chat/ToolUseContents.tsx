@@ -146,6 +146,26 @@ const cloudflareRequestProposalSchema = z.object({
   expiresAt: z.number(),
 });
 
+/** A team member's change, waiting for one of the team's admins. */
+const cloudflareRequestFiledSchema = z.object({
+  kind: z.literal('cloudflare_request_filed'),
+  status: z.literal('awaiting_team_admin'),
+  approvalId: z.string(),
+  request: cloudflareApiRequestDisplaySchema,
+  riskNote: z.string(),
+  expiresAt: z.number(),
+});
+
+/** What became of an approved, rejected or expired change, as its step keeps it. */
+const cloudflareRequestFinalResultSchema = z.object({
+  kind: z.literal('cloudflare_request_final_result'),
+  status: z.enum(['rejected', 'succeeded', 'failed', 'indeterminate', 'expired']),
+  outcome: z.object({
+    summary: z.string(),
+    content: z.string().optional(),
+  }),
+});
+
 const cloudflareRequestResultSchema = z.object({
   kind: z.literal('cloudflare_request_result'),
   status: z.enum(['success', 'failure', 'insufficient_scope']),
@@ -179,6 +199,31 @@ function CloudflareRequestContents({
   const input = cloudflareApiRequestDisplaySchema.safeParse(invocation.input).data;
   const output = invocation.state === 'output-available' ? invocation.output : undefined;
   const proposal = cloudflareRequestProposalSchema.safeParse(output).data;
+  const filed = cloudflareRequestFiledSchema.safeParse(output).data;
+  const final = cloudflareRequestFinalResultSchema.safeParse(output).data;
+  if (filed || (final && !execution)) {
+    const shown = filed?.request ?? input;
+    return (
+      <ToolResultFrame>
+        <div className="space-y-3" data-testid="cloudflare-request-team-approval">
+          {shown ? <CloudflareRequestLine request={shown} /> : null}
+          {filed ? (
+            <>
+              <p className="text-xs leading-5 text-content-secondary">{filed.riskNote}</p>
+              <p className="text-content-primary" role="status">
+                Waiting for a team admin to approve it.
+              </p>
+            </>
+          ) : final ? (
+            <CloudflareExecutionStatus
+              status={final.status}
+              outcome={{ status: 'success', summary: final.outcome.summary, content: final.outcome.content }}
+            />
+          ) : null}
+        </div>
+      </ToolResultFrame>
+    );
+  }
   if (execution || proposal || (running && input && !cloudflareApiRequestIsRead(input))) {
     return (
       <CloudflareRequestApprovalContents

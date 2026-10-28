@@ -88,6 +88,12 @@ import {
 } from './server-handlers/projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
+import {
+  decideApprovalAction,
+  listApprovalsAction,
+  runtimeApprovalOutcomeAction,
+  runtimeFileApprovalAction,
+} from './server-handlers/approvals';
 import { aiGatewayLoggingAction, updateAiGatewayLoggingAction } from './server-handlers/ai-gateway-logging';
 import {
   runtimeAccessAction,
@@ -191,6 +197,10 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/deployments/retry': ['POST', runtimeDeploymentRetryAction],
     '/api/cloudflare/runtime-projects/deployments/report': ['POST', runtimeDeploymentReportAction],
     '/api/cloudflare/runtime-projects/deployments/credential': ['POST', runtimeDeploymentCredentialAction],
+    '/api/cloudflare/runtime-projects/approvals/file': ['POST', runtimeFileApprovalAction],
+    '/api/cloudflare/runtime-projects/approvals/outcome': ['POST', runtimeApprovalOutcomeAction],
+    '/api/approvals': ['GET', listApprovalsAction],
+    '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
     [GITHUB_RETURN_PATH]: ['GET', completeGitHubInstallAction],
     '/api/organizations': ['GET', listOrganizationsAction],

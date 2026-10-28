@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
 import type { ChatHistorySummary, ProjectCloneAccess, ProjectCommit } from '~/lib/cloudflare/data-api';
+import type { Approval, Approvals } from '~/lib/cloudflare/approvals.client';
 import type { PublicProject, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { authSession } from './auth-session';
@@ -200,6 +201,100 @@ test('lists public projects in Explore, with their sites and a way to make a cop
   await expect(dialog.getByRole('textbox')).toHaveValue('Booking site');
   await expect(dialog).toContainText('Personal');
   await page.screenshot({ path: testInfo.outputPath('explore.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
+    true,
+  );
+  await assertClean();
+});
+
+test("shows a team admin what their members asked for, from the header's Approvals link", async ({
+  page,
+}, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  await stubSignedIn(page, {
+    kind: 'organization',
+    connectionId: 'e2e-team-connection',
+    accountName: 'Team account',
+    orgId: 'e2e-org',
+    orgName: 'Sites',
+    role: 'admin',
+    draftsAllowed: true,
+  });
+  const change: Approval = {
+    id: '00000000-0000-4000-8000-000000000010',
+    orgId: 'e2e-org',
+    orgName: 'Sites',
+    kind: 'cloudflare_change',
+    requester: { name: 'Sara', email: 'sara@example.invalid' },
+    request: {
+      method: 'POST',
+      url: 'https://api.cloudflare.com/client/v4/accounts/e2e-account/workers/domains',
+      body: { hostname: 'shop.example.com', service: 'shop', environment: 'production' },
+    },
+    warning: 'This puts shop.example.com on the Worker shop. Anyone visiting shop.example.com will see that site.',
+    status: 'pending',
+    result: null,
+    outcome: null,
+    decidedBy: null,
+    decidedAt: null,
+    createdAt: Date.now() - 20 * 60_000,
+    expiresAt: Date.now() + 86_400_000,
+  };
+  const approvals: Approvals = {
+    admin: true,
+    waiting: [change],
+    decided: [
+      {
+        ...change,
+        id: '00000000-0000-4000-8000-000000000011',
+        request: {
+          method: 'DELETE',
+          url: 'https://api.cloudflare.com/client/v4/accounts/e2e-account/workers/scripts/old',
+        },
+        warning: null,
+        status: 'done',
+        result: 'succeeded',
+        outcome: { summary: 'Cloudflare applied the approved request.' },
+        decidedBy: 'Ada',
+        decidedAt: Date.now() - 2 * 3_600_000,
+      },
+    ],
+    productionRequests: [
+      {
+        id: 'request-1',
+        orgId: 'e2e-org',
+        orgName: 'Sites',
+        title: 'Recipe planner',
+        note: 'Ready for the family to use.',
+        previewUrl: `${SITE_ORIGIN}/`,
+        requesterName: 'Sara',
+        requesterEmail: 'sara@example.invalid',
+        createdAt: Date.now() - 3 * 86_400_000,
+        updatedAt: null,
+      },
+    ],
+  };
+  await page.route('**/api/approvals', (route) => route.fulfill({ json: approvals }));
+
+  await page.goto('/');
+  // On a phone the header's links sit in the user menu.
+  if (testInfo.project.name !== 'mobile-chromium') {
+    await page.getByRole('link', { name: 'Approvals (2)' }).click();
+  } else {
+    await page.getByRole('button', { name: 'User menu' }).click();
+    await page.getByRole('menuitem', { name: 'Approvals (2)' }).click();
+  }
+
+  await expect(page).toHaveURL(/\/approvals$/);
+  await expect(page).toHaveTitle('Approvals | CloudChef');
+  const waiting = page.getByRole('region', { name: 'Waiting' });
+  await expect(waiting).toContainText('Sites · from Sara · 20 min ago');
+  await expect(waiting).toContainText('Create /accounts/e2e-account/workers/domains');
+  await expect(waiting).toContainText('Recipe planner');
+  await expect(page.getByRole('region', { name: 'Decided' })).toContainText(
+    'Approved by Ada, and Cloudflare made the change',
+  );
+  await page.screenshot({ path: testInfo.outputPath('approvals.png'), fullPage: true });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
     true,
   );

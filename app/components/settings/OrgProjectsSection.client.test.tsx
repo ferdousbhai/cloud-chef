@@ -38,7 +38,7 @@ async function click(text: string) {
 }
 
 describe('OrgProjectsSection', () => {
-  it("names each project and request button by the text it shows, then what it's for", async () => {
+  it("names each project button by the text it shows, then what it's for", async () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -64,17 +64,6 @@ describe('OrgProjectsSection', () => {
             { userId: 'user-1', name: 'Grace', email: 'grace@example.com', role: 'admin' },
             { userId: 'user-2', name: 'Ada', email: 'ada@example.com', role: 'member' },
           ]}
-          productionRequests={[
-            {
-              id: 'request-1',
-              title: 'Todo app',
-              note: null,
-              previewUrl: null,
-              requesterName: 'Ada',
-              requesterEmail: 'ada@example.com',
-              updatedAt: null,
-            },
-          ]}
           onChanged={async () => undefined}
         />,
       ),
@@ -84,8 +73,6 @@ describe('OrgProjectsSection', () => {
     // A project from GitHub has its own way to go live; only one that didn't come from there is told to connect it.
     expect(document.body.textContent).not.toContain('Continue with Artifacts');
     await click('Remove');
-    await click('Decline');
-    expect(document.querySelector('button[aria-label="Decline request: Todo app"]')).not.toBeNull();
     expect(mislabelledButtons()).toEqual([]);
   });
 
@@ -121,7 +108,6 @@ describe('OrgProjectsSection', () => {
             { userId: 'user-1', name: 'Grace', email: 'grace@example.com', role: 'admin' },
             { userId: 'user-2', name: 'Ada', email: 'ada@example.com', role: 'member' },
           ]}
-          productionRequests={[]}
           onChanged={onChanged}
         />,
       ),

@@ -3084,6 +3084,23 @@ function sharedHandlerEnv(env: RuntimeEnv): Env {
   return env as unknown as Env;
 }
 
+const settledApprovalSchema = z
+  .object({ agentName: z.string().min(1).max(256), approvalId: z.string().uuid() })
+  .strict();
+
+/** A team admin decided a change one of this person's conversations filed: that conversation takes in the result. */
+async function settleTeamApprovalAction(request: Request, env: RuntimeEnv, userId: string): Promise<Response> {
+  const body = settledApprovalSchema.safeParse(await request.json().catch(() => null));
+  if (!body.success) {
+    return Response.json({ error: 'Invalid request.' }, { status: 400 });
+  }
+  const settled = await env.BuilderAgent.getByName(body.data.agentName).settleTeamApproval({
+    approvalId: body.data.approvalId,
+    ownerId: userId,
+  });
+  return Response.json({ settled });
+}
+
 async function handleUserRequest(
   request: Request,
   env: RuntimeEnv,
@@ -3134,6 +3151,8 @@ async function handleUserRequest(
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/create-empty') {
     response = await userRuntimeProjectCreateEmptyAction({ url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/approvals/settled') {
+    response = await settleTeamApprovalAction(request, env, capability.subject);
   } else if (request.method === 'POST' && url.pathname === '/v1/apps/read-access') {
     response = await userRuntimeAppReadAccessAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/apps/copy') {

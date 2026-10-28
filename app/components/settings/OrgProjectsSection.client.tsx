@@ -4,14 +4,13 @@ import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { MenuItem } from '@ui/Menu';
-import { TextInput } from '@ui/TextInput';
 import { authClient } from '~/lib/auth-client';
 import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
 import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDialog.client';
 import { IMPORT_RETURN_PARAM, isImportReturn } from '~/lib/github-app.client';
 import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
 import { openProjectChat } from '~/lib/cloudflare/projects.client';
-import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
+import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
 import { MoreMenu, StatusBadge } from './SettingsLayout';
 
@@ -29,24 +28,12 @@ export const orgProjectSchema = z.object({
   importRepoFullName: z.string().nullable(),
   access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),
 });
-export const productionRequestSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  note: z.string().nullable(),
-  previewUrl: z.string().nullable(),
-  requesterName: z.string(),
-  requesterEmail: z.string(),
-  updatedAt: z.number().nullable(),
-});
 export const ownRequestSchema = z.object({
   id: z.string(),
   title: z.string(),
   status: z.enum(['pending', 'approved', 'declined']),
   decisionNote: z.string().nullable(),
 });
-
-type ProductionRequest = z.infer<typeof productionRequestSchema>;
-const approvedSchema = z.object({ projectId: z.string() });
 
 /** Where an admin connects a team project's repository to Workers Builds, which then deploys it. */
 const WORKERS_BUILDS_CREATE_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages/create';
@@ -56,22 +43,20 @@ type OrgProject = z.infer<typeof orgProjectSchema>;
 const installStartedSchema = z.object({ installUrl: z.string() });
 
 /**
- * An admin's view of a team's projects: each one's repository and who may view or edit it, the members'
- * requests to make a draft a project, and the GitHub accounts CloudChef's App reads when importing.
+ * An admin's view of a team's projects: each one's repository and who may view or edit it, and the GitHub
+ * accounts CloudChef's App reads when importing. Members' requests to make a draft a project are on Approvals.
  */
 export function OrgProjectsSection({
   orgId,
   github,
   projects,
   members,
-  productionRequests,
   onChanged,
 }: {
   orgId: string;
   github: z.infer<typeof orgGitHubSchema>;
   projects: OrgProject[];
   members: ProjectMember[];
-  productionRequests: ProductionRequest[];
   onChanged: () => Promise<void>;
 }) {
   const [disconnecting, setDisconnecting] = useState<z.infer<typeof orgGitHubSchema>[number] | null>(null);
@@ -142,19 +127,6 @@ export function OrgProjectsSection({
       {workingHere ? null : (
         <p className="text-xs text-content-tertiary">To import a project from GitHub, switch to this team first.</p>
       )}
-      {productionRequests.length > 0 ? (
-        <ul className="grid gap-2" aria-label="Team project requests">
-          {productionRequests.map((pending) => (
-            <ProductionRequestRow
-              key={pending.id}
-              orgId={orgId}
-              pending={pending}
-              onChanged={onChanged}
-              onFeedback={setFeedback}
-            />
-          ))}
-        </ul>
-      ) : null}
       {projects.length > 0 ? (
         <ul className="grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
           {projects.map((project) => (
@@ -285,108 +257,6 @@ function WorkersBuildsInstruction() {
   );
 }
 
-/** A member's request to make a draft a team project, as an admin decides it. */
-function ProductionRequestRow({
-  orgId,
-  pending,
-  onChanged,
-  onFeedback,
-}: {
-  orgId: string;
-  pending: ProductionRequest;
-  onChanged: () => Promise<void>;
-  onFeedback: (feedback: Feedback) => void;
-}) {
-  const [approving, setApproving] = useState(false);
-  const [declining, setDeclining] = useState(false);
-  const [decisionNote, setDecisionNote] = useState('');
-  const onError = (message: string | null) => onFeedback(errorFeedback(message));
-  const approve = async () => {
-    setApproving(true);
-    await runRequest(async () => {
-      await postJson(
-        '/api/organizations/production-requests/approve',
-        { orgId, requestId: pending.id },
-        approvedSchema,
-      );
-      onFeedback(
-        noteFeedback(
-          `Approved ${pending.title}. It's a team project now. To put it live, connect it in Workers Builds.`,
-        ),
-      );
-      await onChanged();
-    }, onError);
-    setApproving(false);
-  };
-  const decline = () =>
-    void runRequest(async () => {
-      await postJson(
-        '/api/organizations/production-requests/decline',
-        { orgId, requestId: pending.id, note: decisionNote.trim() },
-        noContentSchema,
-      );
-      onFeedback(noteFeedback(`Declined ${pending.title}.`));
-      await onChanged();
-    }, onError);
-  return (
-    <li className="grid min-w-0 gap-1.5 rounded-md border border-accent-500/40 bg-bolt-elements-background-depth-2 p-3 [overflow-wrap:anywhere]">
-      <span className="flex min-w-0 flex-wrap items-center gap-2">
-        <StatusBadge tone="warning">Team project request</StatusBadge>
-        <strong className="min-w-0">{pending.title}</strong>
-        <span className="text-xs text-content-tertiary">
-          from {pending.requesterName || pending.requesterEmail}
-          {pending.updatedAt ? ` · updated ${timeAgo(pending.updatedAt)}` : ''}
-        </span>
-      </span>
-      {pending.note ? <span className="text-xs text-content-secondary">{pending.note}</span> : null}
-      {pending.previewUrl ? (
-        <a className="text-xs underline" href={pending.previewUrl} target="_blank" rel="noopener noreferrer">
-          Try the draft
-        </a>
-      ) : null}
-      {declining ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <TextInput
-            maxLength={1_000}
-            placeholder="Why, for them (optional)"
-            aria-label={`Note to ${pending.requesterName || pending.requesterEmail} about ${pending.title}`}
-            value={decisionNote}
-            onChange={(event) => setDecisionNote(event.target.value)}
-            className="min-w-0 flex-1"
-          />
-          <Button size="xs" variant="danger" aria-label={`Decline request: ${pending.title}`} onClick={decline}>
-            Decline request
-          </Button>
-          <Button size="xs" variant="subtle" onClick={() => setDeclining(false)}>
-            Cancel
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="xs"
-            variant="primary"
-            loading={approving}
-            aria-label={`Approve: ${pending.title}`}
-            onClick={() => void approve()}
-          >
-            Approve
-          </Button>
-          <Button
-            size="xs"
-            variant="neutral"
-            disabled={approving}
-            aria-label={`Decline ${pending.title}`}
-            onClick={() => setDeclining(true)}
-          >
-            Decline
-          </Button>
-        </div>
-      )}
-    </li>
-  );
-}
-
 /** A member's list of the projects they were given in an organization. */
 export function MyOrgProjects({
   projects,
@@ -425,21 +295,4 @@ export function MyOrgProjects({
       ) : null}
     </>
   );
-}
-
-/** How long ago a moment was, roughly: "just now", "5 min ago", "3 h ago", "2 days ago". */
-function timeAgo(at: number): string {
-  const minutes = Math.floor((Date.now() - at) / 60_000);
-  if (minutes < 1) {
-    return 'just now';
-  }
-  if (minutes < 60) {
-    return `${minutes} min ago`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours} h ago`;
-  }
-  const days = Math.floor(hours / 24);
-  return `${days} ${days === 1 ? 'day' : 'days'} ago`;
 }

@@ -3,7 +3,8 @@ import { lazy, Suspense, useState } from 'react';
 import { chatStore } from '~/lib/stores/chatId';
 import { ChatDescription } from '~/components/header/ChatDescription.client';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { HamburgerMenuIcon, PersonIcon, GearIcon, ExitIcon, GlobeIcon } from '@radix-ui/react-icons';
+import { CheckCircledIcon, ExitIcon, GearIcon, GlobeIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';
+import { useWaitingApprovals } from '~/lib/cloudflare/approvals.client';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
@@ -37,7 +38,12 @@ export function Header() {
   const isAuthenticated = userId !== null && userId !== undefined;
   const showSidebarIcon = isAuthenticated;
 
-  const user = authClient.useSession().data?.user ?? null;
+  const session = authClient.useSession().data;
+  const user = session?.user ?? null;
+  const teamAdmin =
+    session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
+  const waitingApprovals = useWaitingApprovals(teamAdmin);
+  const approvalsLabel = waitingApprovals > 0 ? `Approvals (${waitingApprovals})` : 'Approvals';
 
   const handleSettingsClick = () => void navigate({ to: '/settings' });
 
@@ -99,6 +105,11 @@ export function Header() {
                 <LinkButton variant="subtle" size="xs" to="/explore" icon={<GlobeIcon />}>
                   Explore
                 </LinkButton>
+                {teamAdmin ? (
+                  <LinkButton variant="subtle" size="xs" to="/approvals" icon={<CheckCircledIcon />}>
+                    {approvalsLabel}
+                  </LinkButton>
+                ) : null}
                 <LinkButton variant="subtle" size="xs" to="/settings" icon={<GearIcon />}>
                   Settings
                 </LinkButton>
@@ -128,6 +139,12 @@ export function Header() {
                     <GlobeIcon className="text-content-secondary" />
                     Explore
                   </MenuItemComponent>
+                  {teamAdmin ? (
+                    <MenuItemComponent action={() => void navigate({ to: '/approvals' })}>
+                      <CheckCircledIcon className="text-content-secondary" />
+                      {approvalsLabel}
+                    </MenuItemComponent>
+                  ) : null}
                   <MenuItemComponent action={handleSettingsClick}>
                     <GearIcon className="text-content-secondary" />
                     Settings
