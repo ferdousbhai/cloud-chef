@@ -27,17 +27,17 @@
   "dependencies": {},
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-beta.v.3",
-    "@cloudflare/workers-types": "5.20261021.1",
+    "@cloudflare/workers-types": "5.20261028.1",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.20.4",
-    "cf": "1.0.0-beta.20",
-    "eslint": "^10.8.0",
-    "globals": "^17.8.0",
+    "@types/node": "^22.20.5",
+    "cf": "1.0.0-beta.24",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
     "jsonc-parser": "^3.3.1",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.65.0",
+    "typescript-eslint": "^8.72.1",
     "vite": "^8.3.5",
-    "yaml": "2.9.0"
+    "yaml": "2.9.1"
   },
   "engines": {
     "node": ">=22.13.0"
