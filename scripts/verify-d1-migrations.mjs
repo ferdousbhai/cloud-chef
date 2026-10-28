@@ -63,6 +63,9 @@ const migrationPolicies = [
       '0045_public_projects_and_copies.sql': '3d13ba3566414a00adad5cdf8a2817e11cd25ec861a0dcc5dc8bd0dc5c8f76d0',
       '0046_apps.sql': '8316793cea4e79accd2289e03f70df809dd2902c26b06113b62aee4444f8dfd5',
       '0047_approval_requests.sql': '7a6cd0e2b99fe965f75337de75807fe5b9a16ee4bd16b21ea6c1b0f5b44ac8dc',
+      '0048_drop_unused_request_storage.sql': '4f70f804b55f95534d9863579ce07c682c1c177d435270196c2570f432c47b0a',
+      '0049_drop_connection_authorization_copies.sql':
+        '6ce622590c9dc91b2871ed7eb244c73ca4d2dd94252c54947348df4446f40c42',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -111,6 +114,11 @@ const migrationPolicies = [
       // Rebuilds org_projects for public projects and copies (created_from's CHECK gains 'copy'), dropping the
       // `origin` column and rollout triggers 0039 and 0040 left for the release after; its dependents step aside.
       '0045_public_projects_and_copies.sql',
+      // GitHub approval states and production requests' snapshot and claim columns, unread since drafts are approved
+      // into their own Artifacts repository.
+      '0048_drop_unused_request_storage.sql',
+      // The connection's copies of its account's authorization and their rollout triggers, unread since 0035/0037.
+      '0049_drop_connection_authorization_copies.sql',
     ],
   },
   {
@@ -136,6 +144,7 @@ const migrationPolicies = [
       '0018_clone_tokens.sql': '069a24c5d65f112fe1fe7f10d90019daea73b14b870e4ecb7a47cde381f1831d',
       '0019_workspaces_and_conversations.sql': 'b3b45dd9e17b720ff2e9fb3d8a474c887521def321066eb7453808dc93ec155a',
       '0020_adopted_drafts.sql': '28c05df25fcfa771f969bc66896afab8ed2d1683e99bb3ee2b52816e9e01fbf8',
+      '0021_drop_clone_tokens.sql': '44a4e7fa605feb3bf838527b5404dbf97845fb0e6fc011ec8635ad958fc05104',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -156,6 +165,8 @@ const migrationPolicies = [
       // Tables and columns renamed to workspaces and conversations, shipped with the runtime that names them so;
       // the archive-and-continue columns no runtime reads since one workspace holds all its conversations.
       '0019_workspaces_and_conversations.sql',
+      // Clone tokens, recorded by no runtime since the release before, which revoked every one still recorded.
+      '0021_drop_clone_tokens.sql',
     ],
   },
   {

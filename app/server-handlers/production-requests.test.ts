@@ -50,16 +50,11 @@ describe('production requests', () => {
     expect(sentSchema.parse(await (await send({ ...DRAFT, note: 'For the family' })).json()).outcome).toBe('unchanged');
     const newer = await send({ ...DRAFT, draftRevision: 'rev-2', commit: 'd'.repeat(40) });
     expect(sentSchema.parse(await newer.json())).toEqual({ requestId, outcome: 'updated' });
-    expect(
-      database
-        .prepare('SELECT repo, commit_sha, draft_revision, snapshot_files, status FROM production_requests')
-        .all(),
-    ).toEqual([
+    expect(database.prepare('SELECT repo, commit_sha, draft_revision, status FROM production_requests').all()).toEqual([
       {
         repo: 'p-recipe-chat',
         commit_sha: 'd'.repeat(40),
         draft_revision: 'rev-2',
-        snapshot_files: 0,
         status: 'pending',
       },
     ]);
