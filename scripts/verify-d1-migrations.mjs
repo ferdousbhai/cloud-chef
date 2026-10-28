@@ -60,7 +60,7 @@ const migrationPolicies = [
       '0042_command_line_tokens.sql': '502949c032ecb59a7ec1aa2b2673f52bbba6786ae81ea88a5b154151d59400ff',
       '0043_command_line_logins.sql': 'd23f910c28ed098dafe79f204f1a5c337205f123765e2ac10ee6c298b752f113',
       '0044_usernames_and_project_names.sql': '7afddbde67bc6c0e772baa8c1913efbb1729f702d3111a8d5f376183d3240314',
-      '0045_public_projects_and_copies.sql': 'dc924375bcf203da8aa8cea53ebd8e76c8c50dffd784b4efdb5bf42793a87929',
+      '0045_public_projects_and_copies.sql': '3d13ba3566414a00adad5cdf8a2817e11cd25ec861a0dcc5dc8bd0dc5c8f76d0',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

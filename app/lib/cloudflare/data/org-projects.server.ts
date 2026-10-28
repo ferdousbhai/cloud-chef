@@ -24,7 +24,7 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
-export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy';
+export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push';
 
 export type Project = {
   id: string;
