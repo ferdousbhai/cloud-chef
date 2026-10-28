@@ -114,3 +114,35 @@ describe('a new conversation in a chat', () => {
     expect(deploy).not.toHaveBeenCalled();
   });
 });
+
+describe('an app a team adopted as one of its projects', () => {
+  it('is kept to read once an admin approves it as a draft: nothing here changes or publishes its repository', async () => {
+    const harness = await conversationAgentHarness({ newWorkspace: memoryWorkspace, cloudflareIdentity: true });
+    Object.assign(harness.env, { CLOUDCHEF_SHARED_ACCOUNT: '1' });
+    let adoptedBy: string | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).endsWith('/runtime-projects/adoption')
+        ? Response.json({ orgProjectId: adoptedBy })
+        : new Response('unavailable', { status: 503 }),
+    );
+
+    await harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [WRITE] });
+    adoptedBy = 'team-project';
+
+    // Restoring a version would commit this workspace over what the team has done since.
+    const refused = harness.agent.revertToCommit('a'.repeat(40));
+    await expect(refused).rejects.toMatchObject({ status: 409 });
+    expect(await refused.catch((error: Response) => error.text())).toBe(
+      'This app is now one of your team’s projects. Open it from Team projects to keep working on it.',
+    );
+    expect(harness.database.prepare('SELECT adopted_by_org_project_id FROM workspaces').get()).toEqual({
+      adopted_by_org_project_id: 'team-project',
+    });
+    await expect(
+      harness.agent.applyWorkspaceClientChanges({ baseRevision: 4, changes: [WRITE] }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(harness.agent.deployValidatedRevision()).rejects.toMatchObject({ status: 409 });
+    await harness.agent.prepareWorkspace();
+    expect(harness.agent.state).toMatchObject({ conversationClosed: true, conversationAdopted: true });
+  });
+});

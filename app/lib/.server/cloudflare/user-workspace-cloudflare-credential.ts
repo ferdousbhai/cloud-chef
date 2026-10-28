@@ -259,6 +259,7 @@ type RuntimeRoute =
   | 'runtime-projects/register-import'
   | 'runtime-projects/register-upload'
   | 'runtime-projects/sync-apps'
+  | 'runtime-projects/adoption'
   | 'runtime-projects/status'
   | 'runtime-projects/site'
   | 'runtime-projects/request-production'

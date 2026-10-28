@@ -7,11 +7,11 @@ import {
   type RefUpdate,
   workspaceRefsPrefix,
 } from '../../app/lib/.server/cloudflare/git-proxy';
+import { appGitRefusal } from '../../app/lib/.server/cloudflare/app-git-access';
 import { commitAuthor, openProject, ProjectAccessError } from '../../app/lib/.server/cloudflare/linked-project-client';
 import { nativeProjectRepo, ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type { ProjectWorkspace } from './index';
 import type { ProjectBuilder } from './project-builder';
-import { confirmUserWorkspaceAccess } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 
 type GitProxyEnv = Pick<
   Env,
@@ -24,6 +24,7 @@ type GitProxyEnv = Pick<
   | 'CLOUDCHEF_CONNECTION_ID'
   | 'CLOUDCHEF_CONNECTION_GENERATION'
   | 'CLOUDCHEF_USER_RUNTIME'
+  | 'CLOUDCHEF_SHARED_ACCOUNT'
 > & {
   PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspace>;
   PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilder>;
@@ -41,7 +42,7 @@ async function gitRefusal(
     return 'This workspace is not connected to CloudChef.';
   }
   if (target.orgProjectId === null) {
-    return (await confirmUserWorkspaceAccess(env, identity)) ? null : 'You no longer have access to this workspace.';
+    return appGitRefusal(env, identity, target.repo);
   }
   try {
     const project = await openProject(env, identity, target.orgProjectId);

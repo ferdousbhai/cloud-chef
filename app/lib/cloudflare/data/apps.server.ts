@@ -51,21 +51,30 @@ function toApp(row: AppRow): App {
 
 /**
  * Brings the person's apps in one account up to date with what their runtime lists: new ones are added (private,
- * with a free address name), names and live addresses follow, and apps no longer there (deleted) are removed.
+ * with a free address name), names and live addresses follow, and apps no longer there (deleted) are removed. So is an
+ * app a team adopted as one of its projects (an admin approved it as a draft): its repository is the project's.
  */
 export async function syncApps(
   db: D1Database,
   args: { userId: string; connectionId: string; apps: { id: string; name: string; siteUrl: string | null }[] },
 ): Promise<void> {
   const now = Date.now();
-  const { results } = await db
-    .prepare('SELECT id FROM apps WHERE user_id = ? AND connection_id = ?')
-    .bind(args.userId, args.connectionId)
-    .all<{ id: string }>();
+  const [{ results }, { results: projectRepos }] = await Promise.all([
+    db
+      .prepare('SELECT id FROM apps WHERE user_id = ? AND connection_id = ?')
+      .bind(args.userId, args.connectionId)
+      .all<{ id: string }>(),
+    db
+      .prepare('SELECT artifact_repo FROM org_projects WHERE connection_id = ? AND artifact_repo IS NOT NULL')
+      .bind(args.connectionId)
+      .all<{ artifact_repo: string }>(),
+  ]);
+  const adopted = new Set(projectRepos.map((row) => row.artifact_repo));
+  const apps = args.apps.filter((app) => !adopted.has(nativeProjectRepo(app.id)));
   const known = new Set(results.map((row) => row.id));
-  const listed = new Set(args.apps.map((app) => app.id));
+  const listed = new Set(apps.map((app) => app.id));
   const statements: D1PreparedStatement[] = [];
-  for (const app of args.apps) {
+  for (const app of apps) {
     if (known.has(app.id)) {
       statements.push(
         db

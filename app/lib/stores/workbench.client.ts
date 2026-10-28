@@ -53,6 +53,8 @@ export class WorkbenchStore {
   linkedSite: WritableAtom<BuilderLinkedSite | null> = atom(null);
   /** A newer conversation in the chat continues the project: this one's files are shown to read only. */
   conversationClosed: WritableAtom<boolean> = atom(false);
+  /** A team adopted this app as one of its projects: it is closed for that reason, and changed from the project. */
+  conversationAdopted: WritableAtom<boolean> = atom(false);
   /** How the active workspace's files are reaching the browser, which the code view says while it has none. */
   workspaceFiles: WritableAtom<WorkspaceFilesStatus> = atom(CONNECTING_WORKSPACE_FILES);
 
@@ -141,6 +143,7 @@ export class WorkbenchStore {
     this.linkedProject.set(null);
     this.linkedSite.set(null);
     this.conversationClosed.set(false);
+    this.conversationAdopted.set(false);
     this.workspaceFiles.set(CONNECTING_WORKSPACE_FILES);
     this.currentView.set('code');
     this.showWorkbench.set(false);

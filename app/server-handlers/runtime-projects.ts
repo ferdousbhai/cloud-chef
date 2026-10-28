@@ -18,6 +18,7 @@ import {
   abandonImport,
   addUploadedProject,
   findAccessibleProject,
+  findProjectOfRepository,
   findReadableProject,
   listGitHubInstallations,
   recordImportedRepo,
@@ -32,6 +33,7 @@ import { registerGitHubImport } from './projects';
 import { syncApps } from '~/lib/cloudflare/data/apps.server';
 import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { answeringOrganizationErrors } from './signed-in';
+import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
 /**
@@ -320,6 +322,25 @@ export async function runtimeSyncAppsAction(args: { request: Request; env: Env }
   return json({ synced: body.apps.length }, 200);
 }
 
+const adoptionSchema = z.strictObject({ repo: REPO });
+
+/**
+ * `runtime-projects/adoption`: the team project an app's repository became (an admin approved it as a draft), or
+ * null while it is still only the app's. Its runtime then keeps the app to read: the repository is the project's.
+ */
+export async function runtimeAdoptionAction(args: { request: Request; env: Env }): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, adoptionSchema, {
+    maxBytes: MAX_REQUEST_BYTES,
+    label: 'Workspace runtime app adoption',
+    invalid: INVALID_REQUEST,
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const project = await findProjectOfRepository(args.env.DB, authenticated.connection.id, authenticated.body.repo);
+  return json({ orgProjectId: project?.id ?? null }, 200);
+}
+
 export async function runtimeRegisterUploadAction(args: { request: Request; env: Env }): Promise<Response> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, registerUploadSchema, {
     maxBytes: MAX_REQUEST_BYTES,
@@ -580,6 +601,11 @@ export async function runtimeRequestProductionAction(args: { request: Request; e
   const { draftId, repo } = authenticated.body;
   if (repo !== nativeProjectRepo(draftId)) {
     return json({ error: "That isn't this draft." }, 400);
+  }
+  // Once approved, the draft's repository is the team project's: sent again, it would commit the draft over what
+  // the team has done since (and give its sender back the edit role an admin may have taken away).
+  if (await findProjectOfRepository(args.env.DB, authenticated.connection.id, repo)) {
+    return json({ error: ADOPTED_APP_MESSAGE }, 409);
   }
   return sendProductionRequest(
     args.env.DB,

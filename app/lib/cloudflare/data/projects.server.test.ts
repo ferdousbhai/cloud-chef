@@ -496,4 +496,36 @@ describe('copying an app into a new app of this person', () => {
 
     expect((await ask('99999999-9999-4999-8999-999999999999')).status).toBe(404);
   });
+
+  it('gives none for a team’s draft an admin approved, whose repository is the team project’s now', async () => {
+    const { env, store, commit } = await setup();
+    await commit(`p-${CHAT}`, 'draft', 'Draft');
+    const teamEnv = { ...env, CLOUDCHEF_SHARED_ACCOUNT: '1' };
+    let adoptedBy: string | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).endsWith('runtime-projects/adoption')
+        ? Response.json({ orgProjectId: adoptedBy })
+        : new Response('unavailable', { status: 503 }),
+    );
+    const ask = () =>
+      userRuntimeAppReadAccessAction(
+        {
+          request: new Request('https://runtime.test/v1/apps/read-access', {
+            method: 'POST',
+            body: JSON.stringify({ appId: CHAT }),
+          }),
+          env: teamEnv,
+          userId: OWNER,
+        },
+        store,
+      );
+
+    expect((await ask()).status).toBe(200);
+    adoptedBy = TEAM_PROJECT;
+    const refused = await ask();
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      error: 'This app is now one of your team’s projects. Open it from Team projects to keep working on it.',
+    });
+  });
 });

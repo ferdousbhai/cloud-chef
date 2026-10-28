@@ -46,6 +46,36 @@ describe('apps CloudChef knows', () => {
     ]);
   });
 
+  it('leave out an app a team adopted as one of its projects, which can then be neither public nor copied', async () => {
+    const { database, db } = setup();
+    await syncApps(db, {
+      userId: 'ada',
+      connectionId: 'ada-own',
+      apps: [
+        { id: GARDEN, name: 'Garden', siteUrl: null },
+        { id: RECIPES, name: 'Recipes', siteUrl: null },
+      ],
+    });
+    // An admin approved the Recipes draft: its repository is a project's now.
+    database.exec(`
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by, created_at)
+        VALUES ('adopted', 'ada-own', 'Recipes', 'recipes-project', 'p-${RECIPES}', 'draft', 'ada', 2);
+    `);
+
+    await syncApps(db, {
+      userId: 'ada',
+      connectionId: 'ada-own',
+      apps: [
+        { id: GARDEN, name: 'Garden', siteUrl: null },
+        { id: RECIPES, name: 'Recipes', siteUrl: null },
+      ],
+    });
+
+    expect((await listAppsOf(db, 'ada', 'ada-own')).map((app) => app.id)).toEqual([GARDEN]);
+    expect(await findReadableApp(db, { id: RECIPES }, 'ada')).toBeNull();
+    expect(await setAppVisibility(db, { userId: 'ada', appId: RECIPES, visibility: 'public' })).toBe(false);
+  });
+
   it('are read by their owner, and by anyone else only once public, which only the owner decides', async () => {
     const { db } = setup();
     await syncApps(db, {

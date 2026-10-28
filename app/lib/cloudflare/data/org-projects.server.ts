@@ -198,6 +198,25 @@ const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, p
   projects.created_by, projects.created_at,
   (SELECT username FROM "user" WHERE "user".id = projects.created_by) AS owner_username`;
 
+/**
+ * The project of an account whose repository `repo` is, if any: an app's own repository is one once an admin
+ * approved the app as a draft, which adopts the repository as it is.
+ */
+export async function findProjectOfRepository(
+  db: D1Database,
+  connectionId: string,
+  repo: string,
+): Promise<Project | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
+       WHERE projects.connection_id = ? AND projects.artifact_repo = ?`,
+    )
+    .bind(connectionId, repo)
+    .first<ProjectRow>();
+  return row ? toProject(row) : null;
+}
+
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
   const [{ results: projects }, { results: access }] = await Promise.all([
@@ -800,6 +819,11 @@ export async function approveProductionRequest(
          ON CONFLICT(project_id, user_id) DO UPDATE SET role = 'edit'`,
       )
       .bind(args.requestId, now, args.orgId, args.actorId),
+    // The draft's repository is the project's now, so the drafter's app of it goes: it can't be made public, copied
+    // or reached from the command line as theirs. Their runtime keeps the app's chat to read (`runtime-projects/adoption`).
+    db
+      .prepare(`DELETE FROM apps WHERE connection_id = ${connection} AND repo = ${request} AND ${approvedNow}`)
+      .bind(args.requestId, now, args.orgId),
     db
       .prepare(
         `UPDATE production_requests SET project_id = ${repositoryProject}

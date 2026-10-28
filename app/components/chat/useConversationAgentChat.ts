@@ -178,6 +178,7 @@ export function useConversationAgentChat(args: {
         workbenchStore.linkedSite.set(site);
       }
       workbenchStore.conversationClosed.set(state.conversationClosed === true);
+      workbenchStore.conversationAdopted.set(state.conversationAdopted === true);
       const generatedTitle = state.generatedSubchatTitle;
       if (!generatedTitle || generatedSubchatTitleUpdatedAtRef.current === generatedTitle.updatedAt) {
         return;

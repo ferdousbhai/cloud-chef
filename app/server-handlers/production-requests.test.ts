@@ -4,7 +4,7 @@ import { ORG, ORIGIN, teamFixture, type Body } from '~/test/project-fixture';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
 import { approveProductionRequestAction, declineProductionRequestAction, listMyProjectsAction } from './projects';
 import { listOrganizationsAction } from './organizations';
-import { runtimeRequestProductionAction } from './runtime-projects';
+import { runtimeAdoptionAction, runtimeRequestProductionAction } from './runtime-projects';
 
 const COMMIT = 'c'.repeat(40);
 const DRAFT = {
@@ -171,19 +171,37 @@ describe('production requests', () => {
     });
   });
 
-  it('approves a draft sent again after its approval into the project it already is', async () => {
-    const { database, send, approve, admin } = await setup();
+  it('stops an approved draft being the drafter’s app: it is no longer listed as theirs, nor sent again', async () => {
+    const { database, env, runtime, send, approve, admin, sara } = await setup();
+    database
+      .prepare(
+        `INSERT INTO apps (id, user_id, connection_id, repo, name, slug, visibility, created_at, updated_at)
+         VALUES ('recipe-chat', ?, 'team-connection', 'p-recipe-chat', 'Recipe box', 'recipe-box', 'public', 1, 1)`,
+      )
+      .run(sara.userId);
     const first = sentSchema.parse(await (await send(DRAFT)).json());
+    const adoptedBy = async () =>
+      (
+        await runtimeAdoptionAction({
+          request: await runtime('/api/cloudflare/runtime-projects/adoption', { repo: 'p-recipe-chat' }),
+          env,
+        })
+      ).json();
+    expect(await adoptedBy()).toEqual({ orgProjectId: null });
     const { projectId } = z
       .object({ projectId: z.string() })
       .parse(await (await approve(admin.cookie, first.requestId)).json());
-    const again = sentSchema.parse(await (await send({ ...DRAFT, draftRevision: 'rev-2' })).json());
-    expect(again.requestId).not.toBe(first.requestId);
-    const approved = z
-      .object({ projectId: z.string() })
-      .parse(await (await approve(admin.cookie, again.requestId)).json());
-    expect(approved.projectId).toBe(projectId);
-    expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects').get()).toEqual({ n: 1 });
+
+    // The drafter's workspace learns it is the team project now, and keeps the app's chat to read.
+    expect(await adoptedBy()).toEqual({ orgProjectId: projectId });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM apps').get()).toEqual({ n: 0 });
+    // Sent again, the draft's workspace would be committed over what the team has done since.
+    const again = await send({ ...DRAFT, draftRevision: 'rev-2' });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({
+      error: 'This app is now one of your team’s projects. Open it from Team projects to keep working on it.',
+    });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM production_requests').get()).toEqual({ n: 1 });
   });
 
   it('lets only an admin decline, once, and declines the requests of someone who leaves', async () => {
