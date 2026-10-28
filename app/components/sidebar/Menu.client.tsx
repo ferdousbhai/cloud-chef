@@ -28,18 +28,18 @@ const menuVariants = {
   closed: {
     opacity: 0,
     visibility: 'hidden',
-    left: '-340px',
+    x: '-100%',
     transition: {
-      duration: 0.2,
+      duration: 0.5,
       ease: cubicEasingFn,
     },
   },
   open: {
     opacity: 1,
     visibility: 'initial',
-    left: 0,
+    x: 0,
     transition: {
-      duration: 0.2,
+      duration: 0.5,
       ease: cubicEasingFn,
     },
   },
@@ -161,7 +161,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
       variants={menuVariants}
       style={{ width: 'min(320px, calc(100dvw - 24px))' }}
       className={classNames(
-        'side-menu fixed top-0 flex h-full max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-r-lg',
+        'side-menu fixed left-0 top-0 flex h-full max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-r-lg',
         'bg-[var(--bolt-elements-sidebar-background)] border-r border-border-transparent',
         'shadow-panel text-sm',
         'z-30',
@@ -207,7 +207,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             onNavigate={onClose}
           />
           <div className="flex items-baseline justify-between gap-3 px-1 pb-2 pt-1">
-            <h2 className="text-xs font-black tracking-widest text-content-secondary uppercase">Projects</h2>
+            <h2 className="text-xs font-bold tracking-widest text-content-secondary uppercase">Projects</h2>
             <span className="text-xs tabular-nums text-content-tertiary">
               {list.length} {list.length === 1 ? 'project' : 'projects'}
             </span>
@@ -239,7 +239,7 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
           )}
           {binDates(filteredList).map(({ category, items }) => (
             <section key={category} aria-label={category} className="mt-4 space-y-2 first:mt-0">
-              <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--bolt-elements-sidebar-background)] px-1 py-1.5 text-[11px] font-bold tracking-[0.06em] text-content-tertiary uppercase">
+              <div className="sticky top-0 z-10 flex items-center gap-2 bg-[var(--bolt-elements-sidebar-background)] px-1 py-1.5 text-xs font-bold tracking-wider text-content-tertiary uppercase">
                 <span>{category}</span>
                 <span aria-hidden className="h-px flex-1 bg-border-transparent" />
               </div>

@@ -4,7 +4,7 @@
     --workbench-left: 0;
 
     .Chat {
-      transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+      transition-timing-function: var(--cc-ease);
       transition-property: transform, opacity;
       transition-duration: 0.3s;
       will-change: transform, opacity;
@@ -86,7 +86,7 @@
 }
 
 .Message {
-  animation: message-enter 220ms ease-out both;
+  animation: message-enter var(--cc-duration-fade) var(--cc-ease) both;
 }
 
 .UserMessage {

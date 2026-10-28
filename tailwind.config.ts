@@ -182,6 +182,15 @@ export default {
       maxWidth: {
         chat: 'var(--chat-max-width)',
       },
+      // Bare `transition`, `transition-colors` and friends take these, so every
+      // utility lands on the one motion curve in variables.css.
+      transitionTimingFunction: {
+        DEFAULT: 'var(--cc-ease)',
+        base: 'var(--cc-ease)',
+      },
+      transitionDuration: {
+        DEFAULT: 'var(--cc-duration-fade)',
+      },
     },
   },
   plugins: [scrollbar],

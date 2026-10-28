@@ -9,7 +9,7 @@ import { queryClient } from '~/lib/stores/reactQueryClient';
 import { THEME_KEY, themeStore } from '~/lib/stores/theme';
 import { stripIndents } from 'cloudchef-agent/utils/stripIndent';
 import globalStyles from '~/styles/index.css?url';
-import latinMonoFont from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
+import latinMonoFont from '@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2?url';
 
 type RootSearch = {
   prefill?: string;
@@ -193,9 +193,7 @@ function RootErrorComponent({ error, reset }: { error: unknown; reset: () => voi
   }, [error]);
 
   if (typeof window !== 'undefined' && isDynamicImportError(error) && !hasRecoveredDynamicImportForCurrentBuild()) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-content-secondary">Refreshing…</div>
-    );
+    return <div className="flex min-h-dvh items-center justify-center text-sm text-content-secondary">Refreshing…</div>;
   }
 
   return <ErrorDisplay error={error} resetErrorBoundary={reset} />;

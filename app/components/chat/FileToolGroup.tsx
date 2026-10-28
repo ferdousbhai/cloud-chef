@@ -82,7 +82,7 @@ export const FileToolGroup = memo(function FileToolGroup({
       onToggle={() => setShowAll((visible) => !visible)}
       header={
         <div className="flex items-center gap-1.5">
-          <div className="flex w-full items-center gap-1.5 text-[13px] font-medium leading-4 text-content-primary">
+          <div className="flex w-full items-center gap-1.5 text-xs font-medium text-content-primary">
             <FileIcon className="shrink-0 text-content-secondary" />
             <span className="truncate">{describeFileGroup(invocations)}</span>
           </div>

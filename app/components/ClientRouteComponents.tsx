@@ -85,7 +85,7 @@ function HeaderLoadingFallback() {
       <BrandLink
         variant="header"
         className="flex items-center gap-2 rounded-md text-content-primary no-underline"
-        nameClassName="cloudchef-brand-name font-display text-lg font-black leading-none text-content-primary"
+        nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
       />
       <span className="sr-only" role="status">
         Loading navigation…

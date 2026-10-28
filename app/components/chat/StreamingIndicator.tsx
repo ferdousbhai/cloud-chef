@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { cubicEasingFn } from '~/utils/easings';
 import { isStreamStatusActive, type StreamStatus } from '~/lib/common/types';
 import { useStore } from '@nanostores/react';
 import { chatStore } from '~/lib/stores/chatId';
@@ -88,7 +89,7 @@ export default function StreamingIndicator(props: StreamingIndicatorProps) {
       initial={{ translateY: '100%' }}
       animate={{ translateY: '0%' }}
       exit={{ translateY: '100%' }}
-      transition={{ duration: 0.15 }}
+      transition={{ duration: 0.5, ease: cubicEasingFn }}
     >
       <div
         data-streaming-indicator-stream-status={streamStatus}

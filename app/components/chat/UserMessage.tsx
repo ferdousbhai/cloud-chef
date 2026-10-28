@@ -3,7 +3,7 @@ import { Markdown } from './Markdown';
 
 export const UserMessage = memo(function UserMessage({ content }: { content: string }) {
   return (
-    <div className="overflow-hidden text-[13px] leading-6">
+    <div className="overflow-hidden text-sm">
       <Markdown>{content}</Markdown>
     </div>
   );

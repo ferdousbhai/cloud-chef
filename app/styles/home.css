@@ -76,10 +76,11 @@ html.light {
 .cloudchef-home-title {
   max-width: 780px;
   color: var(--cloudchef-home-ink);
-  font-size: clamp(24px, 2.8vw, 32px);
+  font-size: 30px;
   font-weight: 700;
-  line-height: 1.24;
+  line-height: 36px;
   letter-spacing: -0.015em;
+  text-wrap: balance;
 }
 
 .cloudchef-home-composer-stack {
@@ -116,7 +117,7 @@ html.light {
 .cloudchef-message-input--home textarea {
   color: var(--cloudchef-home-ink);
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 20px;
 }
 
 .cloudchef-message-input--home textarea::placeholder {
@@ -140,8 +141,8 @@ html.light {
   }
 
   .cloudchef-home-title {
-    font-size: clamp(21px, 5.4vw, 28px);
-    line-height: 1.3;
+    font-size: 24px;
+    line-height: 32px;
   }
 }
 
@@ -153,6 +154,7 @@ html.light {
 
   .cloudchef-home-title {
     font-size: 20px;
+    line-height: 28px;
   }
 }
 
@@ -163,9 +165,8 @@ html.light {
   justify-content: space-between;
   gap: 4px 16px;
   color: var(--cc-content-secondary);
-  font-family: system-ui, sans-serif;
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 16px;
 }
 
 .cloudchef-connect-note p {

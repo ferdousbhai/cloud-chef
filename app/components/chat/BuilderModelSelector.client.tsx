@@ -190,7 +190,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
             </span>
           )}
           <ChevronDownIcon
-            className="ml-auto size-3.5 shrink-0 transition-transform duration-200 group-data-[state=open]:rotate-180"
+            className="ml-auto size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-180"
             aria-hidden="true"
           />
         </button>
@@ -362,7 +362,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
             <div className="mt-1.5 border-t border-bolt-elements-borderColor px-1 pb-0.5 pt-2">
               <DropdownMenu.Label
                 id="builder-reasoning-effort-label"
-                className="px-1 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-content-tertiary"
+                className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-widest text-content-tertiary"
               >
                 Reasoning effort · {model.label}
               </DropdownMenu.Label>
@@ -431,7 +431,7 @@ function EffortItem({
       disabled={disabled}
       // Choosing an effort keeps the menu open, so the model list below stays in reach.
       onSelect={(event) => event.preventDefault()}
-      className="inline-flex min-h-8 cursor-pointer select-none items-center rounded-full border border-bolt-elements-borderColor px-2 text-[11px] font-medium text-content-secondary outline-none transition-colors data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500 data-[state=checked]:bg-accent-500/10 data-[state=checked]:text-content-accent"
+      className="inline-flex min-h-8 cursor-pointer select-none items-center rounded-full border border-bolt-elements-borderColor px-2 text-xs font-medium text-content-secondary outline-none transition-colors data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50 data-[highlighted]:bg-bolt-elements-background-depth-2 data-[state=checked]:border-accent-500 data-[state=checked]:bg-accent-500/10 data-[state=checked]:text-content-accent"
     >
       {label}
     </DropdownMenu.RadioItem>
@@ -451,7 +451,7 @@ function ProviderMark({ provider }: { provider: BuilderProvider }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-[4px] bg-bolt-elements-background-depth-3 px-1 text-[9px] font-semibold leading-none text-content-secondary"
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-sm bg-bolt-elements-background-depth-3 px-1 text-xs font-semibold leading-none text-content-secondary"
     >
       {provider === 'workers' ? 'CF' : GATEWAY_PROVIDERS[provider].mark}
     </span>
@@ -508,17 +508,17 @@ function ModelItem({
           {showProvider && <ProviderMark provider={builderProviderFor(model)} />}
           <span className="break-words text-sm font-semibold text-content-primary">{model.label}</span>
           {model.id === defaultModelId && (
-            <span className="shrink-0 rounded border border-accent-500/30 bg-accent-500/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-content-accent">
+            <span className="shrink-0 rounded border border-accent-500/30 bg-accent-500/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-content-accent">
               Default
             </span>
           )}
           {newModelIds.has(model.id) && (
-            <span className="shrink-0 rounded border border-util-success/30 bg-util-success/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-content-success">
+            <span className="shrink-0 rounded border border-util-success/30 bg-util-success/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-content-success">
               New
             </span>
           )}
           {model.requiresPaid && (
-            <span className="shrink-0 rounded border border-util-warning/30 bg-util-warning/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-content-warning">
+            <span className="shrink-0 rounded border border-util-warning/30 bg-util-warning/10 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wider text-content-warning">
               Paid
             </span>
           )}

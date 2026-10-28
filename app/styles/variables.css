@@ -187,11 +187,17 @@ html.dark {
   /* Retro chrome primitives. Square-ish corners and a stacked drop shadow
      stand in for the soft blurred surfaces the previous theme used. */
   --cc-font-mono:
-    'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+    'Geist Mono Variable', 'Geist Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
   --cc-radius-sm: 4px;
   --cc-radius: 6px;
   --cc-radius-lg: 8px;
   --cc-tracking-label: 0.12em;
+  /* One motion curve for the whole app: decelerates into place. Colour and
+     opacity take --cc-duration-fade, anything that moves takes
+     --cc-duration-move. */
+  --cc-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --cc-duration-fade: 300ms;
+  --cc-duration-move: 500ms;
   /* Three layers, not six: at -12px spread and tighter the shadow rect is
      inside the border box, so the extra blurs rasterise under an opaque
      element. This renders identically for half the blur work. */

@@ -25,7 +25,7 @@ const contextMenuVariants = {
     y: 0,
     opacity: 1,
     transition: {
-      duration: 0.15,
+      duration: 0.3,
       ease: cubicEasingFn,
     },
   },
@@ -33,7 +33,7 @@ const contextMenuVariants = {
     y: 6,
     opacity: 0,
     transition: {
-      duration: 0.15,
+      duration: 0.3,
       ease: cubicEasingFn,
     },
   },

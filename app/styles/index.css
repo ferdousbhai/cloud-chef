@@ -38,6 +38,6 @@ html.dark {
 
 @layer utilities {
   .bolt-ease-cubic-bezier {
-    @apply ease-[cubic-bezier(0.4,0,0.2,1)];
+    transition-timing-function: var(--cc-ease);
   }
 }
