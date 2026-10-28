@@ -136,6 +136,7 @@ const migrationPolicies = [
       '0018_clone_tokens.sql': '069a24c5d65f112fe1fe7f10d90019daea73b14b870e4ecb7a47cde381f1831d',
       '0019_workspaces_and_conversations.sql': 'b3b45dd9e17b720ff2e9fb3d8a474c887521def321066eb7453808dc93ec155a',
       '0020_adopted_drafts.sql': '28c05df25fcfa771f969bc66896afab8ed2d1683e99bb3ee2b52816e9e01fbf8',
+      '0021_drop_clone_tokens.sql': '44a4e7fa605feb3bf838527b5404dbf97845fb0e6fc011ec8635ad958fc05104',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -156,6 +157,8 @@ const migrationPolicies = [
       // Tables and columns renamed to workspaces and conversations, shipped with the runtime that names them so;
       // the archive-and-continue columns no runtime reads since one workspace holds all its conversations.
       '0019_workspaces_and_conversations.sql',
+      // Clone tokens, recorded by no runtime since the release before, which revoked every one still recorded.
+      '0021_drop_clone_tokens.sql',
     ],
   },
   {

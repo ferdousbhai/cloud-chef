@@ -5,7 +5,6 @@ import { describe, expect, test } from 'vitest';
 const workloadTables = [
   'agent_gc_candidates',
   'app_resource_gc_candidates',
-  'clone_tokens',
   'conversations',
   'deployment_activity',
   'deployment_resources',
