@@ -513,7 +513,9 @@ export async function commandLineCreateProjectAction({
   if ('refusal' in runtime) {
     return Response.json({ error: runtime.refusal }, { status: runtime.status });
   }
-  const target = new URL('/v1/projects/upload', runtime.endpoint);
+  // `empty=1`: no code yet; the person pushes their own history next (`cloudchef repo create --push`).
+  const empty = url.searchParams.get('empty') === '1';
+  const target = new URL(empty ? '/v1/projects/create-empty' : '/v1/projects/upload', runtime.endpoint);
   target.searchParams.set('name', name);
   const answer = await fetch(target, {
     method: 'POST',
@@ -522,7 +524,7 @@ export async function commandLineCreateProjectAction({
       origin: publicOrigin(request),
       'content-type': request.headers.get('content-type') ?? 'application/zip',
     },
-    body: request.body,
+    body: empty ? null : request.body,
   });
   const created = z.object({ projectId: z.string() }).safeParse(
     await answer

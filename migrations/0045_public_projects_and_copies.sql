@@ -36,8 +36,9 @@ CREATE TABLE org_projects_next (
   site_frameable INTEGER,
   default_branch TEXT NOT NULL DEFAULT 'main',
   -- What the project was made from: 'github' (an import), 'zip' (an upload), 'draft' (a team member's draft an
-  -- admin approved), or 'copy' (a copy of another project, named in `copied_from`).
-  created_from TEXT CHECK (created_from IN ('github', 'zip', 'draft', 'copy')),
+  -- admin approved), 'copy' (a copy of another project, named in `copied_from`), or 'push' (made empty from the
+  -- command line, its history pushed from the person's own computer).
+  created_from TEXT CHECK (created_from IN ('github', 'zip', 'draft', 'copy', 'push')),
   copied_from TEXT REFERENCES org_projects(id) ON DELETE SET NULL,
   visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'public')),
   deploys_with TEXT NOT NULL DEFAULT 'workers_builds' CHECK (deploys_with IN ('workers_builds', 'cloudchef')),

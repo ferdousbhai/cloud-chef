@@ -24,7 +24,7 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
-export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy';
+export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push';
 
 export type Project = {
   id: string;
@@ -292,11 +292,17 @@ function projectSlug(name: string): string {
   );
 }
 
-/** The address name for a new project of `authorId` called `name`: its slug, or with -2, -3… when that is theirs. */
-async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
+/**
+ * The address name for a new project or app of `authorId` called `name`: its slug, or with -2, -3… when one of
+ * their projects or apps has it.
+ */
+export async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
   const slug = projectSlug(name);
   const { results } = await db
-    .prepare(`SELECT slug FROM org_projects WHERE created_by = ? AND (slug = ?2 OR slug LIKE ?2 || '-%')`)
+    .prepare(
+      `SELECT slug FROM org_projects WHERE created_by = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')
+       UNION SELECT slug FROM apps WHERE user_id = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')`,
+    )
     .bind(authorId, slug)
     .all<{ slug: string }>();
   const taken = new Set(results.map((row) => row.slug));
@@ -378,7 +384,7 @@ export async function setProjectVisibility(
 }
 
 /** The project `<username>/<slug>` with `userId`'s role on it, if they may view or edit it now. */
-export async function findAccessibleProjectByFullName(
+async function findAccessibleProjectByFullName(
   db: D1Database,
   fullName: { owner: string; slug: string },
   userId: string,
@@ -447,8 +453,9 @@ export async function addUploadedProject(
     projectId: string;
     name: string;
     repo: string;
-    /** For a copy, the project it copies; null for an upload. */
+    /** For a copy, the project it copies; null otherwise. */
     copiedFrom: string | null;
+    createdFrom: Extract<ProjectCreatedFrom, 'zip' | 'copy' | 'push'>;
   },
 ): Promise<void> {
   const inserted = await db
@@ -465,7 +472,7 @@ export async function addUploadedProject(
       args.name,
       await freeSlug(db, args.actorId, args.name),
       args.repo,
-      args.copiedFrom ? 'copy' : 'zip',
+      args.createdFrom,
       args.copiedFrom,
       args.actorId,
       Date.now(),

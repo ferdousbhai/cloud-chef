@@ -67,6 +67,7 @@ import {
   userRuntimeProjectDeployLogAction,
   userRuntimeProjectDeployRetryAction,
   userRuntimeProjectCopyAction,
+  userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
 } from '../../app/lib/cloudflare/data/projects.server';
 import { findChat } from '../../app/lib/cloudflare/data/chat-repository.server';
@@ -83,6 +84,7 @@ import {
 import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
 import { applyAtomicWorkspaceChanges, isMissingPath, type AtomicWorkspaceChange } from './atomic-workspace-changes';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
+import { terminalCommand, terminalEnvironment } from './workspace-terminal';
 import { matchDeploymentRoute } from './deployment-route';
 import {
   enumerateProjectFiles,
@@ -1157,8 +1159,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   /**
    * The workspace's shell for the person to work in themselves (their own tools, such as a coding agent), in the
    * project folder of the same container the agent uses. One per container, kept between visits: a reloaded page
-   * reattaches to it, and a new container starts a new one. Its home is the container's own disk, since everything
-   * under /home is saved with the project.
+   * reattaches to it, and a new container starts a new one, in the same folder with the same kept home.
    */
   async openTerminal(size: TerminalSize): ReturnType<ProjectWorkspace['createTerminal']> {
     await this.withComputer(async () => undefined);
@@ -1167,9 +1168,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return (
       running ??
       this.createTerminal({
-        command: ['/bin/bash', '-l'],
+        command: terminalCommand(),
         cwd: PROJECT_ROOT,
-        env: { ...CONTAINER_TOOL_ENV, TERM: 'xterm-256color', HOME: '/root' },
+        env: terminalEnvironment(),
         ...size,
       })
     );
@@ -3125,6 +3126,8 @@ async function handleUserRequest(
     response = await userRuntimeProjectArchiveAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/upload') {
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/create-empty') {
+    response = await userRuntimeProjectCreateEmptyAction({ url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/read-access') {
     response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {

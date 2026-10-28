@@ -30,7 +30,7 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (url === '/api/auth/session') {
     const session: CloudflareAuthSession = {
       session: { id: 'session-1', userId: 'user-1', expiresAt: Date.now() + 86_400_000, createdAt: Date.now() },
-      user: { id: 'user-1', name: 'Ada', email: 'ada@example.com', image: null },
+      user: { id: 'user-1', name: 'Ada', email: 'ada@example.com', image: null, username: 'ada' },
       context,
       contexts: [context],
     };

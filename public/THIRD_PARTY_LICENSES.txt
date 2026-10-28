@@ -7,8 +7,8 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 726
-Inventory SHA-256: 5e547f521d93d77ef83444ee2ad4073b2f84a77fd681dd9d9deace30820135a8
+Production packages: 725
+Inventory SHA-256: a442ac2cd20fb285b9fac04f7b1be3bf1fca4acc6e61ea55d374bda6dba05be4
 
 PACKAGE INVENTORY
 =================
@@ -5274,15 +5274,6 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 3fe8d55a98dbf260eace67c00cf9bc53edb46234e840098a0b93df3096b97fb6)
-
-qs@6.16.0
-Declared license: BSD-3-Clause
-Author: <not published>
-Repository: {"type":"git","url":"https://github.com/ljharb/qs.git"}
-Homepage: https://github.com/ljharb/qs
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE.md (SHA-256 e7dc37bf662d7f786efcb46c545615e70c1daf458a38385521c63cf6607cdfe1)
 
 qs@6.16.1
 Declared license: BSD-3-Clause
@@ -23437,7 +23428,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 e7dc37bf662d7f786efcb46c545615e70c1daf458a38385521c63cf6607cdfe1
 Used by:
-- qs@6.16.0:LICENSE.md
 - qs@6.16.1:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 BSD 3-Clause License

@@ -12,6 +12,7 @@ import {
   projectHistory,
   userRuntimeProjectArchiveAction,
   userRuntimeProjectCopyAction,
+  userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectUploadAction,
   withRepositoryErrors,
 } from './projects.server';
@@ -399,5 +400,37 @@ describe('copying a project into this account', () => {
     expect((await copy(env, store)).status).toBe(409);
     const repo = refused.find((call) => call.route === 'runtime-projects/register-upload')?.body.repo ?? '';
     expect(await artifacts.get(repo).catch(() => null)).toBeFalsy();
+  });
+});
+
+describe('making an empty project for history pushed from the command line', () => {
+  it('makes its repository with no commits, keeps it as pushed, and opens a chat on it', async () => {
+    const { env, artifacts, database, store } = await setup();
+    const registered = z.object({ orgProjectId: z.string(), name: z.string(), repo: z.string(), pushed: z.boolean() });
+    const calls: { route: string; body: z.infer<typeof registered> }[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const route = url.slice(url.indexOf('/api/cloudflare/') + 16);
+      const body = registered.parse(JSON.parse(String(init?.body ?? '{}')));
+      calls.push({ route, body });
+      return Response.json({ projectId: body.orgProjectId }, { status: 201 });
+    });
+
+    const url = new URL('https://runtime.test/v1/projects/create-empty?name=Garden');
+    const response = await userRuntimeProjectCreateEmptyAction({ url, env, userId: OWNER }, store);
+
+    expect(response.status).toBe(201);
+    const result = z.object({ projectId: z.string(), initialId: z.string() }).parse(await response.json());
+    const repo = `t-${result.projectId}`;
+    expect(await artifacts.head(repo)).toBeFalsy();
+    expect(calls.find((call) => call.route === 'runtime-projects/register-upload')?.body).toEqual({
+      orgProjectId: result.projectId,
+      name: 'Garden',
+      repo,
+      pushed: true,
+    });
+    expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
+      org_project_id: result.projectId,
+    });
   });
 });
