@@ -21,8 +21,6 @@ import {
   importProject,
   listAccessibleProjects,
   recordWorkersBuildsScriptTag,
-  removeProject,
-  requireProjectScope,
   requireManagedProject,
   setProjectAccess,
   type Project,
@@ -38,8 +36,6 @@ import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.ser
  * imported from: a public repository by its address, a private one through CloudChef's GitHub App. The
  * first person to open an imported project imports it, in their workspace runtime.
  */
-const scopeFields = { orgId: z.string().uuid().optional() };
-const projectSchema = z.strictObject({ ...scopeFields, projectId: z.string().uuid() });
 const accessSchema = z.strictObject({
   orgId: z.string().uuid(),
   projectId: z.string().uuid(),
@@ -224,19 +220,6 @@ export async function registerGitHubImport(
   const name = request.name || source.fullName.split('/')[1];
   const projectId = await importProject(env.DB, { scope, actorId: args.actorId, name, source });
   return { projectId };
-}
-
-/** Removes a project from CloudChef; its Artifacts repository and Worker stay in the account. */
-export function removeProjectAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, projectSchema, 'Choose a project.');
-    if ('response' in body) {
-      return body.response;
-    }
-    const scope = await requireProjectScope(env.DB, session.user.id, body.data.orgId);
-    await removeProject(env.DB, { scope, projectId: body.data.projectId });
-    return new Response(null, { status: 204 });
-  });
 }
 
 /** Gives a team member a role on a project (view or edit), or (null) takes it away. */

@@ -8,7 +8,7 @@ import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { createOrganizationAction, listOrganizationsAction, updateMemberAction } from './organizations';
 import { completeGitHubInstallAction, disconnectGitHubAction, startGitHubInstallAction } from './github-projects';
-import { listMyProjectsAction, registerGitHubImport, removeProjectAction, setProjectAccessAction } from './projects';
+import { listMyProjectsAction, registerGitHubImport, setProjectAccessAction } from './projects';
 import { answeringOrganizationErrors } from './signed-in';
 import { requireProjectScope } from '~/lib/cloudflare/data/org-projects.server';
 
@@ -720,13 +720,5 @@ describe('projects', () => {
     expect(await myProjects(env, admin.cookie)).toEqual([]);
     // A team import needs one of its admins.
     expect((await importUrl('https://github.com/ada/blog', member, { orgId })).status).toBe(403);
-
-    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
-    const removed = await removeProjectAction({
-      request: post(member.cookie, '/api/organizations/projects/unlink', { projectId }),
-      env,
-    });
-    expect(removed.status).toBe(204);
-    expect(await myProjects(env, member.cookie)).toEqual([]);
   });
 });

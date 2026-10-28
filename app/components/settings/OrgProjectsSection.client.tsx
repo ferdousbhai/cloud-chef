@@ -10,6 +10,8 @@ import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDi
 import { IMPORT_RETURN_PARAM, isImportReturn } from '~/lib/github-app.client';
 import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
 import { openProjectWorkspace } from '~/lib/cloudflare/projects.client';
+import { deleteProject, loadDeletionPreview } from '~/lib/cloudflare/org-projects.client';
+import { DeleteProjectDialog } from '~/components/projects/DeleteProjectDialog.client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
 import { MoreMenu, StatusBadge } from './SettingsLayout';
@@ -175,12 +177,7 @@ function ProjectRow({
   onChanged: () => Promise<void>;
   onError: (message: string | null) => void;
 }) {
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const remove = () =>
-    void runRequest(async () => {
-      await postJson('/api/organizations/projects/unlink', { orgId, projectId: project.id }, noContentSchema);
-      await onChanged();
-    }, onError);
+  const [deleting, setDeleting] = useState(false);
   const source = projectSource(project);
   return (
     <li className="min-w-0 px-3 py-2">
@@ -208,32 +205,30 @@ function ProjectRow({
           />
           {project.createdFrom !== 'github' ? <WorkersBuildsInstruction /> : null}
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {confirmingRemove ? (
-              <>
-                <span className="mr-auto text-xs text-content-secondary">
-                  Its site and code stay in the Cloudflare account.
-                </span>
-                <Button size="xs" variant="subtle" onClick={() => setConfirmingRemove(false)}>
-                  Cancel
-                </Button>
-                <Button size="xs" variant="danger" aria-label={`Remove from team: ${project.name}`} onClick={remove}>
-                  Remove from team
-                </Button>
-              </>
-            ) : (
-              <Button
-                size="xs"
-                variant="subtle"
-                className="!text-content-error"
-                aria-label={`Remove ${project.name}`}
-                onClick={() => setConfirmingRemove(true)}
-              >
-                Remove
-              </Button>
-            )}
+            <Button
+              size="xs"
+              variant="subtle"
+              className="!text-content-error"
+              aria-label={`Delete ${project.name}`}
+              onClick={() => setDeleting(true)}
+            >
+              Delete
+            </Button>
           </div>
         </div>
       </details>
+      {deleting ? (
+        <DeleteProjectDialog
+          name={project.name}
+          preview={() => loadDeletionPreview(project.id)}
+          onDelete={() => deleteProject(project.id, project.name)}
+          onDeleted={() => {
+            setDeleting(false);
+            void onChanged();
+          }}
+          onClose={() => setDeleting(false)}
+        />
+      ) : null}
     </li>
   );
 }

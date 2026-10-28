@@ -83,7 +83,6 @@ import {
   listMyProjectsAction,
   PROJECT_WORKERS_BUILDS_SWITCH_ROUTE,
   projectRoute,
-  removeProjectAction,
   setProjectAccessAction,
   switchProjectWorkersBuildsAction,
 } from './server-handlers/projects';
@@ -188,7 +187,6 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/organizations/production-requests/approve': ['POST', approveProductionRequestAction],
     '/api/organizations/production-requests/decline': ['POST', declineProductionRequestAction],
     '/api/organizations/projects/access': ['POST', setProjectAccessAction],
-    '/api/organizations/projects/unlink': ['POST', removeProjectAction],
     [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
     '/api/cloudflare/runtime-projects/open': ['POST', runtimeOpenProjectAction],
     '/api/cloudflare/runtime-projects/imported': ['POST', runtimeProjectImportedAction],

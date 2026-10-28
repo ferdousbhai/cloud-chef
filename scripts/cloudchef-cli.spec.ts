@@ -300,6 +300,8 @@ class FakeCloudChef {
       response.writeHead(status, headers);
       response.end(output.subarray(split + 4));
     });
+    // git may answer and exit before reading all of a request it refuses; what it didn't read doesn't matter.
+    backend.stdin.on('error', () => undefined);
     backend.stdin.end(body);
   }
 }
