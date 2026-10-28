@@ -70,6 +70,7 @@ import {
   userRuntimeAppReadAccessAction,
   userRuntimeProjectCopyAction,
   userRuntimeDeleteProjectRepositoryAction,
+  userRuntimeRewriteMainAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
   userRuntimeRevokeReadAccessAction,
@@ -3178,6 +3179,8 @@ async function handleUserRequest(
     response = await userRuntimeRevokeReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/delete-repository') {
     response = await userRuntimeDeleteProjectRepositoryAction({ request, env: sharedEnv });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/rewrite-main') {
+    response = await userRuntimeRewriteMainAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {
     response = await userRuntimeProjectCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/deploy') {

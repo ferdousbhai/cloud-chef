@@ -66,6 +66,7 @@ const migrationPolicies = [
       '0048_drop_unused_request_storage.sql': '4f70f804b55f95534d9863579ce07c682c1c177d435270196c2570f432c47b0a',
       '0049_drop_connection_authorization_copies.sql':
         '6ce622590c9dc91b2871ed7eb244c73ca4d2dd94252c54947348df4446f40c42',
+      '0050_main_rewrites.sql': '3d88d56295630ab8a5fdfbc87e5f27d155353d9881d3397ab80bfa5bc030f2de',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

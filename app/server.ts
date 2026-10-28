@@ -22,6 +22,11 @@ import {
   commandLineVisibilityAction,
   commandLineCopyProjectAction,
 } from './server-handlers/command-line';
+import {
+  commandLineRewriteMainAction,
+  runtimeMainRewriteAction,
+  runtimeMainRewrittenAction,
+} from './server-handlers/main-rewrite';
 import handler from '@tanstack/react-start/server-entry';
 import { healthAction } from './server-handlers/health';
 import { versionAction } from './server-handlers/version';
@@ -205,6 +210,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/approvals/file': ['POST', runtimeFileApprovalAction],
     '/api/cloudflare/runtime-projects/approvals/outcome': ['POST', runtimeApprovalOutcomeAction],
     '/api/cloudflare/runtime-projects/deletable': ['POST', runtimeDeletableProjectAction],
+    '/api/cloudflare/runtime-projects/main-rewrite': ['POST', runtimeMainRewriteAction],
+    '/api/cloudflare/runtime-projects/main-rewritten': ['POST', runtimeMainRewrittenAction],
     '/api/approvals': ['GET', listApprovalsAction],
     '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
@@ -252,6 +259,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/apps': ['GET', listMyAppsAction],
     '/api/command-line/projects/visibility': ['POST', commandLineVisibilityAction],
     '/api/command-line/projects/copy': ['POST', commandLineCopyProjectAction],
+    '/api/command-line/projects/rewrite-main': ['POST', commandLineRewriteMainAction],
     '/api/command-line/login': ['POST', commandLineLoginAction],
     '/api/command-line/login/poll': ['POST', commandLineLoginPollAction],
     '/api/command-line/login/describe': ['GET', commandLineLoginDescribeAction],

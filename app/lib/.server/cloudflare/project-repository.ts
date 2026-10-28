@@ -466,6 +466,36 @@ export class ProjectRepositories {
     }
   }
 
+  /** The repository's refs by full name (`refs/heads/main`), as git reads them. */
+  async refs(repo: string): Promise<Map<string, string>> {
+    const remote = await this.#pushRemote(repo);
+    try {
+      return await readRemoteRefs(this.#fetch, remote);
+    } finally {
+      await this.#revokePushToken(repo, remote);
+    }
+  }
+
+  /**
+   * Points main at `to`, which the repository already holds, only from `from`: if main moved since `from` was read,
+   * the repository refuses it, and why is answered (null when main moved). `to` need not add to main's history.
+   */
+  async replaceMain(repo: string, update: { from: string; to: string }): Promise<string | null> {
+    const remote = await this.#pushRemote(repo);
+    try {
+      const pack = await packObjects(await objectStore(), []);
+      const result = await updateRemoteRef(
+        this.#fetch,
+        remote,
+        { ref: MAIN_REF, oldOid: update.from, newOid: update.to },
+        pack,
+      );
+      return result.ok ? null : result.reason;
+    } finally {
+      await this.#revokePushToken(repo, remote);
+    }
+  }
+
   /** Deletes every ref under `prefix/` (a deleted workspace's saved branches); a repository already gone has none. */
   async deleteRefs(repo: string, prefix: string): Promise<void> {
     if (!(await this.exists(repo))) {

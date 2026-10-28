@@ -58,6 +58,7 @@ const SERVED = [
   'git/proj-old.git',
   'maria/recipes.git',
   'sara/recipes.git',
+  'ferdous/broken.git',
 ];
 
 /** A JSON value, as the fake answers. */
@@ -84,6 +85,9 @@ class FakeCloudChef {
   reruns: string[] = [];
   visibilityChanges: string[] = [];
   copies: Record<string, string>[] = [];
+  rewrites: Record<string, string>[] = [];
+  /** What a rewrite of main answers instead of moving it, when set. */
+  rewriteRefusal: { status: number; error: string } | null = null;
   gitRoot: string;
 
   constructor(gitRoot: string) {
@@ -212,6 +216,28 @@ class FakeCloudChef {
       const name = copy.name ?? 'Recipes';
       const fullName = `sara/${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
       return json(201, { project: { id: 'proj-copy', name, fullName, gitUrl: `${this.host}/${fullName}.git` } });
+    }
+    if (route === 'POST /api/command-line/projects/rewrite-main') {
+      const rewrite = RequestBody.parse(JSON.parse(body.toString()));
+      this.rewrites.push(rewrite);
+      if (rewrite.project === 'proj-alpha-sara') {
+        return json(403, { error: 'Only the project’s owner, or one of its team’s admins, can rewrite its main.' });
+      }
+      if (this.rewriteRefusal) {
+        return json(this.rewriteRefusal.status, { error: this.rewriteRefusal.error });
+      }
+      // ferdous/broken's repository: main moves from the commit the command read, as CloudChef's does.
+      const served = join(this.gitRoot, 'ferdous/broken.git');
+      execFileSync('git', ['update-ref', 'refs/heads/main', rewrite.commit ?? '', rewrite.expected ?? ''], {
+        cwd: served,
+      });
+      execFileSync('git', ['update-server-info'], { cwd: served });
+      return json(200, {
+        oldCommit: rewrite.expected ?? '',
+        newCommit: rewrite.commit ?? '',
+        publishedBy: 'cloudchef',
+        recorded: true,
+      });
     }
     if (route === 'GET /api/command-line/runs') {
       const project = url.searchParams.get('project');
@@ -577,6 +603,104 @@ describe('cloudchef repo', () => {
     const bad = await cli(home, ['repo', 'edit', 'ferdous/alpha', '--visibility', 'internal']);
     expect(bad.code).toBe(1);
     expect((await cli(home, ['repo', 'edit', 'ferdous/alpha'])).stderr).toContain('Nothing to change');
+  });
+
+  /** Gives the served repository `path` a branch `branch` holding a history of its own (main's, rewritten); its commit. */
+  function pushRewrittenBranch(path: string, branch: string) {
+    const served = join(workDir, 'served', path);
+    const local = mkdtempSync(join(workDir, 'rewrite-'));
+    git(local, 'init', '-q', '-b', branch);
+    writeFileSync(join(local, 'index.html'), `<h1>alpha</h1>\n<!-- ${branch} -->\n`);
+    git(local, 'add', '-A');
+    git(local, 'commit', '-q', '-m', 'Without the recordings');
+    git(local, 'push', '-q', served, `${branch}:refs/heads/${branch}`);
+    git(served, 'update-server-info');
+    return git(local, 'rev-parse', 'HEAD').trim();
+  }
+
+  it('rewrites main to a branch only once the owner says yes, from the commit it read', async () => {
+    const home = makeHome();
+    const served = join(workDir, 'served/ferdous/broken.git');
+    const main = git(served, 'rev-parse', 'main').trim();
+    const slim = pushRewrittenBranch('ferdous/broken.git', 'slim');
+    const before = fake.rewrites.length;
+
+    const unconsented = await cli(home, ['repo', 'rewrite-main', 'slim', '--project', 'ferdous/broken']);
+    expect(unconsented.code).toBe(1);
+    expect(unconsented.stderr).toContain(
+      `This replaces main of ferdous/broken (now ${main.slice(0, 7)}) with the branch slim (${slim.slice(0, 7)}).`,
+    );
+    expect(unconsented.stderr).toContain('must be cloned again');
+    expect(unconsented.stderr).toContain('add --accept-history-rewrite');
+    expect(fake.rewrites).toHaveLength(before);
+
+    const rewritten = await cli(home, [
+      'repo',
+      'rewrite-main',
+      'slim',
+      '--project=ferdous/broken',
+      '--accept-history-rewrite',
+    ]);
+    expect(rewritten.stderr).not.toContain('cloudchef:');
+    expect(rewritten.code).toBe(0);
+    expect(fake.rewrites.at(-1)).toEqual({ project: 'proj-broken', branch: 'slim', commit: slim, expected: main });
+    expect(rewritten.stdout).toContain(
+      `main of ferdous/broken is now ${slim.slice(0, 7)} (it was ${main.slice(0, 7)}). It is publishing now.\n`,
+    );
+    expect(rewritten.stdout).toContain('Follow the publish: cloudchef run watch --project ferdous/broken\n');
+    expect(git(served, 'rev-parse', 'main').trim()).toBe(slim);
+
+    // main is there already.
+    const again = await cli(home, ['repo', 'rewrite-main', 'slim', '--project', 'ferdous/broken']);
+    expect(again.stderr).toContain('is already at slim');
+  });
+
+  it('refuses main itself, a branch that isn’t there, and anyone but the owner, and says why the server refused', async () => {
+    const home = makeHome();
+    const before = fake.rewrites.length;
+
+    const main = await cli(home, ['repo', 'rewrite-main', 'main', '--project', 'ferdous/broken']);
+    expect(main.stderr).toContain('not main itself');
+    const missing = await cli(home, ['repo', 'rewrite-main', 'gone', '--project', 'ferdous/broken']);
+    expect(missing.stderr).toContain('ferdous/broken has no branch "gone". Push the new history to it first');
+    const viewer = await cli(home, ['repo', 'rewrite-main', 'slim', '--project', 'ferdous/alpha']);
+    expect(viewer.stderr).toContain("You can't change ferdous/alpha. Only its owner can rewrite its main.");
+    expect(fake.rewrites).toHaveLength(before);
+
+    // An editor who doesn't own it: CloudChef says no.
+    pushRewrittenBranch('sara/alpha.git', 'slim');
+    const editor = await cli(home, [
+      'repo',
+      'rewrite-main',
+      'slim',
+      '--project',
+      'sara/alpha',
+      '--accept-history-rewrite',
+    ]);
+    expect(editor.code).toBe(1);
+    expect(editor.stderr).toContain('Only the project’s owner, or one of its team’s admins, can rewrite its main.');
+    expect(editor.stderr).toContain('HTTP 403');
+
+    // main moved after the command read it: nothing changes, and the person is told.
+    pushRewrittenBranch('ferdous/broken.git', 'slimmer');
+    fake.rewriteRefusal = { status: 409, error: 'main has changed since you read it, so it was left as it is.' };
+    try {
+      const stale = await cli(home, ['repo', 'rewrite-main', 'slimmer', '--accept-history-rewrite']);
+      // Outside a clone, the project must be named.
+      expect(stale.stderr).toContain('Name a project');
+      const named = await cli(home, [
+        'repo',
+        'rewrite-main',
+        'slimmer',
+        '--project',
+        'ferdous/broken',
+        '--accept-history-rewrite',
+      ]);
+      expect(named.code).toBe(1);
+      expect(named.stderr).toContain('main has changed since you read it, so it was left as it is. (HTTP 409)');
+    } finally {
+      fake.rewriteRefusal = null;
+    }
   });
 
   it('forks a project into a copy of your own, and clones the copy with --clone', async () => {

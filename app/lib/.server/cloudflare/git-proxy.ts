@@ -593,11 +593,16 @@ async function moveMain(
     return 'CloudChef couldn’t check this push against main. Try again.';
   }
   if (secrets[0] !== undefined) {
-    return `${secrets[0]} holds secrets and can't go on main: remove it from your commits. Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf).`;
+    return secretFileRefusal(secrets[0]);
   }
   // From `oldOid` only: if main moved since git read it, the repository refuses this, as it would git's own push.
   const moved = await updateRemoteRef(deps.fetch, remote, update, await emptyPack()).catch(() => null);
   return moved?.ok ? null : (moved?.reason ?? 'main could not be updated. Try again.');
+}
+
+/** Why main can't take a commit holding the secret file `path`, whichever way it would get there. */
+export function secretFileRefusal(path: string): string {
+  return `${path} holds secrets and can't go on main: remove it from your commits. Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf).`;
 }
 
 /** A pack with no objects: what a ref update the repository already has every object for sends. */

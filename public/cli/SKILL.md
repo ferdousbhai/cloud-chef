@@ -21,6 +21,12 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - Pushing to `main` publishes the project to its live site.
 - Pushing any other branch builds a preview of that branch and leaves the live site alone.
 - With the view role you can clone and pull but not push.
+- A push only adds to `main`'s history: one that would rewrite it is refused (`git pull`, then push again). When the
+  project's owner means to rewrite it (to drop large files from old commits, say), push the rewritten history to a
+  branch, then run `cloudchef repo rewrite-main BRANCH`: main becomes that branch's history and publishes. Only the
+  owner (for a team's project, one of its admins) can; it asks to type the project's name, or needs
+  `--accept-history-rewrite` when not run in a terminal, so ask the user before passing it. Every other copy of the
+  project must then be cloned again or reset to the new main.
 - `cloudchef repo create NAME --push`, run in a git repository, makes a new project from it with its whole history:
   it adds the git remote `cloudchef` and pushes the current commit to the project's `main`, which publishes it (then
   `cloudchef run watch`). Without `--push` the project stays empty until `git push -u cloudchef HEAD:main`.

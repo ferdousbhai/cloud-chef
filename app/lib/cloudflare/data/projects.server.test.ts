@@ -14,6 +14,7 @@ import {
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
   userRuntimeDeleteProjectRepositoryAction,
+  userRuntimeRewriteMainAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectUploadAction,
@@ -606,5 +607,146 @@ describe('deleting a project’s repository', () => {
     expect((await ask()).status).toBe(204);
     expect(artifacts.repos.has('t-storefront')).toBe(false);
     expect((await ask()).status).toBe(204);
+  });
+});
+
+describe('rewriting main', () => {
+  const OWNER_ONLY = 'Only the project’s owner, or one of its team’s admins, can rewrite its main.';
+
+  /**
+   * A project CloudChef deploys whose main has two commits, and a branch `slim` holding a history of its own (main's,
+   * rewritten). The control plane answers whether this person runs the project with `owner`, and records what it's told.
+   */
+  async function world(
+    owner: () => Response = () => Response.json({ repo: 't-storefront', deploysWith: 'cloudchef' }),
+  ) {
+    const { env, artifacts, commit, store } = await setup();
+    await commit('t-storefront', 'v1 and a song', 'First');
+    const main = await commit('t-storefront', 'v2', 'Second');
+    const slim = await artifacts.commitDirect('t-storefront', 'slim', { 'index.html': 'v2' }, 'Slim');
+    const calls: { route: string; body: unknown }[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      const route = url.slice(url.indexOf('/api/cloudflare/') + 16);
+      calls.push({ route, body: JSON.parse(String(init?.body ?? '{}')) });
+      if (route === 'runtime-projects/main-rewrite') {
+        return owner();
+      }
+      if (route === 'runtime-projects/main-rewritten') {
+        return Response.json({ recorded: true });
+      }
+      return new Response('unavailable', { status: 503 });
+    });
+    const enqueued: { orgProjectId: string; branch: string; commit: string }[] = [];
+    Object.assign(env, {
+      PROJECT_BUILDER: {
+        idFromName: (name: string) => name,
+        get: () => ({
+          enqueue: async (job: { orgProjectId: string; branch: string; commit: string }) => {
+            enqueued.push(job);
+            return { queued: true };
+          },
+        }),
+      },
+    });
+    const rewrite = (body: Record<string, string> = {}) =>
+      userRuntimeRewriteMainAction(
+        {
+          request: new Request('https://runtime.test/v1/projects/rewrite-main', {
+            method: 'POST',
+            body: JSON.stringify({ orgProjectId: TEAM_PROJECT, branch: 'slim', commit: slim, expected: main, ...body }),
+          }),
+          env,
+        },
+        store,
+      );
+    return { artifacts, calls, enqueued, rewrite, main, slim };
+  }
+
+  it('moves main to the branch for the project’s owner, records it, and publishes it', async () => {
+    const { artifacts, calls, enqueued, rewrite, main, slim } = await world();
+
+    const answer = await rewrite();
+
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({ oldCommit: main, newCommit: slim, publishedBy: 'cloudchef', recorded: true });
+    expect(await artifacts.head('t-storefront')).toBe(slim);
+    expect(calls.map((call) => call.route)).toEqual([
+      'runtime-projects/main-rewrite',
+      'runtime-projects/main-rewritten',
+    ]);
+    expect(calls[1]?.body).toEqual({ orgProjectId: TEAM_PROJECT, branch: 'slim', oldCommit: main, newCommit: slim });
+    expect(enqueued).toEqual([{ orgProjectId: TEAM_PROJECT, branch: 'main', commit: slim }]);
+  });
+
+  it('leaves the publish to Workers Builds for a project it builds', async () => {
+    const { artifacts, enqueued, rewrite, slim } = await world(() =>
+      Response.json({ repo: 't-storefront', deploysWith: 'workers_builds' }),
+    );
+
+    expect((await rewrite()).status).toBe(200);
+    expect(await artifacts.head('t-storefront')).toBe(slim);
+    expect(enqueued).toEqual([]);
+  });
+
+  it('is refused to someone who doesn’t run the project, and main stays', async () => {
+    const { artifacts, calls, enqueued, rewrite, main } = await world(() =>
+      Response.json({ error: OWNER_ONLY }, { status: 403 }),
+    );
+
+    const answer = await rewrite();
+
+    expect(answer.status).toBe(403);
+    expect(await answer.json()).toEqual({ error: OWNER_ONLY });
+    expect(await artifacts.head('t-storefront')).toBe(main);
+    expect(calls.map((call) => call.route)).toEqual(['runtime-projects/main-rewrite']);
+    expect(enqueued).toEqual([]);
+  });
+
+  it('leaves main as it is when main has moved since it was read', async () => {
+    const { artifacts, calls, enqueued, rewrite } = await world();
+    const newer = await artifacts.commitDirect('t-storefront', 'main', { 'index.html': 'v3' }, 'Third');
+
+    const answer = await rewrite();
+
+    expect(answer.status).toBe(409);
+    expect(await answer.json()).toEqual({
+      error: `main has changed since you read it (it is at ${newer.slice(0, 7)} now), so it was left as it is. Look at what’s new on main, then try again.`,
+    });
+    expect(await artifacts.head('t-storefront')).toBe(newer);
+    expect(calls.map((call) => call.route)).not.toContain('runtime-projects/main-rewritten');
+    expect(enqueued).toEqual([]);
+  });
+
+  it('is refused for a branch the project doesn’t have, for one that moved since it was read, and for main', async () => {
+    const { artifacts, rewrite, main } = await world();
+
+    const missing = await rewrite({ branch: 'gone' });
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({
+      error: 'gone isn’t a branch of this project. Push the new history to it first.',
+    });
+
+    await artifacts.commitDirect('t-storefront', 'slim', { 'index.html': 'v4' }, 'Slimmer');
+    expect((await rewrite()).status).toBe(409);
+    expect(await artifacts.head('t-storefront')).toBe(main);
+
+    expect((await rewrite({ branch: 'main' })).status).toBe(400);
+  });
+
+  it('never puts a secret file on main', async () => {
+    const { artifacts, rewrite, main } = await world();
+    const leaky = await artifacts.commitDirect(
+      't-storefront',
+      'leaky',
+      { 'index.html': 'v2', '.env': 'KEY=1' },
+      'Oops',
+    );
+
+    const answer = await rewrite({ branch: 'leaky', commit: leaky });
+
+    expect(answer.status).toBe(422);
+    expect(JSON.stringify(await answer.json())).toContain('.env holds secrets and can');
+    expect(await artifacts.head('t-storefront')).toBe(main);
   });
 });

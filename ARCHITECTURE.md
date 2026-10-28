@@ -238,7 +238,12 @@ later commits never show as changes undone, with secret files and build output e
 committing `.env`/`.dev.vars` and rewriting main. Its remote is `http://git.internal/project.git`, which the
 runtime's `GitProxy` (`user-workspace-runtime/src/git-proxy.ts`, `app/lib/.server/cloudflare/git-proxy.ts`) answers:
 it checks the person's access on each request, adds a short-lived Artifacts token the container never sees, refuses
-deleting main or pushing anything but branches and tags, and records the refs a push updated. A CloudChef app's
+deleting main or pushing anything but branches and tags, and records the refs a push updated. A push moves main only
+as a fast-forward from the commit git read, so no push rewrites it. Replacing main's history on purpose (to drop large
+files from old commits) is the project owner's, or a team admin's, `cloudchef repo rewrite-main BRANCH`
+(`app/server-handlers/main-rewrite.ts`, then the runtime's `POST /v1/projects/rewrite-main`): main moves to the pushed
+branch's commit only from the commit the owner read, never with a secret file main didn't hold, is recorded in
+`project_main_rewrites`, and publishes as a push to main does. A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
 change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication

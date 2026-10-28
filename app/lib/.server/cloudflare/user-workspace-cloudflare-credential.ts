@@ -269,7 +269,9 @@ type RuntimeRoute =
   | 'runtime-projects/deployments/credential'
   | 'runtime-projects/approvals/file'
   | 'runtime-projects/approvals/outcome'
-  | 'runtime-projects/deletable';
+  | 'runtime-projects/deletable'
+  | 'runtime-projects/main-rewrite'
+  | 'runtime-projects/main-rewritten';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

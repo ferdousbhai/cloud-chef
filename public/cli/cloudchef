@@ -455,6 +455,7 @@ Projects
   repo create NAME     Make a new project from a repository or folder
   repo edit [PROJECT]  Make a project public or private
   repo fork PROJECT    Copy a project into your own account
+  repo rewrite-main BRANCH  Replace a project's main with a branch's history (owner only)
 
 Publishes
   run list [PROJECT]   List a project's publishes and previews
@@ -498,7 +499,7 @@ EOF
     "auth git-credential") echo "Usage: cloudchef auth git-credential <get|store|erase>${NL}${NL}The git credential helper protocol. Answers only for $HOST." ;;
     repo)
       cat <<EOF
-Usage: cloudchef repo <list|view|clone|create|edit|fork>
+Usage: cloudchef repo <list|view|clone|create|edit|fork|rewrite-main>
 
   list [--public] [--json]                         Your projects, or with --public everyone's public ones
   view [PROJECT] [--json] [--web]                  Show a project
@@ -506,6 +507,7 @@ Usage: cloudchef repo <list|view|clone|create|edit|fork>
   create NAME [--source DIR] [--push]              Make a new project from a repository or folder
   edit [PROJECT] --visibility public|private       Make a project public or private
   fork PROJECT [--name N] [--account A] [--clone]  Copy a project into your own account
+  rewrite-main BRANCH [--project PROJECT]          Replace main's history with a branch's (owner only)
 
 PROJECT is OWNER/NAME, as in: cloudchef repo clone ferdous/alberta-plan-glossary
 EOF
@@ -528,6 +530,26 @@ Usage: cloudchef repo edit [PROJECT] --visibility public|private [--accept-visib
 Makes a project public or private. $PUBLIC_NOTE
 Making one public asks first; --accept-visibility-change-consequences answers yes (needed when not run
 in a terminal). Only people who can change the project's settings can do this.
+EOF
+      ;;
+    "repo rewrite-main")
+      cat <<EOF
+Usage: cloudchef repo rewrite-main BRANCH [--project PROJECT] [--accept-history-rewrite]
+
+A push to main only ever adds to its history. This replaces main with BRANCH's history on purpose,
+for example to drop large files from old commits: rewrite the history on your computer, push it to a
+branch (git push REMOTE HEAD:BRANCH, which builds a preview), then run this.
+
+$REWRITE_NOTE
+
+Only the project's owner (for a team's project, one of the team's admins) can do this. It reads where
+main and BRANCH are first and moves main only from there: if anyone pushes to main in between,
+nothing changes. A secret file (.env, .dev.vars) never reaches main this way either.
+
+It asks you to type the project's name; --accept-history-rewrite answers for you (needed when not run
+in a terminal). Inside a clone, PROJECT defaults to that project.
+
+Example: cloudchef repo rewrite-main slim --project ferdous/alberta-plan-glossary
 EOF
       ;;
     "repo fork")
@@ -1107,6 +1129,65 @@ cmd_repo_fork() {
   printf 'Cloned %s into %s (the original is the git remote "upstream")\n' "$P_REF" "$dir"
 }
 
+REWRITE_NOTE="main's history becomes the branch's: the commits only main has now are dropped from it.
+Every other copy of the project (other clones, other people's computers, workspaces in CloudChef)
+still has the old history and must be cloned again, or reset to the new main, before it can push.
+The site then publishes the new main."
+
+# remote_heads URL: the branches of the git repository at URL, as git ls-remote prints them, read with the cloudchef
+# token whether or not git was set up to sign in through cloudchef.
+remote_heads() {
+  git -c "credential.$HOST.helper=" -c "credential.$HOST.helper=!$(self_command) auth git-credential" \
+    -c "credential.$HOST.username=cloudchef" ls-remote --heads "$1"
+}
+
+# A push only ever adds to main; this replaces main's history with a branch's on purpose (to drop large files from old
+# commits, say). main moves only from the commit read here, so work pushed to main meanwhile is never lost.
+cmd_repo_rewrite_main() {
+  local branch="" project="" accepted="" answer heads main commit published
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --project) need_value "$1" $#; project="$2"; shift ;;
+      --project=*) project="${1#--project=}" ;;
+      --accept-history-rewrite) accepted=1 ;;
+      -*) die "Unknown flag: $1. See: cloudchef repo rewrite-main --help" ;;
+      *) [ -z "$branch" ] || die "Too many arguments."; branch="$1" ;;
+    esac
+    shift
+  done
+  [ -n "$branch" ] || die "Name the branch whose history main should become: cloudchef repo rewrite-main BRANCH"
+  branch="${branch#refs/heads/}"
+  [ "$branch" != "main" ] || die "Name the branch that holds the new history, not main itself."
+  git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "\"$branch\" can't be the name of a branch."
+  resolve_project "$project"
+  [ "$P_ROLE" = "edit" ] || die "You can't change $P_REF. Only its owner can rewrite its main."
+  heads="$(remote_heads "$(git_url)")" || die "Couldn't read the branches of $P_REF. Try again."
+  main="$(printf '%s\n' "$heads" | awk -v ref=refs/heads/main '$2 == ref { print $1 }')"
+  commit="$(printf '%s\n' "$heads" | awk -v ref="refs/heads/$branch" '$2 == ref { print $1 }')"
+  [ -n "$main" ] || die "$P_REF has no main yet, so there's nothing to rewrite: push to main instead."
+  [ -n "$commit" ] || die "$P_REF has no branch \"$branch\". Push the new history to it first: git push REMOTE HEAD:$branch"
+  [ "$commit" != "$main" ] || die "main of $P_REF is already at $branch (${commit:0:7})."
+  note "This replaces main of $P_REF (now ${main:0:7}) with the branch $branch (${commit:0:7})."
+  note "$REWRITE_NOTE"
+  if [ -z "$accepted" ]; then
+    if [ -t 0 ]; then
+      printf 'Type %s to confirm: ' "$P_REF" >&2
+      read -r answer || answer=""
+      [ "$answer" = "$P_REF" ] || die "Left main of $P_REF as it was."
+    else
+      die "To rewrite main of $P_REF, add --accept-history-rewrite."
+    fi
+  fi
+  api_post_json /api/command-line/projects/rewrite-main \
+    "{\"project\":\"$(json_escape "$P_ID")\",\"branch\":\"$(json_escape "$branch")\",\"commit\":\"$commit\",\"expected\":\"$main\"}"
+  printf 'main of %s is now %s (it was %s). It is publishing now.\n' "$P_REF" "${commit:0:7}" "${main:0:7}"
+  [ "$(json_field recorded "$HTTP_BODY")" != "false" ] || note "CloudChef couldn't keep its record of this rewrite."
+  published="$(json_field publishedBy "$HTTP_BODY")"
+  [ "$published" != "cloudchef" ] || printf 'Follow the publish: cloudchef run watch --project %s\n' "$P_REF"
+  printf 'Every copy, this one included, still has the old main. In each: git fetch, then on its main branch\n'
+  printf 'git reset --hard REMOTE/main (commits there that were never pushed are dropped), or clone it again.\n'
+}
+
 cmd_repo() {
   local sub="$1"
   [ $# -gt 0 ] && shift
@@ -1119,6 +1200,7 @@ cmd_repo() {
     create) cmd_repo_create "$@" ;;
     edit) cmd_repo_edit "$@" ;;
     fork) cmd_repo_fork "$@" ;;
+    rewrite-main) cmd_repo_rewrite_main "$@" ;;
     *) die "Unknown command: repo $sub. See: cloudchef help repo" ;;
   esac
 }
@@ -1381,6 +1463,12 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - Pushing to `main` publishes the project to its live site.
 - Pushing any other branch builds a preview of that branch and leaves the live site alone.
 - With the view role you can clone and pull but not push.
+- A push only adds to `main`'s history: one that would rewrite it is refused (`git pull`, then push again). When the
+  project's owner means to rewrite it (to drop large files from old commits, say), push the rewritten history to a
+  branch, then run `cloudchef repo rewrite-main BRANCH`: main becomes that branch's history and publishes. Only the
+  owner (for a team's project, one of its admins) can; it asks to type the project's name, or needs
+  `--accept-history-rewrite` when not run in a terminal, so ask the user before passing it. Every other copy of the
+  project must then be cloned again or reset to the new main.
 - `cloudchef repo create NAME --push`, run in a git repository, makes a new project from it with its whole history:
   it adds the git remote `cloudchef` and pushes the current commit to the project's `main`, which publishes it (then
   `cloudchef run watch`). Without `--push` the project stays empty until `git push -u cloudchef HEAD:main`.
