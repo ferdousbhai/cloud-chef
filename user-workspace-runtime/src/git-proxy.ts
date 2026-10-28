@@ -76,6 +76,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
         }),
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+      isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
@@ -140,6 +141,7 @@ export async function handleCommandLineGit(
     refusal: (repository, write) => gitRefusal(env, repository, write),
     access: (repo, scope) => repositories.gitAccess(repo, scope),
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+    isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: (update) => publishPush(env, deployed, update),
@@ -182,6 +184,7 @@ export async function handleCommandLineAppGit(
     refusal: (repository, write) => gitRefusal(env, repository, write),
     access: (repo, scope) => repositories.gitAccess(repo, scope),
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+    isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: async () => undefined,
     recordBase: async () => undefined,

@@ -1349,6 +1349,8 @@ export class BuilderSourceProxy extends WorkerEntrypoint<BuilderEnv, BuilderProx
       refusal: async (_target, write) => (write ? 'Building reads the project; it never changes it.' : null),
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+      // Never asked: a push is refused above.
+      isAncestor: async () => false,
       // A namespace no workspace has: the build sees branches and tags only.
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.builderId),
       recordPush: async () => undefined,

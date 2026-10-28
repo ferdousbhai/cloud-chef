@@ -4,6 +4,7 @@ import {
   concatBytes,
   pktLine,
   readPktLines,
+  updateRemoteRef,
   ZERO_OID,
   type GitFetch,
   type GitRemote,
@@ -22,6 +23,13 @@ const WORKSPACE_PATH = '/_cloudchef/workspace';
 /** Where the container's git wrapper says which branch and commit it has checked out, after a push. */
 export const GIT_BASE_PATH = '/_cloudchef/base';
 const MAIN_REF = 'refs/heads/main';
+/**
+ * Where a push's new commit for main lands first, one ref per push: main moves to it only when that is a
+ * fast-forward (see `handleGitProxyRequest`), and the ref is deleted either way. No push may name these.
+ */
+const INCOMING_REFS_ROOT = 'refs/cloudchef/incoming';
+/** Said, in git's push report, of a push that would rewrite main rather than add to it. */
+const MAIN_REWRITE_REFUSAL = 'main can’t be rewritten, only added to: pull, then push again.';
 /** Every workspace's saved branches sit under here, each workspace's in its own folder. */
 const WORKSPACE_REFS_ROOT = 'refs/cloudchef/workspaces';
 /** A push's command section is a few lines per ref; anything larger is not a push git sends. */
@@ -75,19 +83,26 @@ function gitProxyRoute(request: Request): GitProxyRoute | null {
 }
 
 /**
- * Reads a receive-pack request's commands, up to the flush that ends them, without reading the pack
- * after it. `body` is the whole request again, the bytes read and then the rest as it arrives.
+ * A receive-pack request's commands, and the request itself: `head`, the bytes read so far (the commands,
+ * which end at `end`, and maybe the start of the pack), then the rest from `reader` as it arrives.
  */
-async function readReceivePackCommands(
-  body: ReadableStream<Uint8Array>,
-): Promise<{ updates: RefUpdate[]; capabilities: Set<string>; body: ReadableStream<Uint8Array> }> {
+type ReceivePackCommands = {
+  updates: RefUpdate[];
+  capabilities: Set<string>;
+  head: Uint8Array;
+  end: number;
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+};
+
+/** Reads a receive-pack request's commands, up to the flush that ends them, without reading the pack after it. */
+async function readReceivePackCommands(body: ReadableStream<Uint8Array>): Promise<ReceivePackCommands> {
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let buffered = new Uint8Array();
   for (;;) {
     const parsed = parseCommands(buffered);
     if (parsed) {
-      return { ...parsed, body: prefixed(buffered, reader) };
+      return { ...parsed, head: buffered, reader };
     }
     if (buffered.length > MAX_COMMAND_BYTES) {
       await reader.cancel().catch(() => undefined);
@@ -103,7 +118,7 @@ async function readReceivePackCommands(
 }
 
 /** The commands in `bytes` when their flush has arrived, or null while it hasn't. */
-function parseCommands(bytes: Uint8Array): { updates: RefUpdate[]; capabilities: Set<string> } | null {
+function parseCommands(bytes: Uint8Array): { updates: RefUpdate[]; capabilities: Set<string>; end: number } | null {
   const updates: RefUpdate[] = [];
   const capabilities = new Set<string>();
   let offset = 0;
@@ -113,7 +128,7 @@ function parseCommands(bytes: Uint8Array): { updates: RefUpdate[]; capabilities:
       throw new GitProxyRefusal('The push is not one CloudChef can read.');
     }
     if (length === 0) {
-      return { updates, capabilities };
+      return { updates, capabilities, end: offset + 4 };
     }
     if (offset + length > bytes.length) {
       return null;
@@ -139,6 +154,25 @@ function parseCommands(bytes: Uint8Array): { updates: RefUpdate[]; capabilities:
     updates.push({ oldOid: match[1]!, newOid: match[2]!, ref: match[3]! });
   }
   return null;
+}
+
+/**
+ * The push's request with `from`'s command made `to` instead: each other command, and the capabilities the
+ * first one carries, as git sent them, and the pack after them untouched.
+ */
+function rewrittenPush(commands: ReceivePackCommands, from: RefUpdate, to: RefUpdate): ReadableStream<Uint8Array> {
+  const lines: Uint8Array[] = [];
+  for (const line of readPktLines(commands.head.subarray(0, commands.end))) {
+    const text = new TextDecoder().decode(line);
+    const [command = '', offered] = text.replace(/\n$/, '').split('\0');
+    lines.push(
+      command === `${from.oldOid} ${from.newOid} ${from.ref}`
+        ? pktLine(`${to.oldOid} ${to.newOid} ${to.ref}${offered === undefined ? '' : `\0${offered}`}\n`)
+        : pktLine(text),
+    );
+  }
+  const head = concatBytes([...lines, new TextEncoder().encode('0000'), commands.head.subarray(commands.end)]);
+  return prefixed(head, commands.reader);
 }
 
 /** Whether `ref` is one of the workspace's saved branches, under `workspaceRefs`. */
@@ -185,16 +219,34 @@ function gitRefusalAdvertisement(service: GitService, reason: string): Response 
 
 /** A receive-pack answer refusing every ref with `reason`, in the side-band the push asked for. */
 function gitRefusalReport(updates: readonly RefUpdate[], capabilities: Set<string>, reason: string): Response {
+  return gitPushReport(
+    'ok',
+    updates.map((update) => ({ ref: update.ref, refused: reason })),
+    capabilities,
+    reason,
+  );
+}
+
+/**
+ * A receive-pack answer of CloudChef's own: `unpack`, then each ref updated (`refused` null) or refused, in the
+ * side-band the push asked for, with `note` as a progress line git prints.
+ */
+function gitPushReport(
+  unpack: string,
+  refs: readonly { ref: string; refused: string | null }[],
+  capabilities: Set<string>,
+  note: string | null,
+): Response {
   const report = concatBytes([
-    pktLine('unpack ok\n'),
-    ...updates.map((update) => pktLine(`ng ${update.ref} ${reason}\n`)),
+    pktLine(`unpack ${unpack}\n`),
+    ...refs.map(({ ref, refused }) => pktLine(refused === null ? `ok ${ref}\n` : `ng ${ref} ${refused}\n`)),
     new TextEncoder().encode('0000'),
   ]);
   const sideBand = capabilities.has('side-band-64k') || capabilities.has('side-band');
   const body = sideBand
     ? concatBytes([
         bandLine(1, report),
-        bandLine(2, new TextEncoder().encode(`${reason}\n`)),
+        ...(note ? [bandLine(2, new TextEncoder().encode(`${note}\n`))] : []),
         new TextEncoder().encode('0000'),
       ])
     : report;
@@ -313,6 +365,11 @@ export type GitProxyDependencies = {
   refusal(target: BuilderWorkspaceGitRepository, write: boolean): Promise<string | null>;
   access(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }>;
   revoke(repo: string, tokenId: string): Promise<void>;
+  /**
+   * Whether `ancestor` is `commit` or in its history in the repository, or null when that can't be told
+   * (the walk ran too long): a push moves main only when its old commit is one.
+   */
+  isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean | null>;
   /** The workspace's saved branches' prefix (`workspaceRefsPrefix`): the only refs besides branches and tags it may write or see. */
   workspaceRefs: string;
   /** A branch or tag a push updated; never one of the workspace's saved branches. */
@@ -348,6 +405,10 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
 
   let body: { stream: ReadableStream<Uint8Array>; decoded: boolean } | null = null;
   let updates: RefUpdate[] = [];
+  let capabilities = new Set<string>();
+  // A push moving main from a commit it has: main's new commit goes to its own ref instead (`staged`), and main
+  // moves to it afterwards only if that adds to main's history (`moveMain`).
+  let main: { update: RefUpdate; staged: RefUpdate } | null = null;
   // An advertisement, or protocol v2's ls-refs, lists refs: other workspaces' are left out of it.
   let listsRefs = route.advertisement;
   if (write && !route.advertisement) {
@@ -358,12 +419,23 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     try {
       const commands = await readReceivePackCommands(decoded);
       updates = commands.updates;
+      capabilities = commands.capabilities;
       const refused = refusal ?? refusedRefUpdate(updates, deps.workspaceRefs);
       if (refused) {
-        await commands.body.cancel().catch(() => undefined);
+        await commands.reader.cancel().catch(() => undefined);
         return gitRefusalReport(updates, commands.capabilities, refused);
       }
-      body = { stream: commands.body, decoded: true };
+      const update = updates.find((candidate) => candidate.ref === MAIN_REF && candidate.oldOid !== ZERO_OID);
+      if (update) {
+        main = {
+          update,
+          staged: { ref: `${INCOMING_REFS_ROOT}/${crypto.randomUUID()}`, oldOid: ZERO_OID, newOid: update.newOid },
+        };
+      }
+      body = {
+        stream: main ? rewrittenPush(commands, main.update, main.staged) : prefixed(commands.head, commands.reader),
+        decoded: true,
+      };
     } catch (error) {
       if (error instanceof GitProxyRefusal) {
         return new Response(error.message, { status: 400 });
@@ -403,6 +475,13 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
       deps.waitUntil(revoke());
     }
   }
+  if (main) {
+    try {
+      return await stagedMainPush({ deps, repo, remote, response, updates, capabilities, main });
+    } finally {
+      deps.waitUntil(revoke());
+    }
+  }
   return observedResponse(response, async (answer) => {
     deps.waitUntil(revoke());
     if (updates.length === 0 || !response.ok) {
@@ -423,6 +502,98 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
       console.error('Unable to record a git push', error);
     }
   });
+}
+
+/**
+ * Finishes a push whose update of main went to `main.staged` instead: once the repository has the new commit,
+ * main moves to it only when its old commit is in the new one's history, and only from that old commit (a
+ * push in between is not overwritten). The staged ref is then deleted. Main is never pointed at a rewritten
+ * history, even for a moment, so nothing that builds from main ever sees one. git is answered with each ref
+ * as it ended, main's under its own name.
+ */
+async function stagedMainPush(args: {
+  deps: GitProxyDependencies;
+  repo: string;
+  remote: GitRemote;
+  response: Response;
+  updates: readonly RefUpdate[];
+  capabilities: Set<string>;
+  main: { update: RefUpdate; staged: RefUpdate };
+}): Promise<Response> {
+  const { deps, repo, remote, response, updates, main } = args;
+  if (!response.ok) {
+    return response;
+  }
+  const report = readPushReport(await boundedBytes(response, MAX_REPORT_BYTES));
+  const unpacked = report.unpack === 'ok';
+  const staged = report.refs.get(main.staged.ref);
+  let mainRefused: string | null = staged?.ok ? null : staged?.reason || 'not updated';
+  if (unpacked && staged?.ok) {
+    mainRefused = await moveMain(deps, repo, remote, main.update);
+    const removed = await updateRemoteRef(
+      deps.fetch,
+      remote,
+      { ref: main.staged.ref, oldOid: main.staged.newOid, newOid: ZERO_OID },
+      new Uint8Array(),
+    ).catch(() => null);
+    if (!removed?.ok) {
+      console.error('Unable to delete a push’s staged ref for main');
+    }
+  }
+  const refs = updates.map((update) => {
+    if (update === main.update) {
+      return { ref: update.ref, refused: unpacked ? mainRefused : 'unpacker error' };
+    }
+    const result = report.refs.get(update.ref);
+    if (!result) {
+      return { ref: update.ref, refused: 'not updated' };
+    }
+    return { ref: update.ref, refused: unpacked && result.ok ? null : result.ok ? 'unpacker error' : result.reason };
+  });
+  try {
+    for (const [index, update] of updates.entries()) {
+      // Saving the workspace's branches publishes nothing.
+      if (refs[index]?.refused === null && !isWorkspaceRef(update.ref, deps.workspaceRefs)) {
+        await deps.recordPush(update);
+      }
+    }
+  } catch (error) {
+    console.error('Unable to record a git push', error);
+  }
+  return gitPushReport(
+    report.unpack ?? 'error',
+    refs,
+    args.capabilities,
+    unpacked && mainRefused === MAIN_REWRITE_REFUSAL ? MAIN_REWRITE_REFUSAL : null,
+  );
+}
+
+/**
+ * Moves main from `update`'s old commit to its new one, once the repository has the new one: only when that
+ * adds to main's history. Why it wasn't moved, or null when it was.
+ */
+async function moveMain(
+  deps: GitProxyDependencies,
+  repo: string,
+  remote: GitRemote,
+  update: RefUpdate,
+): Promise<string | null> {
+  const fastForward = await deps.isAncestor(repo, update.oldOid, update.newOid).catch(() => null);
+  if (fastForward === null) {
+    return 'CloudChef couldn’t check this push against main. Try again.';
+  }
+  if (!fastForward) {
+    return MAIN_REWRITE_REFUSAL;
+  }
+  // From `oldOid` only: if main moved since git read it, the repository refuses this, as it would git's own push.
+  const moved = await updateRemoteRef(deps.fetch, remote, update, await emptyPack()).catch(() => null);
+  return moved?.ok ? null : (moved?.reason ?? 'main could not be updated. Try again.');
+}
+
+/** A pack with no objects: what a ref update the repository already has every object for sends. */
+async function emptyPack(): Promise<Uint8Array> {
+  const header = concatBytes([new TextEncoder().encode('PACK'), Uint8Array.of(0, 0, 0, 2, 0, 0, 0, 0)]);
+  return concatBytes([header, new Uint8Array(await crypto.subtle.digest('SHA-1', header))]);
 }
 
 async function gitRefusal(

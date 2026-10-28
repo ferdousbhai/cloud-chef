@@ -24,6 +24,21 @@ function setup() {
 }
 
 describe('ProjectRepositories', () => {
+  it("tells whether a commit is in another's history, through any parent", async () => {
+    const { artifacts, repositories } = setup();
+    await artifacts.create('p-history');
+    const first = await artifacts.commitDirect('p-history', 'main', { 'a.txt': '1' });
+    const second = await artifacts.commitDirect('p-history', 'main', { 'a.txt': '2' });
+    const unrelated = await artifacts.commitDirect('p-history', 'other', { 'b.txt': '1' });
+
+    expect(await repositories.isAncestor('p-history', first, second)).toBe(true);
+    expect(await repositories.isAncestor('p-history', second, second)).toBe(true);
+    expect(await repositories.isAncestor('p-history', second, first)).toBe(false);
+    expect(await repositories.isAncestor('p-history', first, unrelated)).toBe(false);
+    // A walk cut short says it couldn't tell.
+    expect(await repositories.isAncestor('p-history', unrelated, second, 1)).toBeNull();
+  });
+
   it('names repositories after their chat or project', () => {
     expect(nativeProjectRepo('6f1c2a7e-0000-4000-8000-000000000001')).toBe('p-6f1c2a7e-0000-4000-8000-000000000001');
     expect(importedProjectRepo('a b/c')).toBe('t-a-b-c');

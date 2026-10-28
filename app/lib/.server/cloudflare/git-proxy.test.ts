@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { fakeArtifacts } from '~/test/fake-artifacts';
 import { handleGitProxyRequest, type GitProxyDependencies } from './git-proxy';
-import { concatBytes, pktLine, ZERO_OID } from './repository-wire';
+import { ProjectRepositories } from './project-repository';
+import { concatBytes, pktLine, readPktLines, ZERO_OID } from './repository-wire';
 import type { RefUpdate } from './git-proxy';
 
 const OLD = 'a'.repeat(40);
@@ -11,7 +13,13 @@ const SAVED = 'refs/cloudchef/workspaces/w1';
 
 type Sent = { url: string; headers: Headers; body: Uint8Array | null };
 
-function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Response } = {}) {
+function harness(
+  options: {
+    refusal?: string | null;
+    answer?: (sent: Sent) => Response;
+    isAncestor?: (ancestor: string, commit: string) => boolean | null;
+  } = {},
+) {
   const sent: Sent[] = [];
   const revoked: string[] = [];
   const recorded: RefUpdate[] = [];
@@ -30,6 +38,7 @@ function harness(options: { refusal?: string | null; answer?: (sent: Sent) => Re
     revoke: async (_repo, tokenId) => {
       revoked.push(tokenId);
     },
+    isAncestor: async (_repo, ancestor, commit) => (options.isAncestor ? options.isAncestor(ancestor, commit) : true),
     recordPush: async (update) => {
       recorded.push(update);
     },
@@ -84,6 +93,33 @@ function report(lines: string[]): Response {
       payload,
     ]);
   return new Response(concatBytes([band(2, new TextEncoder().encode('Resolving deltas\n')), band(1, inner), FLUSH]));
+}
+
+/** The refs a request to the repository updates, as its commands name them. */
+function commandsOf(sent: Sent | undefined): string[] {
+  return [...readPktLines(sent?.body ?? new Uint8Array())].flatMap((line) => {
+    const ref = /^[0-9a-f]{40} [0-9a-f]{40} ([^\s\0]+)/.exec(new TextDecoder().decode(line))?.[1];
+    return ref ? [ref] : [];
+  });
+}
+
+/**
+ * The repository's answer to each request: every ref it updates `ok`, but those under a `refuse` prefix, in
+ * the side-band only when the request asked for it.
+ */
+function repository(refuse: Record<string, string> = {}) {
+  return (sent: Sent) => {
+    const lines = [
+      'unpack ok',
+      ...commandsOf(sent).map((ref) => {
+        const refused = Object.entries(refuse).find(([prefix]) => ref.startsWith(prefix));
+        return refused ? `ng ${ref} ${refused[1]}` : `ok ${ref}`;
+      }),
+    ];
+    return new TextDecoder().decode(sent.body ?? new Uint8Array()).includes('side-band')
+      ? report(lines)
+      : new Response(concatBytes([...lines.map((line) => pktLine(`${line}\n`)), FLUSH]));
+  };
 }
 
 async function text(response: Response): Promise<string> {
@@ -168,23 +204,78 @@ describe('the workspace git proxy', () => {
 
   it('sends a push on whole and records the refs the report says were updated', async () => {
     const { deps, sent, recorded, revoked, settled } = harness({
-      answer: () => report(['unpack ok', 'ok refs/heads/main', 'ng refs/heads/feature non-fast-forward']),
+      answer: repository({ 'refs/heads/feature': 'non-fast-forward' }),
     });
     const response = await handleGitProxyRequest(
       push([`${OLD} ${NEW} refs/heads/main`, `${OLD} ${NEW} refs/heads/feature`]),
       deps,
     );
-    await response.arrayBuffer();
+    const answer = await text(response);
     await settled();
     expect(sent[0]?.url).toBe('https://artifacts.example/cloudchef/chat-1.git/git-receive-pack');
     expect(sent[0]?.headers.get('authorization')).toBe(`Basic ${btoa('x:secret-write')}`);
     expect(new TextDecoder().decode(sent[0]?.body ?? new Uint8Array())).toContain('PACK-bytes');
+    expect(answer).toContain('ok refs/heads/main');
+    expect(answer).toContain('ng refs/heads/feature non-fast-forward');
     expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }]);
     expect(revoked).toEqual(['token-write']);
   });
 
+  it("lands main's new commit on a ref of its own, then moves main to it from the commit git read", async () => {
+    const { deps, sent, recorded } = harness({ answer: repository() });
+    await (await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), deps)).arrayBuffer();
+
+    const [staged] = commandsOf(sent[0]);
+    expect(staged).toMatch(/^refs\/cloudchef\/incoming\/[0-9a-f-]{36}$/);
+    expect(new TextDecoder().decode(sent[0]?.body ?? new Uint8Array())).toContain(
+      `${ZERO_OID} ${NEW} ${staged}\0report-status side-band-64k agent=git/2.47\n`,
+    );
+    // Main moves from the commit git read, so a push in between isn't overwritten; then the staged ref goes.
+    expect(new TextDecoder().decode(sent[1]?.body ?? new Uint8Array())).toContain(`${OLD} ${NEW} refs/heads/main`);
+    expect(new TextDecoder().decode(sent[2]?.body ?? new Uint8Array())).toContain(`${NEW} ${ZERO_OID} ${staged}`);
+    expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }]);
+  });
+
+  it('refuses a push that would rewrite main, leaving main where it was', async () => {
+    const { deps, sent, recorded } = harness({ answer: repository(), isAncestor: () => false });
+    const response = await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), deps);
+
+    expect(await text(response)).toContain('ng refs/heads/main main can’t be rewritten, only added to');
+    expect(sent.flatMap(commandsOf).filter((ref) => ref === 'refs/heads/main')).toEqual([]);
+    expect(recorded).toEqual([]);
+    // The commit it brought is let go.
+    expect(commandsOf(sent[1])).toEqual(commandsOf(sent[0]));
+  });
+
+  it('refuses main when its history could not be checked in time, and when main moved in between', async () => {
+    const unchecked = harness({ answer: repository(), isAncestor: () => null });
+    expect(await text(await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), unchecked.deps))).toContain(
+      'ng refs/heads/main CloudChef couldn’t check this push against main',
+    );
+    expect(unchecked.recorded).toEqual([]);
+
+    const raced = harness({ answer: repository({ 'refs/heads/main': 'stale info' }) });
+    expect(await text(await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), raced.deps))).toContain(
+      'ng refs/heads/main stale info',
+    );
+    expect(raced.recorded).toEqual([]);
+  });
+
+  it('still lets any other branch be rewritten, and main be created, as git sent them', async () => {
+    const { deps, sent, recorded } = harness({ answer: repository(), isAncestor: () => false });
+    await (
+      await handleGitProxyRequest(
+        push([`${OLD} ${NEW} refs/heads/feature`, `${ZERO_OID} ${NEW} refs/heads/main`]),
+        deps,
+      )
+    ).arrayBuffer();
+    expect(commandsOf(sent[0])).toEqual(['refs/heads/feature', 'refs/heads/main']);
+    expect(sent).toHaveLength(1);
+    expect(recorded.map((update) => update.ref)).toEqual(['refs/heads/feature', 'refs/heads/main']);
+  });
+
   it('records a push before git has read the whole answer, so the command that pushed sees it', async () => {
-    const { deps, recorded } = harness({ answer: () => report(['unpack ok', 'ok refs/heads/main']) });
+    const { deps, recorded } = harness({ answer: repository() });
     const slow = deps.recordPush;
     deps.recordPush = async (update) => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -195,12 +286,12 @@ describe('the workspace git proxy', () => {
   });
 
   it('sends a gzip push on decoded, without its encoding', async () => {
-    const { deps, sent, recorded, settled } = harness({ answer: () => report(['unpack ok', 'ok refs/heads/main']) });
-    const response = await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`], { gzip: true }), deps);
+    const { deps, sent, recorded, settled } = harness({ answer: repository() });
+    const response = await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/feature`], { gzip: true }), deps);
     await response.arrayBuffer();
     await settled();
     expect(sent[0]?.headers.get('content-encoding')).toBeNull();
-    expect(new TextDecoder().decode(sent[0]?.body ?? new Uint8Array())).toContain(`${OLD} ${NEW} refs/heads/main`);
+    expect(new TextDecoder().decode(sent[0]?.body ?? new Uint8Array())).toContain(`${OLD} ${NEW} refs/heads/feature`);
     expect(recorded).toHaveLength(1);
   });
 
@@ -317,5 +408,69 @@ describe('the workspace git proxy', () => {
 
     const fetching = harness({ answer });
     expect(await text(await handleGitProxyRequest(v2('fetch'), fetching.deps))).toContain('workspaces/w2');
+  });
+});
+
+describe("main's history in the repository itself", () => {
+  async function project() {
+    const artifacts = fakeArtifacts();
+    const repositories = new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
+    await artifacts.create('p-site');
+    const first = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'one' });
+    const second = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'two' });
+    // main back at the first commit, with the second one (its child) in the repository, as if just sent.
+    await repositories.resetMain('p-site', first);
+    const rewritten = await artifacts.commitDirect('p-site', 'elsewhere', { 'index.html': 'other' });
+    const recorded: RefUpdate[] = [];
+    const deps: GitProxyDependencies = {
+      repository: async () => ({ repo: 'p-site', orgProjectId: null, base: { branch: 'main', commit: first } }),
+      author: async () => ({ name: 'Ada', email: 'ada@example.com' }),
+      refusal: async () => null,
+      workspaceRefs: SAVED,
+      access: (repo, scope) => repositories.gitAccess(repo, scope),
+      revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+      isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
+      recordPush: async (update) => {
+        recorded.push(update);
+      },
+      recordBase: async () => undefined,
+      fetch: artifacts.fetch,
+      waitUntil: () => undefined,
+    };
+    return { artifacts, deps, recorded, first, second, rewritten };
+  }
+
+  it('refuses a force push of main and leaves main as it was', async () => {
+    const { artifacts, deps, recorded, first, rewritten } = await project();
+
+    const answer = await text(await handleGitProxyRequest(push([`${first} ${rewritten} refs/heads/main`]), deps));
+
+    expect(answer).toContain('ng refs/heads/main main can’t be rewritten');
+    expect(await artifacts.head('p-site')).toBe(first);
+    expect(recorded).toEqual([]);
+    // No ref is left behind for the commit it brought.
+    const incoming = artifacts.pushes.filter((pushed) => pushed.ref.startsWith('refs/cloudchef/incoming/'));
+    expect(incoming.map((pushed) => pushed.newOid)).toEqual([rewritten, ZERO_OID]);
+  });
+
+  it('moves main for a push that adds to it', async () => {
+    const { artifacts, deps, recorded, first, second } = await project();
+
+    const answer = await text(await handleGitProxyRequest(push([`${first} ${second} refs/heads/main`]), deps));
+
+    expect(answer).toContain('ok refs/heads/main');
+    expect(await artifacts.head('p-site')).toBe(second);
+    expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: first, newOid: second }]);
+  });
+
+  it('lets another branch be rewritten', async () => {
+    const { artifacts, deps, recorded, rewritten } = await project();
+    const feature = await artifacts.commitDirect('p-site', 'feature', { 'index.html': 'feature' });
+
+    const answer = await text(await handleGitProxyRequest(push([`${feature} ${rewritten} refs/heads/feature`]), deps));
+
+    expect(answer).toContain('ok refs/heads/feature');
+    expect(await artifacts.head('p-site', 'feature')).toBe(rewritten);
+    expect(recorded).toEqual([{ ref: 'refs/heads/feature', oldOid: feature, newOid: rewritten }]);
   });
 });
