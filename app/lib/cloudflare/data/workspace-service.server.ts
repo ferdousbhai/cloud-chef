@@ -75,8 +75,9 @@ export async function getAllWorkspaces(db: D1Database, args: { sessionId: string
        FROM workspaces
        WHERE workspaces.creator_id = ? AND workspaces.is_deleted = 0
          AND workspaces.has_messages = 1
-         -- A team project's workspace is listed with the team's projects, not as an app of one's own.
-         AND workspaces.org_project_id IS NULL
+         -- A team project's workspace is listed with the team's projects, not as an app of one's own; so is a draft
+         -- an admin made one of the team's projects.
+         AND workspaces.org_project_id IS NULL AND workspaces.adopted_by_org_project_id IS NULL
        ORDER BY workspaces.timestamp DESC, workspaces.id DESC`,
     )
     .bind(args.sessionId)

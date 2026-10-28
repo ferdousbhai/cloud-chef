@@ -3,7 +3,7 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ensureInitialWorkspace, openLinkedWorkspace } from './workspace-repository.server';
-import { discardEmptyWorkspace } from './workspace-service.server';
+import { discardEmptyWorkspace, getAllWorkspaces } from './workspace-service.server';
 
 describe('ensureInitialWorkspace', () => {
   it('revives the empty chat a failed first message discarded', async () => {
@@ -61,6 +61,23 @@ describe('openLinkedWorkspace', () => {
     await expect(
       openLinkedWorkspace(db, { sessionId: 'session', id: 'other-id', orgProjectId: 'project-2' }),
     ).resolves.toEqual({ initialId: 'other-id', created: true });
+  });
+});
+
+describe('getAllWorkspaces', () => {
+  it('lists one’s own apps, leaving out team projects and a draft an admin made a team project', async () => {
+    const { sqlite, db } = workspaceDatabase();
+    sqlite.exec(`
+      INSERT INTO workspaces (id, creator_id, initial_id, description, timestamp, has_messages, org_project_id,
+        adopted_by_org_project_id) VALUES
+        ('app', 'owner', 'app', 'Garden', '2026-10-03', 1, NULL, NULL),
+        ('linked', 'owner', 'linked', 'Team site', '2026-10-02', 1, 'project-1', NULL),
+        ('adopted', 'owner', 'adopted', 'Old draft', '2026-10-01', 1, NULL, 'project-2');
+    `);
+
+    const listed = await getAllWorkspaces(db, { sessionId: 'owner' });
+
+    expect(listed.map((workspace) => workspace.initialId)).toEqual(['app']);
   });
 });
 
