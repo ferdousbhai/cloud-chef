@@ -20,8 +20,11 @@ export function loadProjectHistory(ref: ProjectRef, offset: number, signal?: Abo
   return executeDataOperation(api.projects.history, { ...ref, limit: HISTORY_PAGE_SIZE, offset }, { signal });
 }
 
-export function loadCloneAccess(ref: ProjectRef) {
-  return executeDataOperation(api.projects.cloneAccess, ref);
+/** The id CloudChef's git address names the project by; a team project's own id needs no asking. */
+export async function loadGitProjectId(ref: ProjectRef): Promise<string> {
+  return 'orgProjectId' in ref
+    ? ref.orgProjectId
+    : (await executeDataOperation(api.projects.gitAddress, ref)).projectId;
 }
 
 export function forkProject(chatInitialId: string, commit: string) {

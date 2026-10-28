@@ -39,7 +39,7 @@ export const dataOperationArgSchemas = {
       offset: z.number().int().min(0).max(100_000).default(0),
     })
     .refine(oneProject, ONE_PROJECT),
-  'projects.cloneAccess': projectTargetSchema.refine(oneProject, ONE_PROJECT),
+  'projects.gitAddress': projectTargetSchema.refine(oneProject, ONE_PROJECT),
   'projects.fork': projectTargetSchema.extend({ commit: commitSchema }).refine(oneProject, ONE_PROJECT),
   'projects.import': z.object({
     url: z.url({ protocol: /^https$/ }).max(2048),

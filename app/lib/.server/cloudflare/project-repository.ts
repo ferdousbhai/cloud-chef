@@ -35,8 +35,6 @@ import { zipStream, type ZipEntry } from './zip-archive';
 export const MAIN_BRANCH = 'main';
 const MAIN_REF = `refs/heads/${MAIN_BRANCH}`;
 const PUSH_TOKEN_TTL_SECONDS = 10 * 60;
-/** A person's clone token lasts as long as Artifacts allows, a year, so their clone keeps pulling. */
-const CLONE_TOKEN_TTL_SECONDS = 365 * 24 * 60 * 60;
 /** An import's push is one request, as long as the whole history takes to copy; its token lasts as long. */
 const IMPORT_TIMEOUT_MS = 30 * 60_000;
 const IMPORT_TOKEN_TTL_SECONDS = 35 * 60;
@@ -500,10 +498,14 @@ export class ProjectRepositories {
     return { commit, stream: zipStream(entries, new Date(commit.committedAt * 1000)) };
   }
 
-  /** A read-only token for git over HTTPS, good for a year, and the repository's remote. */
+  /**
+   * A read-only token for git over HTTPS, and the repository's remote: for another repository to import this one's
+   * history, so it lasts as long as one import may take, and whoever asked revokes it once the import is done. It
+   * reads every ref (Artifacts scopes a token to a repository, not to refs); an import fetches one branch.
+   */
   async readAccess(repo: string): Promise<RepositoryReadAccess> {
     return this.#withRepo(repo, async (handle) => {
-      const [info, token] = await Promise.all([handle.info(), handle.createToken('read', CLONE_TOKEN_TTL_SECONDS)]);
+      const [info, token] = await Promise.all([handle.info(), handle.createToken('read', IMPORT_TOKEN_TTL_SECONDS)]);
       return {
         remote: info.remote,
         tokenId: token.id,

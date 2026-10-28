@@ -8,7 +8,6 @@ import { createUserAccountApi } from '~/lib/.server/cloudflare/user-workspace-de
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { nativeProjectRepo, ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { AGENT_GC_GRACE_PERIOD_MS, retryDelay } from './agent-gc.server';
-import { forgetCloneTokens } from './clone-tokens.server';
 import { EMPTY_WORKSPACE_DISCARD_PREDICATE } from './empty-workspace.server';
 
 const APP_RESOURCE_GC_SWEEP_LIMIT = 2;
@@ -274,7 +273,6 @@ async function deleteWorkspaceRepository(
   }
   const repo = nativeProjectRepo(workspace.initial_id);
   await repositories.deleteRepo(repo);
-  await forgetCloneTokens(db, repo);
 }
 
 async function recordedResources(

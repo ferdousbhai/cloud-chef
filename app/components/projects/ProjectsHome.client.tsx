@@ -53,7 +53,7 @@ import { UploadZipDialog } from './UploadZipDialog.client';
 
 type OpenDialog =
   | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean; canFork: boolean }
-  | { kind: 'clone'; project: ProjectRef; name: string }
+  | { kind: 'clone'; project: ProjectRef; name: string; fullName: string | null }
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
@@ -135,7 +135,12 @@ export function ProjectsHome({ userId }: { userId: string }) {
         />
       ) : null}
       {dialog?.kind === 'clone' ? (
-        <CloneDialog project={dialog.project} name={dialog.name} onClose={() => setDialog(null)} />
+        <CloneDialog
+          project={dialog.project}
+          name={dialog.name}
+          fullName={dialog.fullName}
+          onClose={() => setDialog(null)}
+        />
       ) : null}
       {dialog?.kind === 'share' ? (
         <ShareProjectDialog orgId={dialog.orgId} project={dialog.project} onClose={() => setDialog(null)} />
@@ -376,7 +381,7 @@ function OwnProjectCard({
             <CounterClockwiseClockIcon />
             History
           </MenuItem>
-          <MenuItem action={() => onDialog({ kind: 'clone', project: ref, name })}>
+          <MenuItem action={() => onDialog({ kind: 'clone', project: ref, name, fullName: app?.fullName ?? null })}>
             <CodeIcon />
             Clone
           </MenuItem>
@@ -737,12 +742,15 @@ function ConnectionProjectCard({
             <CounterClockwiseClockIcon />
             History
           </MenuItem>
-          {canEdit ? (
-            <MenuItem action={() => onDialog({ kind: 'clone', project: ref, name: project.name })}>
-              <CodeIcon />
-              Clone
-            </MenuItem>
-          ) : null}
+          {/* Cloning reads it through CloudChef's git address, as Download ZIP does: viewing is enough. */}
+          <MenuItem
+            action={() =>
+              onDialog({ kind: 'clone', project: ref, name: project.name, fullName: project.fullName ?? null })
+            }
+          >
+            <CodeIcon />
+            Clone
+          </MenuItem>
           <MenuItem action={() => download(ref, project.name)}>
             <DownloadIcon />
             Download ZIP

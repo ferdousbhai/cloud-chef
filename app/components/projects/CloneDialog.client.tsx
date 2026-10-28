@@ -1,35 +1,43 @@
 import { useEffect, useState } from 'react';
-import { format, isSameDay } from 'date-fns';
 import { CheckIcon, CopyIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
-import type { ProjectCloneAccess } from '~/lib/cloudflare/data-api';
-import { loadCloneAccess, type ProjectRef } from '~/lib/cloudflare/projects.client';
+import { loadGitProjectId, type ProjectRef } from '~/lib/cloudflare/projects.client';
 import { messageOf } from '~/lib/json-request';
 
-/** The command that clones a project's repository, with a read token that expires soon after. */
-export function CloneDialog({ project, name, onClose }: { project: ProjectRef; name: string; onClose: () => void }) {
-  const [access, setAccess] = useState<ProjectCloneAccess | null>(null);
+/**
+ * How to clone a project: through CloudChef's own git address, which checks the person's access on every request,
+ * with the `cloudchef` command or plain git. `fullName` (`owner/name`) names it when it has one; its id otherwise.
+ */
+export function CloneDialog({
+  project,
+  name,
+  fullName = null,
+  onClose,
+}: {
+  project: ProjectRef;
+  name: string;
+  fullName?: string | null;
+  onClose: () => void;
+}) {
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
   const ref = 'chatInitialId' in project ? project.chatInitialId : project.orgProjectId;
 
   useEffect(() => {
     let cancelled = false;
-    setAccess(null);
+    setProjectId(null);
     setError(null);
-    loadCloneAccess(project)
+    loadGitProjectId(project)
       .then((loaded) => {
         if (!cancelled) {
-          setAccess(loaded);
-          setNow(Date.now());
+          setProjectId(loaded);
         }
       })
       .catch((cause) => {
         if (!cancelled) {
-          setError(messageOf(cause, 'The clone command could not be made.'));
+          setError(messageOf(cause, 'Its address could not be found.'));
         }
       });
     return () => {
@@ -39,104 +47,88 @@ export function CloneDialog({ project, name, onClose }: { project: ProjectRef; n
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ref, attempt]);
 
-  // Says so once the token has expired, rather than offering a command that no longer works.
-  useEffect(() => {
-    if (!access) {
-      return undefined;
-    }
-    const wait = access.expiresAt - Date.now();
-    if (wait <= 0) {
-      return undefined;
-    }
-    const timer = window.setTimeout(() => setNow(Date.now()), Math.min(wait + 1_000, 2 ** 31 - 1));
-    return () => window.clearTimeout(timer);
-  }, [access]);
-
-  const copy = async () => {
-    if (!access) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(access.command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2_000);
-    } catch {
-      setError('The command could not be copied. Select it and copy it instead.');
-    }
-  };
-
-  const expired = access !== null && access.expiresAt <= now;
-  const until = access
-    ? isSameDay(access.expiresAt, now)
-      ? format(access.expiresAt, 'p')
-      : format(access.expiresAt, 'PPp')
-    : '';
+  const origin = window.location.origin;
+  const gitUrl = fullName ? `${origin}/${fullName}.git` : `${origin}/git/${projectId}.git`;
 
   return (
     <Modal onClose={onClose} title="Clone" description={name}>
       {error !== null ? (
-        <div role="alert" className="mb-3 grid gap-2 text-sm text-content-secondary">
+        <div role="alert" className="grid gap-2 text-sm text-content-secondary">
           <p>{error}</p>
-          {access === null ? (
-            <Button className="justify-self-start" size="xs" variant="neutral" onClick={() => setAttempt((n) => n + 1)}>
-              Try again
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {access === null ? (
-        error === null ? (
-          <p className="text-sm text-content-tertiary" role="status">
-            Making a clone command…
-          </p>
-        ) : null
-      ) : expired ? (
-        <div className="grid gap-2 text-sm text-content-secondary">
-          <p>This command has expired.</p>
           <Button className="justify-self-start" size="xs" variant="neutral" onClick={() => setAttempt((n) => n + 1)}>
-            Get a new command
+            Try again
           </Button>
         </div>
+      ) : projectId === null ? (
+        <p className="text-sm text-content-tertiary" role="status">
+          Finding its address…
+        </p>
       ) : (
-        <div className="grid gap-3 text-sm">
-          <p className="text-content-secondary">Run this in a terminal to clone the project with its full history.</p>
-          <div className="flex min-w-0 items-start gap-2">
-            <code
-              className="min-w-0 flex-1 select-all rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 font-mono text-xs text-content-primary [overflow-wrap:anywhere]"
-              aria-label="Clone command"
-            >
-              {access.command}
-            </code>
-            <Button
-              size="xs"
-              variant="neutral"
-              icon={copied ? <CheckIcon /> : <CopyIcon />}
-              onClick={() => void copy()}
-            >
-              {copied ? 'Copied' : 'Copy'}
-            </Button>
+        <div className="grid gap-4 text-sm">
+          <p className="text-content-secondary">Get the code, with its whole history, on your own computer.</p>
+          <div className="grid gap-2">
+            <p className="font-medium text-content-primary">With the cloudchef command</p>
+            <CopyableCommand label="cloudchef command" command={`cloudchef repo clone ${fullName ?? projectId}`} />
+            <p className="text-content-secondary">
+              Install it once with <code className="font-mono text-xs">curl -fsSL {origin}/install.sh | bash</code>,
+              then sign in with <code className="font-mono text-xs">cloudchef auth login</code>.
+            </p>
           </div>
-          <p className="text-content-secondary">Anyone with this command can download the code until {until}.</p>
+          <div className="grid gap-2 border-t border-bolt-elements-borderColor pt-3">
+            <p className="font-medium text-content-primary">With git</p>
+            <CopyableCommand label="git command" command={`git clone ${gitUrl}`} />
+            <p className="text-content-secondary">
+              When git asks for a password, use a command-line token from{' '}
+              <a className="underline" href="/settings#command-line">
+                Settings
+              </a>
+              . If you can edit the project, pushing main publishes it.
+            </p>
+          </div>
         </div>
       )}
-      {'orgProjectId' in project ? (
-        <div className="mt-4 grid gap-2 border-t border-bolt-elements-borderColor pt-3 text-sm">
-          <p className="font-medium text-content-primary">Work on it from your own computer</p>
-          <code
-            className="select-all rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 font-mono text-xs text-content-primary [overflow-wrap:anywhere]"
-            aria-label="Address to work on it from your own computer"
-          >
-            git clone {`https://cloudchef.build/git/${project.orgProjectId}.git`}
-          </code>
-          <p className="text-content-secondary">
-            Pushing main publishes it. When git asks for a password, use a command-line token from{' '}
-            <a className="underline" href="/settings#command-line">
-              Settings
-            </a>
-            .
-          </p>
-        </div>
-      ) : null}
     </Modal>
+  );
+}
+
+/** A command to run, with a button that copies it. */
+function CopyableCommand({ label, command }: { label: string; command: string }) {
+  const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setFailed(false);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      setFailed(true);
+    }
+  };
+  return (
+    <>
+      <div className="flex min-w-0 items-start gap-2">
+        <code
+          className="min-w-0 flex-1 select-all rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-2 font-mono text-xs text-content-primary [overflow-wrap:anywhere]"
+          aria-label={label}
+        >
+          {command}
+        </code>
+        <Button
+          size="xs"
+          variant="neutral"
+          icon={copied ? <CheckIcon /> : <CopyIcon />}
+          aria-label={`${copied ? 'Copied' : 'Copy'} the ${label.toLowerCase()}`}
+          onClick={() => void copy()}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      {failed ? (
+        <p role="alert" className="text-xs text-content-secondary">
+          It could not be copied. Select it and copy it instead.
+        </p>
+      ) : null}
+    </>
   );
 }

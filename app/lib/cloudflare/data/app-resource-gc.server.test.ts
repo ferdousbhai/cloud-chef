@@ -44,19 +44,17 @@ describe('app resource garbage collection', () => {
     expect(workspace.deploymentIds()).toEqual([]);
   });
 
-  it("deletes a removed chat's own repository, which all its conversations share, with its clone tokens", async () => {
+  it("deletes a removed chat's own repository, which all its conversations share", async () => {
     const workspace = new AppResourceGcWorkspace();
     const artifacts = fakeArtifacts();
     for (const repo of ['p-initial-chat-row', 'p-other']) {
       await artifacts.create(repo);
     }
-    workspace.cloneToken('p-initial-chat-row');
     cleanupApi(true);
 
     await sweepAt(100, { ...workspace.env, ARTIFACTS: artifacts });
 
     expect([...artifacts.repos.keys()]).toEqual(['p-other']);
-    expect(workspace.cloneTokenRepos()).toEqual([]);
     expect(workspace.candidates()).toEqual([]);
   });
 
@@ -353,19 +351,6 @@ class AppResourceGcWorkspace {
         )
         .run(attempts);
     }
-  }
-
-  cloneToken(repo: string) {
-    this.#database
-      .prepare(
-        `INSERT INTO clone_tokens (repo, user_id, token_id, secret, remote, expires_at)
-         VALUES (?, 'user-1', 'token-1', 'secret', 'https://example.com/r.git', 9999999999999)`,
-      )
-      .run(repo);
-  }
-
-  cloneTokenRepos() {
-    return this.#database.prepare('SELECT repo FROM clone_tokens').all();
   }
 
   chat(id: string, { removed }: { removed: boolean }) {

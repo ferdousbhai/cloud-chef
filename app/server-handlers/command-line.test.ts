@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
+import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
+import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
@@ -354,5 +357,99 @@ describe('apps made in a chat', () => {
     expect((await git('/info/refs?service=git-upload-pack')).status).toBe(404);
     database.exec(`UPDATE apps SET visibility = 'public'`);
     expect((await git('/info/refs?service=git-receive-pack')).status).toBe(403);
+  });
+});
+
+describe('copying a public project', () => {
+  const SITE = '33333333-3333-4333-8333-333333333333';
+  const READ_ACCESS = {
+    url: 'https://artifacts.test/git/cloudchef/t-site.git',
+    authorization: 'Basic eDp0b2tlbg==',
+    branch: 'main',
+  };
+  const REVOKED = {
+    url: 'https://ada.runtime.test/v1/read-access/revoke',
+    body: { orgProjectId: SITE, tokenId: 'token-1' },
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Ada's public project, and Bo, who copies it into his own account; each has a runtime CloudChef reaches. */
+  async function world(copyAnswer: () => Response) {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username) VALUES
+        ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 'ada'), ('bo', 'Bo', 'bo@example.com', 1, 1, 1, 'bo');
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, connection_generation, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account-ada', 'active', 1, 1, 1), ('bo-own', 'bo', 'account-bo', 'active', 1, 1, 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+        created_at, visibility)
+        VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1, 'public');
+    `);
+    const runtime = database.prepare(
+      `INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
+         runtime_version, image_digest, protocol_version, status, created_at, updated_at)
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, 'ready', 1, 1)`,
+    );
+    const current = [
+      USER_WORKSPACE_RUNTIME_SHA256,
+      USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+      USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
+    ] as const;
+    runtime.run('ada', 'ada-own', 'ada-runtime', 'https://ada.runtime.test', ...current);
+    runtime.run('bo', 'bo-own', 'bo-runtime', 'https://bo.runtime.test', ...current);
+    const calls: { url: string; body: unknown }[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, body: JSON.parse(String(init?.body ?? 'null')) });
+        if (url === 'https://ada.runtime.test/v1/projects/read-access') {
+          return Response.json({ ...READ_ACCESS, tokenId: 'token-1' });
+        }
+        if (url === 'https://bo.runtime.test/v1/projects/copy') {
+          return copyAnswer();
+        }
+        return new Response(null, { status: 204 });
+      }),
+    );
+    const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: btoa('k'.repeat(32)) });
+    const bo = (await createCommandLineToken(db, 'bo', 'Laptop')).token;
+    const copy = () =>
+      commandLineCopyProjectAction({
+        request: new Request('https://cloudchef.build/api/command-line/projects/copy', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${bo}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ project: SITE }),
+        }),
+        env,
+      });
+    return { calls, copy };
+  }
+
+  it('hands the copier’s runtime a token for one import, and revokes it once the copy is made', async () => {
+    const { calls, copy } = await world(() =>
+      Response.json({ projectId: '44444444-4444-4444-8444-444444444444', initialId: 'chat-9' }, { status: 201 }),
+    );
+
+    expect((await copy()).status).toBe(201);
+
+    // The token's id, which revokes it, stays with CloudChef.
+    expect(calls.find((call) => call.url === 'https://bo.runtime.test/v1/projects/copy')?.body).toEqual({
+      name: 'Site',
+      copiedFrom: SITE,
+      source: READ_ACCESS,
+    });
+    expect(calls.at(-1)).toEqual(REVOKED);
+  });
+
+  it('revokes the token when the copy fails too', async () => {
+    const { calls, copy } = await world(() => Response.json({ error: 'No room.' }, { status: 500 }));
+
+    expect((await copy()).status).toBe(500);
+
+    expect(calls.at(-1)).toEqual(REVOKED);
   });
 });
