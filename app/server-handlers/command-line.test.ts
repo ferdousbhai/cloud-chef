@@ -227,3 +227,80 @@ describe('public projects', () => {
     expect(copy.status).toBe(404);
   });
 });
+
+describe('apps made in a chat', () => {
+  const GARDEN = '44444444-4444-4444-8444-444444444444';
+
+  async function world() {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username) VALUES
+        ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 'ada'), ('bo', 'Bo', 'bo@example.com', 1, 1, 1, 'bo');
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
+      INSERT INTO apps (id, user_id, connection_id, repo, name, slug, site_url, created_at, updated_at)
+        VALUES ('${GARDEN}', 'ada', 'ada-own', 'p-${GARDEN}', 'Garden', 'garden', 'https://garden.example', 1, 1);
+    `);
+    const env = envWith({ DB: db });
+    const bo = (await createCommandLineToken(db, 'bo', 'Laptop')).token;
+    const ada = (await createCommandLineToken(db, 'ada', 'Laptop')).token;
+    return { database, env, bo, ada };
+  }
+
+  it('are listed for their owner, and become public only when the owner says', async () => {
+    const { env, bo, ada } = await world();
+    const listed = await commandLineProjectsAction({
+      request: new Request('https://cloudchef.build/api/command-line/projects', {
+        headers: { authorization: `Bearer ${ada}` },
+      }),
+      env,
+    });
+    expect(await listed.json()).toEqual({
+      projects: [
+        expect.objectContaining({
+          id: GARDEN,
+          kind: 'app',
+          fullName: 'ada/garden',
+          gitUrl: 'https://cloudchef.build/ada/garden.git',
+          visibility: 'private',
+        }),
+      ],
+    });
+
+    const change = (token: string) =>
+      commandLineVisibilityAction({
+        request: new Request('https://cloudchef.build/api/command-line/projects/visibility', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ project: GARDEN, visibility: 'public' }),
+        }),
+        env,
+      });
+    expect((await change(bo)).status).toBe(403);
+    expect((await change(ada)).status).toBe(200);
+
+    const explore = await exploreAction({
+      request: new Request('https://cloudchef.build/api/explore', { headers: { authorization: `Bearer ${bo}` } }),
+      env,
+    });
+    expect(await explore.json()).toEqual({
+      projects: [
+        expect.objectContaining({ id: GARDEN, kind: 'app', fullName: 'ada/garden', siteUrl: 'https://garden.example' }),
+      ],
+    });
+  });
+
+  it('are hidden from others while private, and only read by them once public', async () => {
+    const { database, env, bo } = await world();
+    const basic = { authorization: `Basic ${btoa(`x:${bo}`)}` };
+    const git = (path: string) =>
+      commandLineGitAction({
+        request: new Request(`https://cloudchef.build/ada/garden.git${path}`, { headers: basic }),
+        env,
+      });
+
+    expect((await git('/info/refs?service=git-upload-pack')).status).toBe(404);
+    database.exec(`UPDATE apps SET visibility = 'public'`);
+    expect((await git('/info/refs?service=git-receive-pack')).status).toBe(403);
+  });
+});

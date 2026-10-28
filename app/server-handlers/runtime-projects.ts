@@ -29,6 +29,7 @@ import {
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { importedProjectRepo, nativeProjectRepo } from '~/lib/.server/cloudflare/project-repository';
 import { registerGitHubImport } from './projects';
+import { syncApps } from '~/lib/cloudflare/data/apps.server';
 import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
@@ -286,6 +287,36 @@ export async function runtimeRegisterImportAction(args: {
  * runtime chose): record it as a project of its account. In a team it takes one of the team's admins, as an
  * import does.
  */
+const syncAppsSchema = z.strictObject({
+  apps: z
+    .array(
+      z.strictObject({
+        id: z.string().uuid(),
+        name: z.string().trim().min(1).max(200),
+        siteUrl: z.url({ protocol: /^https$/ }).max(2_048).nullable(),
+      }),
+    )
+    .max(1_000),
+});
+
+/**
+ * `runtime-projects/sync-apps`: the person's apps in this runtime's account, as its chats list them, kept so they
+ * can be public, copied and reached from the command line. Their live addresses come from the runtime's own deploys.
+ */
+export async function runtimeSyncAppsAction(args: { request: Request; env: Env }): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, syncAppsSchema, {
+    maxBytes: 512 * 1024,
+    label: 'Workspace runtime apps',
+    invalid: INVALID_REQUEST,
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const { body, identity, connection } = authenticated;
+  await syncApps(args.env.DB, { userId: identity.userId, connectionId: connection.id, apps: body.apps });
+  return json({ synced: body.apps.length }, 200);
+}
+
 export async function runtimeRegisterUploadAction(args: { request: Request; env: Env }): Promise<Response> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, registerUploadSchema, {
     maxBytes: MAX_REQUEST_BYTES,

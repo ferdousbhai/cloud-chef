@@ -8,7 +8,7 @@ import {
   workspaceRefsPrefix,
 } from '../../app/lib/.server/cloudflare/git-proxy';
 import { commitAuthor, openProject, ProjectAccessError } from '../../app/lib/.server/cloudflare/linked-project-client';
-import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
+import { nativeProjectRepo, ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type { ProjectWorkspace } from './index';
 import type { ProjectBuilder } from './project-builder';
 import { confirmUserWorkspaceAccess } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
@@ -16,6 +16,7 @@ import { confirmUserWorkspaceAccess } from '../../app/lib/.server/cloudflare/use
 type GitProxyEnv = Pick<
   Env,
   | 'ARTIFACTS'
+  | 'DB'
   | 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT'
   | 'CONTROL_PLANE_SECRET'
   | 'CLOUDCHEF_USER_ID'
@@ -142,6 +143,47 @@ export async function handleCommandLineGit(
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: (update) => publishPush(env, deployed, update),
+    recordBase: async () => undefined,
+    fetch: (input, init) => fetch(input, init),
+    waitUntil: (promise) => ctx.waitUntil(promise),
+  });
+}
+
+/**
+ * git on the person's own computer for one of their apps (a chat's own repository), as `/v1/git/app/<app id>/…`:
+ * the same checks as git in a workspace. A push to it is kept; the app goes live from its workspace, as before.
+ */
+export async function handleCommandLineAppGit(
+  request: Request,
+  env: GitProxyEnv,
+  ctx: Pick<ExecutionContext, 'waitUntil'>,
+  appId: string,
+  rest: string,
+): Promise<Response> {
+  const identity = runtimeConnectionIdentity(env);
+  if (!identity) {
+    return new Response('This workspace is not connected to CloudChef.', { status: 503 });
+  }
+  const app = await env.DB.prepare(
+    'SELECT 1 AS found FROM chats WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
+  )
+    .bind(identity.userId, appId)
+    .first<{ found: number }>();
+  if (!app) {
+    return new Response('Repository not found.', { status: 404 });
+  }
+  const target = { repo: nativeProjectRepo(appId), orgProjectId: null, base: { branch: 'main', commit: null } };
+  const repositories = new ProjectRepositories(env.ARTIFACTS);
+  const url = new URL(request.url);
+  const forwarded = new Request(`http://${GIT_PROXY_HOST}/project.git/${rest}${url.search}`, request);
+  return handleGitProxyRequest(forwarded, {
+    repository: async () => target,
+    author: () => commitAuthor(env),
+    refusal: (repository, write) => gitRefusal(env, repository, write),
+    access: (repo, scope) => repositories.gitAccess(repo, scope),
+    revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
+    workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
+    recordPush: async () => undefined,
     recordBase: async () => undefined,
     fetch: (input, init) => fetch(input, init),
     waitUntil: (promise) => ctx.waitUntil(promise),

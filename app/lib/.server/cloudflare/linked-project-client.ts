@@ -202,6 +202,16 @@ export async function registerUploadedProject(
   await readAnswer(response, z.object({ projectId: z.string() }), 'CloudChef could not add the project.');
 }
 
+/** Brings CloudChef's record of this person's apps in this account up to date with their chats. */
+export async function syncAccountApps(
+  env: RuntimeEnv,
+  identity: Identity,
+  apps: { id: string; name: string; siteUrl: string | null }[],
+): Promise<void> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/sync-apps', { apps }, OPEN_TIMEOUT_MS);
+  await readAnswer(response, z.object({ synced: z.number() }), 'CloudChef could not update your apps.');
+}
+
 /** What Workers Builds reports for a commit of the project so far. */
 export async function projectBuildStatus(
   env: RuntimeEnv,

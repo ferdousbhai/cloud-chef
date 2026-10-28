@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, test } from 'vitest';
 
 const controlPlaneTables = [
+  'apps',
   'cloudflare_auth_sessions',
   'cloudflare_authorizations',
   'cloudflare_connections',

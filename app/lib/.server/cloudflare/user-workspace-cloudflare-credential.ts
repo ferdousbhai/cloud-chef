@@ -211,7 +211,9 @@ export async function readAccountModelSettings(
 }
 
 /** The fields a runtime route is sent. */
-type RuntimeRouteBody = Record<string, string | number | boolean | null | undefined>;
+type RuntimeRouteValue = string | number | boolean | null | undefined;
+/** Plain values, or (for a list the runtime reports, such as its apps) a list of records of them. */
+type RuntimeRouteBody = Record<string, RuntimeRouteValue | Record<string, RuntimeRouteValue>[]>;
 
 /**
  * A call to one of the control plane's runtime routes, as this runtime, carrying `body` as JSON (a field
@@ -256,6 +258,7 @@ type RuntimeRoute =
   | 'runtime-projects/abandon-import'
   | 'runtime-projects/register-import'
   | 'runtime-projects/register-upload'
+  | 'runtime-projects/sync-apps'
   | 'runtime-projects/status'
   | 'runtime-projects/site'
   | 'runtime-projects/request-production'

@@ -457,6 +457,93 @@ export async function userRuntimeProjectReadAccessAction(
   }
 }
 
+const appReadAccessSchema = z.strictObject({ appId: z.string().uuid() });
+
+/**
+ * `POST /v1/apps/read-access`: a short-lived read token for one of this person's apps (a chat's own repository),
+ * for CloudChef to copy it or let someone read it while it is public.
+ */
+export async function userRuntimeAppReadAccessAction(
+  args: { request: Request; env: Env; userId: string },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = appReadAccessSchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the app.' }, { status: 400 });
+  }
+  try {
+    // One of this person's own apps: a chat of theirs that isn't a team project's.
+    const app = await args.env.DB.prepare(
+      'SELECT 1 AS found FROM chats WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
+    )
+      .bind(args.userId, parsed.data.appId)
+      .first<{ found: number }>();
+    if (!app) {
+      throw new DataNotFoundError('That app is not here.');
+    }
+    const access = await repositories(args.env).readAccess(nativeProjectRepo(parsed.data.appId));
+    return Response.json(
+      {
+        url: access.remote,
+        authorization: `Basic ${btoa(`x:${access.token}`)}`,
+        branch: MAIN_BRANCH,
+        expiresAt: Date.parse(access.expiresAt),
+      },
+      { headers: { 'cache-control': 'no-store' } },
+    );
+  } catch (error) {
+    return internalErrorResponse(error, 'The app could not be read. Try again.');
+  }
+}
+
+const appCopySchema = z.strictObject({
+  name: z.string().trim().min(1).max(80),
+  source: z.strictObject({
+    url: z.url({ protocol: /^https$/ }),
+    authorization: z.string().min(1).max(4_096),
+    branch: z.string().min(1).max(256),
+  }),
+});
+
+/**
+ * `POST /v1/apps/copy`: a new app of this person's (its own repository `p-<new chat>`, and a chat on it) whose
+ * history is another app's, read from where CloudChef says with the token it got for it. Its workspace starts
+ * from that history when it opens, as a fork's does.
+ */
+export async function userRuntimeAppCopyAction(
+  args: { request: Request; env: Env; userId: string },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = appCopySchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Say what to copy, and the new app’s name.' }, { status: 400 });
+  }
+  const { name, source } = parsed.data;
+  try {
+    const initialId = crypto.randomUUID();
+    const repo = nativeProjectRepo(initialId);
+    const store = repositories(args.env);
+    try {
+      await withRepositoryErrors(
+        store.importFromUrl({ url: source.url, authorization: source.authorization, branch: source.branch, repo }),
+      );
+    } catch (error) {
+      await store.deleteRepo(repo).catch(() => undefined);
+      throw error;
+    }
+    const chat = await ensureInitialChat(args.env.DB, { id: crypto.randomUUID(), creatorId: args.userId, initialId });
+    // It holds the copied app already, so it is listed as one and never discarded as empty.
+    await args.env.DB.prepare(
+      `UPDATE chats SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
+    )
+      .bind(name, chat.id)
+      .run();
+    return Response.json({ initialId }, { status: 201, headers: { 'cache-control': 'no-store' } });
+  } catch (error) {
+    return internalErrorResponse(error, 'The copy could not be made. Try again.');
+  }
+}
+
 const copySchema = z.strictObject({
   name: z.string().trim().min(1).max(80),
   copiedFrom: z.string().uuid(),

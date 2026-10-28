@@ -11,6 +11,8 @@ import {
   projectCloneAccess,
   projectHistory,
   userRuntimeProjectArchiveAction,
+  userRuntimeAppCopyAction,
+  userRuntimeAppReadAccessAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectUploadAction,
@@ -432,5 +434,58 @@ describe('making an empty project for history pushed from the command line', () 
     expect(database.prepare('SELECT org_project_id FROM chats WHERE initial_id = ?').get(result.initialId)).toEqual({
       org_project_id: result.projectId,
     });
+  });
+});
+
+describe('copying an app into a new app of this person', () => {
+  const SOURCE_URL = 'https://other-account.artifacts.test/git/cloudchef/p-source.git';
+  const AUTHORIZATION = `Basic ${btoa('x:read-token')}`;
+
+  it('copies its whole history into the new app’s repository and lists it as theirs', async () => {
+    const { env, artifacts, database, store } = await setup();
+    await artifacts.addSource(SOURCE_URL, { 'index.html': 'one' }, 'main', { authorization: AUTHORIZATION });
+    const head = await artifacts.commitSource(SOURCE_URL, { 'index.html': 'two' }, 'Second version');
+
+    const response = await userRuntimeAppCopyAction(
+      {
+        request: new Request('https://runtime.test/v1/apps/copy', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'My garden',
+            source: { url: SOURCE_URL, authorization: AUTHORIZATION, branch: 'main' },
+          }),
+        }),
+        env,
+        userId: OWNER,
+      },
+      store,
+    );
+
+    expect(response.status).toBe(201);
+    const { initialId } = z.object({ initialId: z.string() }).parse(await response.json());
+    expect(await artifacts.head(`p-${initialId}`)).toBe(head);
+    expect(
+      database
+        .prepare('SELECT description, has_messages, org_project_id FROM chats WHERE initial_id = ?')
+        .get(initialId),
+    ).toEqual({ description: 'My garden', has_messages: 1, org_project_id: null });
+  });
+
+  it('gives a read token only for the person’s own app', async () => {
+    const { env, store } = await setup();
+    const ask = (appId: string) =>
+      userRuntimeAppReadAccessAction(
+        {
+          request: new Request('https://runtime.test/v1/apps/read-access', {
+            method: 'POST',
+            body: JSON.stringify({ appId }),
+          }),
+          env,
+          userId: OWNER,
+        },
+        store,
+      );
+
+    expect((await ask('99999999-9999-4999-8999-999999999999')).status).toBe(404);
   });
 });

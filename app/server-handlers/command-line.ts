@@ -22,7 +22,9 @@ import {
   listAccessibleProjects,
   listPublicProjects,
   setProjectVisibility,
+  type ProjectVisibility,
 } from '~/lib/cloudflare/data/org-projects.server';
+import { findReadableApp, listAppsOf, listPublicApps, setAppVisibility } from '~/lib/cloudflare/data/apps.server';
 import { getAuthSession } from '~/lib/.server/auth';
 import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
@@ -58,11 +60,11 @@ export function isCommandLineGitPath(pathname: string): boolean {
 async function gitTarget(db: D1Database, pathname: string, userId: string) {
   const byId = GIT_ID_PATH.exec(pathname);
   if (byId) {
-    return { project: await findReadableProject(db, { id: byId[1]! }, userId), rest: byId[2]! };
+    return { target: await findReadable(db, { id: byId[1]! }, userId), rest: byId[2]! };
   }
   const byName = GIT_NAME_PATH.exec(pathname);
   return byName
-    ? { project: await findReadableProject(db, { owner: byName[1]!, slug: byName[2]! }, userId), rest: byName[3]! }
+    ? { target: await findReadable(db, { owner: byName[1]!, slug: byName[2]! }, userId), rest: byName[3]! }
     : null;
 }
 
@@ -147,16 +149,16 @@ export async function commandLineGitAction({ request, env }: { request: Request;
       'Run cloudchef auth login, or use a command-line token from CloudChef Settings as the password.',
     );
   }
-  const target = await gitTarget(env.DB, new URL(request.url).pathname, userId);
-  if (!target?.project) {
+  const found = await gitTarget(env.DB, new URL(request.url).pathname, userId);
+  if (!found?.target) {
     return new Response('Repository not found.\n', { status: 404 });
   }
-  const { project, rest } = target;
-  // Someone with no role on a public project reads it through its author's runtime, so nothing else goes there.
-  if (project.role === 'public' && !readsOnly(rest, new URL(request.url).searchParams)) {
+  const { target, rest } = found;
+  // Someone who may only read it gets nothing else; a public one is read through its owner's runtime.
+  if (!target.mayPush && !readsOnly(rest, new URL(request.url).searchParams)) {
     return new Response('You can read this project but not push to it. Make a copy to change it.\n', { status: 403 });
   }
-  const runtime = await readerRuntime(request, env, userId, project);
+  const runtime = await readerRuntime(request, env, userId, target);
   if ('refusal' in runtime) {
     return new Response(`${runtime.refusal}\n`, { status: runtime.status });
   }
@@ -167,7 +169,10 @@ export async function commandLineGitAction({ request, env }: { request: Request;
       headers.set(name, value);
     }
   }
-  const forwardTo = new URL(`/v1/git/${project.id}/${rest}`, runtime.endpoint);
+  const forwardTo = new URL(
+    target.kind === 'app' ? `/v1/git/app/${target.id}/${rest}` : `/v1/git/${target.id}/${rest}`,
+    runtime.endpoint,
+  );
   forwardTo.search = new URL(request.url).search;
   return fetch(forwardTo, {
     method: request.method,
@@ -186,8 +191,27 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
   const origin = publicOrigin(request);
   const accounts = await Promise.all(
     (await listWorkspaceContexts(env.DB, userId)).map(async (context) => {
-      const projects = await listAccessibleProjects(env.DB, context.connectionId, userId);
-      return Promise.all(
+      const [projects, apps] = await Promise.all([
+        listAccessibleProjects(env.DB, context.connectionId, userId),
+        listAppsOf(env.DB, userId, context.connectionId),
+      ]);
+      const account = context.kind === 'organization' ? context.orgName : 'Personal';
+      // Apps made in a chat: their pushes are kept, and they go live from their workspace in CloudChef.
+      const appRows = apps.map((app) => ({
+        id: app.id,
+        kind: 'app' as const,
+        name: app.name,
+        fullName: app.fullName,
+        account,
+        role: 'edit' as const,
+        gitUrl: gitUrl(origin, app),
+        visibility: app.visibility,
+        defaultBranch: 'main',
+        siteUrl: app.siteUrl,
+        publishedBy: 'workspace' as const,
+        lastPublish: null,
+      }));
+      const projectRows = await Promise.all(
         projects.map(async (project) => {
           const publish =
             project.deploysWith === 'cloudchef'
@@ -195,15 +219,16 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
               : null;
           return {
             id: project.id,
+            kind: 'project' as const,
             name: project.name,
             fullName: project.fullName,
-            account: context.kind === 'organization' ? context.orgName : 'Personal',
+            account,
             role: project.role,
             gitUrl: gitUrl(origin, project),
             visibility: project.visibility,
             defaultBranch: project.defaultBranch,
             siteUrl: project.siteUrl,
-            publishedBy: project.deploysWith === 'cloudchef' ? 'cloudchef' : 'workers_builds',
+            publishedBy: project.deploysWith === 'cloudchef' ? ('cloudchef' as const) : ('workers_builds' as const),
             lastPublish: publish && {
               id: publish.id,
               commit: publish.commit,
@@ -216,6 +241,7 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
           };
         }),
       );
+      return [...projectRows, ...appRows];
     }),
   );
   const projects = accounts.flat();
@@ -574,78 +600,131 @@ export function setUsernameAction({ request, env }: { request: Request; env: Env
   });
 }
 
-type ReadableProject = NonNullable<Awaited<ReturnType<typeof findReadableProject>>>;
-
 /**
- * A runtime that may read `project` for `userId`: their own in its account when they may view or edit it, else its
- * author's, for a public one read by someone who has no runtime in that account. It reads only: the caller checks
- * that nothing else is asked of it.
+ * Something the person may read and copy, a project or an app, as git and copies need it: whose runtime reads it,
+ * whether they read it only as a public one, whether they may push to it, and where its runtime serves it.
  */
-async function readerRuntime(request: Request, env: Env, userId: string, project: ReadableProject) {
-  if (project.role !== 'public') {
-    return runtimeFor(request, env, userId, project.connectionId);
+type Readable = {
+  kind: 'project' | 'app';
+  id: string;
+  name: string;
+  fullName: string | null;
+  connectionId: string;
+  /** Its author or owner, whose runtime reads it for someone who has none in its account. */
+  ownerId: string | null;
+  /** Read only because it is public: nothing but reading goes to the owner's runtime for them. */
+  readsAsPublic: boolean;
+  mayPush: boolean;
+};
+
+/** The project, or else the app, `ref` names, if `userId` may read it. */
+async function findReadable(
+  db: D1Database,
+  ref: { id: string } | { owner: string; slug: string },
+  userId: string,
+): Promise<Readable | null> {
+  const project = await findReadableProject(db, ref, userId);
+  if (project) {
+    return {
+      kind: 'project',
+      id: project.id,
+      name: project.name,
+      fullName: project.fullName,
+      connectionId: project.connectionId,
+      ownerId: project.createdBy,
+      readsAsPublic: project.role === 'public',
+      mayPush: project.role === 'edit',
+    };
   }
-  if (!project.createdBy) {
-    return { refusal: 'This project can’t be read now: its author is no longer here.', status: 409 };
-  }
-  const authors = await runtimeFor(request, env, project.createdBy, project.connectionId);
-  return 'refusal' in authors
-    ? { refusal: 'This project can’t be read until its author opens CloudChef again.', status: 503 }
-    : authors;
+  const app = await findReadableApp(db, ref, userId);
+  return app
+    ? {
+        kind: 'app',
+        id: app.id,
+        name: app.name,
+        fullName: app.fullName,
+        connectionId: app.connectionId,
+        ownerId: app.userId,
+        readsAsPublic: app.role === 'public',
+        mayPush: app.role === 'owner',
+      }
+    : null;
 }
 
-const copyResultSchema = z.object({ projectId: z.string(), initialId: z.string() });
+/**
+ * A runtime that may read `target` for `userId`: their own in its account, else (a public one, read by someone
+ * with no runtime there) its owner's. It is asked only to read: the callers check that.
+ */
+async function readerRuntime(request: Request, env: Env, userId: string, target: Readable) {
+  if (!target.readsAsPublic) {
+    return runtimeFor(request, env, userId, target.connectionId);
+  }
+  if (!target.ownerId) {
+    return { refusal: 'This can’t be read now: its author is no longer here.', status: 409 };
+  }
+  const owners = await runtimeFor(request, env, target.ownerId, target.connectionId);
+  return 'refusal' in owners
+    ? { refusal: 'This can’t be read until its author opens CloudChef again.', status: 503 }
+    : owners;
+}
+
 const readAccessSchema = z.object({ url: z.string(), authorization: z.string(), branch: z.string() });
 
-/** A copy of `source` (one `userId` may read) as a new project in the account `connectionId` is: its id and chat. */
-async function copyProject(
+/**
+ * A copy of `source` (which `userId` may read) in the account `connectionId` is: a project's copy is a project there,
+ * an app's copy is an app of theirs. Answers the new one's id, its chat, and its full name.
+ */
+async function copyReadable(
   request: Request,
   env: Env,
-  args: { userId: string; source: ReadableProject; connectionId: string; name: string },
+  args: { userId: string; source: Readable; connectionId: string; name: string },
 ): Promise<{ projectId: string; initialId: string; fullName: string | null } | { refusal: string; status: number }> {
   const reader = await readerRuntime(request, env, args.userId, args.source);
   if ('refusal' in reader) {
     return reader;
   }
   const origin = publicOrigin(request);
-  const readAnswer = await fetch(new URL('/v1/projects/read-access', reader.endpoint), {
+  const app = args.source.kind === 'app';
+  const readAnswer = await fetch(new URL(app ? '/v1/apps/read-access' : '/v1/projects/read-access', reader.endpoint), {
     method: 'POST',
     headers: { authorization: `Bearer ${reader.token}`, origin, 'content-type': 'application/json' },
-    body: JSON.stringify({ orgProjectId: args.source.id }),
+    body: JSON.stringify(app ? { appId: args.source.id } : { orgProjectId: args.source.id }),
   });
   const access = readAccessSchema.safeParse(await readAnswer.json().catch(() => null));
   if (!readAnswer.ok || !access.success) {
-    return { refusal: 'The project couldn’t be read just now. Try again.', status: 502 };
+    return { refusal: 'It couldn’t be read just now. Try again.', status: 502 };
   }
   const target = await runtimeFor(request, env, args.userId, args.connectionId);
   if ('refusal' in target) {
     return target;
   }
-  const copyAnswer = await fetch(new URL('/v1/projects/copy', target.endpoint), {
+  const copyAnswer = await fetch(new URL(app ? '/v1/apps/copy' : '/v1/projects/copy', target.endpoint), {
     method: 'POST',
     headers: { authorization: `Bearer ${target.token}`, origin, 'content-type': 'application/json' },
-    body: JSON.stringify({ name: args.name, copiedFrom: args.source.id, source: access.data }),
+    body: JSON.stringify(
+      app
+        ? { name: args.name, source: access.data }
+        : { name: args.name, copiedFrom: args.source.id, source: access.data },
+    ),
   });
-  const copied = copyResultSchema.safeParse(
-    await copyAnswer
-      .clone()
-      .json()
-      .catch(() => null),
-  );
+  const answered: unknown = await copyAnswer.json().catch(() => null);
+  const copied = z.object({ projectId: z.string().optional(), initialId: z.string() }).safeParse(answered);
   if (!copyAnswer.ok || !copied.success) {
-    const failure = z.object({ error: z.string() }).safeParse(await copyAnswer.json().catch(() => null));
+    const failure = z.object({ error: z.string() }).safeParse(answered);
     return {
       refusal: failure.success ? failure.data.error : 'The copy could not be made. Try again.',
       status: copyAnswer.ok ? 502 : copyAnswer.status,
     };
   }
-  const made = await findAccessibleProject(env.DB, copied.data.projectId, args.userId);
-  return { ...copied.data, fullName: made?.fullName ?? null };
+  // An app's id is its chat's.
+  const projectId = copied.data.projectId ?? copied.data.initialId;
+  const made = app ? null : await findAccessibleProject(env.DB, projectId, args.userId);
+  return { projectId, initialId: copied.data.initialId, fullName: made?.fullName ?? null };
 }
 
 const browserCopySchema = z.strictObject({ projectId: z.string().uuid(), name: z.string().trim().max(80).optional() });
 
-/** `POST /api/projects/copy`: a copy of a project the person may read, in the account they're working in now. */
+/** `POST /api/projects/copy`: a copy of a project or app the person may read, in the account they're working in now. */
 export function copyProjectAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, browserCopySchema, 'Choose the project to copy.');
@@ -655,11 +734,11 @@ export function copyProjectAction({ request, env }: { request: Request; env: Env
     if (!session.context) {
       return Response.json({ error: 'Connect Cloudflare first, to have an account to copy it into.' }, { status: 409 });
     }
-    const source = await findReadableProject(env.DB, { id: body.data.projectId }, session.user.id);
+    const source = await findReadable(env.DB, { id: body.data.projectId }, session.user.id);
     if (!source) {
       return Response.json({ error: 'That project isn’t one you can copy.' }, { status: 404 });
     }
-    const copied = await copyProject(request, env, {
+    const copied = await copyReadable(request, env, {
       userId: session.user.id,
       source,
       connectionId: session.context.connectionId,
@@ -693,7 +772,7 @@ export async function commandLineCopyProjectAction({
   if ('response' in body) {
     return body.response;
   }
-  const source = await findReadableProject(env.DB, { id: body.data.project }, userId);
+  const source = await findReadable(env.DB, { id: body.data.project }, userId);
   if (!source) {
     return Response.json({ error: 'That project isn’t one you can copy.' }, { status: 404 });
   }
@@ -701,7 +780,7 @@ export async function commandLineCopyProjectAction({
   if ('error' in context) {
     return Response.json({ error: context.error }, { status: 404 });
   }
-  const copied = await copyProject(request, env, {
+  const copied = await copyReadable(request, env, {
     userId,
     source,
     connectionId: context.connectionId,
@@ -738,6 +817,14 @@ async function accountNamed(env: Env, userId: string, name: string) {
 
 const visibilitySchema = z.strictObject({ projectId: z.string().uuid(), visibility: z.enum(['private', 'public']) });
 
+/** A project its manager, or else an app its owner, makes public or private; false when neither is theirs. */
+async function setVisibility(db: D1Database, userId: string, id: string, visibility: ProjectVisibility) {
+  return (
+    (await setProjectVisibility(db, { userId, projectId: id, visibility })) ||
+    setAppVisibility(db, { userId, appId: id, visibility })
+  );
+}
+
 /** `POST /api/projects/visibility`: the owner of a personal project, or a team's admin, makes it public or private. */
 export function setVisibilityAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
@@ -745,7 +832,7 @@ export function setVisibilityAction({ request, env }: { request: Request; env: E
     if ('response' in body) {
       return body.response;
     }
-    return (await setProjectVisibility(env.DB, { userId: session.user.id, ...body.data }))
+    return (await setVisibility(env.DB, session.user.id, body.data.projectId, body.data.visibility))
       ? Response.json({ visibility: body.data.visibility })
       : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
   });
@@ -766,11 +853,7 @@ export async function commandLineVisibilityAction({ request, env }: { request: R
   if ('response' in body) {
     return body.response;
   }
-  return (await setProjectVisibility(env.DB, {
-    userId,
-    projectId: body.data.project,
-    visibility: body.data.visibility,
-  }))
+  return (await setVisibility(env.DB, userId, body.data.project, body.data.visibility))
     ? Response.json({ visibility: body.data.visibility })
     : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
 }
@@ -781,16 +864,31 @@ export async function exploreAction({ request, env }: { request: Request; env: E
   if (!signedInUser) {
     return Response.json({ error: 'Sign in to explore projects.' }, { status: 401 });
   }
-  const projects = (await listPublicProjects(env.DB)).map((project) => ({
-    id: project.id,
-    name: project.name,
-    fullName: project.fullName,
-    owner: { username: project.fullName?.split('/')[0] ?? null, name: project.authorName ?? 'Someone' },
-    siteUrl: project.siteUrl,
-    siteFrameable: project.siteFrameable,
-    createdAt: new Date(project.createdAt).toISOString(),
-    copiedFrom: project.copiedFrom ? { fullName: project.copiedFromFullName } : null,
-  }));
+  const [publicProjects, publicApps] = await Promise.all([listPublicProjects(env.DB), listPublicApps(env.DB)]);
+  const projects = [
+    ...publicProjects.map((project) => ({
+      id: project.id,
+      kind: 'project' as const,
+      name: project.name,
+      fullName: project.fullName,
+      owner: { username: project.fullName?.split('/')[0] ?? null, name: project.authorName ?? 'Someone' },
+      siteUrl: project.siteUrl,
+      siteFrameable: project.siteFrameable,
+      createdAt: new Date(project.createdAt).toISOString(),
+      copiedFrom: project.copiedFrom ? { fullName: project.copiedFromFullName } : null,
+    })),
+    ...publicApps.map((app) => ({
+      id: app.id,
+      kind: 'app' as const,
+      name: app.name,
+      fullName: app.fullName,
+      owner: { username: app.fullName?.split('/')[0] ?? null, name: app.ownerName ?? 'Someone' },
+      siteUrl: app.siteUrl,
+      siteFrameable: null,
+      createdAt: new Date(app.createdAt).toISOString(),
+      copiedFrom: null,
+    })),
+  ].sort((first, second) => second.createdAt.localeCompare(first.createdAt));
   if (new URL(request.url).searchParams.get('format') === 'tsv') {
     return tsv(
       projects.map((project) => [
@@ -803,4 +901,14 @@ export async function exploreAction({ request, env }: { request: Request; env: E
     );
   }
   return Response.json({ projects }, { headers: { 'Cache-Control': 'no-store' } });
+}
+
+/** `GET /api/apps`: the person's apps in the account they're working in now, with their address and visibility. */
+export function listMyAppsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const apps = session.context ? await listAppsOf(env.DB, session.user.id, session.context.connectionId) : [];
+    return Response.json({
+      apps: apps.map((app) => ({ id: app.id, fullName: app.fullName, visibility: app.visibility })),
+    });
+  });
 }

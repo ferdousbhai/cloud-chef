@@ -66,6 +66,8 @@ import {
   userRuntimeProjectUploadAction,
   userRuntimeProjectDeployLogAction,
   userRuntimeProjectDeployRetryAction,
+  userRuntimeAppCopyAction,
+  userRuntimeAppReadAccessAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
@@ -175,7 +177,7 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
-import { handleCommandLineGit } from './git-proxy';
+import { handleCommandLineAppGit, handleCommandLineGit } from './git-proxy';
 export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';
 import type { ProjectBuilder } from './project-builder';
 
@@ -3103,6 +3105,10 @@ async function handleUserRequest(
     return userRuntimeTerminalAction(request, url, env, capability.subject);
   }
   // git from the person's own computer, which CloudChef sent on after checking their command-line token.
+  const appGit = /^\/v1\/git\/app\/([0-9a-f-]{36})\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);
+  if (appGit) {
+    return handleCommandLineAppGit(request, env, ctx, appGit[1]!, appGit[2]!);
+  }
   const git = /^\/v1\/git\/([A-Za-z0-9_-]{1,128})\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);
   if (git) {
     return handleCommandLineGit(request, env, ctx, git[1]!, git[2]!);
@@ -3128,6 +3134,10 @@ async function handleUserRequest(
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/create-empty') {
     response = await userRuntimeProjectCreateEmptyAction({ url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/apps/read-access') {
+    response = await userRuntimeAppReadAccessAction({ request, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/apps/copy') {
+    response = await userRuntimeAppCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/read-access') {
     response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {

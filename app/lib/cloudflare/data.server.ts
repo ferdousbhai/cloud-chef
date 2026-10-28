@@ -5,6 +5,8 @@ import {
   type TranscriptIdentity,
 } from 'cloudchef-agent/transcript';
 import { z } from 'zod';
+import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
+import { syncAccountApps } from '~/lib/.server/cloudflare/linked-project-client';
 import type { BuilderAgent } from '~/agents/builder-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { DataOperationPath, DataOperationResult } from './data-api';
@@ -55,6 +57,10 @@ export async function userRuntimeDataAction(args: {
     );
     ensureDataBindings(args.env);
     const result = runKnownDataOperation(args.env, body.path, body.args, args.userId);
+    if (body.path === 'messages.getAll') {
+      // CloudChef keeps a record of the person's apps, so they can be public, copied and reached from the command line.
+      args.executionCtx?.waitUntil(syncAppsBestEffort(args.env, result));
+    }
     args.executionCtx?.waitUntil(sweepAgentGcCandidatesBestEffort(args.env));
     args.executionCtx?.waitUntil(sweepAppResourceGcCandidatesBestEffort(args.env));
     return Response.json({ result: await result });
@@ -62,6 +68,28 @@ export async function userRuntimeDataAction(args: {
     return internalErrorResponse(error, 'Unknown data error');
   }
 }
+
+/** Tells CloudChef the apps a chat list has, with their live addresses; a failure only waits for the next list. */
+async function syncAppsBestEffort(env: Env, listed: Promise<DataOperationResult<DataOperationPath>>): Promise<void> {
+  const chats = chatListSchema.safeParse(await listed.catch(() => null));
+  const identity = runtimeConnectionIdentity(env);
+  if (!chats.success || !identity) {
+    return;
+  }
+  await syncAccountApps(
+    env,
+    identity,
+    chats.data.map((chat) => ({
+      id: chat.initialId,
+      name: chat.description ?? 'Untitled app',
+      siteUrl: chat.productionUrl ?? null,
+    })),
+  ).catch((error: Error) => console.warn({ event: 'apps_sync_failed', message: error.message }));
+}
+
+const chatListSchema = z.array(
+  z.object({ initialId: z.string(), description: z.string().optional(), productionUrl: z.string().optional() }),
+);
 
 export async function userRuntimeInitialMessagesAction(args: {
   request: Request;
