@@ -2152,6 +2152,17 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
   }
 
+  /** Deletes the branches this workspace's container saved in its project's repository; its files stay. */
+  async forgetSavedBranches(): Promise<void> {
+    const repository = this.gitRepository();
+    if (repository) {
+      await new ProjectRepositories(this.env.ARTIFACTS).deleteRefs(
+        repository.repo,
+        workspaceRefsPrefix(this.ctx.id.toString()),
+      );
+    }
+  }
+
   async deleteProject() {
     const repository = this.gitRepository();
     await this.withStatefulOperation('delete', 'delete:project', async () => {
@@ -3151,6 +3162,8 @@ async function handleUserRequest(
     response = await userRuntimeProjectUploadAction({ request, url, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/create-empty') {
     response = await userRuntimeProjectCreateEmptyAction({ url, env: sharedEnv, userId: capability.subject });
+  } else if (request.method === 'POST' && url.pathname === '/v1/workspaces/forget-saved-branches') {
+    response = await forgetSavedBranchesAction(env);
   } else if (request.method === 'POST' && url.pathname === '/v1/approvals/settled') {
     response = await settleTeamApprovalAction(request, env, capability.subject);
   } else if (request.method === 'POST' && url.pathname === '/v1/apps/read-access') {
@@ -3198,6 +3211,27 @@ function terminalSize(url: URL): TerminalSize {
     return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
   };
   return { cols: read('cols', 20, 500, 80), rows: read('rows', 5, 200, 24) };
+}
+
+/**
+ * `POST /v1/workspaces/forget-saved-branches`: before CloudChef deletes this runtime (its person left the team), each
+ * of their team-project workspaces deletes the branches it saved in the team's repositories, which outlive it.
+ */
+async function forgetSavedBranchesAction(env: RuntimeEnv): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    'SELECT initial_id FROM workspaces WHERE is_deleted = 0 AND org_project_id IS NOT NULL',
+  ).all<{ initial_id: string }>();
+  let failed = 0;
+  for (const { initial_id: initialId } of results) {
+    // Each workspace's storage, keyed as its agent keys it.
+    const projectId = env.ConversationAgent.idFromName(initialId).toString();
+    await env.PROJECT_WORKSPACE.get(env.PROJECT_WORKSPACE.idFromName(projectId))
+      .forgetSavedBranches()
+      .catch(() => {
+        failed += 1;
+      });
+  }
+  return Response.json({ workspaces: results.length, failed });
 }
 
 /**
