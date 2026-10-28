@@ -118,7 +118,7 @@ export function Header() {
       )}
       {isMenuOpen && (
         <Suspense fallback={null}>
-          <SidebarMenu isOpen onClose={() => setIsMenuOpen(false)} />
+          <SidebarMenu isOpen waitingApprovals={waitingApprovals} onClose={() => setIsMenuOpen(false)} />
         </Suspense>
       )}
       {isAuthenticated && <ChooseUsernamePrompt />}

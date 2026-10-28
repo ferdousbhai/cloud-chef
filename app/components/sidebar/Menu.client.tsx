@@ -17,7 +17,6 @@ import { AppDeletionNotice, DeleteProjectDialog } from '~/components/projects/De
 import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
 import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { WorkspaceSwitcher } from '~/components/header/WorkspaceSwitcher';
-import { useWaitingApprovals } from '~/lib/cloudflare/approvals.client';
 import { useStore } from '@nanostores/react';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
@@ -47,6 +46,8 @@ const menuVariants = {
 
 interface MenuProps {
   isOpen: boolean;
+  /** How many approvals wait, as the header counted them for its button. */
+  waitingApprovals: number;
   onClose: () => void;
 }
 
@@ -75,7 +76,7 @@ export async function removeProject(
   });
 }
 
-export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
+export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const userId = useUserIdOrNullOrLoading();
   const accountUserId = userId ?? null;
@@ -90,7 +91,6 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
   // Approvals gather every team's this person is an admin of.
   const teamAdmin =
     session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
-  const waitingApprovals = useWaitingApprovals(teamAdmin);
   const added = useEditableProjects(accountUserId);
   const { opening, open } = useOpenProject(onClose);
   // Every project in one list, however it began: made here, imported from GitHub, uploaded, or the team's.

@@ -1733,13 +1733,16 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     const generateTitle = (subject: TitleSubject) =>
       generateModelTitle(args.prompt, subject, args.accountCredentials, args.gatewayLogging, countUsage);
     const conversationTitlePromise = generateTitle('conversation');
-    const projectTitlePromise = args.firstPrompt && args.subchatIndex === 0 ? generateTitle('project') : null;
+    // A team or imported project's workspace goes by the project's own name, so only an app of one's own is named.
+    const namesProject =
+      args.firstPrompt && args.subchatIndex === 0 && !(await this.workspace.linkedProject().catch(() => null));
+    const projectTitlePromise = namesProject ? generateTitle('project') : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
     if (provisionalTitle) {
       try {
         const [, savedHeuristicSubchat] = await Promise.all([
-          args.subchatIndex === 0
+          namesProject
             ? setHeuristicProjectDescriptionIfMissing(this.env.DB, {
                 sessionId: ownerId,
                 id: args.chatInitialId,
