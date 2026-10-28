@@ -183,7 +183,7 @@ overrides:
   'js-yaml@>=4.0.0 <4.3.2': '4.3.2'
   'nanoid@<3.3.18': '3.3.18'
   'postcss@<=8.5.22': '8.5.25'
-  'qs@<6.16.0': '6.16.0'
+  'qs@<6.16.1': '6.16.1'
   'postcss-selector-parser@<7.1.6': '7.1.6'
   'proxy-addr@>=1.1.0 <2.0.8': '2.0.8'
   '@modelcontextprotocol/client@>=2.0.0 <2.2.0': '2.2.0'
@@ -217,7 +217,7 @@ overrides:
         'pnpm-workspace.yaml overrides must pin js-yaml@>=4.0.0 <4.3.2 to 4.3.2.',
         'pnpm-workspace.yaml overrides must pin nanoid@<3.3.18 to 3.3.18.',
         'pnpm-workspace.yaml overrides must pin postcss@<=8.5.22 to 8.5.25.',
-        'pnpm-workspace.yaml overrides must pin qs@<6.16.0 to 6.16.0.',
+        'pnpm-workspace.yaml overrides must pin qs@<6.16.1 to 6.16.1.',
         'pnpm-workspace.yaml overrides must pin smol-toml@<1.8.1 to 1.9.1.',
         'pnpm-workspace.yaml overrides must pin sharp@<0.35.5 to 0.35.5.',
         'pnpm-workspace.yaml overrides must pin undici@>=7.0.0 <7.30.1 to 7.30.1.',
