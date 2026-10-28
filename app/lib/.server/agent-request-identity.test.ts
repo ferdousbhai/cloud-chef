@@ -34,57 +34,59 @@ describe('user-runtime Agent routing', () => {
     routeAgentRequest.mockReset().mockResolvedValue(new Response('routed'));
   });
 
-  it.each(['/agents/builder-agent/chat', '//agents/builder-agent/chat', '///agents//builder-agent/chat'])(
-    'authorizes every empty-segment spelling PartyServer treats as the same route: %s',
-    async (pathname) => {
-      const database = databaseReturning({ match_count: 1, active_match_count: 1, has_owner_conflict: 0 });
-      const env = { DB: database.db } as Env;
-      const request = new Request(`https://cloudchef.build${pathname}`);
+  it.each([
+    '/agents/conversation-agent/chat',
+    '//agents/conversation-agent/chat',
+    '///agents//conversation-agent/chat',
+  ])('authorizes every empty-segment spelling PartyServer treats as the same route: %s', async (pathname) => {
+    const database = databaseReturning({ match_count: 1, active_match_count: 1, has_owner_conflict: 0 });
+    const env = { DB: database.db } as Env;
+    const request = new Request(`https://cloudchef.build${pathname}`);
 
-      await expect(routeUserRuntimeAgentRequest(request, env, 'owner-1')).resolves.toHaveProperty('status', 200);
-      expect(database.values).toEqual(['owner-1', 'chat', 'chat']);
-      expect(routeAgentRequest).toHaveBeenCalledWith(request, env, {
-        props: { userId: 'owner-1' },
-      });
-    },
-  );
+    await expect(routeUserRuntimeAgentRequest(request, env, 'owner-1')).resolves.toHaveProperty('status', 200);
+    expect(database.values).toEqual(['owner-1', 'chat', 'chat']);
+    expect(routeAgentRequest).toHaveBeenCalledWith(request, env, {
+      props: { userId: 'owner-1' },
+    });
+  });
 
   it.each([
     '/agents',
     '/agents/',
     '/agents/unrecognized/chat',
     '//agents//unrecognized//chat',
-    '/agents/builder-agent-extra/chat',
-    '/agents/BuilderAgent/chat',
+    '/agents/conversation-agent-extra/chat',
+    '/agents/ConversationAgent/chat',
     '/agents/%62uilder-agent/chat',
+    '/agents/builder-agent-extra/chat',
     '/agents/%75nrecognized/chat',
-    '/agents/builder-agent',
-  ])('rejects a non-BuilderAgent namespace or missing name before PartyServer routing: %s', async (pathname) => {
+    '/agents/conversation-agent',
+  ])('rejects a non-ConversationAgent namespace or missing name before PartyServer routing: %s', async (pathname) => {
     expect((await route(pathname, {} as Env))?.status).toBe(404);
     expect(routeAgentRequest).not.toHaveBeenCalled();
   });
 
   it.each([
-    '/agents/builder-agent/%',
-    '/agents/builder-agent/%C3%28',
-    '/agents/builder-agent/%ED%A0%80',
-    '/agents/builder-agent/%63hat',
-    '/agents/builder-agent/%2f',
-    '/agents/builder-agent/%c3%a9',
-  ])('rejects a malformed or noncanonical encoded BuilderAgent name: %s', async (pathname) => {
+    '/agents/conversation-agent/%',
+    '/agents/conversation-agent/%C3%28',
+    '/agents/conversation-agent/%ED%A0%80',
+    '/agents/conversation-agent/%63hat',
+    '/agents/conversation-agent/%2f',
+    '/agents/conversation-agent/%c3%a9',
+  ])('rejects a malformed or noncanonical encoded ConversationAgent name: %s', async (pathname) => {
     expect((await route(pathname, {} as Env))?.status).toBe(404);
     expect(routeAgentRequest).not.toHaveBeenCalled();
   });
 
   it.each(['a'.repeat(513), '%C3%A9'.repeat(86)])('rejects an overlong canonical wire name', async (encodedName) => {
-    expect((await route(`/agents/builder-agent/${encodedName}`, {} as Env))?.status).toBe(404);
+    expect((await route(`/agents/conversation-agent/${encodedName}`, {} as Env))?.status).toBe(404);
     expect(routeAgentRequest).not.toHaveBeenCalled();
   });
 
   it('uses the identical encoded name for authorization and PartyServer routing', async () => {
     const database = databaseReturning({ match_count: 1, active_match_count: 1, has_owner_conflict: 0 });
     const env = { DB: database.db } as Env;
-    const request = new Request('https://cloudchef.build//agents//builder-agent/%C3%A9');
+    const request = new Request('https://cloudchef.build//agents//conversation-agent/%C3%A9');
 
     expect((await routeUserRuntimeAgentRequest(request, env, 'owner-1'))?.status).toBe(200);
     expect(database.values).toEqual(['owner-1', '%C3%A9', '%C3%A9']);
@@ -92,20 +94,28 @@ describe('user-runtime Agent routing', () => {
     expect(new URL(routedRequest.url).pathname.split('/').filter(Boolean)[2]).toBe(database.values[1]);
   });
 
+  it('routes the old builder-agent address to the renamed agent, keeping the query', async () => {
+    await route('/agents/builder-agent/chat?capability=c', envWithChats([{ creatorId: 'owner-1' }]), 'owner-1');
+
+    const routed: Request = routeAgentRequest.mock.calls[0]?.[0];
+    expect(new URL(routed.url).pathname).toBe('/agents/conversation-agent/chat');
+    expect(new URL(routed.url).search).toBe('?capability=c');
+  });
+
   it('leaves non-Agent requests for the application router', async () => {
     await expect(route('/api/health', {} as Env)).resolves.toBeNull();
     expect(routeAgentRequest).not.toHaveBeenCalled();
   });
 
-  it("does not reveal another user's BuilderAgent", async () => {
+  it("does not reveal another user's ConversationAgent", async () => {
     const env = envWithChats([{ creatorId: 'owner' }]);
-    expect((await route('/agents/builder-agent/private-chat', env, 'attacker'))?.status).toBe(404);
+    expect((await route('/agents/conversation-agent/private-chat', env, 'attacker'))?.status).toBe(404);
     expect(routeAgentRequest).not.toHaveBeenCalled();
   });
 
   it('routes an Agent owned by the verified runtime subject', async () => {
     const env = envWithChats([{ creatorId: 'owner' }]);
-    expect((await route('/agents/builder-agent/my-chat', env))?.status).toBe(200);
+    expect((await route('/agents/conversation-agent/my-chat', env))?.status).toBe(200);
     expect(routeAgentRequest).toHaveBeenCalledWith(expect.any(Request), env, {
       props: { userId: 'owner' },
     });
@@ -113,7 +123,7 @@ describe('user-runtime Agent routing', () => {
 
   it('atomically claims a new canonical root Agent name', async () => {
     const agentName = 'e59066e3-07a0-4757-aead-a736431b9218';
-    expect((await route(`/agents/builder-agent/${agentName}`, envWithChats()))?.status).toBe(200);
+    expect((await route(`/agents/conversation-agent/${agentName}`, envWithChats()))?.status).toBe(200);
     expect(ensureInitialChat).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ creatorId: 'owner', initialId: agentName }),
@@ -123,14 +133,14 @@ describe('user-runtime Agent routing', () => {
   it.each(['legacy-name', 'old--transcript-2-1'])(
     'does not provision an unrecognized non-root Agent name: %s',
     async (agentName) => {
-      expect((await route(`/agents/builder-agent/${agentName}`, envWithChats()))?.status).toBe(404);
+      expect((await route(`/agents/conversation-agent/${agentName}`, envWithChats()))?.status).toBe(404);
       expect(ensureInitialChat).not.toHaveBeenCalled();
     },
   );
 
   it('still routes an existing legacy Agent name', async () => {
     const env = envWithChats([{ creatorId: 'owner' }]);
-    expect((await route('/agents/builder-agent/legacy-name', env))?.status).toBe(200);
+    expect((await route('/agents/conversation-agent/legacy-name', env))?.status).toBe(200);
     expect(ensureInitialChat).not.toHaveBeenCalled();
   });
 
@@ -153,7 +163,7 @@ describe('user-runtime Agent routing', () => {
       })),
     } as unknown as D1Database;
 
-    expect((await route(`/agents/builder-agent/${agentName}`, { DB: db } as Env))?.status).toBe(404);
+    expect((await route(`/agents/conversation-agent/${agentName}`, { DB: db } as Env))?.status).toBe(404);
     expect(prepared[1].query).toContain('LEFT JOIN conversations');
     expect(prepared[1].values).toEqual([agentName, agentName]);
   });
@@ -173,29 +183,29 @@ describe('user-runtime Agent routing', () => {
       })),
     } as unknown as D1Database;
 
-    expect((await route(`/agents/builder-agent/${agentName}`, { DB: db } as Env))?.status).toBe(200);
+    expect((await route(`/agents/conversation-agent/${agentName}`, { DB: db } as Env))?.status).toBe(200);
   });
 
   it('does not route a deleted chat', async () => {
     const env = envWithChats([{ creatorId: 'owner', isDeleted: 1 }]);
-    expect((await route('/agents/builder-agent/deleted-chat', env))?.status).toBe(404);
+    expect((await route('/agents/conversation-agent/deleted-chat', env))?.status).toBe(404);
   });
 
   it('allows a retry after replacing a discarded empty chat', async () => {
     const env = envWithChats([{ creatorId: 'owner', isDeleted: 1 }, { creatorId: 'owner' }]);
-    expect((await route('/agents/builder-agent/retried-chat', env))?.status).toBe(200);
+    expect((await route('/agents/conversation-agent/retried-chat', env))?.status).toBe(200);
   });
 
   it('denies a name with any matching chat owned by someone else', async () => {
     const env = envWithChats([{ creatorId: 'owner' }, { creatorId: 'attacker' }]);
-    expect((await route('/agents/builder-agent/colliding-chat', env))?.status).toBe(404);
+    expect((await route('/agents/conversation-agent/colliding-chat', env))?.status).toBe(404);
   });
 
   it('authorizes a generation-specific transcript owned by the runtime subject', async () => {
     const database = databaseReturning({ match_count: 1, active_match_count: 1, has_owner_conflict: 0 });
 
     expect(
-      (await route('/agents/builder-agent/chat--transcript-2-1', { DB: database.db } as Env, 'owner-1'))?.status,
+      (await route('/agents/conversation-agent/chat--transcript-2-1', { DB: database.db } as Env, 'owner-1'))?.status,
     ).toBe(200);
     expect(database.query).toContain('LEFT JOIN conversations');
     expect(database.values).toEqual(['owner-1', 'chat--transcript-2-1', 'chat--transcript-2-1']);

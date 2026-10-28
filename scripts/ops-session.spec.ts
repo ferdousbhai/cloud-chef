@@ -37,7 +37,7 @@ function event(id: string, timestamp: number, source: Record<string, Json>, work
   return {
     timestamp,
     source,
-    $workers: { scriptName: WORKER, entrypoint: 'BuilderAgent', ...workers },
+    $workers: { scriptName: WORKER, entrypoint: 'ConversationAgent', ...workers },
     $metadata: { id, type: source.event ? 'cf-worker' : 'cf-worker-event', level: source.level ?? 'info' },
   };
 }
@@ -292,7 +292,7 @@ describe('ops:session reconstruction', () => {
     expect(text).toContain('[tool call] grep({"path":"src/x.ts"})');
     expect(text).toContain('[tool error] grep: not a directory: src/x.ts');
     expect(text).toContain('[assistant] Done now.');
-    expect(text).toContain('WARN log [BuilderAgent] Recovering interrupted CloudChef chat turn');
+    expect(text).toContain('WARN log [ConversationAgent] Recovering interrupted CloudChef chat turn');
     expect(text).toContain('Project Site (imported from GitHub): Artifacts repository t-project-1');
     expect(text).toContain('da130d3 2026-10-20T13:40:15Z cloudchef/sara-b86c65-k3y4chat0001: success Bold the intro');
     expect(text).not.toContain('system prompt');

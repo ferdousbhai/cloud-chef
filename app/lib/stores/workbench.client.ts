@@ -3,8 +3,8 @@ import type { EditorDocument, File, FileMap, ScrollPosition } from 'cloudchef-ag
 import type { AbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import type { BuilderWorkspaceSyncEntry } from '@cloudchef/user-workspace-runtime/protocol';
-import type { BuilderLinkedProjectSummary, BuilderLinkedSite } from '~/agents/builder-agent';
-import type { WorkspacePresentationState } from '~/components/chat/useBuilderAgentChat';
+import type { BuilderLinkedProjectSummary, BuilderLinkedSite } from '~/agents/conversation-agent';
+import type { WorkspacePresentationState } from '~/components/chat/useConversationAgentChat';
 import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
 import { EditorStore } from './editor';

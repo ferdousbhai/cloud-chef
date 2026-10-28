@@ -10,7 +10,7 @@ describe('a new conversation in a chat', () => {
     const handover = { productionRevision: 'a'.repeat(64), publicationPending: true };
     const calls: unknown[] = [];
     const lastIndex = () => database.prepare('SELECT last_conversation_index AS last FROM workspaces').get()?.last;
-    const BuilderAgent = {
+    const ConversationAgent = {
       getByName: (name: string) => ({
         getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),
         settleForSuccessor: async (ownerId: string) => {
@@ -22,7 +22,7 @@ describe('a new conversation in a chat', () => {
       }),
     };
 
-    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { BuilderAgent });
+    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { ConversationAgent });
 
     expect(await response.json()).toEqual({ result: 1 });
     // Already closed when it is asked to stop, so it refuses new work whatever happens next.
@@ -35,7 +35,7 @@ describe('a new conversation in a chat', () => {
   it('is started even when the one before cannot hand over, and the new one publishes again', async () => {
     const { db } = userWorkspaceDatabase();
     await ensureInitialChat(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
-    const BuilderAgent = {
+    const ConversationAgent = {
       getByName: () => ({
         getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),
         settleForSuccessor: async () => {
@@ -44,7 +44,7 @@ describe('a new conversation in a chat', () => {
       }),
     };
 
-    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { BuilderAgent });
+    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { ConversationAgent });
 
     expect(await response.json()).toEqual({ result: 1 });
   });
@@ -87,7 +87,7 @@ function dataAction(
   db: D1Database,
   path: string,
   args: Record<string, string | number>,
-  bindings: { BuilderAgent?: object } = {},
+  bindings: { ConversationAgent?: object } = {},
 ): Promise<Response> {
   return userRuntimeDataAction({
     request: new Request('https://runtime.example/v1/data', {

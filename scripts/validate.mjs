@@ -35,7 +35,7 @@ export const VALIDATION_TASKS = Object.freeze([
   { name: 'test', args: ['run', 'test'], after: ['generate'] },
   { name: 'lint:format', args: ['run', 'lint:format'], after: ['generate'] },
   { name: 'test:workerd', args: ['run', 'test:workerd'], after: ['generate'] },
-  { name: 'test:builder-agent', args: ['run', 'test:builder-agent'], after: ['generate'] },
+  { name: 'test:conversation-agent', args: ['run', 'test:conversation-agent'], after: ['generate'] },
   { name: 'verify:licenses', args: ['run', 'verify:licenses'], after: ['generate'] },
   { name: 'audit:dependencies', args: ['run', 'audit:dependencies'], after: ['generate'] },
   { name: 'lint:oxlint', args: ['run', 'lint:oxlint'], after: ['generate'] },

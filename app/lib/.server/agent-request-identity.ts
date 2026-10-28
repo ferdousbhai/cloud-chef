@@ -1,18 +1,19 @@
 import { routeAgentRequest } from 'agents';
 import { ensureInitialChat } from '~/lib/cloudflare/data/chat-repository.server';
 
-const MAX_BUILDER_AGENT_NAME_LENGTH = 512;
+const MAX_CONVERSATION_AGENT_NAME_LENGTH = 512;
 const CANONICAL_ROOT_AGENT_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 type AgentRequestRoute =
-  { kind: 'not-agent' } | { kind: 'rejected' } | { kind: 'builder-agent'; canonicalName: string };
+  { kind: 'not-agent' } | { kind: 'rejected' } | { kind: 'conversation-agent'; canonicalName: string };
 
 function resolveAgentRequestRoute(pathname: string): AgentRequestRoute {
   const segments = pathname.split('/').filter(Boolean);
   if (segments[0] !== 'agents') {
     return { kind: 'not-agent' };
   }
-  if (segments.length < 3 || segments[1] !== 'builder-agent') {
+  // `builder-agent` is the class's name before it was renamed, which browsers use until every runtime has the new one.
+  if (segments.length < 3 || (segments[1] !== 'conversation-agent' && segments[1] !== 'builder-agent')) {
     return { kind: 'rejected' };
   }
 
@@ -21,8 +22,8 @@ function resolveAgentRequestRoute(pathname: string): AgentRequestRoute {
     const decodedName = decodeURIComponent(encodedName);
     if (
       !decodedName ||
-      decodedName.length > MAX_BUILDER_AGENT_NAME_LENGTH ||
-      encodedName.length > MAX_BUILDER_AGENT_NAME_LENGTH ||
+      decodedName.length > MAX_CONVERSATION_AGENT_NAME_LENGTH ||
+      encodedName.length > MAX_CONVERSATION_AGENT_NAME_LENGTH ||
       encodeURIComponent(decodedName) !== encodedName
     ) {
       return { kind: 'rejected' };
@@ -32,7 +33,7 @@ function resolveAgentRequestRoute(pathname: string): AgentRequestRoute {
   }
   // PartyServer addresses the Durable Object with the encoded path segment.
   // Keep that exact canonical wire name as the sole authorization and routing identity.
-  return { kind: 'builder-agent', canonicalName: encodedName };
+  return { kind: 'conversation-agent', canonicalName: encodedName };
 }
 
 export async function routeUserRuntimeAgentRequest(
@@ -51,7 +52,10 @@ export async function routeUserRuntimeAgentRequest(
   if (denial) {
     return denial;
   }
-  return (await routeAgentRequest(request, env, { props: { userId } })) ?? agentNotFoundResponse();
+  const url = new URL(request.url);
+  const renamed = url.pathname.replace(/^\/agents\/builder-agent\//, '/agents/conversation-agent/');
+  const routed = renamed === url.pathname ? request : new Request(new URL(renamed + url.search, url), request);
+  return (await routeAgentRequest(routed, env, { props: { userId } })) ?? agentNotFoundResponse();
 }
 
 // Resolves to the denial response, or null when the user is authorized for the agent.

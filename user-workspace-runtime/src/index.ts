@@ -16,7 +16,7 @@ import {
   WORKSPACE_RESTART_INDETERMINATE_MESSAGE,
 } from './execution-reattach';
 import { z } from 'zod';
-import { BuilderAgent } from '../../app/agents/builder-agent';
+import { ConversationAgent } from '../../app/agents/conversation-agent';
 import { COMPUTER_TOOL_LIMITS } from '../../cloudchef-agent/cloudflare-computer';
 import {
   type BuilderWorkspaceLinkedProject,
@@ -184,7 +184,7 @@ import type { ProjectBuilder } from './project-builder';
 interface RuntimeEnv {
   PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspace>;
   PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilder>;
-  BuilderAgent: DurableObjectNamespace<BuilderAgent>;
+  ConversationAgent: DurableObjectNamespace<ConversationAgent>;
   DB: D1Database;
   AI: Ai;
   ARTIFACTS: Artifacts;
@@ -3094,7 +3094,7 @@ async function settleTeamApprovalAction(request: Request, env: RuntimeEnv, userI
   if (!body.success) {
     return Response.json({ error: 'Invalid request.' }, { status: 400 });
   }
-  const settled = await env.BuilderAgent.getByName(body.data.agentName).settleTeamApproval({
+  const settled = await env.ConversationAgent.getByName(body.data.agentName).settleTeamApproval({
     approvalId: body.data.approvalId,
     ownerId: userId,
   });
@@ -3219,7 +3219,7 @@ async function userRuntimeTerminalAction(
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
   // The chat's workspace, keyed as its agent keys it.
-  const projectId = env.BuilderAgent.idFromName(chatId).toString();
+  const projectId = env.ConversationAgent.idFromName(chatId).toString();
   const stub = env.PROJECT_WORKSPACE.get(env.PROJECT_WORKSPACE.idFromName(projectId));
   await stub.initializeProjectIdentity({ projectId, userId });
   const size = terminalSize(url);
@@ -4003,4 +4003,4 @@ function sandboxShellCommand(command: string): SandboxCommand {
   return ['/bin/bash', '-lc', command];
 }
 
-export { BuilderAgent };
+export { ConversationAgent };

@@ -1,11 +1,11 @@
 {
   "total": 862,
   "counts": {
-    "app/agents/builder-agent-identity.test.ts": {
+    "app/agents/conversation-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 5
     },
-    "app/agents/builder-agent.ts": {
+    "app/agents/conversation-agent.ts": {
       "anti-slop/no-unknown-parameters": 3,
       "anti-slop/no-unknown-returns": 1
     },
@@ -45,7 +45,7 @@
     "app/components/chat/useBuildProgress.ts": {
       "anti-slop/no-runtime-typeof": 1
     },
-    "app/components/chat/useBuilderAgentChat.test.tsx": {
+    "app/components/chat/useConversationAgentChat.test.tsx": {
       "anti-slop/no-known-value-widening": 1,
       "anti-slop/no-module-mocking": 19,
       "anti-slop/no-unknown-parameters": 2,

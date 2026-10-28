@@ -113,7 +113,7 @@ export type WorkspaceSeedFailure = { initialized: false; failure: string };
 const SEED_FAILED_MESSAGE = "CloudChef could not copy the project's files into your workspace.";
 
 /**
- * A new workspace's seed was refused (see `isSeedRefusal` in builder-agent.ts). Its message is the cause's
+ * A new workspace's seed was refused (see `isSeedRefusal` in conversation-agent.ts). Its message is the cause's
  * own, which those refusals write for the person, except a parse error's dump of fields, or no message.
  */
 export class WorkspaceSeedError extends Error {

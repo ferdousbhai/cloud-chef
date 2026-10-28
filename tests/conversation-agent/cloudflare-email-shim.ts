@@ -1,4 +1,4 @@
-/** The Agents SDK imports `cloudflare:email` for email replies, which the BuilderAgent never sends. */
+/** The Agents SDK imports `cloudflare:email` for email replies, which the ConversationAgent never sends. */
 export class EmailMessage {
   constructor(
     readonly from: string,

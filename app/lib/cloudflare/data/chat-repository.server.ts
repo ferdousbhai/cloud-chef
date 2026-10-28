@@ -5,7 +5,7 @@ const CHAT_COLUMNS =
   'workspaces.id, workspaces.creator_id, workspaces.initial_id, workspaces.description, workspaces.timestamp, workspaces.last_conversation_index, workspaces.has_messages, workspaces.is_deleted';
 
 /**
- * Create the chat catalog row and its BuilderAgent transcript identity, or bring back the one a
+ * Create the chat catalog row and its ConversationAgent transcript identity, or bring back the one a
  * failed first message discarded.
  *
  * The homepage pins its chat id for the life of the page, so the ordinary "send failed, try again"
@@ -35,7 +35,7 @@ export async function ensureInitialChat(
          )`,
       )
       .bind(args.creatorId, args.initialId),
-    // The discard queued this chat's BuilderAgent and app resources for deletion. A revived chat
+    // The discard queued this chat's ConversationAgent and app resources for deletion. A revived chat
     // has to drop those receipts, or the sweep destroys the Agent it was just given back. An
     // active chat has candidates only because it was discarded, so this is scoped to the revival.
     db

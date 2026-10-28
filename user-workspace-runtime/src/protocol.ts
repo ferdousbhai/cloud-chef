@@ -1,5 +1,5 @@
 /**
- * The stable boundary shared by the browser, BuilderAgent, control plane, and
+ * The stable boundary shared by the browser, ConversationAgent, control plane, and
  * user-owned workspace runtime. Runtime implementation details stay out of
  * this module so consumers cannot reach through the Worker boundary.
  */

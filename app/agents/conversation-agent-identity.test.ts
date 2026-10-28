@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BuilderAgentIdentityMismatchError,
-  BuilderAgentIdentityRepository,
-  builderAgentIdentitiesEqual,
-  type BuilderAgentDurableIdentity,
-} from './builder-agent-identity';
+  ConversationAgentIdentityMismatchError,
+  ConversationAgentIdentityRepository,
+  conversationAgentIdentitiesEqual,
+  type ConversationAgentDurableIdentity,
+} from './conversation-agent-identity';
 
-const identity: BuilderAgentDurableIdentity = {
+const identity: ConversationAgentDurableIdentity = {
   userId: 'owner-1',
   transcript: {
     agentName: 'chat--transcript-2-0',
@@ -46,15 +46,15 @@ class TestIdentityStorage {
   }
 }
 
-describe('BuilderAgent durable identity', () => {
+describe('ConversationAgent durable identity', () => {
   it('survives object eviction and accepts only an exact immutable replay', () => {
     const storage = new TestIdentityStorage();
-    const firstInstance = new BuilderAgentIdentityRepository(storage as never);
+    const firstInstance = new ConversationAgentIdentityRepository(storage as never);
 
     expect(firstInstance.claim(identity)).toEqual(identity);
     expect(storage.transactions).toBe(1);
 
-    const recoveredInstance = new BuilderAgentIdentityRepository(storage as never);
+    const recoveredInstance = new ConversationAgentIdentityRepository(storage as never);
     expect(recoveredInstance.get()).toEqual(identity);
     expect(recoveredInstance.claim(structuredClone(identity))).toEqual(identity);
     expect(storage.transactions).toBe(2);
@@ -66,11 +66,11 @@ describe('BuilderAgent durable identity', () => {
     { transcript: { ...identity.transcript, subchatIndex: 3 } },
   ])('rejects a mismatched replay after the identity is claimed: %o', (override) => {
     const storage = new TestIdentityStorage();
-    const repository = new BuilderAgentIdentityRepository(storage as never);
+    const repository = new ConversationAgentIdentityRepository(storage as never);
     repository.claim(identity);
 
-    const changed = { ...identity, ...override } as BuilderAgentDurableIdentity;
-    expect(builderAgentIdentitiesEqual(identity, changed)).toBe(false);
-    expect(() => repository.claim(changed)).toThrow(BuilderAgentIdentityMismatchError);
+    const changed = { ...identity, ...override } as ConversationAgentDurableIdentity;
+    expect(conversationAgentIdentitiesEqual(identity, changed)).toBe(false);
+    expect(() => repository.claim(changed)).toThrow(ConversationAgentIdentityMismatchError);
   });
 });

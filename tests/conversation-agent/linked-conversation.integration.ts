@@ -4,7 +4,7 @@ import type { BuilderWorkspaceApi, BuilderWorkspaceFileMetadata } from '~/agents
 import type { BuilderWorkspaceLinkedProject } from '@cloudchef/user-workspace-runtime/protocol';
 import { sha256Hex } from '~/lib/hex-digest';
 import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
-import { builderAgentHarness, type BuilderAgentHarness } from './harness';
+import { conversationAgentHarness, type ConversationAgentHarness } from './harness';
 
 /**
  * A team project's conversation that a newer one in its chat took over is kept to read: nothing changes the
@@ -65,13 +65,13 @@ async function linkedWorkspace(
 }
 
 /** The person started a newer conversation in the project's chat, which closes this one. */
-async function close(harness: BuilderAgentHarness) {
+async function close(harness: ConversationAgentHarness) {
   harness.database.prepare(`UPDATE workspaces SET org_project_id = ?`).run(PROJECT_ID);
   await harness.startConversation();
 }
 
 async function harnessWith(workspace: Partial<BuilderWorkspaceApi>) {
-  return builderAgentHarness({ workspace, cloudflareIdentity: true, artifacts });
+  return conversationAgentHarness({ workspace, cloudflareIdentity: true, artifacts });
 }
 
 describe('an earlier conversation on a team project', () => {
@@ -106,7 +106,7 @@ describe('an earlier conversation on a team project', () => {
     const saved = new Promise<void>((resolve) => {
       finishSave = resolve;
     });
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: {
         ...(await linkedWorkspace()),
         applyClientChanges: async () => {
@@ -179,7 +179,7 @@ const READY_STATE = {
 
 describe("a team project's git push", () => {
   /** What the agent reports for a command that ran in the workspace (`pushResult` for exec). */
-  function pushResult(harness: BuilderAgentHarness, toolCallId: string): Promise<CloudChefToolResult | undefined> {
+  function pushResult(harness: ConversationAgentHarness, toolCallId: string): Promise<CloudChefToolResult | undefined> {
     // eslint-disable-next-line dot-notation
     return harness.agent['gitPushResult'](toolCallId);
   }

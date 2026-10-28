@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
-  builderAgentHarness,
+  conversationAgentHarness,
   CHAT_INITIAL_ID,
   eventually,
   RUNTIME_VERSION,
   settle,
   VALIDATED_CHECKPOINT,
-  type BuilderAgentHarness,
+  type ConversationAgentHarness,
   type BuilderPublisher,
 } from './harness';
 
@@ -17,7 +17,7 @@ import {
  * window before it starts: that upgrade found the runtime idle and is redeploying its Worker and rolling
  * out its container, so the work starts once the new runtime serves instead of being cut off.
  */
-function expectHeldByUpgradeWindow(harness: BuilderAgentHarness) {
+function expectHeldByUpgradeWindow(harness: ConversationAgentHarness) {
   expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
 }
 
@@ -31,9 +31,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('BuilderAgent runtime activity', () => {
+describe('ConversationAgent runtime activity', () => {
   it('records the agent busy while its turn runs, and idle once it ends', async () => {
-    const harness = await builderAgentHarness();
+    const harness = await conversationAgentHarness();
     const { agent } = harness;
 
     agent.setState({ ...agent.state, activeTurn: { id: 'turn-1', requestId: 'request-1', status: 'accepted' } });
@@ -45,7 +45,7 @@ describe('BuilderAgent runtime activity', () => {
 
   it('a window for the version already running holds work back too, until the upgrade releases it', async () => {
     // Deployed, with its container image still rolling out: work started now would lose its container.
-    const harness = await builderAgentHarness();
+    const harness = await conversationAgentHarness();
     harness.openUpgradeWindow(RUNTIME_VERSION);
 
     const deployment = harness.agent.deployValidatedRevision();
@@ -58,7 +58,7 @@ describe('BuilderAgent runtime activity', () => {
 
   it('a production deployment stays busy while it runs, though an editor save clears its record', async () => {
     const plan = deferred<Awaited<ReturnType<BuilderPublisher['deploy']>>>();
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: {
         applyClientChanges: async () => ({ ok: true, state: READY_STATE, changedPaths: ['src/app.tsx'] }),
       },
@@ -80,7 +80,7 @@ describe('BuilderAgent runtime activity', () => {
     const seed = deferred<{ status: 'initialized'; state: typeof READY_STATE }>();
     const beginSeed = vi.fn(() => seed.promise);
     let seeded = true;
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: { refresh: async () => (seeded ? READY_STATE : { ...READY_STATE, initialized: false }), beginSeed },
     });
     // The project was reset since the agent started: the next preparation seeds it again.
@@ -104,7 +104,7 @@ describe('BuilderAgent runtime activity', () => {
   });
 
   it('a production deployment waits out an upgrade window before it starts', async () => {
-    const harness = await builderAgentHarness();
+    const harness = await conversationAgentHarness();
     harness.openUpgradeWindow();
 
     const deployment = harness.agent.deployValidatedRevision();
@@ -117,7 +117,7 @@ describe('BuilderAgent runtime activity', () => {
   });
 
   it('an approved Cloudflare request waits out an upgrade window before it runs', async () => {
-    const harness = await builderAgentHarness({ cloudflareIdentity: true });
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
     const proposal = await harness.proposeCloudflareRequest();
     harness.openUpgradeWindow();
 
@@ -142,7 +142,7 @@ describe('BuilderAgent runtime activity', () => {
     const models = vi.fn(async () => {
       throw new Error('catalog unavailable');
     });
-    const harness = await builderAgentHarness({ cloudflareIdentity: true, ai: { models } });
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true, ai: { models } });
     harness.openUpgradeWindow();
 
     const turn = harness.agent.onChatMessage(undefined, {
@@ -178,7 +178,7 @@ describe('BuilderAgent runtime activity', () => {
     const models = vi.fn(async () => {
       throw new Error('catalog unavailable');
     });
-    const harness = await builderAgentHarness({ cloudflareIdentity: true, ai: { models } });
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true, ai: { models } });
     harness.openUpgradeWindow();
     const stop = new AbortController();
 

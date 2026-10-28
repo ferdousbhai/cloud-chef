@@ -1143,7 +1143,7 @@ describe('UserCloudflareAccountApi', () => {
     );
     expect(metadata.exports).toMatchObject({
       ProjectWorkspace: { type: 'durable-object', storage: 'sqlite' },
-      BuilderAgent: { type: 'durable-object', storage: 'sqlite' },
+      ConversationAgent: { type: 'durable-object', storage: 'sqlite' },
     });
     expect(metadata.exports.ProjectWorkspace).not.toHaveProperty('container');
     expect(metadata.observability).toEqual({

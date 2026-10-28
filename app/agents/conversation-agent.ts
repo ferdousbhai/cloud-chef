@@ -76,19 +76,19 @@ import {
   requireBuilderTranscriptIdentity,
   type BuilderTranscriptBinding,
 } from './builder-request-policy';
-import { initializeBuilderAgentSchema } from './builder-agent-schema';
+import { initializeConversationAgentSchema } from './conversation-agent-schema';
 import {
   BuilderRuntimeActivity,
-  isBuilderAgentBusy,
+  isConversationAgentBusy,
   RuntimeUpgradeWaitExceededError,
 } from './builder-runtime-activity';
-import { rethrowAgentRejection } from './builder-agent-rejection';
+import { rethrowAgentRejection } from './conversation-agent-rejection';
 import {
-  BuilderAgentIdentityMismatchError,
-  BuilderAgentIdentityRepository,
-  builderAgentIdentitiesEqual,
-  type BuilderAgentDurableIdentity,
-} from './builder-agent-identity';
+  ConversationAgentIdentityMismatchError,
+  ConversationAgentIdentityRepository,
+  conversationAgentIdentitiesEqual,
+  type ConversationAgentDurableIdentity,
+} from './conversation-agent-identity';
 import type {
   BuilderWorkspaceApi,
   BuilderWorkspaceCheckpoint,
@@ -203,7 +203,7 @@ import type {
   ModelToolExecutionOptions,
 } from '~/lib/.server/llm/cloudflare-api-model-tools';
 
-const logger = createScopedLogger('BuilderAgent');
+const logger = createScopedLogger('ConversationAgent');
 
 /**
  * The tool-call identity every publication of one validated revision shares. Deployment and its
@@ -279,7 +279,7 @@ const revertRequestSchema = z.string().regex(/^[0-9a-f]{40}$/);
 
 /**
  * The publication commands, the agent's boundary with the deployment executor and the user's
- * account. The BuilderAgent harness replaces them, as it replaces the ProjectWorkspace.
+ * account. The ConversationAgent harness replaces them, as it replaces the ProjectWorkspace.
  */
 const builderPublisher = {
   deploy: deployValidatedRevisionForBuilder,
@@ -354,7 +354,7 @@ const titleGenerationJobSchema = z.object({
 });
 type TitleGenerationJob = z.infer<typeof titleGenerationJobSchema>;
 
-export type BuilderAgentState = {
+export type ConversationAgentState = {
   activeTurn?: BuilderTurnState | null;
   generatedSubchatTitle?: {
     subchatIndex: number;
@@ -428,7 +428,7 @@ export type BuilderLinkedSite = { url: string; frameable: boolean | null; kind: 
  * where it serves, and whether a publication is still owed. The newer conversation publishes from then on.
  */
 type BuilderPublicationHandover = Pick<
-  BuilderAgentState,
+  ConversationAgentState,
   'deployment' | 'productionRevision' | 'productionUrl' | 'publicationPending' | 'failedPublicationRevision'
 >;
 
@@ -445,14 +445,14 @@ export type BuilderSteeringInput = {
 };
 
 /** The person the request is from, who owns the chat. */
-type BuilderAgentProps = { userId: string };
+type ConversationAgentProps = { userId: string };
 
-export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAgentProps> {
+export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, ConversationAgentProps> {
   static override options = {
     sendIdentityOnConnect: false,
   };
 
-  initialState: BuilderAgentState = {
+  initialState: ConversationAgentState = {
     activeTurn: null,
     generatedSubchatTitle: null,
     lastCompletedTurn: null,
@@ -488,14 +488,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   };
 
   private readonly contextCompaction = new DurableObjectContextCompactionRepository(this);
-  private readonly identityRepository: BuilderAgentIdentityRepository;
+  private readonly identityRepository: ConversationAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
   private readonly workspace: BuilderWorkspaceApi;
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
   private readonly publisher = builderPublisher;
-  /** The account's project repositories (Artifacts); the BuilderAgent harness replaces it with a fake. */
+  /** The account's project repositories (Artifacts); the ConversationAgent harness replaces it with a fake. */
   private readonly repositories = (): ProjectRepositories => new ProjectRepositories(this.env.ARTIFACTS);
   private readonly runningPublications = new Set<RunningPublication>();
   /**
@@ -520,8 +520,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    initializeBuilderAgentSchema(ctx);
-    this.identityRepository = new BuilderAgentIdentityRepository(ctx.storage);
+    initializeConversationAgentSchema(ctx);
+    this.identityRepository = new ConversationAgentIdentityRepository(ctx.storage);
     this.cloudflareExecutions = new BuilderCloudflareExecutionRepository(ctx.storage);
     this.workspace = new UserWorkspaceRuntimeClient(
       env,
@@ -540,14 +540,14 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
    */
   private workspaceProjectId(): string {
     const chatInitialId = this.transcriptBinding?.chatInitialId ?? transcriptChatInitialId(this.name);
-    return this.env.BuilderAgent.idFromName(chatInitialId).toString();
+    return this.env.ConversationAgent.idFromName(chatInitialId).toString();
   }
 
-  override onStateChanged(state: BuilderAgentState | undefined): void {
-    void this.runtimeActivity.observe(isBuilderAgentBusy(state));
+  override onStateChanged(state: ConversationAgentState | undefined): void {
+    void this.runtimeActivity.observe(isConversationAgentBusy(state));
   }
 
-  async onStart(props?: BuilderAgentProps) {
+  async onStart(props?: ConversationAgentProps) {
     if (props) {
       await this.initializeIdentity(props);
     } else {
@@ -1524,7 +1524,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   async getTranscriptSnapshotForOwner(
     identityValue: TranscriptIdentity,
     ownerId: string,
-  ): ReturnType<BuilderAgent['getTranscriptSnapshot']> {
+  ): ReturnType<ConversationAgent['getTranscriptSnapshot']> {
     await this.initializeIdentity({ userId: ownerId });
     return this.getTranscriptSnapshot(identityValue);
   }
@@ -1557,7 +1557,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return boundBuilderMessageForPersistence(sanitized);
   }
 
-  private async initializeIdentity(props: BuilderAgentProps): Promise<void> {
+  private async initializeIdentity(props: ConversationAgentProps): Promise<void> {
     if (!transcriptOwnerIdSchema.safeParse(props.userId).success) {
       throw new Response('Agent not found.', { status: 404 });
     }
@@ -1568,11 +1568,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     if (!transcriptBinding) {
       throw new Response('Agent not found.', { status: 404 });
     }
-    const identity: BuilderAgentDurableIdentity = { userId: props.userId, transcript: transcriptBinding };
+    const identity: ConversationAgentDurableIdentity = { userId: props.userId, transcript: transcriptBinding };
     try {
       this.identityRepository.claim(identity);
     } catch (error) {
-      if (error instanceof BuilderAgentIdentityMismatchError) {
+      if (error instanceof ConversationAgentIdentityMismatchError) {
         this.rejectIdentity('connection_identity_mismatch');
       }
       throw error;
@@ -1583,13 +1583,13 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   /** The stored identity, applied, or null when none is stored or it no longer names the active transcript. */
-  private async hydrateDurableIdentity(): Promise<BuilderAgentDurableIdentity | null> {
+  private async hydrateDurableIdentity(): Promise<ConversationAgentDurableIdentity | null> {
     const stored = await this.readDurableIdentity();
     return stored === 'missing' || stored === 'stale' ? null : stored;
   }
 
   /** The stored identity, applied; a missing or stale one rejects the request. */
-  private async requireDurableIdentity(reason: string, incidentId?: string): Promise<BuilderAgentDurableIdentity> {
+  private async requireDurableIdentity(reason: string, incidentId?: string): Promise<ConversationAgentDurableIdentity> {
     const stored = await this.readDurableIdentity();
     if (stored === 'missing') {
       this.rejectIdentity(`${reason}_missing`, incidentId, 401);
@@ -1600,7 +1600,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return stored;
   }
 
-  private async readDurableIdentity(): Promise<BuilderAgentDurableIdentity | 'missing' | 'stale'> {
+  private async readDurableIdentity(): Promise<ConversationAgentDurableIdentity | 'missing' | 'stale'> {
     const stored = this.identityRepository.get();
     if (!stored) {
       return 'missing';
@@ -1611,7 +1611,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     });
     if (
       !activeTranscript ||
-      !builderAgentIdentitiesEqual(stored, { userId: stored.userId, transcript: activeTranscript })
+      !conversationAgentIdentitiesEqual(stored, { userId: stored.userId, transcript: activeTranscript })
     ) {
       // Rejecting here for a non-required hydration makes `onStart` throw, and the SDK rethrows that
       // from every native RPC entry point — including `_cf_scheduleDestroy`. A soft-deleted chat has
@@ -1624,11 +1624,11 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
     return stored;
   }
 
-  private applyIdentity(identity: BuilderAgentDurableIdentity): void {
+  private applyIdentity(identity: ConversationAgentDurableIdentity): void {
     if (
       (this.userId && this.userId !== identity.userId) ||
       (this.transcriptBinding &&
-        !builderAgentIdentitiesEqual({ userId: identity.userId, transcript: this.transcriptBinding }, identity))
+        !conversationAgentIdentitiesEqual({ userId: identity.userId, transcript: this.transcriptBinding }, identity))
     ) {
       this.rejectIdentity('memory_identity_mismatch');
     }
@@ -1637,7 +1637,7 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
   }
 
   private rejectIdentity(reason: string, incidentId: string = crypto.randomUUID(), status = 404): never {
-    logger.error('Rejected BuilderAgent durable identity', {
+    logger.error('Rejected ConversationAgent durable identity', {
       incidentId,
       reason,
     });

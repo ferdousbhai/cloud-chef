@@ -7,7 +7,7 @@ import {
   sweepAgentGcCandidates,
 } from './agent-gc.server';
 
-describe('BuilderAgent garbage collection', () => {
+describe('ConversationAgent garbage collection', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'], now: 100 });
   });
@@ -80,7 +80,7 @@ describe('BuilderAgent garbage collection', () => {
     const env = envWith({
       DB: db,
       // SAFETY: the sweep calls only `getByName(...).scheduleDestroyForGc`, which this fake implements.
-      BuilderAgent: {
+      ConversationAgent: {
         getByName: (name: string) => ({
           scheduleDestroyForGc: async () => {
             scheduled.push(name);
@@ -144,13 +144,13 @@ class AgentGcDatabase {
         }),
       }),
     },
-    BuilderAgent: {
+    ConversationAgent: {
       getByName: (name: string) => ({
         scheduleDestroyForGc: (ownerId: string) => this.scheduleDestroy(name, ownerId),
         destroy: () => this.destroy(name),
       }),
     },
-  } as unknown as Pick<Env, 'BuilderAgent' | 'DB'>;
+  } as unknown as Pick<Env, 'ConversationAgent' | 'DB'>;
 
   private all(query: string, values: unknown[]) {
     if (!query.includes('FROM agent_gc_candidates')) {

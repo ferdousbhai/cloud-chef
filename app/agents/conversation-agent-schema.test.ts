@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
-import { initializeBuilderAgentSchema } from './builder-agent-schema';
+import { initializeConversationAgentSchema } from './conversation-agent-schema';
 
 /** A Durable Object context over SQLite, whose concurrency gate runs its callback at once. */
 function agentContext(database: DatabaseSync) {
@@ -28,12 +28,12 @@ function schemaObjects(database: DatabaseSync): string[] {
     .map((row) => String(row.name));
 }
 
-describe('BuilderAgent schema', () => {
+describe('ConversationAgent schema', () => {
   it("creates the agent's tables behind the constructor's concurrency gate", async () => {
     const database = new DatabaseSync(':memory:');
     const { ctx, gates } = agentContext(database);
 
-    initializeBuilderAgentSchema(ctx);
+    initializeConversationAgentSchema(ctx);
 
     expect(gates).toHaveLength(1);
     await Promise.all(gates);
@@ -47,7 +47,7 @@ describe('BuilderAgent schema', () => {
 
   it('starts an agent created under the versioned schema, keeping what it holds', async () => {
     const database = new DatabaseSync(':memory:');
-    initializeBuilderAgentSchema(agentContext(database).ctx);
+    initializeConversationAgentSchema(agentContext(database).ctx);
     database.exec(`
       CREATE TABLE _ghostbuild_builder_schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL);
       INSERT INTO _ghostbuild_builder_schema_migrations (version, name) VALUES (8, 'clear_cloudflare_mcp_execute_proposals');
@@ -56,7 +56,7 @@ describe('BuilderAgent schema', () => {
     `);
 
     const { ctx, gates } = agentContext(database);
-    initializeBuilderAgentSchema(ctx);
+    initializeConversationAgentSchema(ctx);
     await Promise.all(gates);
 
     expect(database.prepare('SELECT user_id FROM builder_identity').all()).toEqual([{ user_id: 'owner' }]);

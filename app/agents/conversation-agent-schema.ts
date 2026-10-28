@@ -1,4 +1,4 @@
-type BuilderAgentInitializationContext = Pick<DurableObjectState, 'blockConcurrencyWhile' | 'storage'>;
+type ConversationAgentInitializationContext = Pick<DurableObjectState, 'blockConcurrencyWhile' | 'storage'>;
 
 /**
  * The agent's own SQLite tables, each created only when missing. An agent created before this carries
@@ -64,10 +64,10 @@ const SCHEMA_STATEMENTS: readonly string[] = [
 ];
 
 /**
- * Gate BuilderAgent startup on its local SQLite schema. Cloudflare delivers no
+ * Gate ConversationAgent startup on its local SQLite schema. Cloudflare delivers no
  * other events to this Durable Object until the callback resolves.
  */
-export function initializeBuilderAgentSchema(ctx: BuilderAgentInitializationContext): void {
+export function initializeConversationAgentSchema(ctx: ConversationAgentInitializationContext): void {
   ctx.blockConcurrencyWhile(async () => {
     for (const statement of SCHEMA_STATEMENTS) {
       ctx.storage.sql.exec(statement);

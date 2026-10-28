@@ -101,7 +101,7 @@ export type BuilderWorkspacePullResult = {
 };
 
 /**
- * Bridges the authoritative BuilderAgent revision protocol into an in-memory
+ * Bridges the authoritative ConversationAgent revision protocol into an in-memory
  * TanStack DB presentation collection.
  */
 class BuilderWorkspaceCollectionSource {

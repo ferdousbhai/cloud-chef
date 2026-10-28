@@ -10,7 +10,7 @@ import {
 } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
 import {
   BuilderRuntimeActivity,
-  isBuilderAgentBusy,
+  isConversationAgentBusy,
   RuntimeUpgradeWaitExceededError,
   UNRECORDED_ADMISSION_WAIT_MS,
 } from './builder-runtime-activity';
@@ -34,15 +34,15 @@ describe('builder agent runtime activity', () => {
   });
 
   it("counts only the agent's own turn from its state", () => {
-    expect(isBuilderAgentBusy(undefined)).toBe(false);
-    expect(isBuilderAgentBusy({ activeTurn: null, deployment: null })).toBe(false);
-    expect(isBuilderAgentBusy({ activeTurn: createBuilderTurn('request-1') })).toBe(true);
-    expect(isBuilderAgentBusy({ validationProgress: { toolCallId: 'tool-1', stage: 'installing' } })).toBe(true);
+    expect(isConversationAgentBusy(undefined)).toBe(false);
+    expect(isConversationAgentBusy({ activeTurn: null, deployment: null })).toBe(false);
+    expect(isConversationAgentBusy({ activeTurn: createBuilderTurn('request-1') })).toBe(true);
+    expect(isConversationAgentBusy({ validationProgress: { toolCallId: 'tool-1', stage: 'installing' } })).toBe(true);
     // Records other paths rewrite while the work behind them continues are not what counts: that work is
     // counted while it runs.
-    expect(isBuilderAgentBusy({ publication: { message: 'Uploading', percent: 40, updatedAt: 1 } })).toBe(false);
-    expect(isBuilderAgentBusy({ deployment: { status: 'deploying' } })).toBe(false);
-    expect(isBuilderAgentBusy({ cloudflareExecutions: [execution('executing')] })).toBe(false);
+    expect(isConversationAgentBusy({ publication: { message: 'Uploading', percent: 40, updatedAt: 1 } })).toBe(false);
+    expect(isConversationAgentBusy({ deployment: { status: 'deploying' } })).toBe(false);
+    expect(isConversationAgentBusy({ cloudflareExecutions: [execution('executing')] })).toBe(false);
   });
 
   it('writes only when the agent turns busy or idle, and renews a long busy stretch', async () => {

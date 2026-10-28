@@ -98,7 +98,7 @@ describe('chat reads', () => {
 });
 
 describe('chat deletion', () => {
-  it('queues BuilderAgent cleanup before atomically clearing chat metadata', async () => {
+  it('queues ConversationAgent cleanup before atomically clearing chat metadata', async () => {
     const statements: Array<{ query: string; values: unknown[] }> = [];
     const db = {
       prepare: vi.fn((query: string) => ({

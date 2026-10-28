@@ -74,9 +74,9 @@ vi.mock('~/lib/stores/builder-workspace-sync.client', () => ({
 }));
 vi.mock('~/lib/stores/workbench.client', () => ({ workbenchStore: mocks.workbench }));
 vi.mock('./agent-connection', () => ({ waitForAgentSocketOpen: mocks.waitForSocket }));
-vi.mock('./builder-agent-auth', () => ({
-  BUILDER_AGENT_QUERY_CACHE_TTL_MS: 1_000,
-  loadBuilderAgentCapability: vi.fn(),
+vi.mock('./conversation-agent-auth', () => ({
+  CONVERSATION_AGENT_QUERY_CACHE_TTL_MS: 1_000,
+  loadConversationAgentCapability: vi.fn(),
 }));
 vi.mock('~/lib/telemetry.client', () => ({ captureMessage: vi.fn() }));
 vi.mock('~/lib/cloudflare/chat-history-db', () => ({ refreshChatHistory: vi.fn() }));
@@ -114,11 +114,11 @@ vi.mock('./chat-send-reconciliation', () => ({
 // eslint-disable-next-line no-restricted-imports -- test-only cross-boundary derivation pin
 import { CONTAINER_CONNECT_TIMEOUT_MS } from '../../../user-workspace-runtime/src/container-toolchain';
 import {
-  useBuilderAgentChat,
+  useConversationAgentChat,
   WORKSPACE_PREPARE_TIMEOUT_MS,
   WORKSPACE_RECONNECT_ATTEMPTS,
   WORKSPACE_RECONNECT_DELAYS_MS,
-} from './useBuilderAgentChat';
+} from './useConversationAgentChat';
 
 let root: Root | undefined;
 
@@ -164,7 +164,7 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-describe('useBuilderAgentChat workspace preparation', () => {
+describe('useConversationAgentChat workspace preparation', () => {
   it('reattaches tool activity when the SDK restores an active response', async () => {
     mocks.agent.call.mockResolvedValue({ initialized: true });
     const message: CloudChefMessage = { id: 'restored', role: 'assistant', parts: [] };
@@ -174,7 +174,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     function Harness() {
-      useBuilderAgentChat(chatArgs('restored-workspace'));
+      useConversationAgentChat(chatArgs('restored-workspace'));
       return null;
     }
     await act(async () => root?.render(<Harness />));
@@ -200,7 +200,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     function Harness() {
-      useBuilderAgentChat(chatArgs('workspace-timeout'));
+      useConversationAgentChat(chatArgs('workspace-timeout'));
       return null;
     }
     await act(async () => root?.render(<Harness />));
@@ -234,7 +234,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
       document.body.appendChild(container);
       root = createRoot(container);
       function Harness() {
-        return <span>{useBuilderAgentChat(chatArgs('workspace-release')).workspacePresentationState}</span>;
+        return <span>{useConversationAgentChat(chatArgs('workspace-release')).workspacePresentationState}</span>;
       }
       await act(async () => root?.render(<Harness />));
 
@@ -279,7 +279,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
       document.body.appendChild(container);
       root = createRoot(container);
       function Harness() {
-        return <span>{useBuilderAgentChat(chatArgs('workspace-down')).workspacePresentationState}</span>;
+        return <span>{useConversationAgentChat(chatArgs('workspace-down')).workspacePresentationState}</span>;
       }
       await act(async () => root?.render(<Harness />));
       await act(async () => {
@@ -306,12 +306,12 @@ describe('useBuilderAgentChat workspace preparation', () => {
         throw new Error(`Unexpected agent call: ${method}`);
       });
 
-      let currentChat: ReturnType<typeof useBuilderAgentChat> | undefined;
+      let currentChat: ReturnType<typeof useConversationAgentChat> | undefined;
       const container = document.createElement('div');
       document.body.appendChild(container);
       root = createRoot(container);
       function Harness() {
-        currentChat = useBuilderAgentChat(chatArgs('workspace-import-refused'));
+        currentChat = useConversationAgentChat(chatArgs('workspace-import-refused'));
         return (
           <span>
             {currentChat.workspacePresentationState}: {currentChat.workspaceFailure}
@@ -356,7 +356,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
     document.body.appendChild(container);
     root = createRoot(container);
     function Harness() {
-      return <span>{useBuilderAgentChat(chatArgs('workspace-reauthorize')).workspacePresentationState}</span>;
+      return <span>{useConversationAgentChat(chatArgs('workspace-reauthorize')).workspacePresentationState}</span>;
     }
     await act(async () => root?.render(<Harness />));
 
@@ -378,7 +378,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
       document.body.appendChild(container);
       root = createRoot(container);
       function Harness() {
-        return <span>{useBuilderAgentChat(chatArgs('workspace-flaky')).workspacePresentationState}</span>;
+        return <span>{useConversationAgentChat(chatArgs('workspace-flaky')).workspacePresentationState}</span>;
       }
       await act(async () => root?.render(<Harness />));
       await act(async () => {
@@ -408,9 +408,9 @@ describe('useBuilderAgentChat workspace preparation', () => {
       throw new Error(`Unexpected agent call: ${method}`);
     });
 
-    let currentChat: ReturnType<typeof useBuilderAgentChat> | undefined;
+    let currentChat: ReturnType<typeof useConversationAgentChat> | undefined;
     function Harness({ presentationId }: { presentationId: string }) {
-      currentChat = useBuilderAgentChat(chatArgs(presentationId));
+      currentChat = useConversationAgentChat(chatArgs(presentationId));
       return <span>{currentChat.workspacePresentationState}</span>;
     }
 
@@ -446,7 +446,7 @@ describe('useBuilderAgentChat workspace preparation', () => {
   });
 });
 
-describe('useBuilderAgentChat stale presentation operations', () => {
+describe('useConversationAgentChat stale presentation operations', () => {
   it('ignores stream callbacks retained by a superseded presentation', async () => {
     mocks.agent.call.mockImplementation(async (method: string) => {
       if (method === 'prepareWorkspace') {
@@ -456,7 +456,7 @@ describe('useBuilderAgentChat stale presentation operations', () => {
     });
 
     function Harness({ presentationId }: { presentationId: string }) {
-      useBuilderAgentChat(chatArgs(presentationId));
+      useConversationAgentChat(chatArgs(presentationId));
       return null;
     }
 
@@ -522,7 +522,7 @@ describe('useBuilderAgentChat stale presentation operations', () => {
     });
 
     function Harness({ presentationId }: { presentationId: string }) {
-      useBuilderAgentChat(chatArgs(presentationId));
+      useConversationAgentChat(chatArgs(presentationId));
       return null;
     }
 
@@ -551,9 +551,9 @@ describe('useBuilderAgentChat stale presentation operations', () => {
       throw new Error(`Unexpected agent call: ${method}`);
     });
 
-    let currentChat: ReturnType<typeof useBuilderAgentChat> | undefined;
+    let currentChat: ReturnType<typeof useConversationAgentChat> | undefined;
     function Harness({ presentationId }: { presentationId: string }) {
-      currentChat = useBuilderAgentChat(chatArgs(presentationId));
+      currentChat = useConversationAgentChat(chatArgs(presentationId));
       return null;
     }
 
@@ -594,9 +594,9 @@ describe('useBuilderAgentChat stale presentation operations', () => {
       throw new Error(`Unexpected agent call: ${method}`);
     });
 
-    let currentChat: ReturnType<typeof useBuilderAgentChat> | undefined;
+    let currentChat: ReturnType<typeof useConversationAgentChat> | undefined;
     function Harness({ presentationId }: { presentationId: string }) {
-      currentChat = useBuilderAgentChat(chatArgs(presentationId));
+      currentChat = useConversationAgentChat(chatArgs(presentationId));
       return null;
     }
 

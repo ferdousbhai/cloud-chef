@@ -574,7 +574,7 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   }
 
   async cancelActiveValidation(): Promise<void> {
-    // None known here when the BuilderAgent restarted while ProjectWorkspace still owns the validation.
+    // None known here when the ConversationAgent restarted while ProjectWorkspace still owns the validation.
     await this.#cancelValidation(this.#activeValidationToolCallId ?? undefined);
   }
 

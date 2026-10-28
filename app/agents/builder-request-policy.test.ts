@@ -16,7 +16,7 @@ const binding: BuilderTranscriptBinding = {
   parentAgentName: 'chat--transcript-1-0',
 };
 
-describe('BuilderAgent request policy', () => {
+describe('ConversationAgent request policy', () => {
   it('resolves the Agent name through its active owner-scoped transcript', async () => {
     const first = vi.fn(async () => ({
       agent_name: binding.agentName,

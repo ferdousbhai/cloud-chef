@@ -12,7 +12,7 @@ import type {
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { sha256Hex } from '~/lib/hex-digest';
 import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
-import { builderAgentHarness, CHAT_INITIAL_ID, eventually, type BuilderAgentHarness } from './harness';
+import { conversationAgentHarness, CHAT_INITIAL_ID, eventually, type ConversationAgentHarness } from './harness';
 
 /**
  * A CloudChef app's history: the commits on main of its own repository (`p-<chat>`), made when the agent
@@ -57,7 +57,7 @@ async function publishedHarness(
   artifacts: FakeArtifacts = fakeArtifacts(),
   onDeployed: () => void = () => undefined,
 ) {
-  const harness = await builderAgentHarness({
+  const harness = await conversationAgentHarness({
     cloudflareIdentity: true,
     workspace,
     artifacts,
@@ -77,7 +77,7 @@ async function publishedHarness(
   return harness;
 }
 
-async function finishChangingTurn(harness: BuilderAgentHarness) {
+async function finishChangingTurn(harness: ConversationAgentHarness) {
   harness.beginTurn();
   harness.agent.setState({ ...harness.agent.state, publicationPending: true });
   await harness.endTurn('completed');
@@ -88,7 +88,7 @@ function repositories(artifacts: FakeArtifacts) {
 }
 
 /** CloudChef saving the workspace as a version on main, as restoring one and a production request do. */
-function saveVersion(harness: BuilderAgentHarness, message: string) {
+function saveVersion(harness: ConversationAgentHarness, message: string) {
   // eslint-disable-next-line dot-notation
   return harness.agent['commitWorkspaceToHistory']({ revision: CHECKPOINT.revision, message });
 }
@@ -157,7 +157,7 @@ describe("a CloudChef app's history", () => {
     });
     const appended: BuilderWorkspaceFileInput[] = [];
     let initialized = false;
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       artifacts,
       workspace: {
         refresh: async () => ({ ...READY, initialized }),
@@ -221,7 +221,7 @@ describe('reverting to a commit', () => {
       },
     ];
     const applied: { baseRevision: number; changes: BuilderWorkspaceClientChange[] }[] = [];
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       artifacts,
       cloudflareIdentity: true,
       workspace: {
@@ -282,7 +282,7 @@ describe("a draft's production request", () => {
       }
       return new Response('unavailable', { status: 503 });
     });
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       cloudflareIdentity: true,
       workspace: holding({ 'index.html': 'draft' }),
     });

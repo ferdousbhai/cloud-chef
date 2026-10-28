@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { CodeIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
-import type { BuilderLinkedProjectSummary } from '~/agents/builder-agent';
+import type { BuilderLinkedProjectSummary } from '~/agents/conversation-agent';
 import { selectWorkspaceSurface } from '~/lib/stores/workspace-surface.client';
 import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { MessageInput } from './MessageInput';

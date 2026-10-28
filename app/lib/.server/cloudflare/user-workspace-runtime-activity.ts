@@ -3,7 +3,7 @@ import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limit
 /**
  * Whether a workspace runtime is doing work a redeploy would cut off, and the window an upgrade claims
  * when it is not. Both live in the runtime's own D1 (`user-workspace-migrations/0012_runtime_activity.sql`):
- * every BuilderAgent writes its own row, and the control plane asks through the runtime, which is the
+ * every ConversationAgent writes its own row, and the control plane asks through the runtime, which is the
  * only place that knows about turns running with no browser open.
  */
 

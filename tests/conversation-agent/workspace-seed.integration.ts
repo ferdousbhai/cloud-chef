@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceSeedStartResult } from '@cloudchef/user-workspace-runtime/protocol';
-import { builderAgentHarness, settle } from './harness';
+import { conversationAgentHarness, settle } from './harness';
 
 /**
  * A new workspace is seeded outside the agent's startup, which Cloudflare cuts off after 30 seconds while a
@@ -27,7 +27,7 @@ describe("a new workspace's seed", () => {
     const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
       throw new Error('The workspace stopped answering.');
     });
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
     });
     expect(beginSeed).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("a new workspace's seed", () => {
     const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
       throw new Error('Nothing is seeded from a project that did not open.');
     });
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
       cloudflareIdentity: true,
     });
@@ -103,7 +103,7 @@ describe("a new workspace's seed", () => {
     const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
       throw new Error('Nothing is seeded from a project that did not open.');
     });
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
       cloudflareIdentity: true,
     });
@@ -126,7 +126,7 @@ describe("a new workspace's seed", () => {
           };
         }),
     );
-    const harness = await builderAgentHarness({
+    const harness = await conversationAgentHarness({
       workspace: { refresh: async () => (seeded ? READY_STATE : { ...READY_STATE, initialized: false }), beginSeed },
     });
 

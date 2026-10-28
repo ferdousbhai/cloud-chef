@@ -40,7 +40,7 @@ export function prepareAgentGcCandidatesStatement(
     .bind(notBefore, now, args.ownerId, args.initialId);
 }
 
-export async function sweepAgentGcCandidates(env: Pick<Env, 'BuilderAgent' | 'DB'>): Promise<void> {
+export async function sweepAgentGcCandidates(env: Pick<Env, 'ConversationAgent' | 'DB'>): Promise<void> {
   const now = Date.now();
   const result = await env.DB.prepare(
     `SELECT candidates.workspace_id, candidates.initial_id, workspaces.creator_id AS owner_id,
@@ -57,22 +57,22 @@ export async function sweepAgentGcCandidates(env: Pick<Env, 'BuilderAgent' | 'DB
   await Promise.all(result.results.map((candidate) => destroyCandidateAgent(env, candidate, now)));
 }
 
-export async function sweepAgentGcCandidatesBestEffort(env: Pick<Env, 'BuilderAgent' | 'DB'>): Promise<void> {
+export async function sweepAgentGcCandidatesBestEffort(env: Pick<Env, 'ConversationAgent' | 'DB'>): Promise<void> {
   try {
     await sweepAgentGcCandidates(env);
   } catch {
-    logger.warn('Unable to sweep deferred BuilderAgent state');
+    logger.warn('Unable to sweep deferred ConversationAgent state');
   }
 }
 
 async function destroyCandidateAgent(
-  env: Pick<Env, 'BuilderAgent' | 'DB'>,
+  env: Pick<Env, 'ConversationAgent' | 'DB'>,
   candidate: AgentGcCandidateRow,
   now: number,
 ): Promise<void> {
   try {
     const name = transcriptAgentName(candidate.initial_id, candidate.conversation_index);
-    const agent = env.BuilderAgent.getByName(name);
+    const agent = env.ConversationAgent.getByName(name);
     // The SDK durably records a condemned marker and alarm before this RPC
     // resolves. Delete the D1 receipt only after that schedule is accepted;
     // the alarm owns the abort-shaped physical teardown and can resume it.
@@ -87,7 +87,7 @@ async function destroyCandidateAgent(
     )
       .bind(retryAt, candidate.workspace_id, candidate.conversation_index, candidate.not_before)
       .run();
-    logger.warn('Unable to destroy deferred BuilderAgent', { subchatIndex: candidate.conversation_index });
+    logger.warn('Unable to destroy deferred ConversationAgent', { subchatIndex: candidate.conversation_index });
   }
 }
 

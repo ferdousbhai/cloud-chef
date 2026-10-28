@@ -12,7 +12,11 @@ import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { authClient } from '~/lib/auth-client';
 import type { ChatProps } from './chat-types';
 import { UnauthenticatedChat } from './UnauthenticatedChat';
-import { workspacePresentationId, useBuilderAgentChat, type WorkspacePresentationState } from './useBuilderAgentChat';
+import {
+  workspacePresentationId,
+  useConversationAgentChat,
+  type WorkspacePresentationState,
+} from './useConversationAgentChat';
 import { WORKSPACE_MESSAGES } from '~/lib/workspace-messages';
 import { useProcessedMessages } from '~/lib/hooks/useProcessedMessages';
 import { useCurrentToolStatus } from './useCurrentToolStatus';
@@ -353,7 +357,7 @@ const AuthenticatedChat = memo(
       workspaceFailure,
       retryWorkspacePresentation,
       upgradeWaiting,
-    } = useBuilderAgentChat({
+    } = useConversationAgentChat({
       accountId,
       chatInitialId,
       initialMessages,

@@ -1,7 +1,7 @@
 import { Button } from '@ui/Button';
 import type { AppSitePresentation } from '~/lib/common/app-site';
 import { publicationStageLabel, type BuilderPublicationState } from '~/agents/builder-publication-progress';
-import type { BuilderLinkedSite } from '~/agents/builder-agent';
+import type { BuilderLinkedSite } from '~/agents/conversation-agent';
 
 export const PREVIEW_SANDBOX = 'allow-forms allow-modals allow-popups allow-same-origin allow-scripts';
 

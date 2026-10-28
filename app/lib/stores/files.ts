@@ -24,7 +24,7 @@ export type WorkspaceChangeListener = (
 ) => Promise<BuilderWorkspaceApplyResult>;
 
 /**
- * An in-memory presentation cache of the durable BuilderAgent workspace.
+ * An in-memory presentation cache of the durable ConversationAgent workspace.
  * It is always rebuildable and never executes or persists project code.
  */
 export class FilesStore {

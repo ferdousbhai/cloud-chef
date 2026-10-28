@@ -1,6 +1,6 @@
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 
-const logger = createScopedLogger('BuilderAgent');
+const logger = createScopedLogger('ConversationAgent');
 
 /**
  * Thrown `Response`s are the agent's expected rejections, which the SDK's
@@ -9,7 +9,7 @@ const logger = createScopedLogger('BuilderAgent');
  */
 export function rethrowAgentRejection(cause: unknown): void {
   if (cause instanceof Response) {
-    logger.warn('BuilderAgent rejected a call', { status: cause.status });
+    logger.warn('ConversationAgent rejected a call', { status: cause.status });
     throw cause;
   }
 }

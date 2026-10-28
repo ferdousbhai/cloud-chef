@@ -39,12 +39,12 @@ pnpm run validate
 
 `scripts/validate.mjs` runs every check side by side, one per core, and stops at the first failure with that check's
 full output; `VALIDATE_CONCURRENCY=1 pnpm run validate` runs them serially. Useful narrower checks are `test`,
-`test:workerd`, `test:builder-agent`, `typecheck`, and `lint`. Generated files produced by verification must leave the
+`test:workerd`, `test:conversation-agent`, `typecheck`, and `lint`. Generated files produced by verification must leave the
 worktree clean.
 
-`test:builder-agent` (`vitest.builder-agent.config.ts`) runs the real `BuilderAgent` class in Node on an in-memory
+`test:conversation-agent` (`vitest.conversation-agent.config.ts`) runs the real `ConversationAgent` class in Node on an in-memory
 Durable Object state, with the runtime's own D1 schema as `env.DB` and the ProjectWorkspace and Workers AI faked at
-their boundary (`tests/builder-agent/harness.ts`). It is the place for tests of the agent's own call sites, such as
+their boundary (`tests/conversation-agent/harness.ts`). It is the place for tests of the agent's own call sites, such as
 the runtime-activity gate every kind of work passes before it starts. The config adds the Agents SDK's decorator
 transform, which the unit configuration leaves out.
 

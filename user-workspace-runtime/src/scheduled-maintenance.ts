@@ -5,7 +5,7 @@ import { sweepCloneTokensBestEffort } from '../../app/lib/cloudflare/data/clone-
 
 type RuntimeMaintenanceEnv = Parameters<typeof sweepAppResourceGcCandidatesBestEffort>[0] &
   Parameters<typeof sweepCloneTokensBestEffort>[0] &
-  Pick<Env, 'BuilderAgent'>;
+  Pick<Env, 'ConversationAgent'>;
 
 /** Register the sole user-runtime maintenance job only for its provisioned trigger. */
 export function scheduleUserWorkspaceRuntimeMaintenance(

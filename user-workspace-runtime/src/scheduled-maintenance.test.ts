@@ -18,7 +18,7 @@ const MAINTENANCE_JOBS = [sweepAgentGcCandidatesBestEffort, sweepAppResourceGcCa
 const UNMOCKED_JOBS = 1;
 
 function maintenanceEnv() {
-  return { BuilderAgent: {}, DB: {} } as unknown as Parameters<typeof scheduleUserWorkspaceRuntimeMaintenance>[1];
+  return { ConversationAgent: {}, DB: {} } as unknown as Parameters<typeof scheduleUserWorkspaceRuntimeMaintenance>[1];
 }
 
 describe('user workspace runtime scheduled maintenance', () => {

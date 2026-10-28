@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { useAgent } from 'agents/react';
 import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { BuilderAgent, BuilderAgentState, BuilderSteeringInput } from '~/agents/builder-agent';
+import type { ConversationAgent, ConversationAgentState, BuilderSteeringInput } from '~/agents/conversation-agent';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { captureMessage } from '~/lib/telemetry.client';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
@@ -41,10 +41,10 @@ import {
 import { builderModelRequestFields, builderModelStore } from '~/lib/stores/builder-model.client';
 import { builderModelIdSchema } from '~/lib/workers-ai-model';
 import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
-import { BUILDER_AGENT_QUERY_CACHE_TTL_MS, loadBuilderAgentCapability } from './builder-agent-auth';
+import { CONVERSATION_AGENT_QUERY_CACHE_TTL_MS, loadConversationAgentCapability } from './conversation-agent-auth';
 import type { CloudflareExecutionDecisionHandler } from 'cloudchef-agent/cloudflare-api';
 
-const logger = createScopedLogger('BuilderAgentChat');
+const logger = createScopedLogger('ConversationAgentChat');
 
 /** Streamed `data-tool-progress` parts arrive as untyped JSON on the agent socket. */
 const toolProgressPartSchema = z.object({
@@ -65,7 +65,7 @@ const revertResultSchema = z.object({ changedPaths: z.array(z.string()) });
  * user-workspace-runtime/src/container-toolchain.ts (bootstrap + computerd download + connect
  * margin, pinned by test there). The agents SDK otherwise applies a 30-second default RPC
  * timeout, which turned a recovering workspace into an unresumable chat. Kept above that
- * ceiling by the pinning test in useBuilderAgentChat.test.tsx. A team project's first open also imports
+ * ceiling by the pinning test in useConversationAgentChat.test.tsx. A team project's first open also imports
  * its history, which may take the import's own 30 minutes (`IMPORT_TIMEOUT_MS` in project-repository.ts),
  * so this waits longer than that.
  */
@@ -108,7 +108,7 @@ export function workspacePresentationId(accountId: string, agentName: string): s
   return `${accountId}:${agentName}`;
 }
 
-export function useBuilderAgentChat(args: {
+export function useConversationAgentChat(args: {
   accountId: string;
   chatInitialId: string;
   initialMessages: CloudChefMessage[];
@@ -145,16 +145,17 @@ export function useBuilderAgentChat(args: {
   const runtimeOrigin = runtimeEndpoint.origin;
   // Set while the workspace is being upgraded and the person's message waits to start.
   const [upgradeWaiting, setUpgradeWaiting] = useState(false);
-  const builderAgent = useAgent<BuilderAgent, BuilderAgentState>({
+  const conversationAgent = useAgent<ConversationAgent, ConversationAgentState>({
+    // Its old address until every runtime answers the new one (they upgrade one by one); the runtime takes both.
     agent: 'BuilderAgent',
     name: transcript.agentName,
     host: runtimeEndpoint.host,
     protocol: runtimeEndpoint.protocol === 'https:' ? 'wss' : 'ws',
-    query: loadBuilderAgentCapability,
+    query: loadConversationAgentCapability,
     queryDeps: [args.accountId, runtimeOrigin],
     // A finite query TTL replaces the live socket when it expires. Refresh the
     // short-lived capability only when the SDK reconnects or this identity changes.
-    cacheTtl: BUILDER_AGENT_QUERY_CACHE_TTL_MS,
+    cacheTtl: CONVERSATION_AGENT_QUERY_CACHE_TTL_MS,
     onStateUpdate: (state) => {
       if (activePresentationRef.current !== args.presentationId) {
         return;
@@ -195,8 +196,8 @@ export function useBuilderAgentChat(args: {
   // presentationId is the key, not an input: changing presentation must hand out a fresh gate.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberate re-key
   const workspaceGateRef = useMemo(() => ({ current: createAsyncGate() }), [args.presentationId]);
-  const chat = useAgentChat<BuilderAgentState, UIMessage>({
-    agent: builderAgent,
+  const chat = useAgentChat<ConversationAgentState, UIMessage>({
+    agent: conversationAgent,
     getInitialMessages: null,
     messages: asUiMessages(args.initialMessages),
     syncMessagesToServer: false,
@@ -266,14 +267,14 @@ export function useBuilderAgentChat(args: {
   const setMessagesRef = useRef(chat.setMessages);
   const messagesRef = useRef<CloudChefMessage[]>(chat.messages);
   const chatTerminalStateRef = useRef({ status: chat.status, isRecovering: chat.isRecovering });
-  const builderTranscriptRef = useRef(builderAgent.state?.transcript);
+  const builderTranscriptRef = useRef(conversationAgent.state?.transcript);
   const stopBarrierRef = useRef<Promise<void>>(Promise.resolve());
   const initialMessagesRef = useRef(args.initialMessages);
   useLayoutEffect(() => {
     setMessagesRef.current = chat.setMessages;
     messagesRef.current = chat.messages;
     chatTerminalStateRef.current = { status: chat.status, isRecovering: chat.isRecovering };
-    builderTranscriptRef.current = builderAgent.state?.transcript;
+    builderTranscriptRef.current = conversationAgent.state?.transcript;
     initialMessagesRef.current = args.initialMessages;
   });
 
@@ -286,12 +287,12 @@ export function useBuilderAgentChat(args: {
   const readAuthoritativeTranscript = useCallback(() => {
     // `useAgent` only types `call` for the callables whose results are JSON-serializable, and a
     // transcript message may carry a `Date`. Go through the untyped RPC handle and parse the result.
-    const agentRpc: BuilderWorkspaceAgent = builderAgent;
+    const agentRpc: BuilderWorkspaceAgent = conversationAgent;
     return loadAuthoritativeTranscriptSnapshot({
       expectedIdentity: transcript,
       read: () => agentRpc.call('getTranscriptSnapshot', [transcript], { timeout: AGENT_SEND_READY_TIMEOUT_MS }),
     });
-  }, [builderAgent, transcript]);
+  }, [conversationAgent, transcript]);
 
   useEffect(() => {
     const previousGate = workspaceGateRef.current;
@@ -313,11 +314,13 @@ export function useBuilderAgentChat(args: {
       try {
         for (let attempt = 0; ; attempt += 1) {
           try {
-            await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+            await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
             if (!isCurrentPresentation()) {
               return;
             }
-            const state = await builderAgent.call('prepareWorkspace', [], { timeout: WORKSPACE_PREPARE_TIMEOUT_MS });
+            const state = await conversationAgent.call('prepareWorkspace', [], {
+              timeout: WORKSPACE_PREPARE_TIMEOUT_MS,
+            });
             if ('failure' in state) {
               if (isCurrentPresentation()) {
                 gate.error = new Error(state.failure);
@@ -333,7 +336,7 @@ export function useBuilderAgentChat(args: {
             }
             sendGateResolved = true;
             gate.resolve();
-            const agentRpc: BuilderWorkspaceAgent = builderAgent;
+            const agentRpc: BuilderWorkspaceAgent = conversationAgent;
             const controller = await BuilderWorkspaceSyncController.initialize(agentRpc, {
               workspaceId: args.presentationId,
               isCurrent: isCurrentPresentation,
@@ -405,7 +408,7 @@ export function useBuilderAgentChat(args: {
         workspaceControllerRef.current = null;
       }
     };
-  }, [args.presentationId, builderAgent, workspaceAttemptId, workspaceGateRef]);
+  }, [args.presentationId, conversationAgent, workspaceAttemptId, workspaceGateRef]);
 
   const retryWorkspacePresentation = useCallback(() => setWorkspaceAttemptId((id) => id + 1), []);
   const currentPresentation = workspacePresentation?.gate === workspaceGateRef.current ? workspacePresentation : null;
@@ -431,7 +434,7 @@ export function useBuilderAgentChat(args: {
       await Promise.all([workspaceGate.promise, stopBarrierRef.current]);
       assertCurrentPresentation(workspaceGate);
       try {
-        await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+        await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
       } catch (error) {
         logger.warn('Builder connection was not ready before send', error);
         captureMessage('Builder connection was not ready before send', {
@@ -462,31 +465,31 @@ export function useBuilderAgentChat(args: {
         setMessagesRef.current((messages) => messages.map(stripTranscriptBaseMetadata));
       }
     },
-    [assertCurrentPresentation, builderAgent, chat, readAuthoritativeTranscript, workspaceGateRef],
+    [assertCurrentPresentation, conversationAgent, chat, readAuthoritativeTranscript, workspaceGateRef],
   );
 
   const deployValidatedRevision = useCallback(async () => {
-    await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
-    return builderAgent.call('deployValidatedRevision', [], { timeout: 30 * 60_000 });
-  }, [builderAgent]);
+    await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
+    return conversationAgent.call('deployValidatedRevision', [], { timeout: 30 * 60_000 });
+  }, [conversationAgent]);
 
   useEffect(() => workbenchStore.connectSite({ publish: deployValidatedRevision }), [deployValidatedRevision]);
 
   const requestProduction = useCallback(
     async (input: { title: string; note: string }) => {
-      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      const { outcome } = await builderAgent.call('requestProduction', [input], { timeout: 2 * 60_000 });
+      await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      const { outcome } = await conversationAgent.call('requestProduction', [input], { timeout: 2 * 60_000 });
       return outcome;
     },
-    [builderAgent],
+    [conversationAgent],
   );
 
   // History reverts through this connection: the agent applies the commit's files as one change set, and
   // refuses while a turn runs.
   useEffect(() => {
-    const agentRpc: BuilderWorkspaceAgent = builderAgent;
+    const agentRpc: BuilderWorkspaceAgent = conversationAgent;
     projectRevertStore.set(async (commit) => {
-      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
       const result = revertResultSchema.safeParse(
         await agentRpc.call('revertToCommit', [commit], { timeout: 2 * 60_000 }),
       );
@@ -494,13 +497,13 @@ export function useBuilderAgentChat(args: {
       return { changed: !result.success || result.data.changedPaths.length > 0 };
     });
     return () => projectRevertStore.set(null);
-  }, [builderAgent]);
+  }, [conversationAgent]);
 
   const decideCloudflareExecution = useCallback<CloudflareExecutionDecisionHandler>(
     async (executionId, decision) => {
       const method = decision === 'approve' ? 'approveCloudflareExecution' : 'rejectCloudflareExecution';
-      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      const result = await builderAgent.call(method, [{ executionId }], { timeout: 2 * 60_000 });
+      await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      const result = await conversationAgent.call(method, [{ executionId }], { timeout: 2 * 60_000 });
       if (result.resumeTurn) {
         const status = result.execution.status;
         await sendMessage({
@@ -519,7 +522,7 @@ export function useBuilderAgentChat(args: {
       }
       return result;
     },
-    [builderAgent, sendMessage],
+    [conversationAgent, sendMessage],
   );
 
   // A change filed for the team's admins: once one of them decides it while this chat is open, the agent carries on
@@ -550,11 +553,11 @@ export function useBuilderAgentChat(args: {
       const workspaceGate = workspaceGateRef.current;
       await workspaceGate.promise;
       assertCurrentPresentation(workspaceGate);
-      await waitForAgentSocketOpen(builderAgent, AGENT_SEND_READY_TIMEOUT_MS);
+      await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
       assertCurrentPresentation(workspaceGate);
-      await builderAgent.call('steerActiveTurn', [input]);
+      await conversationAgent.call('steerActiveTurn', [input]);
     },
-    [assertCurrentPresentation, builderAgent, workspaceGateRef],
+    [assertCurrentPresentation, conversationAgent, workspaceGateRef],
   );
 
   const stop = useCallback(() => {
@@ -562,7 +565,7 @@ export function useBuilderAgentChat(args: {
     toolActivityStore.abortActive();
     toolProgressStore.clear();
     const cancellation = settleBuilderStop({
-      cancel: () => builderAgent.call('cancelActiveTurn', [], { timeout: AGENT_CANCEL_SETTLE_TIMEOUT_MS }),
+      cancel: () => conversationAgent.call('cancelActiveTurn', [], { timeout: AGENT_CANCEL_SETTLE_TIMEOUT_MS }),
       reconcileMessages: (messages) => setMessagesRef.current(asUiMessages(messages)),
       refreshWorkspace: async () => {
         await workspaceControllerRef.current?.pull();
@@ -574,7 +577,7 @@ export function useBuilderAgentChat(args: {
         captureMessage('Failed to process chat request', { level: 'error' });
       });
     stopBarrierRef.current = cancellation;
-  }, [builderAgent, chat]);
+  }, [conversationAgent, chat]);
 
   useEffect(() => {
     if (previousSubchatIndexRef.current === currentSubchatIndex) {
@@ -587,7 +590,7 @@ export function useBuilderAgentChat(args: {
   }, [currentSubchatIndex]);
 
   useEffect(() => {
-    const durableCheckpoint = builderAgent.state?.transcript;
+    const durableCheckpoint = conversationAgent.state?.transcript;
     if (durableCheckpoint === undefined || (chat.status !== 'ready' && chat.status !== 'error') || chat.isRecovering) {
       return undefined;
     }
@@ -616,7 +619,7 @@ export function useBuilderAgentChat(args: {
     };
   }, [
     args.presentationId,
-    builderAgent.state?.transcript,
+    conversationAgent.state?.transcript,
     chat.isRecovering,
     chat.status,
     readAuthoritativeTranscript,
@@ -630,12 +633,12 @@ export function useBuilderAgentChat(args: {
     steerMessage,
     messages: chat.messages satisfies CloudChefMessage[],
     streamStatus: chat.isRecovering ? ('submitted' as const) : chat.isStreaming ? ('streaming' as const) : chat.status,
-    validationStage: builderAgent.state?.validationProgress?.stage ?? null,
-    deployment: builderAgent.state?.deployment ?? null,
-    publication: builderAgent.state?.publication ?? null,
+    validationStage: conversationAgent.state?.validationProgress?.stage ?? null,
+    deployment: conversationAgent.state?.deployment ?? null,
+    publication: conversationAgent.state?.publication ?? null,
     deployValidatedRevision,
     requestProduction,
-    cloudflareExecutions: builderAgent.state?.cloudflareExecutions ?? [],
+    cloudflareExecutions: conversationAgent.state?.cloudflareExecutions ?? [],
     decideCloudflareExecution,
     workspacePresentationState,
     workspaceFailure,

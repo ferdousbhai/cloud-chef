@@ -139,7 +139,7 @@ const migrationPolicies = [
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
       '0002_remove_chat_url_id.sql',
-      // BuilderAgent now owns transcript content and revisions. Rebuild the D1
+      // ConversationAgent now owns transcript content and revisions. Rebuild the D1
       // catalog table once to remove checkpoint columns that no runtime reads.
       '0007_builder_agent_transcript_authority.sql',
       // One conversation per GitHub project becomes one current conversation: the narrower index is

@@ -7,7 +7,7 @@ import {
 import { z } from 'zod';
 import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { syncAccountApps } from '~/lib/.server/cloudflare/linked-project-client';
-import type { BuilderAgent } from '~/agents/builder-agent';
+import type { ConversationAgent } from '~/agents/conversation-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { DataOperationPath, DataOperationResult } from './data-api';
 import { dataOperationArgSchemas, MAX_SUBCHAT_INDEX } from './data-operation-schemas';
@@ -141,9 +141,9 @@ function getBuilderTranscriptSnapshot(
   env: Env,
   identity: TranscriptIdentity,
   ownerId: string,
-): ReturnType<BuilderAgent['getTranscriptSnapshot']> {
+): ReturnType<ConversationAgent['getTranscriptSnapshot']> {
   return retryDurableObjectRpc(() =>
-    env.BuilderAgent.getByName(identity.agentName).getTranscriptSnapshotForOwner(identity, ownerId),
+    env.ConversationAgent.getByName(identity.agentName).getTranscriptSnapshotForOwner(identity, ownerId),
   );
 }
 
@@ -215,9 +215,9 @@ async function createSubchatFromAgent(env: Env, args: { sessionId: string; chatI
   // The earlier conversation is closed now, so it refuses new work whatever happens below; this stops what it
   // has under way, so that nothing but the new conversation changes the project from here.
   try {
-    const handover = await env.BuilderAgent.getByName(identity.agentName).settleForSuccessor(args.sessionId);
+    const handover = await env.ConversationAgent.getByName(identity.agentName).settleForSuccessor(args.sessionId);
     if (handover) {
-      await env.BuilderAgent.getByName(transcriptAgentName(chat.initial_id, subchatIndex)).continuePublication(
+      await env.ConversationAgent.getByName(transcriptAgentName(chat.initial_id, subchatIndex)).continuePublication(
         args.sessionId,
         handover,
       );

@@ -5,7 +5,7 @@ import {
 } from '~/lib/.server/cloudflare/user-workspace-runtime-activity';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { abortableSleep } from '~/lib/abortable-sleep';
-import type { BuilderAgentState } from './builder-agent';
+import type { ConversationAgentState } from './conversation-agent';
 
 const logger = createScopedLogger('builder-runtime-activity');
 const UPGRADE_WINDOW_POLL_MS = 1_000;
@@ -41,7 +41,7 @@ type RuntimeAdmissionOptions = {
  * their work actually runs (`BuilderRuntimeActivity.run`), not from their records in state, which
  * other paths rewrite while that work continues (an editor save clears the deployment record).
  */
-export function isBuilderAgentBusy(state: BuilderAgentState | undefined): boolean {
+export function isConversationAgentBusy(state: ConversationAgentState | undefined): boolean {
   return Boolean(state?.activeTurn || state?.validationProgress);
 }
 

@@ -39,14 +39,14 @@ export function transcriptCheckpointsEqual(
 }
 
 /**
- * A transcript's BuilderAgent name: the chat's initial id for its first subchat, and a fixed `-0` suffix for the
+ * A transcript's ConversationAgent name: the chat's initial id for its first subchat, and a fixed `-0` suffix for the
  * others, which existing Agents are named by.
  */
 export function transcriptAgentName(initialId: string, subchatIndex: number): string {
   return subchatIndex === 0 ? initialId : `${initialId}--transcript-${subchatIndex}-0`;
 }
 
-/** The chat a transcript's BuilderAgent belongs to, read back from its name (`transcriptAgentName`). */
+/** The chat a transcript's ConversationAgent belongs to, read back from its name (`transcriptAgentName`). */
 export function transcriptChatInitialId(agentName: string): string {
   return agentName.replace(/--transcript-[1-9][0-9]*-0$/, '');
 }

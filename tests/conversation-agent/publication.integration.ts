@@ -5,11 +5,11 @@ import { DeploymentConcurrencyLimitError } from '~/lib/.server/cloudflare/deploy
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
-  builderAgentHarness,
+  conversationAgentHarness,
   CHAT_INITIAL_ID,
   eventually,
   settle,
-  type BuilderAgentHarness,
+  type ConversationAgentHarness,
   type BuilderPublisher,
 } from './harness';
 
@@ -59,7 +59,7 @@ async function publicationHarness(
   if (options.refresh) {
     workspace.refresh = options.refresh;
   }
-  const harness = await builderAgentHarness({
+  const harness = await conversationAgentHarness({
     cloudflareIdentity: true,
     ai: {
       models: vi.fn(async () => {
@@ -74,7 +74,7 @@ async function publicationHarness(
 }
 
 /** The turn that changed the app ends, as a turn whose tools wrote to the project does. */
-async function finishChangingTurn(harness: BuilderAgentHarness, status: 'completed' | 'aborted' = 'completed') {
+async function finishChangingTurn(harness: ConversationAgentHarness, status: 'completed' | 'aborted' = 'completed') {
   harness.beginTurn();
   harness.agent.setState({ ...harness.agent.state, publicationPending: true });
   await harness.endTurn(status);
@@ -82,7 +82,7 @@ async function finishChangingTurn(harness: BuilderAgentHarness, status: 'complet
 
 /** The person sends their next message: its turn takes the workspace and stays running. */
 async function sendNextMessage(
-  harness: BuilderAgentHarness,
+  harness: ConversationAgentHarness,
   options: { abortSignal?: AbortSignal; turnContext?: object } = {},
 ) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
@@ -105,7 +105,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('BuilderAgent automatic publication', () => {
+describe('ConversationAgent automatic publication', () => {
   it('publishes production when a turn that changed the app ends, and keeps the address it serves at', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>(async () => ({
       status: 'succeeded',
@@ -663,7 +663,7 @@ describe('a turn that ends without its end-of-turn hook', () => {
 
 describe('redoing a failed deployment', () => {
   /** The automatic deployment of `CHECKPOINT` failed for a reason that passes, and its retry is due. */
-  function failedDeployment(harness: BuilderAgentHarness) {
+  function failedDeployment(harness: ConversationAgentHarness) {
     harness.agent.setState({
       ...harness.agent.state,
       publicationPending: true,
@@ -671,7 +671,7 @@ describe('redoing a failed deployment', () => {
     });
   }
 
-  function scheduledRetries(harness: BuilderAgentHarness) {
+  function scheduledRetries(harness: ConversationAgentHarness) {
     return harness.agent
       .getSchedules<AutomaticDeploymentRetry>()
       .filter((schedule) => schedule.callback === 'retryAutomaticDeployment')
@@ -843,7 +843,7 @@ describe('another deployment record left holding the project', () => {
 
   /** The record a deployment of `CHECKPOINT` left in the runtime's D1, last touched `age` ago. */
   function leftRecord(
-    harness: BuilderAgentHarness,
+    harness: ConversationAgentHarness,
     status: 'provisioning' | 'deploying' | 'succeeded',
     age = STALE,
     id = 'deployment-left',
@@ -865,12 +865,15 @@ describe('another deployment record left holding the project', () => {
       );
   }
 
-  function recordStatus(harness: BuilderAgentHarness, id = 'deployment-left') {
+  function recordStatus(harness: ConversationAgentHarness, id = 'deployment-left') {
     return harness.database.prepare(`SELECT status FROM deployments WHERE id = ?`).get(id)?.status;
   }
 
   /** Publication commands that refuse a deployment while another record holds the project, as the claim does. */
-  function holdingPublisher(harness: () => BuilderAgentHarness, options: { settlesAs?: 'failed' | 'succeeded' } = {}) {
+  function holdingPublisher(
+    harness: () => ConversationAgentHarness,
+    options: { settlesAs?: 'failed' | 'succeeded' } = {},
+  ) {
     const deploy = vi.fn<BuilderPublisher['deploy']>(async (request) => {
       request.onPlanned?.(PLANNED);
       const holding = harness()
@@ -907,7 +910,7 @@ describe('another deployment record left holding the project', () => {
   it.each(['deploying', 'provisioning'] as const)(
     'a %s record nothing runs is settled by the next deployment, which then proceeds',
     async (status) => {
-      let harness!: BuilderAgentHarness;
+      let harness!: ConversationAgentHarness;
       const publisher = holdingPublisher(() => harness);
       harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
       leftRecord(harness, status);
@@ -922,7 +925,7 @@ describe('another deployment record left holding the project', () => {
   );
 
   it("a record of the deployment's own revision, left under the id it had before, is settled by it", async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness);
     harness = await publicationHarness({ publisher });
     // Left provisioning before the release that derived ids apart; the revision has since been planned
@@ -940,7 +943,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it("a promoted record of the deployment's own revision, left under the id it had before, is production", async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness, { settlesAs: 'succeeded' });
     harness = await publicationHarness({ publisher });
     leftRecord(harness, 'deploying', STALE, 'deployment-before');
@@ -955,7 +958,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('the record the deployment itself planned is never settled as the one holding the project', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness);
     publisher.deploy.mockImplementation(async (request) => {
       request.onPlanned?.(PLANNED);
@@ -972,7 +975,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('a record a later execution took over and succeeded is not recorded as production by the settle', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness);
     const settleHeld = publisher.settle.getMockImplementation();
     publisher.settle.mockImplementationOnce(async (request) => {
@@ -996,7 +999,7 @@ describe('another deployment record left holding the project', () => {
 
   it('a record a deployment fiber of its revision still runs is left alone', async () => {
     let current = CHECKPOINT;
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const running = deferred<void>();
     const publisher = holdingPublisher(() => harness);
     const deployNext = publisher.deploy.getMockImplementation();
@@ -1024,7 +1027,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('a record that showed work recently is left alone, as one the deployment route may be running', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness);
     harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
     leftRecord(harness, 'deploying', 60_000);
@@ -1038,7 +1041,7 @@ describe('another deployment record left holding the project', () => {
 
   it('a promoted deployment whose success write failed is settled as production after the project moved on', async () => {
     let current = CHECKPOINT;
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness, { settlesAs: 'succeeded' });
     publisher.deploy.mockImplementationOnce(async (request) => {
       request.onExecution?.(LEFT_EXECUTION);
@@ -1067,7 +1070,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('a scheduled settle leaves the record of a revision a deployment fiber runs again', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const running = deferred<void>();
     const publisher = holdingPublisher(() => harness);
     publisher.deploy.mockImplementation(async () => {
@@ -1088,7 +1091,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('a scheduled settle leaves a deployment of its revision that started while it waited to be admitted', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const running = deferred<void>();
     const publisher = holdingPublisher(() => harness);
     publisher.deploy.mockImplementation(async () => {
@@ -1115,7 +1118,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('a scheduled settle of an execution that threw leaves the record a later execution holds', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness);
     harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
     // The record was retried through the runtime's deployment route, outside this agent, since it threw.
@@ -1128,7 +1131,7 @@ describe('another deployment record left holding the project', () => {
   });
 
   it('a scheduled settle that finds a later execution succeeded leaves production as it is', async () => {
-    let harness!: BuilderAgentHarness;
+    let harness!: ConversationAgentHarness;
     const publisher = holdingPublisher(() => harness);
     harness = await publicationHarness({ publisher, checkpoint: () => NEXT_CHECKPOINT });
     // Retried since it threw, the record succeeded; then the project's next revision was deployed over it.

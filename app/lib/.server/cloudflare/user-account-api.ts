@@ -1280,7 +1280,7 @@ export class UserCloudflareAccountApi {
         { type: 'durable_object_namespace', name: 'PROJECT_WORKSPACE', class_name: 'ProjectWorkspace' },
         // Builds and deploys each project CloudChef deploys itself, in a container of its own.
         { type: 'durable_object_namespace', name: 'PROJECT_BUILDER', class_name: 'ProjectBuilder' },
-        { type: 'durable_object_namespace', name: 'BuilderAgent', class_name: 'BuilderAgent' },
+        { type: 'durable_object_namespace', name: 'ConversationAgent', class_name: 'ConversationAgent' },
         { type: 'd1', name: 'DB', id: args.databaseId },
         { type: 'ai', name: 'AI' },
         // Every project's code and history, in this account's `cloudchef` namespace (created on first use).
@@ -1305,9 +1305,15 @@ export class UserCloudflareAccountApi {
           type: 'durable-object',
           storage: 'sqlite',
         },
-        BuilderAgent: {
+        ConversationAgent: {
           type: 'durable-object',
           storage: 'sqlite',
+        },
+        // The class's name until 2026-10-28: renaming keeps every conversation's stored messages, now ConversationAgent's.
+        BuilderAgent: {
+          type: 'durable-object',
+          state: 'renamed',
+          renamed_to: 'ConversationAgent',
         },
         ProjectBuilder: {
           type: 'durable-object',

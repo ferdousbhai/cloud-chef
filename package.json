@@ -34,7 +34,7 @@
     "skills:sync": "node scripts/sync-cloudflare-skills.mjs",
     "test": "vitest run",
     "test:workerd": "vitest run --config vitest.workerd.config.ts",
-    "test:builder-agent": "vitest run --config vitest.builder-agent.config.ts",
+    "test:conversation-agent": "vitest run --config vitest.conversation-agent.config.ts",
     "test:e2e:install": "playwright install --with-deps chromium",
     "test:watch": "vitest",
     "lint:code": "eslint --cache --cache-location ./node_modules/.cache/eslint app cloudchef-agent scripts make-bootstrap-snapshot.js",

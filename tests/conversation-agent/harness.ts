@@ -1,5 +1,5 @@
 /**
- * A BuilderAgent in Node: the real class, on an in-memory Durable Object state whose SQL storage is
+ * A ConversationAgent in Node: the real class, on an in-memory Durable Object state whose SQL storage is
  * SQLite, with the runtime's own D1 (`user-workspace-migrations/`) as `env.DB`. What lies outside the
  * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`, one per project id, as
  * the namespace gives it), Workers AI, the publication commands that reach the deployment executor and
@@ -11,7 +11,7 @@ import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import type * as NodeSqlite from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
 import type { ChatResponseResult } from '@cloudflare/ai-chat';
-import { BuilderAgent } from '~/agents/builder-agent';
+import { ConversationAgent } from '~/agents/conversation-agent';
 import type {
   deployValidatedRevisionForBuilder,
   settleDeploymentForBuilder,
@@ -65,7 +65,7 @@ const RUNTIME_IDENTITY: RuntimeIdentityBindings = {
   CONTROL_PLANE_SECRET: 'runtime-secret',
 };
 
-/** The parts of `SqlStorageCursor` the Agents SDK and BuilderAgent read. */
+/** The parts of `SqlStorageCursor` the Agents SDK and ConversationAgent read. */
 function cursor(rows: Record<string, SQLInputValue>[], written: number) {
   return {
     toArray: () => rows,
@@ -203,25 +203,25 @@ function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublis
 }
 
 /**
- * The real BuilderAgent, with its protected end-of-turn hook reachable the way the AI Chat base
+ * The real ConversationAgent, with its protected end-of-turn hook reachable the way the AI Chat base
  * class reaches it once a turn's response settles.
  */
-class HarnessBuilderAgent extends BuilderAgent {
+class HarnessConversationAgent extends ConversationAgent {
   respond(result: ChatResponseResult): Promise<void> {
     return this.onChatResponse(result);
   }
 }
 
-export type BuilderAgentHarness = Awaited<ReturnType<typeof builderAgentHarness>>;
+export type ConversationAgentHarness = Awaited<ReturnType<typeof conversationAgentHarness>>;
 
 /**
- * A started BuilderAgent for `OWNER_ID`'s chat, bound to its transcript in the runtime's D1.
+ * A started ConversationAgent for `OWNER_ID`'s chat, bound to its transcript in the runtime's D1.
  * @param options.workspace what the project's workspace does
  * @param options.newWorkspace makes the workspace of each project the namespace is asked for, in place of
  *   `workspace`, so that different projects hold different files
  * @param options.ai the Workers AI binding a turn would use (`env.AI`)
  */
-export async function builderAgentHarness(
+export async function conversationAgentHarness(
   options: {
     workspace?: Partial<BuilderWorkspaceApi>;
     newWorkspace?: () => Partial<BuilderWorkspaceApi>;
@@ -252,7 +252,7 @@ export async function builderAgentHarness(
     DB: db,
     CLOUDCHEF_RUNTIME_VERSION: RUNTIME_VERSION,
     // SAFETY: the agent names its workspace with `idFromName` alone, which this implements.
-    BuilderAgent: { idFromName: (name: string) => ({ toString: () => `id-${name}` }) } as never,
+    ConversationAgent: { idFromName: (name: string) => ({ toString: () => `id-${name}` }) } as never,
     // SAFETY: the user runtime's own bindings (`app/user-runtime-env.d.ts`) are not on the control
     // plane's Env; the agent reads them through the same guarded casts.
     ...(runtimeBindings as Partial<Env>),
@@ -262,7 +262,7 @@ export async function builderAgentHarness(
   const startAgent = async (name: string) => {
     const ctx = durableObjectState(name);
     // SAFETY: the agent and the Agents SDK read only the members `durableObjectState` implements.
-    const agent = new HarnessBuilderAgent(ctx as never, env);
+    const agent = new HarnessConversationAgent(ctx as never, env);
     // SAFETY: the ProjectWorkspace is the agent's one collaborator outside this process. It is replaced
     // before any call reaches it, with a fake of every member the exercised path calls.
     const ownWorkspace = fakeWorkspace(options.newWorkspace?.() ?? options.workspace);

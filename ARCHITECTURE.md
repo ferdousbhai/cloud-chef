@@ -24,7 +24,7 @@ events. The root deployment has no Container or application Durable Object bindi
 provisions user-owned workspace runtimes without holding the browser's runtime-session request open.
 
 Opening a project after Cloudflare is connected queues a durable control-plane Workflow that provisions a workspace Worker, D1 database,
-`BuilderAgent` Durable Objects, and a `ProjectWorkspace` Durable Object backed by a Cloudflare Container in that user's
+`ConversationAgent` Durable Objects, and a `ProjectWorkspace` Durable Object backed by a Cloudflare Container in that user's
 account. Runtime-session requests return `workspace_preparing` while that Workflow runs, and the browser polls with
 bounded backoff instead of holding the provisioning request open. Once ready, the browser receives a short-lived,
 origin-bound capability and communicates directly with that Worker for chat, project, and deployment
@@ -54,7 +54,7 @@ hours), and a busy row left by a reset would hold it for the whole lease with no
 runtime of the same generation is not capped, since its member keeps a session meanwhile.
 
 The runtime is the source of truth for whether it is busy, since a turn keeps running with no tab open. Every
-`BuilderAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
+`ConversationAgent` records in the runtime's D1 (`runtime_activity`) whether it is working, and for two minutes after it
 stops. Its turn (and the validation it runs) counts from its state; a production publication, an
 approved Cloudflare request, a GitHub build watch, and seeding a new workspace count while their work actually runs
 (`BuilderRuntimeActivity.run` in `app/agents/builder-runtime-activity.ts`), never from the deployment
@@ -259,7 +259,7 @@ edit) for a team project.
 | Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
 | Projects, members' roles, GitHub installations, production requests                               | CloudChef control-plane D1                           |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
-| Agent messages, turn state, compaction, and resumable execution                                   | User-owned `BuilderAgent` DO SQLite                  |
+| Agent messages, turn state, compaction, and resumable execution                                   | User-owned `ConversationAgent` DO SQLite             |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
 | Dependency installation, validation, and deployable artifact preparation                          | User-owned `ProjectWorkspace` Container backend      |
 | Production-version upload and promotion                                                           | User's Cloudflare account APIs                       |
@@ -272,7 +272,7 @@ files; the browser editor and container mount are replicas of that state.
 
 ## Transcript Reconciliation
 
-`BuilderAgent` DO SQLite is the only authoritative message transcript and checkpoint store. Generation, reload,
+`ConversationAgent` DO SQLite is the only authoritative message transcript and checkpoint store. Generation, reload,
 interrupted-turn recovery, and context compaction all read that Agent. User workspace D1 stores only routing and catalog
 facts: the Agent name, subchat index, branch ancestry, and whether the chat has accepted content. It stores
 no message positions, counts, digests, or browser-authored checkpoint. The browser's TanStack collection is a
@@ -280,7 +280,7 @@ rebuildable in-memory view.
 
 Reconciliation is deterministic:
 
-1. Reload resolves the owner-scoped transcript identity from D1 and asks that exact `BuilderAgent` for its checkpoint
+1. Reload resolves the owner-scoped transcript identity from D1 and asks that exact `ConversationAgent` for its checkpoint
    and messages. A mismatched Agent identity is a conflict, never a fallback to another history.
 2. Before send, the browser asks the Agent for its current checkpoint and compares it with the complete local view. A
    mismatch blocks the send and requires a reload. The checkpoint rides with the message only as transient base
@@ -293,7 +293,7 @@ Reconciliation is deterministic:
 
 ## Project Lifecycle
 
-`BuilderAgent` owns conversation execution and delegates project operations to `ProjectWorkspace`. Cloudflare Computer
+`ConversationAgent` owns conversation execution and delegates project operations to `ProjectWorkspace`. Cloudflare Computer
 stores files directly in the Durable Object's SQLite VFS. Its container backend projects the same files into the
 Container through FUSE and reconciles changes back to the VFS.
 
@@ -371,7 +371,7 @@ as soon as that handle becomes available. `pnpm add <packages>` and `pnpm instal
 dependency installer, which resolves npm registry packages with install scripts off and writes back only package.json
 and the lockfile; any other install that names a package must name one from the npm registry. The model decides when to run the full
 validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
-Production deployment is not a model capability: when a turn that changed a CloudChef app finishes, `BuilderAgent`
+Production deployment is not a model capability: when a turn that changed a CloudChef app finishes, `ConversationAgent`
 admits a durable deployment fiber that runs one authenticated, idempotent server operation. It builds the exact revision it was asked for (reusing a validation of that revision when the model
 already ran one), prepares the exact-revision plan, and executes it in the user's account. A failed build or
 deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment.
@@ -421,7 +421,7 @@ a few times; if it still can't land, the record stays deploying, never failed, a
 interrupted record reads the receipt as its success.
 
 A record left provisioning or deploying holds the project's one deployment slot, which otherwise only a deployment of
-its own revision settles. Two settles keep a project that moved on deployable. The BuilderAgent settles a record a few
+its own revision settles. Two settles keep a project that moved on deployable. The ConversationAgent settles a record a few
 seconds after its fiber throws, whatever revision the project is at, unless a fiber of that revision runs again. A
 deployment the slot refuses settles the record holding it (another revision's, or its own revision's under an earlier
 id) once no fiber of the agent deploys that revision and the record has shown no work (an update or a recorded step)

@@ -11,20 +11,20 @@ type BuilderIdentityRow = {
 };
 
 /** The person whose chat this is, who alone uses the agent, and the transcript it serves. */
-export type BuilderAgentDurableIdentity = {
+export type ConversationAgentDurableIdentity = {
   userId: string;
   transcript: BuilderTranscriptBinding;
 };
 
 /**
- * Owns the immutable authorization and transcript identity for one BuilderAgent.
+ * Owns the immutable authorization and transcript identity for one ConversationAgent.
  * The record lives in the Agent's own SQLite database so hibernation and fiber
  * recovery never depend on connection props being replayed.
  */
-export class BuilderAgentIdentityRepository {
+export class ConversationAgentIdentityRepository {
   constructor(private readonly storage: BuilderIdentityStorage) {}
 
-  get(): BuilderAgentDurableIdentity | null {
+  get(): ConversationAgentDurableIdentity | null {
     const row = [
       ...this.storage.sql.exec<BuilderIdentityRow>(`
         SELECT user_id, agent_name, chat_initial_id, subchat_index, parent_agent_name
@@ -37,12 +37,12 @@ export class BuilderAgentIdentityRepository {
   }
 
   /** Claim once, or prove an exact replay of the original durable identity. */
-  claim(identity: BuilderAgentDurableIdentity): BuilderAgentDurableIdentity {
+  claim(identity: ConversationAgentDurableIdentity): ConversationAgentDurableIdentity {
     return this.storage.transactionSync(() => {
       const current = this.get();
       if (current) {
-        if (!builderAgentIdentitiesEqual(current, identity)) {
-          throw new BuilderAgentIdentityMismatchError();
+        if (!conversationAgentIdentitiesEqual(current, identity)) {
+          throw new ConversationAgentIdentityMismatchError();
         }
         return current;
       }
@@ -64,21 +64,21 @@ export class BuilderAgentIdentityRepository {
   }
 }
 
-export class BuilderAgentIdentityMismatchError extends Error {
+export class ConversationAgentIdentityMismatchError extends Error {
   constructor() {
-    super('BuilderAgent durable identity mismatch.');
-    this.name = 'BuilderAgentIdentityMismatchError';
+    super('ConversationAgent durable identity mismatch.');
+    this.name = 'ConversationAgentIdentityMismatchError';
   }
 }
 
-export function builderAgentIdentitiesEqual(
-  left: BuilderAgentDurableIdentity,
-  right: BuilderAgentDurableIdentity,
+export function conversationAgentIdentitiesEqual(
+  left: ConversationAgentDurableIdentity,
+  right: ConversationAgentDurableIdentity,
 ): boolean {
   return left.userId === right.userId && builderTranscriptBindingsEqual(left.transcript, right.transcript);
 }
 
-function fromRow(row: BuilderIdentityRow): BuilderAgentDurableIdentity {
+function fromRow(row: BuilderIdentityRow): ConversationAgentDurableIdentity {
   return {
     userId: row.user_id,
     transcript: {

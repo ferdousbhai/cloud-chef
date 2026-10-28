@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
-import { builderAgentHarness, CHAT_INITIAL_ID, type BuilderPublisher } from './harness';
+import { conversationAgentHarness, CHAT_INITIAL_ID, type BuilderPublisher } from './harness';
 
 /**
  * A chat is one project. A new conversation in it (a subchat) has an agent and a context of its own, and
@@ -44,7 +44,7 @@ const WRITE = { kind: 'write', path: '/home/project/notes.md', content: 'from th
 
 describe('a new conversation in a chat', () => {
   it("works on the same project as the one before: the chat's workspace, with that one's files", async () => {
-    const harness = await builderAgentHarness({ newWorkspace: memoryWorkspace });
+    const harness = await conversationAgentHarness({ newWorkspace: memoryWorkspace });
     await harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [WRITE] });
 
     const second = await harness.startConversation();
@@ -59,7 +59,7 @@ describe('a new conversation in a chat', () => {
   });
 
   it('closes the one before: it keeps its transcript to read, and refuses to change the project', async () => {
-    const harness = await builderAgentHarness({ newWorkspace: memoryWorkspace });
+    const harness = await conversationAgentHarness({ newWorkspace: memoryWorkspace });
 
     const second = await harness.startConversation();
 
@@ -80,7 +80,7 @@ describe('a new conversation in a chat', () => {
       id: 'deployment-2',
       productionUrl: 'https://app.example.workers.dev',
     }));
-    const harness = await builderAgentHarness({ newWorkspace: memoryWorkspace, publisher: { deploy } });
+    const harness = await conversationAgentHarness({ newWorkspace: memoryWorkspace, publisher: { deploy } });
     const deployment = {
       status: 'succeeded',
       revision: 'b'.repeat(64),
