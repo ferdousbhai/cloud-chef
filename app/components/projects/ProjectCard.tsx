@@ -138,7 +138,8 @@ export function ProjectCard({
               buttonProps={{
                 variant: 'subtle',
                 size: 'xs',
-                title: `More for ${title}`,
+                // By its address when it has one: a copy keeps its name, so two cards can share it.
+                title: `More for ${subtitle ?? title}`,
                 icon: <DotsHorizontalIcon />,
               }}
             >

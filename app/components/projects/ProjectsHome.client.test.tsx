@@ -150,7 +150,7 @@ async function addChoices(): Promise<string[]> {
 
 /** Opens a card's "More" menu and returns its choices. */
 async function moreChoices(title: string): Promise<string[]> {
-  return menuChoices(card(title).querySelector<HTMLButtonElement>(`button[aria-label="More for ${title}"]`));
+  return menuChoices(card(title).querySelector<HTMLButtonElement>('button[aria-label^="More for "]'));
 }
 
 async function menuChoices(trigger: HTMLButtonElement | null): Promise<string[]> {
@@ -439,6 +439,8 @@ describe('ProjectsHome', () => {
     // A public project says so, and its address on CloudChef is its second line.
     expect(card('Docs').textContent).toContain('Public');
     expect(card('Docs').textContent).toContain('acme/docs');
+    // Its menu goes by that address too, since a copy can share its name.
+    expect(card('Docs').querySelector('button[aria-label="More for acme/docs"]')).not.toBeNull();
     expect(card('Storefront').textContent).not.toContain('Public');
   });
 

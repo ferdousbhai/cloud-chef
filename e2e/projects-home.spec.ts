@@ -158,8 +158,10 @@ test('shows a team member the projects shared with them, and Edit only where the
   await expect(handbook.getByRole('button', { name: /Edit/ })).toHaveCount(0);
   await handbook.getByRole('button', { name: 'More for Handbook' }).click();
   await expect(page.getByRole('menuitem', { name: 'Download ZIP' })).toBeVisible();
-  await expect(page.getByRole('menuitem', { name: 'Clone' })).toHaveCount(0);
+  // Cloning only reads it, through CloudChef's own git address, as Download ZIP does.
+  await expect(page.getByRole('menuitem', { name: 'Clone' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Share' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Remove' })).toHaveCount(0);
   await assertClean();
 });
 
