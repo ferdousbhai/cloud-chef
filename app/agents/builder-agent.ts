@@ -310,6 +310,10 @@ const filedApprovalSchema = z.object({
   warning: z.string().nullable(),
 });
 const refusalSchema = z.object({ error: z.string() });
+/** A step whose change still waits for the team's admins. */
+const filedToolPartSchema = z.object({
+  output: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
+});
 const approvalOutcomeSchema = z.object({
   agentName: z.string(),
   toolCallId: z.string(),
@@ -550,6 +554,12 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       await this.hydrateDurableIdentity();
     }
     this.refreshCloudflareExecutionState();
+    // A team admin may have decided a change this conversation filed while CloudChef couldn't reach it.
+    if (this.userId) {
+      this.ctx.waitUntil(
+        this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals')),
+      );
+    }
     if (this.state.upgradeWaiting) {
       // The turn that waited stopped with the instance before it started.
       this.setState({ ...this.state, upgradeWaiting: false });
@@ -745,6 +755,8 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
       readAccountModelSettings(this.env),
     );
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
+    // The model reads what became of any change this conversation filed for the team's admins.
+    await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
     // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
     const requestedTurnContext = parseTurnContext(body.turnContext);
     const siteNote = this.linkedSiteNote();
@@ -2138,6 +2150,23 @@ export class BuilderAgent extends AIChatAgent<Env, BuilderAgentState, BuilderAge
         'Filed for the team’s admins, who approve or reject it on their Approvals page; CloudChef then sends it once. ' +
         'Tell the person a team admin needs to approve it. Its result replaces this one when they decide.',
     };
+  }
+
+  /** Reads back every change this conversation filed for the team's admins that still shows as waiting. */
+  private async settleFiledTeamApprovals(): Promise<void> {
+    const ownerId = this.userId;
+    if (!ownerId) {
+      return;
+    }
+    const waiting = this.messages.flatMap((message) =>
+      message.parts.flatMap((part) => {
+        const filed = filedToolPartSchema.safeParse(part);
+        return filed.success ? [filed.data.output.approvalId] : [];
+      }),
+    );
+    for (const approvalId of waiting) {
+      await this.settleTeamApproval({ approvalId, ownerId });
+    }
   }
 
   /**

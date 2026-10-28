@@ -522,6 +522,29 @@ export function useBuilderAgentChat(args: {
     [builderAgent, sendMessage],
   );
 
+  // A change filed for the team's admins: once one of them decides it while this chat is open, the agent carries on
+  // from the result, as after the person's own approval. Only a decision seen arriving here does that, once.
+  const filedApprovalsRef = useRef(new Set<string>());
+  useEffect(() => {
+    const decided = decidedTeamApprovals(chat.messages, filedApprovalsRef.current);
+    if (decided.length === 0 || chat.status !== 'ready' || chat.isRecovering) {
+      return;
+    }
+    for (const approvalId of decided) {
+      filedApprovalsRef.current.delete(approvalId);
+    }
+    sendMessage({
+      id: `team-approval-decided-${crypto.randomUUID()}`,
+      role: 'user',
+      parts: [
+        {
+          type: 'text',
+          text: 'A team admin decided the Cloudflare change I asked for; its result is in that step. Continue from it.',
+        },
+      ],
+    }).catch((error: Error) => logger.warn('Unable to continue after a team admin decided', error));
+  }, [chat.messages, chat.status, chat.isRecovering, sendMessage]);
+
   const steerMessage = useCallback(
     async (input: BuilderSteeringInput) => {
       const workspaceGate = workspaceGateRef.current;
@@ -676,4 +699,31 @@ async function refreshProjectMetadata(
   } catch {
     // The title stays as it is until the project is next opened.
   }
+}
+
+const filedOutputSchema = z.object({
+  output: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
+});
+const decidedOutputSchema = z.object({
+  output: z.object({ kind: z.literal('cloudflare_request_final_result'), executionId: z.string() }),
+});
+
+/**
+ * Notes each change `messages` show waiting for a team's admins in `filed`, and answers those noted earlier that
+ * now show a result.
+ */
+function decidedTeamApprovals(messages: readonly UIMessage[], filed: Set<string>): string[] {
+  const decided: string[] = [];
+  for (const part of messages.flatMap((message) => message.parts)) {
+    const waiting = filedOutputSchema.safeParse(part);
+    if (waiting.success) {
+      filed.add(waiting.data.output.approvalId);
+      continue;
+    }
+    const result = decidedOutputSchema.safeParse(part);
+    if (result.success && filed.has(result.data.output.executionId)) {
+      decided.push(result.data.output.executionId);
+    }
+  }
+  return decided;
 }
