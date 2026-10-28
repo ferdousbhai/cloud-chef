@@ -7,13 +7,13 @@ A package whose package-level evidence is <not published> remains exact-version 
 This automated artifact supports diligence but does not replace legal review.
 
 Policy reviewed: 2026-08-09
-Production packages: 731
-Inventory SHA-256: f38d780a25ffc145d7489221cfa9a9e338b8b833468d42fc9ad203f04186c89d
+Production packages: 723
+Inventory SHA-256: eae39a8c2c5425829349c8d51f4299eeee32b1a082db9e4a6266c874938f7434
 
 PACKAGE INVENTORY
 =================
 
-@ai-sdk/gateway@4.0.121
+@ai-sdk/gateway@4.0.128
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/gateway"}
@@ -22,7 +22,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529)
 
-@ai-sdk/mcp@2.0.81
+@ai-sdk/mcp@2.0.86
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/mcp"}
@@ -31,7 +31,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529)
 
-@ai-sdk/provider@4.0.31
+@ai-sdk/provider@4.0.34
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/provider"}
@@ -40,7 +40,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529)
 
-@ai-sdk/provider-utils@5.0.65
+@ai-sdk/provider-utils@5.0.70
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/provider-utils"}
@@ -50,7 +50,7 @@ Published license/notice files:
 - src/to-json-schema/zod3-to-json-schema/LICENSE (SHA-256 6dd0d97acd4d13f4608a0f530f0487e0ff20812888bd1803aecfaaa17ff0f849)
 - src/to-json-schema/zod3-to-json-schema/README.md (SHA-256 5f123b645cb66faeec8c0ab6a252722372e58832d41449cd5ce50709203bdf89)
 
-@ai-sdk/react@4.0.152
+@ai-sdk/react@4.0.159
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/react"}
@@ -255,7 +255,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/code-frame@8.0.0
+@babel/code-frame@8.0.6
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-code-frame"}
@@ -273,7 +273,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/compat-data@8.0.0
+@babel/compat-data@8.0.5
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-compat-data"}
@@ -291,7 +291,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/core@8.0.1
+@babel/core@8.0.9
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-core"}
@@ -309,7 +309,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/generator@8.0.0
+@babel/generator@8.0.6
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-generator"}
@@ -336,7 +336,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-compilation-targets@8.0.0
+@babel/helper-compilation-targets@8.0.7
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-compilation-targets"}
@@ -345,7 +345,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-create-class-features-plugin@8.0.1
+@babel/helper-create-class-features-plugin@8.0.7
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-create-class-features-plugin"}
@@ -363,7 +363,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-globals@8.0.0
+@babel/helper-globals@8.0.6
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-globals"}
@@ -372,7 +372,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-member-expression-to-functions@8.0.0
+@babel/helper-member-expression-to-functions@8.0.5
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-member-expression-to-functions"}
@@ -435,7 +435,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-string-parser@7.29.7
+@babel/helper-string-parser@7.29.11
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-string-parser"}
@@ -444,7 +444,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-string-parser@8.0.0
+@babel/helper-string-parser@8.0.8
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-string-parser"}
@@ -462,7 +462,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helper-validator-identifier@8.0.2
+@babel/helper-validator-identifier@8.0.6
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helper-validator-identifier"}
@@ -489,7 +489,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/helpers@7.29.7
+@babel/helpers@7.29.10
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helpers"}
@@ -498,7 +498,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30)
 
-@babel/helpers@8.0.0
+@babel/helpers@8.0.8
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-helpers"}
@@ -507,7 +507,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30)
 
-@babel/parser@7.29.8
+@babel/parser@7.29.11
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-parser"}
@@ -516,7 +516,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652)
 
-@babel/parser@8.0.0
+@babel/parser@8.0.8
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-parser"}
@@ -552,16 +552,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/runtime@7.29.7
-Declared license: MIT
-Author: The Babel Team (https://babel.dev/team)
-Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-runtime"}
-Homepage: https://babel.dev/docs/en/next/babel-runtime
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
-
-@babel/runtime-corejs3@7.29.7
+@babel/runtime-corejs3@7.29.10
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-runtime-corejs3"}
@@ -588,7 +579,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/traverse@7.29.8
+@babel/traverse@7.29.10
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-traverse"}
@@ -597,7 +588,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/traverse@8.0.0
+@babel/traverse@8.0.7
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-traverse"}
@@ -606,7 +597,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/types@7.29.8
+@babel/types@7.29.11
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-types"}
@@ -615,7 +606,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76)
 
-@babel/types@8.0.0
+@babel/types@8.0.8
 Declared license: MIT
 Author: The Babel Team (https://babel.dev/team)
 Repository: {"type":"git","url":"https://github.com/babel/babel.git","directory":"packages/babel-types"}
@@ -692,7 +683,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a)
 
-@codemirror/autocomplete@6.20.3
+@codemirror/autocomplete@6.20.4
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/autocomplete.git"}
@@ -701,7 +692,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/commands@6.10.4
+@codemirror/commands@6.11.1
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/commands.git"}
@@ -728,10 +719,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/lang-html@6.4.11
+@codemirror/lang-html@6.4.12
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
-Repository: {"type":"git","url":"https://github.com/codemirror/lang-html.git"}
+Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/lang-html.git"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -755,7 +746,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/lang-markdown@6.5.1
+@codemirror/lang-markdown@6.5.2
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/lang-markdown.git"}
@@ -800,7 +791,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/language@6.12.4
+@codemirror/language@6.13.1
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/language.git"}
@@ -818,7 +809,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/search@6.7.1
+@codemirror/search@6.7.2
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/search.git"}
@@ -827,7 +818,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/state@6.7.1
+@codemirror/state@6.7.6
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/state.git"}
@@ -836,7 +827,16 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
 
-@codemirror/view@6.43.7
+@codemirror/streamparser@6.0.0
+Declared license: MIT
+Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
+Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/streamparser.git"}
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07)
+
+@codemirror/view@6.43.15
 Declared license: MIT
 Author: {"name":"Marijn Haverbeke","email":"marijn@haverbeke.berlin","url":"http://marijnhaverbeke.nl"}
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/codemirror/view.git"}
@@ -932,52 +932,16 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 6895190430d809c4c57a7582ecc2f99acbc2ea39a5dfad20262a41d5b3e91733)
 
-@jitl/quickjs-ffi-types@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 3c6040aa318612a234cc951609b640c0c63d85ae5a98a9330d3116f1553a79db)
-
-@jitl/quickjs-wasmfile-debug-asyncify@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 446a69ae534aa8612d8b16d3bfc670c5a5050597dca3ce9820441a60d5d04fbb)
-
-@jitl/quickjs-wasmfile-debug-sync@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 446a69ae534aa8612d8b16d3bfc670c5a5050597dca3ce9820441a60d5d04fbb)
-
-@jitl/quickjs-wasmfile-release-asyncify@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 446a69ae534aa8612d8b16d3bfc670c5a5050597dca3ce9820441a60d5d04fbb)
-
-@jitl/quickjs-wasmfile-release-sync@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 446a69ae534aa8612d8b16d3bfc670c5a5050597dca3ce9820441a60d5d04fbb)
-
 @jridgewell/gen-mapping@0.3.13
+Declared license: MIT
+Author: Justin Ridgewell <justin@ridgewell.name>
+Repository: {"type":"git","url":"git+https://github.com/jridgewell/sourcemaps.git","directory":"packages/gen-mapping"}
+Homepage: https://github.com/jridgewell/sourcemaps/tree/main/packages/gen-mapping
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c)
+
+@jridgewell/gen-mapping@0.4.0-beta.0
 Declared license: MIT
 Author: Justin Ridgewell <justin@ridgewell.name>
 Repository: {"type":"git","url":"git+https://github.com/jridgewell/sourcemaps.git","directory":"packages/gen-mapping"}
@@ -1004,7 +968,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b8778b155bfde5a28b023a558753c0fa058a52bb9de35c343c250be1bbcdedab)
 
-@jridgewell/sourcemap-codec@1.5.5
+@jridgewell/sourcemap-codec@1.6.0
 Declared license: MIT
 Author: Justin Ridgewell <justin@ridgewell.name>
 Repository: {"type":"git","url":"git+https://github.com/jridgewell/sourcemaps.git","directory":"packages/sourcemap-codec"}
@@ -1201,10 +1165,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 5669a5ce7ad1fd1fc06cd4a436008d27866523969a8b39023d0cb9bb73c35093)
 
-@lezer/common@1.5.2
+@lezer/common@1.5.4
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
-Repository: {"type":"git","url":"https://github.com/lezer-parser/common.git"}
+Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/lezer/common.git"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -1219,7 +1183,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1)
 
-@lezer/css@1.3.4
+@lezer/css@1.3.9
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/lezer/css.git"}
@@ -1228,10 +1192,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
 
-@lezer/highlight@1.2.3
+@lezer/highlight@1.2.5
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
-Repository: {"type":"git","url":"https://github.com/lezer-parser/highlight.git"}
+Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/lezer/highlight.git"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -1246,10 +1210,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
 
-@lezer/javascript@1.5.4
+@lezer/javascript@1.5.6
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
-Repository: {"type":"git","url":"https://github.com/lezer-parser/javascript.git"}
+Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/lezer/javascript.git"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -1264,7 +1228,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7e744ae18ef84389d576469a5781172b0d50b7981111109f6da7cbc6b4188288)
 
-@lezer/lr@1.4.10
+@lezer/lr@1.4.11
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/lezer/lr.git"}
@@ -1273,7 +1237,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
 
-@lezer/markdown@1.7.2
+@lezer/markdown@1.8.1
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/lezer/markdown.git"}
@@ -1300,7 +1264,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba)
 
-@marijn/find-cluster-break@1.0.3
+@marijn/find-cluster-break@1.0.4
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
 Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/marijn/find-cluster-break.git"}
@@ -1372,7 +1336,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 181bc2685f0cea9d1beb28352420e3a7fb382b38895d2b430ed1b3bc39572af6)
 
-@noble/hashes@2.2.0
+@noble/hashes@2.4.0
 Declared license: MIT
 Author: Paul Miller (https://paulmillr.com)
 Repository: {"type":"git","url":"git+https://github.com/paulmillr/noble-hashes.git"}
@@ -1425,7 +1389,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 05affe7628defe07716fc2159a1f5e137b51381de0f33b5ae77f36108736a628)
 
-@oxc-project/types@0.154.0
+@oxc-project/types@0.155.0
 Declared license: MIT
 Author: Boshen and oxc contributors
 Repository: {"type":"git","url":"git+https://github.com/oxc-project/oxc.git","directory":"npm/oxc-types"}
@@ -1515,7 +1479,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a67b34a24a5daddcce46aea68c5004e4442bbfb63690329fa607bf4de4269794)
 
-@radix-ui/primitive@1.1.7
+@radix-ui/primitive@1.2.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/core/primitive"}
@@ -1524,7 +1488,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-arrow@1.1.15
+@radix-ui/react-arrow@1.1.17
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/arrow"}
@@ -1533,7 +1497,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-collection@1.1.15
+@radix-ui/react-collection@1.2.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/collection"}
@@ -1551,7 +1515,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-context@1.2.2
+@radix-ui/react-context@1.3.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/context"}
@@ -1560,7 +1524,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-context-menu@2.3.7
+@radix-ui/react-context-menu@2.4.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/context-menu"}
@@ -1569,7 +1533,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-dialog@1.1.23
+@radix-ui/react-dialog@1.3.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/dialog"}
@@ -1578,7 +1542,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-direction@1.1.4
+@radix-ui/react-direction@1.2.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/direction"}
@@ -1587,7 +1551,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-dismissable-layer@1.1.19
+@radix-ui/react-dismissable-layer@1.2.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/dismissable-layer"}
@@ -1596,7 +1560,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-dropdown-menu@2.1.24
+@radix-ui/react-dropdown-menu@2.2.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/dropdown-menu"}
@@ -1605,7 +1569,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-focus-guards@1.1.6
+@radix-ui/react-focus-guards@1.2.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/focus-guards"}
@@ -1614,7 +1578,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-focus-scope@1.1.16
+@radix-ui/react-focus-scope@1.3.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/focus-scope"}
@@ -1641,7 +1605,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-menu@2.1.24
+@radix-ui/react-menu@2.2.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/menu"}
@@ -1650,7 +1614,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-popper@1.3.7
+@radix-ui/react-popper@1.4.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/popper"}
@@ -1659,7 +1623,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-portal@1.1.17
+@radix-ui/react-portal@1.2.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/portal"}
@@ -1668,7 +1632,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-presence@1.1.10
+@radix-ui/react-presence@1.1.11
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/presence"}
@@ -1677,7 +1641,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-primitive@2.1.10
+@radix-ui/react-primitive@2.2.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/primitive"}
@@ -1686,7 +1650,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-roving-focus@1.1.19
+@radix-ui/react-roving-focus@1.2.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/roving-focus"}
@@ -1695,7 +1659,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-slot@1.3.3
+@radix-ui/react-slot@1.5.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/slot"}
@@ -1704,7 +1668,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-use-callback-ref@1.1.4
+@radix-ui/react-use-callback-ref@1.1.5
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/use-callback-ref"}
@@ -1713,7 +1677,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-use-controllable-state@1.2.6
+@radix-ui/react-use-controllable-state@1.3.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/use-controllable-state"}
@@ -1758,7 +1722,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@radix-ui/react-use-size@1.1.4
+@radix-ui/react-use-size@1.1.5
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/radix-ui/primitives.git","directory":"packages/react/use-size"}
@@ -1776,7 +1740,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138)
 
-@rolldown/plugin-babel@0.2.3
+@rolldown/plugin-babel@0.2.4
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/rolldown/plugins.git","directory":"packages/babel"}
@@ -1794,7 +1758,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 e1919b3b98b8bf6c1b99fcc60a0ed46027c97ac947432e1278446c9606f50161)
 
-@shikijs/core@4.4.1
+@shikijs/core@4.5.0
 Declared license: MIT
 Author: Pine Wu <octref@gmail.com>; Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/core"}
@@ -1803,7 +1767,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/engine-javascript@4.4.1
+@shikijs/engine-javascript@4.5.0
 Declared license: MIT
 Author: Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/engine-javascript"}
@@ -1812,7 +1776,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/engine-oniguruma@4.4.1
+@shikijs/engine-oniguruma@4.5.0
 Declared license: MIT
 Author: Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/engine-oniguruma"}
@@ -1821,7 +1785,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/langs@4.4.1
+@shikijs/langs@4.5.0
 Declared license: MIT
 Author: Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/langs"}
@@ -1830,7 +1794,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/primitive@4.4.1
+@shikijs/primitive@4.5.0
 Declared license: MIT
 Author: Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/primitive"}
@@ -1839,7 +1803,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/themes@4.4.1
+@shikijs/themes@4.5.0
 Declared license: MIT
 Author: Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/themes"}
@@ -1848,7 +1812,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/types@4.4.1
+@shikijs/types@4.5.0
 Declared license: MIT
 Author: Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/types"}
@@ -1857,7 +1821,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee)
 
-@shikijs/vscode-textmate@10.0.2
+@shikijs/vscode-textmate@10.1.0
 Declared license: MIT
 Author: {"name":"Microsoft Corporation"}
 Repository: {"type":"git","url":"https://github.com/shikijs/vscode-textmate"}
@@ -1865,15 +1829,6 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 b5cb7ff7859e7d282d98fc43ab081b0dda5dc659dc3385cf65740c759a7e6a6c)
-
-@smithy/core@3.35.1
-Declared license: Apache-2.0
-Author: {"name":"AWS Smithy Team","email":"","url":"https://smithy.io"}
-Repository: {"type":"git","url":"https://github.com/smithy-lang/smithy-typescript.git","directory":"packages/core"}
-Homepage: https://github.com/smithy-lang/smithy-typescript/tree/main/packages/core
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 07364a5f7d0177a59a05a0002187431f8f899320983c0dc049d72df015e8064c)
 
 @smithy/core@3.37.0
 Declared license: Apache-2.0
@@ -1992,7 +1947,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 9fe9970f409e5b1d2067c0107ac0201761d5fddc53e9b20b66619fb0d2b4122f)
 
-@tanstack/query-core@5.101.4
+@tanstack/query-core@5.105.0
 Declared license: MIT
 Author: tannerlinsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/query.git","directory":"packages/query-core"}
@@ -2019,7 +1974,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 dd5fd3a2e8ca256521b80e46d7fb0aa953c842ef1420fb31f4b1f08ae31d82e7)
 
-@tanstack/react-query@5.101.4
+@tanstack/react-query@5.105.0
 Declared license: MIT
 Author: tannerlinsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/query.git","directory":"packages/react-query"}
@@ -2028,7 +1983,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-router@1.170.45
+@tanstack/react-router@1.170.46
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-router"}
@@ -2037,7 +1992,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start@1.169.3
+@tanstack/react-start@1.169.4
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start"}
@@ -2046,7 +2001,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start-client@1.168.43
+@tanstack/react-start-client@1.168.44
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start-client"}
@@ -2055,7 +2010,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start-rsc@0.1.64
+@tanstack/react-start-rsc@0.1.65
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start-rsc"}
@@ -2064,7 +2019,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/react-start-server@1.167.51
+@tanstack/react-start-server@1.167.52
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/react-start-server"}
@@ -2082,7 +2037,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 cb4a7917af22bd56340e877f10a5c5aa4fded7af2459162630ff7fcb48bb45c7)
 
-@tanstack/router-core@1.171.38
+@tanstack/router-core@1.171.39
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-core"}
@@ -2091,7 +2046,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/router-generator@1.167.45
+@tanstack/router-generator@1.167.46
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-generator"}
@@ -2100,7 +2055,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/router-plugin@1.168.47
+@tanstack/router-plugin@1.168.48
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/router-plugin"}
@@ -2118,7 +2073,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-client-core@1.170.38
+@tanstack/start-client-core@1.170.39
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-client-core"}
@@ -2136,7 +2091,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-plugin-core@1.171.54
+@tanstack/start-plugin-core@1.171.55
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-plugin-core"}
@@ -2145,7 +2100,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-server-core@1.169.44
+@tanstack/start-server-core@1.169.45
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-server-core"}
@@ -2154,7 +2109,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7)
 
-@tanstack/start-storage-context@1.167.40
+@tanstack/start-storage-context@1.167.41
 Declared license: MIT
 Author: Tanner Linsley
 Repository: {"type":"git","url":"git+https://github.com/TanStack/router.git","directory":"packages/start-storage-context"}
@@ -2235,15 +2190,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
 
-@types/hast@3.0.4
-Declared license: MIT
-Author: <not published>
-Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/hast"}
-Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/hast
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
-
 @types/hast@3.0.5
 Declared license: MIT
 Author: <not published>
@@ -2289,15 +2235,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
 
-@types/node@26.1.2
-Declared license: MIT
-Author: <not published>
-Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/node"}
-Homepage: https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/node
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
-
 @types/node@26.6.5
 Declared license: MIT
 Author: <not published>
@@ -2307,7 +2244,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
 
-@types/react@19.2.18
+@types/react@19.3.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/react"}
@@ -2316,7 +2253,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
 
-@types/react-dom@19.2.4
+@types/react-dom@19.3.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/DefinitelyTyped/DefinitelyTyped.git","directory":"types/react-dom"}
@@ -2352,7 +2289,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383)
 
-@uiw/codemirror-theme-vscode@4.25.11
+@uiw/codemirror-theme-vscode@4.25.12
 Declared license: MIT
 Author: kenny wong <wowohoo@qq.com>
 Repository: {"type":"git","url":"https://github.com/uiwjs/react-codemirror.git"}
@@ -2360,7 +2297,7 @@ Homepage: https://uiwjs.github.io/react-codemirror/#/theme/data/vscode
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@uiw/codemirror-themes@4.25.11
+@uiw/codemirror-themes@4.25.12
 Declared license: MIT
 Author: kenny wong <wowohoo@qq.com>
 Repository: {"type":"git","url":"https://github.com/uiwjs/react-codemirror.git"}
@@ -2368,7 +2305,7 @@ Homepage: https://uiwjs.github.io/react-codemirror/#/theme/doc
 Package-level license evidence: <not published>
 Published license/notice files: <not published>
 
-@ungap/structured-clone@1.3.2
+@ungap/structured-clone@1.4.0
 Declared license: ISC
 Author: Andrea Giammarchi
 Repository: {"type":"git","url":"git+https://github.com/ungap/structured-clone.git"}
@@ -2431,7 +2368,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 71f83c4c0621102a56d9853812777b85751bce7e9726f686f5b056c1f8a4b0e6)
 
-acorn@8.17.0
+acorn@8.19.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/acornjs/acorn.git"}
@@ -2467,7 +2404,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b33ae783f02478cd31787cd07cbf61cd3a6fbee1a50b2baf832b8f0fb7c600f7)
 
-ai@7.0.148
+ai@7.0.155
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/vercel/ai","directory":"packages/ai"}
@@ -2494,7 +2431,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 9df3bb69929a3b650ed73b3bfa1756725aaff0ac296461605753547004eafeaf)
 
-ansis@4.3.1
+ansis@4.4.0
 Declared license: ISC
 Author: webdiscus
 Repository: webdiscus/ansis
@@ -2575,15 +2512,6 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf)
 
-balanced-match@4.0.4
-Declared license: MIT
-Author: <not published>
-Repository: {"type":"git","url":"git://github.com/juliangruber/balanced-match.git"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE.md (SHA-256 d408f38ffa3355c5faec517153295338892eb0f1ea43f57874bb23c6075979b5)
-
 base64-js@1.5.1
 Declared license: MIT
 Author: T. Jameson Little <t.jameson.little@gmail.com>
@@ -2593,7 +2521,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 5b37224c080cdcc97c871ada971c224e9926370fe74f11b539aa1cf9f3b1aca1)
 
-baseline-browser-mapping@2.11.20
+baseline-browser-mapping@2.11.34
 Declared license: Apache-2.0
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/web-platform-dx/baseline-browser-mapping.git"}
@@ -2637,15 +2565,6 @@ Homepage: https://github.com/bowser-js/bowser
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 dfde54fedc270c2a305d9a9f993d93f706d34624455a2fd2d2a05ca34d8ae8c3)
-
-brace-expansion@5.0.12
-Declared license: MIT
-Author: <not published>
-Repository: {"type":"git","url":"git+https://github.com/juliangruber/brace-expansion.git"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 9c63a23124d68cd30cd316a94a1a0bca34f032786df6df69fc4b5f136bac8d2e)
 
 browserslist@4.28.8
 Declared license: MIT
@@ -2728,7 +2647,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292)
 
-caniuse-lite@1.0.30001810
+caniuse-lite@1.0.30001819
 Declared license: CC-BY-4.0
 Author: {"name":"Ben Briggs","email":"beneb.info@gmail.com","url":"http://beneb.info"}
 Repository: browserslist/caniuse-lite
@@ -2916,7 +2835,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0dd4e47333485760cf8c265db5a5e24ae8d7401064c6f2e19793ee81a5bef42f)
 
-core-js-pure@3.49.0
+core-js-pure@3.51.0
 Declared license: MIT
 Author: {"name":"Denis Pushkarev","email":"zloirock@zloirock.ru","url":"http://zloirock.ru"}
 Repository: {"type":"git","url":"git+https://github.com/zloirock/core-js.git","directory":"packages/core-js-pure"}
@@ -3149,7 +3068,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 965ef284f7f4c176842ec2e87fa13e79feed777d56d7a21a5a3b38f1bb6dc288)
 
-electron-to-chromium@1.5.417
+electron-to-chromium@1.5.467
 Declared license: ISC
 Author: Kilian Valkhof
 Repository: {"type":"git","url":"git+https://github.com/Kilian/electron-to-chromium.git"}
@@ -3158,7 +3077,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 25ba5c59dad3e0dd8f9540beaa0f0a86a10e3aec35af5fdc8e88c5f6a5c0d8c6)
 
-empathic@2.0.1
+empathic@2.1.0
 Declared license: MIT
 Author: {"name":"Luke Edwards","email":"luke.edwards05@gmail.com","url":"https://lukeed.com"}
 Repository: lukeed/empathic
@@ -3221,7 +3140,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 5e325595b4ea8cfec3802f545b1def5d7b73e4a5b8e9ba63e32a320f67732292)
 
-esbuild@0.28.1
+esbuild@0.28.2
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/evanw/esbuild.git"}
@@ -3311,7 +3230,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 f683a72ffe6a9675b5507af22fe0f448d8c8de3da1e14f139d370a7e6a54a23e)
 
-eventsource-parser@3.1.0
+eventsource-parser@3.1.1
 Declared license: MIT
 Author: Espen Hovlandsdal <espen@hovlandsdal.com>
 Repository: {"type":"git","url":"git+ssh://git@github.com/rexxars/eventsource-parser.git"}
@@ -3347,10 +3266,10 @@ Package-level license evidence: published
 Published license/notice files:
 - license.md (SHA-256 90021adfb24b0a7af5754cebc6085e2560555f74d29a6d44a7f9a32125f8b348)
 
-exsolve@1.1.1
+exsolve@1.2.0
 Declared license: MIT
 Author: <not published>
-Repository: unjs/exsolve
+Repository: {"type":"git","url":"unjs/exsolve"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -3463,6 +3382,15 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 47dcccf62bf40469d23849b0b1dc8df9fc91bce219b880c638d4dc4596e6b5cf)
+
+flru@1.0.2
+Declared license: MIT
+Author: {"name":"Luke Edwards","email":"luke.edwards05@gmail.com","url":"lukeed.com"}
+Repository: lukeed/flru
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- license (SHA-256 9a9edad7baae52622bddf3c15b2ef8a33d2c89f2d25408ad13e8a7481c6b0c97)
 
 for-each@0.3.5
 Declared license: MIT
@@ -3642,6 +3570,15 @@ Homepage: https://github.com/ljharb/gopd#readme
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d90bf0a089da4cf43d644ed240a0b3825dcdb705e64e38371d56995a4cc9e4c5)
+
+guarded-fetch@0.1.3
+Declared license: Apache-2.0
+Author: Vercel
+Repository: {"url":"git+https://github.com/vercel-labs/guarded-fetch.git"}
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 b070d77bfb2c52a1dd6996de0ce5f64c49a0ca55c889b163a963ddf5cb001ee2)
 
 has-flag@4.0.0
 Declared license: MIT
@@ -3868,10 +3805,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE-MIT (SHA-256 9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0)
 
-ignore@7.0.6
+ignore@7.0.14
 Declared license: MIT
 Author: kael
-Repository: {"type":"git","url":"git@github.com:kaelzhang/node-ignore.git"}
+Repository: {"type":"git","url":"https://github.com/kaelzhang/node-ignore.git"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -3950,6 +3887,15 @@ Published license/notice files:
 - LICENSE (SHA-256 f8d791359a50cbcac82c29cb7b0b1b889b28be76fdd35b8ee33f0f7c8704702a)
 
 ipaddr.js@1.9.1
+Declared license: MIT
+Author: whitequark <whitequark@whitequark.org>
+Repository: git://github.com/whitequark/ipaddr.js
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 62568a2d1337b77171ecca9db10579163446de1ba6151678e81f06cdc199971b)
+
+ipaddr.js@2.2.0
 Declared license: MIT
 Author: whitequark <whitequark@whitequark.org>
 Repository: git://github.com/whitequark/ipaddr.js
@@ -4057,7 +4003,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 68f12f6e2c33688699249c01d8f9623c534da20aa71989c57b061b7bc1676d14)
 
-isbot@5.2.1
+isbot@5.2.2
 Declared license: Unlicense
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/omrilotan/isbot.git"}
@@ -4075,7 +4021,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b)
 
-isomorphic-git@1.44.3
+isomorphic-git@1.44.7
 Declared license: MIT
 Author: William Hilton <wmhilton@gmail.com>
 Repository: {"type":"git","url":"https://github.com/isomorphic-git/isomorphic-git.git"}
@@ -4111,7 +4057,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 8078b0829d6c3e9ecde2f003e1966e4cad3efc6e7a640efbab0313cc166b1af1)
 
-js-base64@3.9.2
+js-base64@3.9.5
 Declared license: BSD-3-Clause
 Author: Dan Kogai
 Repository: git+https://github.com/dankogai/js-base64.git
@@ -4210,7 +4156,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 53e59feb13058722d977c699eb0407c7bce2f93c949b681bbd2ff31698535927)
 
-jszip@3.10.1
+jszip@3.10.2
 Declared license: (MIT OR GPL-3.0-or-later)
 Author: Stuart Knightley <stuart@stuartk.com>
 Repository: {"type":"git","url":"https://github.com/Stuk/jszip.git"}
@@ -4220,7 +4166,7 @@ Published license/notice files:
 - lib/license_header.js (SHA-256 27873abeec2df3693480a8d1b8fe17dd61bee843d1b39c1c9cfab57ffe93099e)
 - LICENSE.markdown (SHA-256 566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4)
 
-just-bash@3.2.0
+just-bash@3.6.0
 Declared license: Apache-2.0
 Author: Malte and Claude
 Repository: {"type":"git","url":"git+https://github.com/vercel-labs/just-bash.git"}
@@ -4283,15 +4229,6 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 9f084fac69d8cf1e6ce983ba5a3499c7695ed74a26ec625c38f0fd19fddd5e10)
 
-lru-cache@11.5.1
-Declared license: BlueOak-1.0.0
-Author: Isaac Z. Schlueter <i@izs.me>
-Repository: {"type":"git","url":"git+ssh://git@github.com/isaacs/node-lru-cache.git"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE.md (SHA-256 8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004)
-
 lru-cache@5.1.1
 Declared license: ISC
 Author: Isaac Z. Schlueter <i@izs.me>
@@ -4328,7 +4265,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2b770a704c15de238c3f622b01b0044ddd60b49ee30608ea6991ebf19db7a7a1)
 
-mdast-util-find-and-replace@3.0.2
+mdast-util-find-and-replace@3.0.4
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: syntax-tree/mdast-util-find-and-replace
@@ -4337,7 +4274,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-mdast-util-from-markdown@2.0.3
+mdast-util-from-markdown@2.1.0
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: syntax-tree/mdast-util-from-markdown
@@ -4373,14 +4310,14 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-mdast-util-gfm-strikethrough@2.0.0
+mdast-util-gfm-strikethrough@2.0.1
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: syntax-tree/mdast-util-gfm-strikethrough
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
-- license (SHA-256 536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61)
+- license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
 mdast-util-gfm-table@2.0.0
 Declared license: MIT
@@ -4445,7 +4382,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d)
 
-mdast-util-to-markdown@2.1.2
+mdast-util-to-markdown@2.2.1
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: syntax-tree/mdast-util-to-markdown
@@ -4490,7 +4427,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 70b126abc64d7ea06e1243349073935caa16fa47a41a571773ccf0b350b1d574)
 
-micromark@4.0.2
+micromark@4.0.3
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark
@@ -4499,7 +4436,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-micromark-core-commonmark@2.0.3
+micromark-core-commonmark@2.0.4
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-core-commonmark
@@ -4544,7 +4481,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61)
 
-micromark-extension-gfm-table@2.1.1
+micromark-extension-gfm-table@2.1.2
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: micromark/micromark-extension-gfm-table
@@ -4589,7 +4526,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-micromark-factory-space@2.0.1
+micromark-factory-space@2.1.0
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-factory-space
@@ -4670,6 +4607,15 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
+micromark-util-edit-map@1.0.0
+Declared license: MIT
+Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
+Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-util-edit-map
+Homepage: <not published>
+Package-level license evidence: published
+Published license/notice files:
+- license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
+
 micromark-util-encode@2.0.1
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
@@ -4733,7 +4679,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-micromark-util-types@2.0.2
+micromark-util-types@2.0.3
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: https://github.com/micromark/micromark/tree/main/packages/micromark-util-types
@@ -4795,15 +4741,6 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3)
-
-minimatch@10.2.5
-Declared license: BlueOak-1.0.0
-Author: Isaac Z. Schlueter <i@izs.me> (http://blog.izs.me)
-Repository: {"type":"git","url":"git@github.com:isaacs/minimatch"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE.md (SHA-256 2c7c5d22ed5a8ee968c64757710979afcd77438c48b4a265b94e615babd8a901)
 
 minimist@1.2.8
 Declared license: MIT
@@ -4966,7 +4903,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 f97bc4bb9b7ae8a653941073678b5c7775e8de44a01c3bcc21e7cdc148b90e61)
 
-node-releases@2.0.54
+node-releases@2.0.60
 Declared license: MIT
 Author: Sergey Rubanov <chi187@gmail.com>
 Repository: {"type":"git","url":"https://github.com/chicoxyzzy/node-releases.git"}
@@ -4993,7 +4930,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 bd40cc437e28a3ad7bef2ad34e6b72e757b182e67bda1acadbab4ef0476f8232)
 
-obug@2.1.3
+obug@3.0.0
 Declared license: MIT
 Author: Kevin Deng <sxzz@sxzz.moe>
 Repository: {"type":"git","url":"git+https://github.com/sxzz/obug.git"}
@@ -5068,7 +5005,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 a04665b3b2de56c66730c1f720f528175739e4104f79073614aa611da1e85539)
 
-papaparse@5.5.4
+papaparse@5.7.0
 Declared license: MIT
 Author: {"name":"Matthew Holt","url":"https://twitter.com/mholt6"}
 Repository: {"type":"git","url":"git+https://github.com/mholt/PapaParse.git"}
@@ -5176,15 +5113,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 6582629e2979466878f6014313dcc2f3756c9616148682227ce3063dde310750)
 
-picomatch@4.0.5
-Declared license: MIT
-Author: Jon Schlinkert (https://github.com/jonschlinkert)
-Repository: micromatch/picomatch
-Homepage: https://github.com/micromatch/picomatch
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9)
-
 picomatch@4.0.7
 Declared license: MIT
 Author: Jon Schlinkert (https://github.com/jonschlinkert)
@@ -5230,7 +5158,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.txt (SHA-256 831ad54932cb62a1fe0827ae7218a213875f1ddbd629c6432860928ba1c5234d)
 
-postcss@8.5.31
+postcss@8.5.32
 Declared license: MIT
 Author: Andrey Sitnik <andrey@sitnik.es>
 Repository: postcss/postcss
@@ -5248,7 +5176,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 0aa9add6a9158efad3e6649e3affd607c7e2629f6677af19f9988c8fbb0757b0)
 
-prettier@3.9.6
+prettier@3.9.10
 Declared license: MIT
 Author: James Long
 Repository: prettier/prettier
@@ -5329,24 +5257,6 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.md (SHA-256 e7dc37bf662d7f786efcb46c545615e70c1daf458a38385521c63cf6607cdfe1)
 
-quickjs-emscripten@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 3c6040aa318612a234cc951609b640c0c63d85ae5a98a9330d3116f1553a79db)
-
-quickjs-emscripten-core@0.32.0
-Declared license: MIT
-Author: {"name":"Jake Teton-Landis","url":"https://jake.tl"}
-Repository: {"type":"git","url":"https://github.com/justjake/quickjs-emscripten"}
-Homepage: <not published>
-Package-level license evidence: published
-Published license/notice files:
-- LICENSE (SHA-256 3c6040aa318612a234cc951609b640c0c63d85ae5a98a9330d3116f1553a79db)
-
 range-parser@1.3.0
 Declared license: MIT
 Author: TJ Holowaychuk <tj@vision-media.ca> (http://tjholowaychuk.com)
@@ -5385,7 +5295,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 46b087b030414ec0af1adfd5940c72eaf67d2610bb8f71269b841c7601936b83)
 
-react@19.2.8
+react@19.3.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/react/react.git","directory":"packages/react"}
@@ -5394,7 +5304,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93)
 
-react-dom@19.2.8
+react-dom@19.3.1
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"https://github.com/react/react.git","directory":"packages/react-dom"}
@@ -5465,7 +5375,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54)
 
-readdirp@5.0.0
+readdirp@5.1.1
 Declared license: MIT
 Author: Thorsten Lorenz <thlorenz@gmx.de> (thlorenz.com)
 Repository: {"type":"git","url":"https://github.com/paulmillr/readdirp.git"}
@@ -5573,7 +5483,7 @@ Package-level license evidence: published
 Published license/notice files:
 - License (SHA-256 01ad164273e8e095abc9dbd1c21e194594a671af7d528cb43ee7b4c903ba7da3)
 
-rolldown@1.2.14
+rolldown@1.2.15
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/rolldown/rolldown.git","directory":"packages/rolldown"}
@@ -5599,6 +5509,15 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 d0bca4e517157b7a6120c085f5fe43a35b90c095e3bbeb9e67f220c608506a16)
+
+run@2.1.3
+Declared license: Apache-2.0
+Author: <not published>
+Repository: {"type":"git","url":"git+https://github.com/vercel-labs/run.git","directory":"packages/run"}
+Homepage: https://github.com/vercel-labs/run/tree/main/packages/run#readme
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 4bd6464daafb3cc689d914b91952313b69be04138e83c3cfc47a486835c06e83)
 
 rxjs@7.8.2
 Declared license: Apache-2.0
@@ -5645,10 +5564,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 8a39a167fa22310375db891db0898dcec23f180fe03bf022f517f9034cee9551)
 
-scheduler@0.27.0
+scheduler@0.28.0
 Declared license: MIT
 Author: <not published>
-Repository: {"type":"git","url":"https://github.com/facebook/react.git","directory":"packages/scheduler"}
+Repository: {"type":"git","url":"https://github.com/react/react.git","directory":"packages/scheduler"}
 Homepage: https://react.dev/
 Package-level license evidence: published
 Published license/notice files:
@@ -5690,20 +5609,20 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 25a328069fe771f8ed5b6f983ed4b0e6c84b3312ac0f69b28c3d52dc277962c9)
 
-seroval@1.6.11
+seroval@1.7.2
 Declared license: MIT
 Author: Alexis Munsayac
 Repository: {"url":"https://github.com/lxsmnsyc/seroval.git","type":"git"}
-Homepage: https://github.com/lxsmnsyc/seroval/tree/main/packages/seroval
+Homepage: https://seroval.vercel.app
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2bd8a2c61751fc47dcd214f864b6fcdbcb518995fbf497c81a06c3bfe8d1d9d4)
 
-seroval-plugins@1.6.11
+seroval-plugins@1.7.2
 Declared license: MIT
 Author: Alexis Munsayac
 Repository: {"url":"https://github.com/lxsmnsyc/seroval.git","type":"git"}
-Homepage: https://github.com/lxsmnsyc/seroval/tree/main/packages/plugins
+Homepage: https://seroval.vercel.app/docs/using-plugins
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2bd8a2c61751fc47dcd214f864b6fcdbcb518995fbf497c81a06c3bfe8d1d9d4)
@@ -5771,7 +5690,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0)
 
-shiki@4.4.1
+shiki@4.5.0
 Declared license: MIT
 Author: Pine Wu <octref@gmail.com>; Anthony Fu <anthonyfu117@hotmail.com>
 Repository: {"type":"git","url":"git+https://github.com/shikijs/shiki.git","directory":"packages/shiki"}
@@ -5843,7 +5762,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 fa5659948374d4f555594f47f6da073b40dc503e921aeeece30df4362b3051a5)
 
-sonner@2.0.7
+sonner@2.0.8
 Declared license: MIT
 Author: Emil Kowalski <e@emilkowal.ski>
 Repository: {"type":"git","url":"git+https://github.com/emilkowalski/sonner.git"}
@@ -5906,7 +5825,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 60a3f6e4d7b29b4321359e683b36cf198d24f58e24582070f56e6fa89d5ee2be)
 
-srvx@1.0.6
+srvx@1.0.8
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"h3js/srvx"}
@@ -5986,11 +5905,11 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE.txt (SHA-256 c77d564d48f13e7ece47d5dcc57102810744828d5f5af5826808a0320de3bb76)
 
-style-mod@4.1.3
+style-mod@4.1.4
 Declared license: MIT
 Author: Marijn Haverbeke <marijn@haverbeke.berlin>
-Repository: {"type":"git","url":"git+https://github.com/marijnh/style-mod.git"}
-Homepage: <not published>
+Repository: {"type":"git","url":"git+https://code.haverbeke.berlin/marijn/style-mod.git"}
+Homepage: https://code.haverbeke.berlin/marijn/style-mod
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1)
@@ -6022,7 +5941,7 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3)
 
-swr@2.4.2
+swr@2.5.1
 Declared license: MIT
 Author: <not published>
 Repository: github:vercel/swr
@@ -6211,6 +6130,15 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 b41d08bc3624d8c436fc80237d73ebb361985a67f4504bbcd703e5ca2b27254c)
 
+typescript@5.9.3
+Declared license: Apache-2.0
+Author: Microsoft Corp.
+Repository: {"type":"git","url":"https://github.com/microsoft/TypeScript.git"}
+Homepage: https://www.typescriptlang.org/
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE.txt (SHA-256 a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47)
+
 typescript@6.0.3
 Declared license: Apache-2.0
 Author: Microsoft Corp.
@@ -6246,15 +6174,6 @@ Homepage: https://undici.nodejs.org
 Package-level license evidence: published
 Published license/notice files:
 - lib/web/fetch/LICENSE (SHA-256 a21d6c8d3fc631198b97e57584697f7f9c37805c71c6cf9a12e4442b40394b88)
-- LICENSE (SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27)
-
-undici-types@8.3.0
-Declared license: MIT
-Author: <not published>
-Repository: {"type":"git","url":"git+https://github.com/nodejs/undici.git"}
-Homepage: https://undici.nodejs.org
-Package-level license evidence: published
-Published license/notice files:
 - LICENSE (SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27)
 
 undici-types@8.9.0
@@ -6302,23 +6221,23 @@ Package-level license evidence: published
 Published license/notice files:
 - license (SHA-256 ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d)
 
-unist-util-visit@5.1.0
+unist-util-visit@5.2.0
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: syntax-tree/unist-util-visit
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
-- license (SHA-256 63cb98b3f6abfb3c3592c16f88253c1bdc834087bf52671e8ce5609e4eb693cf)
+- license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
-unist-util-visit-parents@6.0.2
+unist-util-visit-parents@6.1.0
 Declared license: MIT
 Author: Titus Wormer <tituswormer@gmail.com> (https://wooorm.com)
 Repository: syntax-tree/unist-util-visit-parents
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
-- license (SHA-256 ca4662cb5d1b738fbe5350c0d5485ba11773b4b7208974082ae6e129a52d631d)
+- license (SHA-256 dd1081884a92952802f4803110a6bb543acea9a814c786d58605b4c1219b5ebb)
 
 unpipe@1.0.0
 Declared license: MIT
@@ -6329,7 +6248,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 1a526fbe8d8577f5a4b1c2821842b55b7c0e18862531c62ae4ce69c9b19b74b6)
 
-unplugin@3.3.0
+unplugin@3.7.0
 Declared license: MIT
 Author: <not published>
 Repository: {"type":"git","url":"git+https://github.com/unjs/unplugin.git"}
@@ -6338,7 +6257,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 2ef2cbeeb84d5e7a92d208426ef4f841b5447ae0a9e661ffb0983e8985a9f469)
 
-update-browserslist-db@1.3.2
+update-browserslist-db@1.3.4
 Declared license: MIT
 Author: Andrey Sitnik <andrey@sitnik.es>
 Repository: browserslist/update-db
@@ -6365,10 +6284,10 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 30f0cfddf483d1128e3610205020f2041a6c5e837aa999e0aa82e5576187d4a9)
 
-use-sync-external-store@1.6.0
+use-sync-external-store@1.7.0
 Declared license: MIT
 Author: <not published>
-Repository: {"type":"git","url":"https://github.com/facebook/react.git","directory":"packages/use-sync-external-store"}
+Repository: {"type":"git","url":"https://github.com/react/react.git","directory":"packages/use-sync-external-store"}
 Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
@@ -6399,6 +6318,15 @@ Homepage: <not published>
 Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 bd47ce7b88c7759630d1e2b9fcfa170a0f1fde522be09e13fb1581a79d090400)
+
+verkit@0.5.0
+Declared license: MIT
+Author: Kevin Deng <sxzz@sxzz.moe>
+Repository: {"type":"git","url":"git+https://github.com/sxzz/verkit.git"}
+Homepage: https://github.com/sxzz/verkit#readme
+Package-level license evidence: published
+Published license/notice files:
+- LICENSE (SHA-256 9bdd8f6bcee5d0e8ae77dc278122ee2a9c87395490fc1a2c6b132ad63be79c71)
 
 vfile@6.0.3
 Declared license: MIT
@@ -6490,7 +6418,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b)
 
-which-typed-array@1.1.22
+which-typed-array@1.1.24
 Declared license: MIT
 Author: {"name":"Jordan Harband","email":"ljharb@gmail.com","url":"http://ljharb.codes"}
 Repository: {"type":"git","url":"git://github.com/inspect-js/which-typed-array.git"}
@@ -6544,7 +6472,7 @@ Package-level license evidence: published
 Published license/notice files:
 - LICENSE (SHA-256 4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b)
 
-yaml@2.9.0
+yaml@2.9.1
 Declared license: ISC
 Author: Eemeli Aro <eemeli@gmail.com>
 Repository: github:eemeli/yaml
@@ -6585,7 +6513,7 @@ VERBATIM LICENSE AND NOTICE TEXTS
 
 SHA-256 014bb31e83d5c2e76aea1cc6e82217346ab41362f32cb355ad0f5c10aa0aeaff
 Used by:
-- just-bash@3.2.0:LICENSE
+- just-bash@3.6.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
                                  Apache License
                            Version 2.0, January 2004
@@ -7167,23 +7095,24 @@ SOFTWARE.
 
 SHA-256 05c6130cda97e7600ca91427a41e8a065efcf82365fc0293e7de80faec494c07
 Used by:
-- @codemirror/autocomplete@6.20.3:LICENSE
-- @codemirror/commands@6.10.4:LICENSE
+- @codemirror/autocomplete@6.20.4:LICENSE
+- @codemirror/commands@6.11.1:LICENSE
 - @codemirror/lang-cpp@6.0.3:LICENSE
 - @codemirror/lang-css@6.3.1:LICENSE
-- @codemirror/lang-html@6.4.11:LICENSE
+- @codemirror/lang-html@6.4.12:LICENSE
 - @codemirror/lang-javascript@6.2.5:LICENSE
 - @codemirror/lang-json@6.0.2:LICENSE
-- @codemirror/lang-markdown@6.5.1:LICENSE
+- @codemirror/lang-markdown@6.5.2:LICENSE
 - @codemirror/lang-python@6.2.1:LICENSE
 - @codemirror/lang-sass@6.0.2:LICENSE
 - @codemirror/lang-vue@0.1.3:LICENSE
 - @codemirror/lang-wast@6.0.2:LICENSE
-- @codemirror/language@6.12.4:LICENSE
+- @codemirror/language@6.13.1:LICENSE
 - @codemirror/lint@6.9.7:LICENSE
-- @codemirror/search@6.7.1:LICENSE
-- @codemirror/state@6.7.1:LICENSE
-- @codemirror/view@6.43.7:LICENSE
+- @codemirror/search@6.7.2:LICENSE
+- @codemirror/state@6.7.6:LICENSE
+- @codemirror/streamparser@6.0.0:LICENSE
+- @codemirror/view@6.43.15:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -7243,7 +7172,6 @@ Used by:
 - @aws-sdk/eventstream-handler-node@3.972.39:LICENSE
 - @aws-sdk/middleware-websocket@3.972.59:LICENSE
 - @aws-sdk/signature-v4-multi-region@3.996.49:LICENSE
-- @smithy/core@3.35.1:LICENSE
 - @smithy/core@3.37.0:LICENSE
 - @smithy/types@4.19.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
@@ -7749,34 +7677,34 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 0e80a2d229d2fd4fc7e8636142ec5d0ff0bc031f14c15b682e2ac01dfd5b5138
 Used by:
-- @radix-ui/primitive@1.1.7:LICENSE
-- @radix-ui/react-arrow@1.1.15:LICENSE
-- @radix-ui/react-collection@1.1.15:LICENSE
+- @radix-ui/primitive@1.2.0:LICENSE
+- @radix-ui/react-arrow@1.1.17:LICENSE
+- @radix-ui/react-collection@1.2.0:LICENSE
 - @radix-ui/react-compose-refs@1.1.5:LICENSE
-- @radix-ui/react-context-menu@2.3.7:LICENSE
-- @radix-ui/react-context@1.2.2:LICENSE
-- @radix-ui/react-dialog@1.1.23:LICENSE
-- @radix-ui/react-direction@1.1.4:LICENSE
-- @radix-ui/react-dismissable-layer@1.1.19:LICENSE
-- @radix-ui/react-dropdown-menu@2.1.24:LICENSE
-- @radix-ui/react-focus-guards@1.1.6:LICENSE
-- @radix-ui/react-focus-scope@1.1.16:LICENSE
+- @radix-ui/react-context-menu@2.4.1:LICENSE
+- @radix-ui/react-context@1.3.0:LICENSE
+- @radix-ui/react-dialog@1.3.1:LICENSE
+- @radix-ui/react-direction@1.2.0:LICENSE
+- @radix-ui/react-dismissable-layer@1.2.1:LICENSE
+- @radix-ui/react-dropdown-menu@2.2.1:LICENSE
+- @radix-ui/react-focus-guards@1.2.0:LICENSE
+- @radix-ui/react-focus-scope@1.3.1:LICENSE
 - @radix-ui/react-icons@1.3.2:LICENSE
 - @radix-ui/react-id@1.1.4:LICENSE
-- @radix-ui/react-menu@2.1.24:LICENSE
-- @radix-ui/react-popper@1.3.7:LICENSE
-- @radix-ui/react-portal@1.1.17:LICENSE
-- @radix-ui/react-presence@1.1.10:LICENSE
-- @radix-ui/react-primitive@2.1.10:LICENSE
-- @radix-ui/react-roving-focus@1.1.19:LICENSE
-- @radix-ui/react-slot@1.3.3:LICENSE
-- @radix-ui/react-use-callback-ref@1.1.4:LICENSE
-- @radix-ui/react-use-controllable-state@1.2.6:LICENSE
+- @radix-ui/react-menu@2.2.1:LICENSE
+- @radix-ui/react-popper@1.4.0:LICENSE
+- @radix-ui/react-portal@1.2.0:LICENSE
+- @radix-ui/react-presence@1.1.11:LICENSE
+- @radix-ui/react-primitive@2.2.0:LICENSE
+- @radix-ui/react-roving-focus@1.2.1:LICENSE
+- @radix-ui/react-slot@1.5.0:LICENSE
+- @radix-ui/react-use-callback-ref@1.1.5:LICENSE
+- @radix-ui/react-use-controllable-state@1.3.0:LICENSE
 - @radix-ui/react-use-effect-event@0.0.5:LICENSE
 - @radix-ui/react-use-is-hydrated@0.1.3:LICENSE
 - @radix-ui/react-use-layout-effect@1.1.4:LICENSE
 - @radix-ui/react-use-rect@1.1.4:LICENSE
-- @radix-ui/react-use-size@1.1.4:LICENSE
+- @radix-ui/react-use-size@1.1.5:LICENSE
 - @radix-ui/rect@1.1.3:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -7834,43 +7762,42 @@ SOFTWARE.
 SHA-256 117da2af0d4ce0fe1c8e19b5cff9dcd806adf973d328d27b11d4448c4ff24f76
 Used by:
 - @babel/code-frame@7.29.7:LICENSE
-- @babel/code-frame@8.0.0:LICENSE
+- @babel/code-frame@8.0.6:LICENSE
 - @babel/compat-data@7.29.7:LICENSE
-- @babel/compat-data@8.0.0:LICENSE
+- @babel/compat-data@8.0.5:LICENSE
 - @babel/core@7.29.7:LICENSE
-- @babel/core@8.0.1:LICENSE
+- @babel/core@8.0.9:LICENSE
 - @babel/generator@7.29.8:LICENSE
-- @babel/generator@8.0.0:LICENSE
+- @babel/generator@8.0.6:LICENSE
 - @babel/helper-annotate-as-pure@8.0.0:LICENSE
 - @babel/helper-compilation-targets@7.29.7:LICENSE
-- @babel/helper-compilation-targets@8.0.0:LICENSE
-- @babel/helper-create-class-features-plugin@8.0.1:LICENSE
+- @babel/helper-compilation-targets@8.0.7:LICENSE
+- @babel/helper-create-class-features-plugin@8.0.7:LICENSE
 - @babel/helper-globals@7.29.7:LICENSE
-- @babel/helper-globals@8.0.0:LICENSE
-- @babel/helper-member-expression-to-functions@8.0.0:LICENSE
+- @babel/helper-globals@8.0.6:LICENSE
+- @babel/helper-member-expression-to-functions@8.0.5:LICENSE
 - @babel/helper-module-imports@7.29.7:LICENSE
 - @babel/helper-module-transforms@7.29.7:LICENSE
 - @babel/helper-optimise-call-expression@8.0.0:LICENSE
 - @babel/helper-plugin-utils@8.0.1:LICENSE
 - @babel/helper-replace-supers@8.0.1:LICENSE
 - @babel/helper-skip-transparent-expression-wrappers@8.0.0:LICENSE
-- @babel/helper-string-parser@7.29.7:LICENSE
-- @babel/helper-string-parser@8.0.0:LICENSE
+- @babel/helper-string-parser@7.29.11:LICENSE
+- @babel/helper-string-parser@8.0.8:LICENSE
 - @babel/helper-validator-identifier@7.29.7:LICENSE
-- @babel/helper-validator-identifier@8.0.2:LICENSE
+- @babel/helper-validator-identifier@8.0.6:LICENSE
 - @babel/helper-validator-option@7.29.7:LICENSE
 - @babel/helper-validator-option@8.0.0:LICENSE
 - @babel/plugin-proposal-decorators@8.0.2:LICENSE
 - @babel/plugin-syntax-decorators@8.0.1:LICENSE
-- @babel/runtime-corejs3@7.29.7:LICENSE
+- @babel/runtime-corejs3@7.29.10:LICENSE
 - @babel/runtime@7.29.10:LICENSE
-- @babel/runtime@7.29.7:LICENSE
 - @babel/template@7.29.7:LICENSE
 - @babel/template@8.0.0:LICENSE
-- @babel/traverse@7.29.8:LICENSE
-- @babel/traverse@8.0.0:LICENSE
-- @babel/types@7.29.8:LICENSE
-- @babel/types@8.0.0:LICENSE
+- @babel/traverse@7.29.10:LICENSE
+- @babel/traverse@8.0.7:LICENSE
+- @babel/types@7.29.11:LICENSE
+- @babel/types@8.0.8:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -8751,7 +8678,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 23ecfff35a5a2e80d92142f75228912c3b1abc4b5a8337a821ff4397e2f9f734
 Used by:
-- rolldown@1.2.14:LICENSE
+- rolldown@1.2.15:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -8874,7 +8801,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 25ba5c59dad3e0dd8f9540beaa0f0a86a10e3aec35af5fdc8e88c5f6a5c0d8c6
 Used by:
-- electron-to-chromium@1.5.417:LICENSE
+- electron-to-chromium@1.5.467:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright 2018 Kilian Valkhof
 
@@ -8886,7 +8813,7 @@ THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH RE
 
 SHA-256 27873abeec2df3693480a8d1b8fe17dd61bee843d1b39c1c9cfab57ffe93099e
 Used by:
-- jszip@3.10.1:lib/license_header.js
+- jszip@3.10.2:lib/license_header.js
 ----- BEGIN VERBATIM CONTENT -----
 /*!
 
@@ -9016,8 +8943,8 @@ SOFTWARE.
 
 SHA-256 2bd8a2c61751fc47dcd214f864b6fcdbcb518995fbf497c81a06c3bfe8d1d9d4
 Used by:
-- seroval-plugins@1.6.11:LICENSE
-- seroval@1.6.11:LICENSE
+- seroval-plugins@1.7.2:LICENSE
+- seroval@1.7.2:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License Copyright (c) 2025 Alexis Munsayac <alexis.munsayac@gmail.com>
 
@@ -9057,68 +8984,6 @@ SOFTWARE.
 
 ----- END VERBATIM CONTENT -----
 
-SHA-256 2c7c5d22ed5a8ee968c64757710979afcd77438c48b4a265b94e615babd8a901
-Used by:
-- minimatch@10.2.5:LICENSE.md
------ BEGIN VERBATIM CONTENT -----
-# Blue Oak Model License
-
-Version 1.0.0
-
-## Purpose
-
-This license gives everyone as much permission to work with
-this software as possible, while protecting contributors
-from liability.
-
-## Acceptance
-
-In order to receive this license, you must agree to its
-rules. The rules of this license are both obligations
-under that agreement and conditions to your license.
-You must not do anything with this software that triggers
-a rule that you cannot or will not follow.
-
-## Copyright
-
-Each contributor licenses you to do everything with this
-software that would otherwise infringe that contributor's
-copyright in it.
-
-## Notices
-
-You must ensure that everyone who gets a copy of
-any part of this software from you, with or without
-changes, also gets the text of this license or a link to
-<https://blueoakcouncil.org/license/1.0.0>.
-
-## Excuse
-
-If anyone notifies you in writing that you have not
-complied with [Notices](#notices), you can keep your
-license by taking all practical steps to comply within 30
-days after the notice. If you do not do so, your license
-ends immediately.
-
-## Patent
-
-Each contributor licenses you to do everything with this
-software that would otherwise infringe any patent claims
-they can license or become able to license.
-
-## Reliability
-
-No contributor can revoke this license.
-
-## No Liability
-
-**_As far as the law allows, this software comes as is,
-without any warranty or condition, and no contributor
-will be liable to anyone for any damages related to this
-software or this license, under any kind of legal claim._**
-
------ END VERBATIM CONTENT -----
-
 SHA-256 2d1d7a93b46e4274355ac2904428707c4ee47ee8c6029fa394ebf405648d3f63
 Used by:
 - file-saver@2.0.5:LICENSE.md
@@ -9139,8 +9004,8 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 SHA-256 2e97627cb278aa7556fb9e8817368302301a595b6c7582512b8d74c57b773652
 Used by:
-- @babel/parser@7.29.8:LICENSE
-- @babel/parser@8.0.0:LICENSE
+- @babel/parser@7.29.11:LICENSE
+- @babel/parser@8.0.8:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (C) 2012-2014 by various contributors (see AUTHORS)
 
@@ -9166,7 +9031,7 @@ THE SOFTWARE.
 
 SHA-256 2eb01c9bb506815f353fc3053a396b0a4ec1b15255cdcf292a437ecc9f5e6ae2
 Used by:
-- swr@2.4.2:LICENSE
+- swr@2.5.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -9403,7 +9268,7 @@ Apache License
 
 SHA-256 2ef2cbeeb84d5e7a92d208426ef4f841b5447ae0a9e661ffb0983e8985a9f469
 Used by:
-- unplugin@3.3.0:LICENSE
+- unplugin@3.7.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -9542,7 +9407,7 @@ IN THE SOFTWARE.
 
 SHA-256 3706296ed611888111ceccc1dff4712844dea4bde0b185c82d718c3b69895abe
 Used by:
-- node-releases@2.0.54:LICENSE
+- node-releases@2.0.60:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License
 
@@ -9704,36 +9569,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
------ END VERBATIM CONTENT -----
-
-SHA-256 3c6040aa318612a234cc951609b640c0c63d85ae5a98a9330d3116f1553a79db
-Used by:
-- @jitl/quickjs-ffi-types@0.32.0:LICENSE
-- quickjs-emscripten-core@0.32.0:LICENSE
-- quickjs-emscripten@0.32.0:LICENSE
------ BEGIN VERBATIM CONTENT -----
-The MIT License
-
-quickjs-emscripten copyright (c) 2019-2024 Jake Teton-Landis
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ----- END VERBATIM CONTENT -----
 
@@ -10196,68 +10031,11 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ----- END VERBATIM CONTENT -----
 
-SHA-256 446a69ae534aa8612d8b16d3bfc670c5a5050597dca3ce9820441a60d5d04fbb
-Used by:
-- @jitl/quickjs-wasmfile-debug-asyncify@0.32.0:LICENSE
-- @jitl/quickjs-wasmfile-debug-sync@0.32.0:LICENSE
-- @jitl/quickjs-wasmfile-release-asyncify@0.32.0:LICENSE
-- @jitl/quickjs-wasmfile-release-sync@0.32.0:LICENSE
------ BEGIN VERBATIM CONTENT -----
-quickjs-emscripten:
-The MIT License
-
-quickjs-emscripten copyright (c) 2019-2024 Jake Teton-Landis
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-
-quickjs:
-QuickJS Javascript Engine
-
-Copyright (c) 2017-2021 Fabrice Bellard
-Copyright (c) 2017-2021 Charlie Gordon
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-
------ END VERBATIM CONTENT -----
-
 SHA-256 46231df5a7733c3f52f11b71f3df61813007745b62b09031acfb45fb42d75082
 Used by:
 - jiti@1.21.7:LICENSE
 - jiti@2.7.0:LICENSE
-- srvx@1.0.6:LICENSE
+- srvx@1.0.8:LICENSE
 - ufo@1.6.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -10314,7 +10092,7 @@ SOFTWARE.
 
 SHA-256 472f8bb212250d2b07f2484f2bee03d65eec36a52902b80244e2e52f1990b090
 Used by:
-- isbot@5.2.1:LICENSE
+- isbot@5.2.2:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 # Unlicense
 
@@ -10557,10 +10335,30 @@ SOFTWARE.
 
 ----- END VERBATIM CONTENT -----
 
+SHA-256 4bd6464daafb3cc689d914b91952313b69be04138e83c3cfc47a486835c06e83
+Used by:
+- run@2.1.3:LICENSE
+----- BEGIN VERBATIM CONTENT -----
+Copyright 2023 Vercel, Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+----- END VERBATIM CONTENT -----
+
 SHA-256 4be9d87b56a306293223b490c0d0b245e9e94f39884147bf051a6c7b825aeb30
 Used by:
-- @babel/helpers@7.29.7:LICENSE
-- @babel/helpers@8.0.0:LICENSE
+- @babel/helpers@7.29.10:LICENSE
+- @babel/helpers@8.0.8:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -10852,7 +10650,7 @@ THE SOFTWARE.
 
 SHA-256 4f221aee6e072336700c408c68ab3b96a3fc09f6aebe6f48f1bd99e5ef13faec
 Used by:
-- @noble/hashes@2.2.0:LICENSE
+- @noble/hashes@2.4.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -11196,7 +10994,6 @@ SHA-256 536804b3adbff17dbbb9ed0d2bf9655b78f07640278581e37e3d7475282d5e61
 Used by:
 - estree-util-is-identifier-name@3.0.0:license
 - mdast-util-gfm-autolink-literal@2.0.1:license
-- mdast-util-gfm-strikethrough@2.0.0:license
 - mdast-util-gfm-table@2.0.0:license
 - mdast-util-gfm-task-list-item@2.0.0:license
 - mdast-util-mdx-expression@2.0.1:license
@@ -11294,7 +11091,7 @@ SOFTWARE.
 SHA-256 54bd812a6d334e0c438b78a43cea74b67e882739fd3450115ddc7c52be5706c1
 Used by:
 - @lezer/cpp@1.1.6:LICENSE
-- @lezer/markdown@1.7.2:LICENSE
+- @lezer/markdown@1.8.1:LICENSE
 - @lezer/python@1.1.19:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -11601,7 +11398,7 @@ Used by:
 
 SHA-256 566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4
 Used by:
-- jszip@3.10.1:LICENSE.markdown
+- jszip@3.10.2:LICENSE.markdown
 ----- BEGIN VERBATIM CONTENT -----
 JSZip is dual licensed. At your choice you may use it under the MIT license *or* the GPLv3
 license.
@@ -12259,12 +12056,12 @@ copy of the Program in return for a fee.
 
 SHA-256 568902fb66eaf1f11750e966b33fd7b5d7c618e65af09f35ef843635bcf5f1ba
 Used by:
-- @lezer/common@1.5.2:LICENSE
-- @lezer/css@1.3.4:LICENSE
-- @lezer/highlight@1.2.3:LICENSE
+- @lezer/common@1.5.4:LICENSE
+- @lezer/css@1.3.9:LICENSE
+- @lezer/highlight@1.2.5:LICENSE
 - @lezer/html@1.3.13:LICENSE
-- @lezer/javascript@1.5.4:LICENSE
-- @lezer/lr@1.4.10:LICENSE
+- @lezer/javascript@1.5.6:LICENSE
+- @lezer/lr@1.4.11:LICENSE
 - @lezer/sass@1.1.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -12443,7 +12240,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 
 SHA-256 5bba27375d93e9119f76c1015f7672cf9ad5f70952296e0842fb2243d6376869
 Used by:
-- yaml@2.9.0:LICENSE
+- yaml@2.9.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright Eemeli Aro <eemeli@gmail.com>
 
@@ -12463,7 +12260,7 @@ THIS SOFTWARE.
 
 SHA-256 5be1f3465bba68a626777f984878814aaf35e7ef8e9fd314d469bcf887050fb8
 Used by:
-- postcss@8.5.31:LICENSE
+- postcss@8.5.32:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -12999,7 +12796,7 @@ defined by the Mozilla Public License, v. 2.0.
 
 SHA-256 5f123b645cb66faeec8c0ab6a252722372e58832d41449cd5ce50709203bdf89
 Used by:
-- @ai-sdk/provider-utils@5.0.65:src/to-json-schema/zod3-to-json-schema/README.md
+- @ai-sdk/provider-utils@5.0.70:src/to-json-schema/zod3-to-json-schema/README.md
 ----- BEGIN VERBATIM CONTENT -----
 # `zod-to-json-schema`
 
@@ -13160,6 +12957,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 SHA-256 62568a2d1337b77171ecca9db10579163446de1ba6151678e81f06cdc199971b
 Used by:
 - ipaddr.js@1.9.1:LICENSE
+- ipaddr.js@2.2.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (C) 2011-2017 whitequark <whitequark@whitequark.org>
 
@@ -13645,7 +13443,6 @@ Used by:
 - character-reference-invalid@2.0.1:license
 - mdast-util-to-string@4.0.0:license
 - unist-util-position@5.0.0:license
-- unist-util-visit@5.1.0:license
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
 
@@ -13993,7 +13790,7 @@ SOFTWARE.
 
 SHA-256 6dd0d97acd4d13f4608a0f530f0487e0ff20812888bd1803aecfaaa17ff0f849
 Used by:
-- @ai-sdk/provider-utils@5.0.65:src/to-json-schema/zod3-to-json-schema/LICENSE
+- @ai-sdk/provider-utils@5.0.70:src/to-json-schema/zod3-to-json-schema/LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 ISC License
 
@@ -14285,8 +14082,9 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 SHA-256 769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c
 Used by:
 - @jridgewell/gen-mapping@0.3.13:LICENSE
+- @jridgewell/gen-mapping@0.4.0-beta.0:LICENSE
 - @jridgewell/remapping@2.3.5:LICENSE
-- @jridgewell/sourcemap-codec@1.5.5:LICENSE
+- @jridgewell/sourcemap-codec@1.6.0:LICENSE
 - @jridgewell/trace-mapping@0.3.31:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
@@ -14313,7 +14111,7 @@ SOFTWARE.
 
 SHA-256 76a876cf886ff9be2a8b5e2e86514fed06223c8c9f0c1e9ee9606e93841e00b7
 Used by:
-- acorn@8.17.0:LICENSE
+- acorn@8.19.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -14444,14 +14242,14 @@ SOFTWARE.
 
 SHA-256 7a9d8d01038aeacf9e5bcdabbddf2a7815200dce9fc1118468cc553e00ae3eee
 Used by:
-- @shikijs/core@4.4.1:LICENSE
-- @shikijs/engine-javascript@4.4.1:LICENSE
-- @shikijs/engine-oniguruma@4.4.1:LICENSE
-- @shikijs/langs@4.4.1:LICENSE
-- @shikijs/primitive@4.4.1:LICENSE
-- @shikijs/themes@4.4.1:LICENSE
-- @shikijs/types@4.4.1:LICENSE
-- shiki@4.4.1:LICENSE
+- @shikijs/core@4.5.0:LICENSE
+- @shikijs/engine-javascript@4.5.0:LICENSE
+- @shikijs/engine-oniguruma@4.5.0:LICENSE
+- @shikijs/langs@4.5.0:LICENSE
+- @shikijs/primitive@4.5.0:LICENSE
+- @shikijs/themes@4.5.0:LICENSE
+- @shikijs/types@4.5.0:LICENSE
+- shiki@4.5.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -15226,7 +15024,7 @@ SOFTWARE.
 
 SHA-256 835eb611a23301b27115ca1be9f754c876e643ceb7fe63049c6b50609a1cafeb
 Used by:
-- eventsource-parser@3.1.0:LICENSE
+- eventsource-parser@3.1.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -15432,68 +15230,6 @@ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
 LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
------ END VERBATIM CONTENT -----
-
-SHA-256 8a1af140fdfbf5afd3df27f7e662f989c5b963a300020dfafce42033cae9e004
-Used by:
-- lru-cache@11.5.1:LICENSE.md
------ BEGIN VERBATIM CONTENT -----
-# Blue Oak Model License
-
-Version 1.0.0
-
-## Purpose
-
-This license gives everyone as much permission to work with
-this software as possible, while protecting contributors
-from liability.
-
-## Acceptance
-
-In order to receive this license, you must agree to its
-rules.  The rules of this license are both obligations
-under that agreement and conditions to your license.
-You must not do anything with this software that triggers
-a rule that you cannot or will not follow.
-
-## Copyright
-
-Each contributor licenses you to do everything with this
-software that would otherwise infringe that contributor's
-copyright in it.
-
-## Notices
-
-You must ensure that everyone who gets a copy of
-any part of this software from you, with or without
-changes, also gets the text of this license or a link to
-<https://blueoakcouncil.org/license/1.0.0>.
-
-## Excuse
-
-If anyone notifies you in writing that you have not
-complied with [Notices](#notices), you can keep your
-license by taking all practical steps to comply within 30
-days after the notice.  If you do not do so, your license
-ends immediately.
-
-## Patent
-
-Each contributor licenses you to do everything with this
-software that would otherwise infringe any patent claims
-they can license or become able to license.
-
-## Reliability
-
-No contributor can revoke this license.
-
-## No Liability
-
-***As far as the law allows, this software comes as is,
-without any warranty or condition, and no contributor
-will be liable to anyone for any damages related to this
-software or this license, under any kind of legal claim.***
 
 ----- END VERBATIM CONTENT -----
 
@@ -15740,7 +15476,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 9360b00fdd091f05c783b568bdd46c679c41b72415599252de98949462ea1acb
 Used by:
-- @marijn/find-cluster-break@1.0.3:LICENSE
+- @marijn/find-cluster-break@1.0.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -15819,7 +15555,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3
 Used by:
-- @oxc-project/types@0.154.0:LICENSE
+- @oxc-project/types@0.155.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -15968,7 +15704,7 @@ SOFTWARE.
 
 SHA-256 9877e90da14aa8c931a1f9d07cc2a20ce119106e5dab1ebb41af865266d0cd2a
 Used by:
-- update-browserslist-db@1.3.2:LICENSE
+- update-browserslist-db@1.3.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -15995,7 +15731,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 99aa68e4b42758b09828a46515f70369e5463458ab7a990189f641af2b8d9b4e
 Used by:
-- papaparse@5.5.4:LICENSE
+- papaparse@5.7.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -16064,8 +15800,9 @@ SOFTWARE.
 
 SHA-256 9a9edad7baae52622bddf3c15b2ef8a33d2c89f2d25408ad13e8a7481c6b0c97
 Used by:
-- empathic@2.0.1:license
+- empathic@2.1.0:license
 - escalade@3.2.0:license
+- flru@1.0.2:license
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -16079,15 +15816,13 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ----- END VERBATIM CONTENT -----
 
-SHA-256 9c63a23124d68cd30cd316a94a1a0bca34f032786df6df69fc4b5f136bac8d2e
+SHA-256 9bdd8f6bcee5d0e8ae77dc278122ee2a9c87395490fc1a2c6b132ad63be79c71
 Used by:
-- brace-expansion@5.0.12:LICENSE
+- verkit@0.5.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
-MIT License
+The MIT License (MIT)
 
-Copyright Julian Gruber <julian@juliangruber.com>
-
-TypeScript port Copyright Isaac Z. Schlueter <i@izs.me>
+Copyright © 2026-PRESENT Kevin Deng (https://github.com/sxzz)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -16140,7 +15875,7 @@ SOFTWARE.
 SHA-256 9c94db23dc4b1e9aaee5d195668b916afc71efed54af226b66cf0ccc4389c1c0
 Used by:
 - ignore@5.3.2:LICENSE-MIT
-- ignore@7.0.6:LICENSE-MIT
+- ignore@7.0.14:LICENSE-MIT
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
 http://kael.me/
@@ -18728,22 +18463,22 @@ THE SOFTWARE.
 SHA-256 a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7
 Used by:
 - @tanstack/history@1.162.5:LICENSE
-- @tanstack/query-core@5.101.4:LICENSE
-- @tanstack/react-query@5.101.4:LICENSE
-- @tanstack/react-router@1.170.45:LICENSE
-- @tanstack/react-start-client@1.168.43:LICENSE
-- @tanstack/react-start-rsc@0.1.64:LICENSE
-- @tanstack/react-start-server@1.167.51:LICENSE
-- @tanstack/react-start@1.169.3:LICENSE
-- @tanstack/router-core@1.171.38:LICENSE
-- @tanstack/router-generator@1.167.45:LICENSE
-- @tanstack/router-plugin@1.168.47:LICENSE
+- @tanstack/query-core@5.105.0:LICENSE
+- @tanstack/react-query@5.105.0:LICENSE
+- @tanstack/react-router@1.170.46:LICENSE
+- @tanstack/react-start-client@1.168.44:LICENSE
+- @tanstack/react-start-rsc@0.1.65:LICENSE
+- @tanstack/react-start-server@1.167.52:LICENSE
+- @tanstack/react-start@1.169.4:LICENSE
+- @tanstack/router-core@1.171.39:LICENSE
+- @tanstack/router-generator@1.167.46:LICENSE
+- @tanstack/router-plugin@1.168.48:LICENSE
 - @tanstack/router-utils@1.162.4:LICENSE
-- @tanstack/start-client-core@1.170.38:LICENSE
+- @tanstack/start-client-core@1.170.39:LICENSE
 - @tanstack/start-fn-stubs@1.162.0:LICENSE
-- @tanstack/start-plugin-core@1.171.54:LICENSE
-- @tanstack/start-server-core@1.169.44:LICENSE
-- @tanstack/start-storage-context@1.167.40:LICENSE
+- @tanstack/start-plugin-core@1.171.55:LICENSE
+- @tanstack/start-server-core@1.169.45:LICENSE
+- @tanstack/start-storage-context@1.167.41:LICENSE
 - @tanstack/virtual-file-routes@1.162.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -19077,7 +18812,6 @@ SOFTWARE.
 
 SHA-256 a6db8096b2707bc0102d256917d4d33f298ba36d8c3f25de067a2b5bb379db27
 Used by:
-- undici-types@8.3.0:LICENSE
 - undici-types@8.9.0:LICENSE
 - undici@7.30.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
@@ -19232,6 +18966,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 a7d00bfd54525bc694b6e32f64c7ebcf5e6b7ae3657be5cc12767bce74654a47
 Used by:
+- typescript@5.9.3:LICENSE.txt
 - typescript@6.0.3:LICENSE.txt
 ----- BEGIN VERBATIM CONTENT -----
 Apache License
@@ -19565,6 +19300,7 @@ The complete list of contributors can be found at:
 SHA-256 b070d77bfb2c52a1dd6996de0ce5f64c49a0ca55c889b163a963ddf5cb001ee2
 Used by:
 - @vercel/oidc@3.2.0:LICENSE
+- guarded-fetch@0.1.3:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 
                                  Apache License
@@ -19773,7 +19509,7 @@ Used by:
 
 SHA-256 b0f2417199889f1c0d28ec4e0244eacf1a15de5819d61f641dd7d8f45153ac9c
 Used by:
-- prettier@3.9.6:LICENSE
+- prettier@3.9.10:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright © James Long and contributors
 
@@ -20052,7 +19788,7 @@ Used by:
 
 SHA-256 b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681
 Used by:
-- esbuild@0.28.1:LICENSE.md
+- esbuild@0.28.2:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -20109,11 +19845,11 @@ SOFTWARE.
 
 SHA-256 b4f9adb7c568904834d0dd6cc98d16c390d21ca32fc17ae7a267715269bd5529
 Used by:
-- @ai-sdk/gateway@4.0.121:LICENSE
-- @ai-sdk/mcp@2.0.81:LICENSE
-- @ai-sdk/provider@4.0.31:LICENSE
-- @ai-sdk/react@4.0.152:LICENSE
-- ai@7.0.148:LICENSE
+- @ai-sdk/gateway@4.0.128:LICENSE
+- @ai-sdk/mcp@2.0.86:LICENSE
+- @ai-sdk/provider@4.0.34:LICENSE
+- @ai-sdk/react@4.0.159:LICENSE
+- ai@7.0.155:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright 2023 Vercel, Inc.
 
@@ -20160,7 +19896,7 @@ THE SOFTWARE.
 
 SHA-256 b5cb7ff7859e7d282d98fc43ab081b0dda5dc659dc3385cf65740c759a7e6a6c
 Used by:
-- @shikijs/vscode-textmate@10.0.2:LICENSE.md
+- @shikijs/vscode-textmate@10.1.0:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -20218,7 +19954,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 b87653fff2d44426ab5cd4723cee3b1364dc8d35a0acdf098c54689543123bf8
 Used by:
-- core-js-pure@3.49.0:LICENSE
+- core-js-pure@3.51.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2013–2025 Denis Pushkarev (zloirock.ru)
 Copyright (c) 2025–2026 CoreJS Company (core-js.io)
@@ -20270,7 +20006,7 @@ SOFTWARE.
 
 SHA-256 b916888fb16893c3a1df138543f994b96bb6892d74b6777c3a080d9cd2520c48
 Used by:
-- isomorphic-git@1.44.3:LICENSE.md
+- isomorphic-git@1.44.7:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 Copyright 2017-2023 the 'isomorphic-git' authors
 
@@ -20614,16 +20350,14 @@ Used by:
 - @types/estree-jsx@1.0.5:LICENSE
 - @types/estree@1.0.9:LICENSE
 - @types/gensync@1.0.5:LICENSE
-- @types/hast@3.0.4:LICENSE
 - @types/hast@3.0.5:LICENSE
 - @types/jsesc@2.5.1:LICENSE
 - @types/json-schema@7.0.15:LICENSE
 - @types/mdast@4.0.4:LICENSE
 - @types/ms@2.1.0:LICENSE
-- @types/node@26.1.2:LICENSE
 - @types/node@26.6.5:LICENSE
-- @types/react-dom@19.2.4:LICENSE
-- @types/react@19.2.18:LICENSE
+- @types/react-dom@19.3.0:LICENSE
+- @types/react@19.3.0:LICENSE
 - @types/unist@2.0.11:LICENSE
 - @types/unist@3.0.3:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
@@ -20890,7 +20624,7 @@ SHA-256 c61652db3d2808f667b48af0a358f0d85fd07ad4a0d0b1a50882dec3b764c522
 Used by:
 - is-callable@1.2.7:LICENSE
 - is-typed-array@1.1.15:LICENSE
-- which-typed-array@1.1.22:LICENSE
+- which-typed-array@1.1.24:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -20919,7 +20653,7 @@ SOFTWARE.
 
 SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
 Used by:
-- baseline-browser-mapping@2.11.20:LICENSE.txt
+- baseline-browser-mapping@2.11.34:LICENSE.txt
 ----- BEGIN VERBATIM CONTENT -----
                                  Apache License
                            Version 2.0, January 2004
@@ -21197,7 +20931,6 @@ Used by:
 - rehype-sanitize@6.0.0:license
 - space-separated-tokens@2.0.2:license
 - unist-util-stringify-position@4.0.0:license
-- unist-util-visit-parents@6.0.2:license
 - vfile-location@5.0.3:license
 - web-namespaces@2.0.1:license
 - zwitch@2.0.4:license
@@ -21229,7 +20962,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 cb4474e26547397169061d3586c00022cda5330a1b64fa13e872319f3b63aff1
 Used by:
-- style-mod@4.1.3:LICENSE
+- style-mod@4.1.4:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
 
@@ -21765,7 +21498,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 d0cd141b0c322fded5dfad1d4645bb2fedfc05b7321fe1009469638190d59ef9
 Used by:
-- picomatch@4.0.5:LICENSE
 - picomatch@4.0.7:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
@@ -21827,7 +21559,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 d37af134e0d0b998393188394202052e2ff6cd5d18efb2fcc81ba7b00ad77b75
 Used by:
-- exsolve@1.1.1:LICENSE
+- exsolve@1.2.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -21940,36 +21672,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-
------ END VERBATIM CONTENT -----
-
-SHA-256 d408f38ffa3355c5faec517153295338892eb0f1ea43f57874bb23c6075979b5
-Used by:
-- balanced-match@4.0.4:LICENSE.md
------ BEGIN VERBATIM CONTENT -----
-(MIT)
-
-Original code Copyright Julian Gruber <julian@juliangruber.com>
-
-Port to TypeScript Copyright Isaac Z. Schlueter <i@izs.me>
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ----- END VERBATIM CONTENT -----
 
@@ -22095,7 +21797,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 d80713a740590fd03323d00397b0a21a1093ba4c0149d7e5a3849735c6084ae4
 Used by:
-- ansis@4.3.1:LICENSE
+- ansis@4.4.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 ISC License
 
@@ -22410,10 +22112,10 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 SHA-256 da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93
 Used by:
-- react-dom@19.2.8:LICENSE
-- react@19.2.8:LICENSE
-- scheduler@0.27.0:LICENSE
-- use-sync-external-store@1.6.0:LICENSE
+- react-dom@19.3.1:LICENSE
+- react@19.3.1:LICENSE
+- scheduler@0.28.0:LICENSE
+- use-sync-external-store@1.7.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -22441,7 +22143,7 @@ SOFTWARE.
 
 SHA-256 da9201378c36ffd81f51ad0b305f3f0981e90bc558789210ad65d1161eec3b7d
 Used by:
-- sonner@2.0.7:LICENSE.md
+- sonner@2.0.8:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -22525,7 +22227,7 @@ SOFTWARE.
 
 SHA-256 dc6d4961d8b6ee747231582ae9c53ce1d66bf76bc9f5a28f554c0e97210953bf
 Used by:
-- @ungap/structured-clone@1.3.2:LICENSE
+- @ungap/structured-clone@1.4.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 ISC License
 
@@ -22586,16 +22288,17 @@ Used by:
 - hast-util-to-parse5@8.0.1:license
 - hastscript@9.0.1:license
 - markdown-table@3.0.4:license
-- mdast-util-find-and-replace@3.0.2:license
-- mdast-util-from-markdown@2.0.3:license
+- mdast-util-find-and-replace@3.0.4:license
+- mdast-util-from-markdown@2.1.0:license
 - mdast-util-gfm-footnote@2.1.0:license
+- mdast-util-gfm-strikethrough@2.0.1:license
 - mdast-util-gfm@3.1.0:license
-- mdast-util-to-markdown@2.1.2:license
-- micromark-core-commonmark@2.0.3:license
-- micromark-extension-gfm-table@2.1.1:license
+- mdast-util-to-markdown@2.2.1:license
+- micromark-core-commonmark@2.0.4:license
+- micromark-extension-gfm-table@2.1.2:license
 - micromark-factory-destination@2.0.1:license
 - micromark-factory-label@2.0.1:license
-- micromark-factory-space@2.0.1:license
+- micromark-factory-space@2.1.0:license
 - micromark-factory-title@2.0.1:license
 - micromark-factory-whitespace@2.0.1:license
 - micromark-util-character@2.1.1:license
@@ -22604,6 +22307,7 @@ Used by:
 - micromark-util-combine-extensions@2.0.1:license
 - micromark-util-decode-numeric-character-reference@2.0.2:license
 - micromark-util-decode-string@2.0.1:license
+- micromark-util-edit-map@1.0.0:license
 - micromark-util-encode@2.0.1:license
 - micromark-util-html-tag-name@2.0.1:license
 - micromark-util-normalize-identifier@2.0.1:license
@@ -22611,10 +22315,12 @@ Used by:
 - micromark-util-sanitize-uri@2.0.1:license
 - micromark-util-subtokenize@2.1.0:license
 - micromark-util-symbol@2.0.1:license
-- micromark-util-types@2.0.2:license
-- micromark@4.0.2:license
+- micromark-util-types@2.0.3:license
+- micromark@4.0.3:license
 - remark-gfm@4.0.1:license
 - remark-rehype@11.1.2:license
+- unist-util-visit-parents@6.1.0:license
+- unist-util-visit@5.2.0:license
 - vfile-message@4.0.3:license
 ----- BEGIN VERBATIM CONTENT -----
 (The MIT License)
@@ -23070,7 +22776,7 @@ Original Author, when distributed with the Software.
 
 SHA-256 dffec71d93f273d2af7b54c6c7e7e70b3289c632ec0d7253210ec21ac336d5ac
 Used by:
-- readdirp@5.0.0:LICENSE
+- readdirp@5.1.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
 
@@ -23153,7 +22859,7 @@ THE SOFTWARE.
 
 SHA-256 e1919b3b98b8bf6c1b99fcc60a0ed46027c97ac947432e1278446c9606f50161
 Used by:
-- @rolldown/plugin-babel@0.2.3:LICENSE
+- @rolldown/plugin-babel@0.2.4:LICENSE
 - @rolldown/pluginutils@1.0.1:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 MIT License
@@ -23945,7 +23651,7 @@ Apache License
 
 SHA-256 ee48679d379ca6b4493d5e231094d85f818dd9be40b1a4f234fb7ff657ee35d9
 Used by:
-- obug@2.1.3:LICENSE
+- obug@3.0.0:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 The MIT License (MIT)
 
@@ -25043,7 +24749,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 fcf06aacb36ee29237110d6b3a9fbd6296e85ad4324263abf5f8a5cfb5706c81
 Used by:
-- js-base64@3.9.2:LICENSE.md
+- js-base64@3.9.5:LICENSE.md
 ----- BEGIN VERBATIM CONTENT -----
 Copyright (c) 2014, Dan Kogai
 All rights reserved.
@@ -25077,7 +24783,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 SHA-256 fd3a263fe19ed8faa9068b43abaebafc02c77897b0c6fc09abc04bb592e5f16e
 Used by:
-- caniuse-lite@1.0.30001810:LICENSE
+- caniuse-lite@1.0.30001819:LICENSE
 ----- BEGIN VERBATIM CONTENT -----
 Attribution 4.0 International
 

@@ -364,6 +364,8 @@ function runBash(
     child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
     child.on('close', (code) => resolveRun({ code, stdout, stderr }));
+    // The command may exit before reading input it doesn't need.
+    child.stdin.on('error', () => undefined);
     child.stdin.end(options.input ?? '');
   });
 }
