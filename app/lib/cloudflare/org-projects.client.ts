@@ -143,3 +143,37 @@ const copySchema = z.object({ projectId: z.string(), initialId: z.string(), full
 export async function copyProject(projectId: string, name?: string): Promise<z.infer<typeof copySchema>> {
   return postJson('/api/projects/copy', { projectId, name }, copySchema, 'The copy could not be made. Try again.');
 }
+
+const deletionResourceSchema = z.object({
+  kind: z.enum(['database', 'storage', 'keys', 'other']),
+  id: z.string(),
+  name: z.string(),
+});
+const deletionPreviewSchema = z.object({
+  sites: z.array(z.string()),
+  workers: z.array(z.string()),
+  resources: z.array(deletionResourceSchema),
+  kept: z.array(deletionResourceSchema.extend({ reason: z.string() })),
+  repository: z.string().nullable(),
+});
+export type ProjectDeletionPreview = z.infer<typeof deletionPreviewSchema>;
+
+/** What deleting a project would remove from its Cloudflare account, and what it would keep. */
+export async function loadDeletionPreview(projectId: string): Promise<ProjectDeletionPreview> {
+  return postJson(
+    '/api/projects/delete/preview',
+    { projectId },
+    deletionPreviewSchema,
+    'What it would delete couldn’t be read. Try again.',
+  );
+}
+
+/** Deletes a project for good: its Workers, the resources only they used, its code and its record. */
+export async function deleteProject(projectId: string, confirm: string): Promise<void> {
+  await postJson(
+    '/api/projects/delete',
+    { projectId, confirm },
+    z.object({ deleted: z.array(z.string()) }),
+    'The project couldn’t be deleted. Try again.',
+  );
+}

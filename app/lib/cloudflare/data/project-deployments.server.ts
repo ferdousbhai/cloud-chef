@@ -372,6 +372,15 @@ function stepBindings(step: DeploymentStep | null, now: number): (string | numbe
 }
 
 /** The project's newest deployments, newest first. */
+/** Every Worker a project's deployments published to (previews are versions of the same Workers). */
+export async function projectWorkerNames(db: D1Database, projectId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare('SELECT DISTINCT worker_name FROM project_deployments WHERE project_id = ? AND worker_name IS NOT NULL')
+    .bind(projectId)
+    .all<{ worker_name: string }>();
+  return results.map((row) => row.worker_name);
+}
+
 export async function latestDeployments(db: D1Database, projectId: string, limit = 10): Promise<ProjectDeployment[]> {
   const { results } = await db
     .prepare(`SELECT ${COLUMNS} FROM project_deployments WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`)

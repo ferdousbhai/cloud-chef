@@ -90,6 +90,11 @@ import {
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
 import {
+  deleteProjectAction,
+  projectDeletionPreviewAction,
+  runtimeDeletableProjectAction,
+} from './server-handlers/project-deletion';
+import {
   decideApprovalAction,
   listApprovalsAction,
   runtimeApprovalOutcomeAction,
@@ -201,6 +206,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/deployments/credential': ['POST', runtimeDeploymentCredentialAction],
     '/api/cloudflare/runtime-projects/approvals/file': ['POST', runtimeFileApprovalAction],
     '/api/cloudflare/runtime-projects/approvals/outcome': ['POST', runtimeApprovalOutcomeAction],
+    '/api/cloudflare/runtime-projects/deletable': ['POST', runtimeDeletableProjectAction],
     '/api/approvals': ['GET', listApprovalsAction],
     '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
@@ -242,6 +248,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/profile/username': ['POST', setUsernameAction],
     '/api/projects/visibility': ['POST', setVisibilityAction],
     '/api/projects/copy': ['POST', copyProjectAction],
+    '/api/projects/delete/preview': ['POST', projectDeletionPreviewAction],
+    '/api/projects/delete': ['POST', deleteProjectAction],
     '/api/explore': ['GET', exploreAction],
     '/api/apps': ['GET', listMyAppsAction],
     '/api/command-line/projects/visibility': ['POST', commandLineVisibilityAction],

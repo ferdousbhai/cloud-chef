@@ -502,6 +502,11 @@ export async function addUploadedProject(
   }
 }
 
+/** Deletes a project's record, once its repository and resources are gone; access grants and deployments go with it. */
+export async function deleteProjectRecord(db: D1Database, projectId: string): Promise<void> {
+  await db.prepare('DELETE FROM org_projects WHERE id = ?').bind(projectId).run();
+}
+
 /** Removes a project from CloudChef. Its Artifacts repository and its Worker stay in the account. */
 export async function removeProject(db: D1Database, args: { scope: ProjectScope; projectId: string }) {
   await db

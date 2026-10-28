@@ -271,6 +271,28 @@ const workerScriptSchema = z.looseObject({ id: z.string().regex(SCRIPT_TAG_PATTE
 
 export type WorkerScriptSummary = { tag: string; name: string };
 
+/** A Worker's binding as its settings report it, by what it names: a resource of the account, or something else. */
+const workerBindingSchema = z.looseObject({
+  type: z.string(),
+  name: z.string().optional(),
+  id: z.string().optional(),
+  bucket_name: z.string().optional(),
+  namespace_id: z.string().optional(),
+  queue_name: z.string().optional(),
+  index_name: z.string().optional(),
+});
+const workerSettingsSchema = z.looseObject({ bindings: z.array(workerBindingSchema).nullish() });
+
+/**
+ * A resource a Worker binds: a D1 database or KV namespace by id, an R2 bucket by name, or one of the other
+ * account resources a binding can name (a queue, a Vectorize index, a Hyperdrive config), by its type and name.
+ */
+export type WorkerBinding =
+  | { kind: 'd1'; id: string }
+  | { kind: 'kv'; id: string }
+  | { kind: 'r2'; bucket: string }
+  | { kind: 'other'; type: string; name: string };
+
 const repoConnectionSchema = z.looseObject({
   repo_id: z.string().nullish(),
   repo_name: z.string().nullish(),
@@ -1538,6 +1560,53 @@ export class UserCloudflareAccountApi {
       throw new CloudflareAccountApiError('Cloudflare returned invalid Workers.');
     }
     return listed.data.map((script) => ({ tag: script.id, name: script.script_name }));
+  }
+
+  /** The account resources a Worker binds, or null when the account has no Worker by that name. */
+  async workerBindings(workerName: string): Promise<WorkerBinding[] | null> {
+    requireWorkerName(workerName);
+    const settings = await this.callOptional<unknown>(`/workers/scripts/${encodeURIComponent(workerName)}/settings`, {
+      method: 'GET',
+    });
+    if (settings === null) {
+      return null;
+    }
+    const parsed = workerSettingsSchema.safeParse(settings);
+    if (!parsed.success) {
+      throw new CloudflareAccountApiError('Cloudflare returned invalid Worker settings.');
+    }
+    return (parsed.data.bindings ?? []).flatMap((binding): WorkerBinding[] => {
+      if (binding.type === 'd1' && binding.id) {
+        return [{ kind: 'd1', id: binding.id }];
+      }
+      if (binding.type === 'kv_namespace' && binding.namespace_id) {
+        return [{ kind: 'kv', id: binding.namespace_id }];
+      }
+      if (binding.type === 'r2_bucket' && binding.bucket_name) {
+        return [{ kind: 'r2', bucket: binding.bucket_name }];
+      }
+      const named =
+        binding.queue_name ?? binding.index_name ?? (binding.type === 'hyperdrive' ? binding.id : undefined);
+      return named ? [{ kind: 'other', type: binding.type, name: named }] : [];
+    });
+  }
+
+  /** A D1 database's name by its id, or null when the account has none with that id. */
+  async d1DatabaseName(databaseId: string): Promise<string | null> {
+    requireProviderResourceId(databaseId);
+    const database = await this.callOptional<unknown>(`/d1/database/${encodeURIComponent(databaseId)}`, {
+      method: 'GET',
+    });
+    return z.looseObject({ name: z.string() }).safeParse(database).data?.name ?? null;
+  }
+
+  /** A KV namespace's title by its id, or null when the account has none with that id. */
+  async kvNamespaceTitle(namespaceId: string): Promise<string | null> {
+    requireProviderResourceId(namespaceId);
+    const namespace = await this.callOptional<unknown>(`/storage/kv/namespaces/${encodeURIComponent(namespaceId)}`, {
+      method: 'GET',
+    });
+    return kvNamespaceSchema.safeParse(namespace).data?.title ?? null;
   }
 
   /** The latest Workers Builds build of each of up to 20 Workers, by tag; Workers never built are left out. */

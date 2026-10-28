@@ -10,6 +10,7 @@ import {
   ProjectRefusalError,
   ProjectUnavailableError,
   commitAuthor,
+  deletableProjectRepository,
   registerProjectImport,
   registerUploadedProject,
 } from '~/lib/.server/cloudflare/linked-project-client';
@@ -538,6 +539,38 @@ export async function userRuntimeRevokeReadAccessAction(
     return new Response(null, { status: 204 });
   } catch (error) {
     return internalErrorResponse(error, 'The token could not be revoked. Try again.');
+  }
+}
+
+const deleteRepositorySchema = z.strictObject({ orgProjectId: z.string().uuid() });
+
+/**
+ * `POST /v1/projects/delete-repository`: deletes a project's repository, with every branch and token it holds,
+ * once CloudChef says this person may delete the project. Already gone is done.
+ */
+export async function userRuntimeDeleteProjectRepositoryAction(
+  args: { request: Request; env: Env },
+  repositories: ProjectRepositoriesFactory = accountRepositories,
+): Promise<Response> {
+  const parsed = deleteRepositorySchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the project.' }, { status: 400 });
+  }
+  try {
+    const identity = runtimeConnectionIdentity(args.env);
+    if (!identity) {
+      throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
+    }
+    const repo = await deletableProjectRepository(args.env, identity, parsed.data.orgProjectId);
+    if (repo) {
+      await repositories(args.env).deleteRepo(repo);
+    }
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof ProjectAccessError) {
+      return Response.json({ error: error.message }, { status: 403 });
+    }
+    return internalErrorResponse(error, 'The project’s code could not be deleted. Try again.');
   }
 }
 

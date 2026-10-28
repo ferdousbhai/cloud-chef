@@ -75,7 +75,7 @@ function projectRepositoryKind(
  * from (the same Worker, until its builds are switched). Null when there is none.
  */
 export async function findProjectWorker(
-  api: WorkersBuildsAccountApi,
+  api: Pick<WorkersBuildsAccountApi, 'listWorkerScripts' | 'latestWorkersBuilds'>,
   project: Pick<Project, 'repo' | 'importSource' | 'workersBuildsScriptTag'>,
 ): Promise<ProjectWorker | null> {
   const scripts = await api.listWorkerScripts();

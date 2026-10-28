@@ -34,7 +34,7 @@ let deployRoutes: { log: string } | null = null;
 const deployRequests: unknown[] = [];
 const visibilityRequests: unknown[] = [];
 const copyRequests: unknown[] = [];
-const removeRequests: unknown[] = [];
+const deleteRequests: unknown[] = [];
 
 /** CloudChef's routes and the workspace runtime, as the home reaches them. */
 async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -58,9 +58,18 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
       { status: 201 },
     );
   }
-  if (url === '/api/organizations/projects/unlink' && init?.method === 'POST') {
-    removeRequests.push(JSON.parse(String(init.body)));
-    return new Response(null, { status: 204 });
+  if (url === '/api/projects/delete/preview' && init?.method === 'POST') {
+    return Response.json({
+      sites: ['https://storefront.example.com'],
+      workers: ['storefront'],
+      resources: [{ kind: 'database', id: 'db-1', name: 'shop-data' }],
+      kept: [{ kind: 'storage', id: 'shared-files', name: 'shared-files', reason: 'another Worker uses it' }],
+      repository: 'r',
+    });
+  }
+  if (url === '/api/projects/delete' && init?.method === 'POST') {
+    deleteRequests.push(JSON.parse(String(init.body)));
+    return Response.json({ deleted: ['Worker storefront'] });
   }
   if (url === '/api/apps') {
     return Response.json({ apps });
@@ -106,7 +115,7 @@ beforeEach(() => {
   deployRequests.length = 0;
   visibilityRequests.length = 0;
   copyRequests.length = 0;
-  removeRequests.length = 0;
+  deleteRequests.length = 0;
 });
 
 afterEach(async () => {
@@ -175,6 +184,14 @@ async function choose(label: string) {
     throw new Error(`No ${label} choice`);
   }
   await act(async () => item.click());
+}
+
+/** Types into a text box as a person does, so React sees the change. */
+async function type(input: HTMLInputElement, text: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 }
 
 describe('ProjectsHome', () => {
@@ -472,26 +489,42 @@ describe('ProjectsHome', () => {
     ]);
   });
 
-  it('lets whoever manages a project remove it from CloudChef, after saying its site and code stay', async () => {
+  it('lets whoever manages a project delete it for good, listing what goes, once its name is typed', async () => {
     context = personal;
     teamProjects = [
       { id: 'project-1', name: 'Storefront', role: 'edit', repo: 'r', visibility: 'private', canManage: true },
       { id: 'project-2', name: 'Notes', role: 'view', repo: 'r', visibility: 'private', canManage: false },
     ];
-    await render('user-remove');
+    await render('user-delete');
     await vi.waitFor(() => card('Notes'));
 
-    expect(await moreChoices('Notes')).not.toContain('Remove');
+    expect(await moreChoices('Notes')).not.toContain('Delete');
     await closeMenu();
-    expect(await moreChoices('Storefront')).toContain('Remove');
-    await choose('Remove');
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.textContent).toContain('Its site and its code stay in your Cloudflare account');
-    expect(removeRequests).toEqual([]);
+    expect(await moreChoices('Storefront')).toContain('Delete');
+    await choose('Delete');
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    await vi.waitFor(() => expect(dialog()?.textContent).toContain('Database shop-data'));
+    const text = dialog()?.textContent ?? '';
+    expect(text).toContain('can’t be undone');
+    expect(text).toContain('Worker storefront');
+    expect(text).toContain('File storage shared-files: another Worker uses it');
 
-    await click(dialog!, 'Remove');
+    const confirm = () =>
+      [...(dialog()?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Delete');
+    expect(confirm()?.disabled).toBe(true);
+    const input = dialog()?.querySelector('input');
+    if (!input) {
+      throw new Error('No confirmation box');
+    }
+    await type(input, 'storefront');
+    expect(confirm()?.disabled).toBe(true);
+    await type(input, 'Storefront');
+    expect(confirm()?.disabled).toBe(false);
+    expect(deleteRequests).toEqual([]);
+
+    await act(async () => confirm()?.click());
     await vi.waitFor(() => expect(document.body.textContent).not.toContain('Storefront'));
-    expect(removeRequests).toEqual([{ projectId: 'project-1' }]);
+    expect(deleteRequests).toEqual([{ projectId: 'project-1', confirm: 'Storefront' }]);
   });
 
   it('opens Make a copy with the project’s name', async () => {
@@ -526,14 +559,14 @@ describe('ProjectsHome', () => {
     expect(card('Booking site').textContent).toContain('ada/booking-site');
     expect(card('Booking site').textContent).not.toContain('Public');
     const booking = await moreChoices('Booking site');
-    expect(booking).toEqual(['History', 'Clone', 'Download ZIP', 'Make public', 'Make a copy']);
+    expect(booking).toEqual(['History', 'Clone', 'Download ZIP', 'Make public', 'Make a copy', 'Delete']);
     await closeMenu();
     const garden = await moreChoices('Garden club');
     expect(garden).toContain('Make private');
     expect(garden).not.toContain('Make public');
     await closeMenu();
     // Not recorded yet: nothing to make public or copy.
-    expect(await moreChoices('Just made')).toEqual(['History', 'Clone', 'Download ZIP']);
+    expect(await moreChoices('Just made')).toEqual(['History', 'Clone', 'Download ZIP', 'Delete']);
   });
 
   it('asks before making an app public, and makes it private again without asking', async () => {

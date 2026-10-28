@@ -6,7 +6,8 @@ import { createBrowserHistory, createRootRoute, createRouter, RouterProvider } f
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useUnsavedEditsGuard } from '~/lib/hooks/useUnsavedEditsGuard';
 import { AGENT_GC_GRACE_PERIOD_MS } from '~/lib/cloudflare/data/agent-gc.server';
-import { RemoveProjectNotice, removeProject } from './Menu.client';
+import { AppDeletionNotice } from '~/components/projects/DeleteProjectDialog.client';
+import { removeProject } from './Menu.client';
 
 let root: Root | undefined;
 
@@ -63,19 +64,18 @@ describe('removeProject', () => {
   });
 });
 
-describe('RemoveProjectNotice', () => {
-  it('says what removal deletes and after how long, and links the privacy notice', async () => {
-    const rootRoute = createRootRoute({ component: () => <RemoveProjectNotice title="Recipe box" /> });
+describe('AppDeletionNotice', () => {
+  it('says what deleting an app removes and after how long, and links the privacy notice', async () => {
+    const rootRoute = createRootRoute({ component: () => <AppDeletionNotice /> });
     const router = createRouter({ routeTree: rootRoute, history: createBrowserHistory() });
     await router.load();
     root = createRoot(document.body.appendChild(document.createElement('div')));
     await act(async () => root?.render(<RouterProvider router={router} />));
 
     const text = document.body.textContent ?? '';
-    expect(text).toContain('Recipe box');
     // The grace period the cleanup sweeps wait, as the notice states it.
     expect(text).toContain(`${AGENT_GC_GRACE_PERIOD_MS / 60_000}-minute grace period`);
-    expect(text).toMatch(/live site, databases, stored files, and\s+workspace are deleted/);
+    expect(text).toMatch(/live site, databases, stored files, code and\s+workspace are deleted for good/);
     expect(document.querySelector('a[href="/privacy"]')?.textContent).toBe('Privacy notice');
   });
 });

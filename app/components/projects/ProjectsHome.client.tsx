@@ -23,10 +23,12 @@ import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { authClient } from '~/lib/auth-client';
-import { useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
+import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import {
+  deleteProject,
   loadApps,
+  loadDeletionPreview,
   loadTeamProjects,
   openTeamProject,
   setProjectVisibility,
@@ -42,9 +44,10 @@ import {
 } from '~/lib/cloudflare/projects.client';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { isImportReturn, IMPORT_RETURN_PARAM } from '~/lib/github-app.client';
-import { messageOf, noContentSchema, postJson } from '~/lib/json-request';
+import { messageOf } from '~/lib/json-request';
 import { CloneDialog } from './CloneDialog.client';
 import { CopyProjectDialog } from './CopyProjectDialog.client';
+import { AppDeletionNotice, DeleteProjectDialog } from './DeleteProjectDialog.client';
 import { DeployLogDialog } from './DeployLogDialog.client';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } from './ProjectCard';
@@ -60,7 +63,8 @@ type OpenDialog =
   | { kind: 'upload' }
   | { kind: 'copy'; project: { id: string; name: string } }
   | { kind: 'make-public'; name: string; makePublic: () => void }
-  | { kind: 'remove'; project: TeamProject; connection: ConnectionProjects }
+  | { kind: 'delete'; project: TeamProject; connection: ConnectionProjects }
+  | { kind: 'delete-app'; initialId: string; name: string }
   | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string; live?: boolean }
   | {
       kind: 'use-wanted-worker';
@@ -203,21 +207,25 @@ export function ProjectsHome({ userId }: { userId: string }) {
           }
         />
       ) : null}
-      {dialog?.kind === 'remove' ? (
-        <ConfirmationDialog
-          onClose={() => setDialog(null)}
-          onConfirm={() => {
+      {dialog?.kind === 'delete' ? (
+        <DeleteProjectDialog
+          name={dialog.project.name}
+          preview={() => loadDeletionPreview(dialog.project.id)}
+          onDelete={() => deleteProject(dialog.project.id, dialog.project.name)}
+          onDeleted={() => {
+            dialog.connection.forget(dialog.project);
             setDialog(null);
-            void dialog.connection.remove(dialog.project);
           }}
-          confirmText="Remove"
-          dialogTitle={`Remove ${dialog.project.name} from CloudChef?`}
-          dialogBody={
-            <p>
-              It goes from your projects, and nobody can open it here any more. Its site and its code stay in your
-              Cloudflare account: delete them there if you don’t want them.
-            </p>
-          }
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog?.kind === 'delete-app' ? (
+        <DeleteProjectDialog
+          name={dialog.name}
+          summary={<AppDeletionNotice />}
+          onDelete={() => removeWorkspaceHistoryItem(userId, dialog.initialId)}
+          onDeleted={() => setDialog(null)}
+          onClose={() => setDialog(null)}
         />
       ) : null}
       {dialog?.kind === 'upload' ? (
@@ -416,6 +424,10 @@ function OwnProjectCard({
               onDialog={onDialog}
             />
           ) : null}
+          <MenuItem danger action={() => onDialog({ kind: 'delete-app', initialId: project.initialId, name })}>
+            <TrashIcon />
+            Delete
+          </MenuItem>
         </>
       }
     />
@@ -541,7 +553,8 @@ type ConnectionProjects = {
   retrying: string | null;
   retry: (project: TeamProject, deploymentId: string, options?: { toWantedWorker?: true }) => Promise<void>;
   changeVisibility: (project: TeamProject, visibility: ProjectVisibility) => Promise<void>;
-  remove: (project: TeamProject) => Promise<void>;
+  /** Takes a project deleted for good off the list. */
+  forget: (project: TeamProject) => void;
 };
 
 function useConnectionProjects(
@@ -634,20 +647,8 @@ function useConnectionProjects(
     }
   };
 
-  // Only from CloudChef: its repository and its Worker stay in the account.
-  const remove = async (project: TeamProject) => {
-    try {
-      await postJson(
-        '/api/organizations/projects/unlink',
-        { orgId: orgId ?? undefined, projectId: project.id },
-        noContentSchema,
-        `${project.name} couldn’t be removed. Try again.`,
-      );
-      setProjects((current) => current?.filter((listed) => listed.id !== project.id) ?? null);
-    } catch (error) {
-      toast.error(messageOf(error, `${project.name} couldn’t be removed. Try again.`));
-    }
-  };
+  const forget = (project: TeamProject) =>
+    setProjects((current) => current?.filter((listed) => listed.id !== project.id) ?? null);
 
   const open = async (project: TeamProject) => {
     setOpening(project.id);
@@ -670,7 +671,7 @@ function useConnectionProjects(
     retrying,
     retry,
     changeVisibility,
-    remove,
+    forget,
   };
 }
 
@@ -808,9 +809,9 @@ function ConnectionProjectCard({
             onDialog={onDialog}
           />
           {project.canManage ? (
-            <MenuItem danger action={() => onDialog({ kind: 'remove', project, connection })}>
+            <MenuItem danger action={() => onDialog({ kind: 'delete', project, connection })}>
               <TrashIcon />
-              Remove
+              Delete
             </MenuItem>
           ) : null}
         </>

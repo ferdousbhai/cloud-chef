@@ -161,7 +161,7 @@ test('shows a team member the projects shared with them, and Edit only where the
   // Cloning only reads it, through CloudChef's own git address, as Download ZIP does.
   await expect(page.getByRole('menuitem', { name: 'Clone' })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: 'Share' })).toHaveCount(0);
-  await expect(page.getByRole('menuitem', { name: 'Remove' })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0);
   await assertClean();
 });
 
@@ -298,5 +298,66 @@ test("shows a team admin what their members asked for, from the header's Approva
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
     true,
   );
+  await assertClean();
+});
+
+test('deletes a project only after listing what goes with it and having its name typed', async ({ page }, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' }, [
+    {
+      id: '00000000-0000-4000-8000-000000000020',
+      name: 'Booking site',
+      fullName: 'ada/booking-site',
+      role: 'edit',
+      repo: 't-booking',
+      visibility: 'private',
+      canManage: true,
+      siteUrl: `${SITE_ORIGIN}/`,
+    },
+  ]);
+  await page.route('**/api/projects/delete/preview', (route) =>
+    route.fulfill({
+      json: {
+        sites: [`${SITE_ORIGIN}/`],
+        workers: ['booking-site'],
+        resources: [
+          { kind: 'database', id: 'db-1', name: 'booking-data' },
+          { kind: 'storage', id: 'booking-photos', name: 'booking-photos' },
+        ],
+        kept: [{ kind: 'storage', id: 'shared-logos', name: 'shared-logos', reason: 'another Worker uses it' }],
+        repository: 't-booking',
+      },
+    }),
+  );
+  const deletions: unknown[] = [];
+  await page.route('**/api/projects/delete', (route) => {
+    deletions.push(route.request().postDataJSON());
+    return route.fulfill({ json: { deleted: ['Worker booking-site'] } });
+  });
+
+  await page.goto('/');
+  const booking = page.getByRole('listitem').filter({ hasText: 'ada/booking-site' });
+  await booking.getByRole('button', { name: 'More for ada/booking-site' }).click();
+  await page.getByRole('menuitem', { name: 'Delete' }).click();
+
+  const dialog = page.getByRole('dialog', { name: 'Delete Booking site?' });
+  await expect(dialog).toContainText('can’t be undone');
+  await expect(dialog).toContainText('Database booking-data');
+  await expect(dialog).toContainText('File storage shared-logos: another Worker uses it');
+  const confirm = dialog.getByRole('button', { name: 'Delete' });
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole('textbox').fill('Booking');
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole('textbox').fill('Booking site');
+  await expect(confirm).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('delete-project.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
+    true,
+  );
+
+  await confirm.click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByText('ada/booking-site')).toHaveCount(0);
+  expect(deletions).toEqual([{ projectId: '00000000-0000-4000-8000-000000000020', confirm: 'Booking site' }]);
   await assertClean();
 });

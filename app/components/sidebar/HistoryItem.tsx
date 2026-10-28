@@ -94,8 +94,8 @@ export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItem
               }}
             />
             <ChatActionButton
-              toolTipContent="Remove"
-              label={`Remove ${description}`}
+              toolTipContent="Delete"
+              label={`Delete ${description}`}
               icon={<TrashIcon />}
               onClick={() => {
                 handleDeleteClick(item);
@@ -115,7 +115,7 @@ const ChatActionButton = ({
   onClick,
 }: {
   toolTipContent: string;
-  /** Names the project too: a screen reader's list of buttons otherwise reads "Rename, Remove" for every row. */
+  /** Names the project too: a screen reader's list of buttons otherwise reads "Rename, Delete" for every row. */
   label: string;
   icon: React.ReactNode;
   onClick: () => void;

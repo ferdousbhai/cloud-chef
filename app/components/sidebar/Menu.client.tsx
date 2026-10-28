@@ -1,7 +1,5 @@
 import { motion, MotionConfig, type Variants } from 'framer-motion';
 import { memo, useEffect, useRef, useState } from 'react';
-import { toast } from 'sonner';
-import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import { cubicEasingFn } from '~/utils/easings';
 import { logger } from 'cloudchef-agent/utils/logger';
@@ -15,13 +13,12 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
 import { PlusIcon } from '@radix-ui/react-icons';
 import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
-import { ProjectTitle } from '~/components/ProjectTitle';
+import { AppDeletionNotice, DeleteProjectDialog } from '~/components/projects/DeleteProjectDialog.client';
 import { OrgProjectsList } from './OrgProjectsList.client';
 import { useStore } from '@nanostores/react';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient } from '~/lib/auth-client';
-import { Link } from '@tanstack/react-router';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 
 const menuVariants = {
@@ -93,12 +90,11 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
     if (!accountUserId) {
       return;
     }
-
     try {
       await removeProject(accountUserId, item.initialId, activeChatId);
     } catch (error) {
-      toast.error('Failed to remove project');
       logger.error(error);
+      throw new Error('The project couldn’t be deleted. Try again.');
     }
   };
 
@@ -256,15 +252,12 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
             </section>
           ))}
           {deleteTarget && (
-            <ConfirmationDialog
+            <DeleteProjectDialog
+              name={deleteTarget.description || 'Untitled project'}
+              summary={<AppDeletionNotice />}
+              onDelete={() => deleteItem(deleteTarget)}
+              onDeleted={closeDialog}
               onClose={closeDialog}
-              confirmText="Remove"
-              onConfirm={() => {
-                void deleteItem(deleteTarget);
-                closeDialog();
-              }}
-              dialogTitle="Remove project"
-              dialogBody={<RemoveProjectNotice title={deleteTarget.description || 'Untitled project'} />}
             />
           )}
         </div>
@@ -275,23 +268,3 @@ export const Menu = memo(({ isOpen, onClose }: MenuProps) => {
 });
 
 Menu.displayName = 'Menu';
-
-/**
- * What removing one of the person's own apps does. The grace period is `AGENT_GC_GRACE_PERIOD_MS`,
- * after which the sweeps delete its Cloudflare resources and workspace. A GitHub project's conversation
- * is never listed here, so its repository and Workers Builds deployment need no mention.
- */
-export function RemoveProjectNotice({ title }: { title: string }) {
-  return (
-    <div className="space-y-2">
-      <p>
-        You are about to remove <ProjectTitle className="font-medium text-content-primary">{title}</ProjectTitle>.
-      </p>
-      <p className="text-content-secondary">
-        It leaves your project list now. After a 30-minute grace period, its live site, databases, stored files, and
-        workspace are deleted. Provider-retained logs and browser data are not erased. See the{' '}
-        <Link to="/privacy">Privacy notice</Link>.
-      </p>
-    </div>
-  );
-}

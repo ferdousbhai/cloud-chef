@@ -69,6 +69,7 @@ import {
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
   userRuntimeProjectCopyAction,
+  userRuntimeDeleteProjectRepositoryAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectReadAccessAction,
   userRuntimeRevokeReadAccessAction,
@@ -3175,6 +3176,8 @@ async function handleUserRequest(
     response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/read-access/revoke') {
     response = await userRuntimeRevokeReadAccessAction({ request, env: sharedEnv });
+  } else if (request.method === 'POST' && url.pathname === '/v1/projects/delete-repository') {
+    response = await userRuntimeDeleteProjectRepositoryAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/copy') {
     response = await userRuntimeProjectCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/deploy') {

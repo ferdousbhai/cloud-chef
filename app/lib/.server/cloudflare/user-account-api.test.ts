@@ -44,6 +44,35 @@ afterEach(() => {
 });
 
 describe('UserCloudflareAccountApi', () => {
+  test("reads the resources a Worker binds from its settings, and none for a Worker that's gone", async () => {
+    const request = vi.fn<typeof fetch>(async (input) =>
+      String(input).endsWith('/workers/scripts/shop/settings')
+        ? Response.json({
+            success: true,
+            result: {
+              bindings: [
+                { type: 'd1', name: 'DB', id: 'db-1' },
+                { type: 'kv_namespace', name: 'CACHE', namespace_id: 'kv-1' },
+                { type: 'r2_bucket', name: 'FILES', bucket_name: 'shop-files' },
+                { type: 'queue', name: 'ORDERS', queue_name: 'orders' },
+                { type: 'plain_text', name: 'MODE', text: 'live' },
+                { type: 'durable_object_namespace', name: 'ROOM', class_name: 'Room' },
+              ],
+            },
+          })
+        : Response.json({ success: false, errors: [{ code: 10007, message: 'not found' }] }, { status: 404 }),
+    );
+    const api = accountApi('account-1', 'user-token', request);
+
+    expect(await api.workerBindings('shop')).toEqual([
+      { kind: 'd1', id: 'db-1' },
+      { kind: 'kv', id: 'kv-1' },
+      { kind: 'r2', bucket: 'shop-files' },
+      { kind: 'other', type: 'queue', name: 'orders' },
+    ]);
+    expect(await api.workerBindings('gone')).toBeNull();
+  });
+
   test("reads a Worker's custom domains and its workers.dev address, only when served there, in one request", async () => {
     const tag = 'd367538bf2e84573a30d43ffceaaaa0e';
     const worker = (subdomainEnabled: boolean) =>

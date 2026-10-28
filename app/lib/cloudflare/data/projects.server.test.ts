@@ -13,6 +13,7 @@ import {
   userRuntimeProjectArchiveAction,
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
+  userRuntimeDeleteProjectRepositoryAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
   userRuntimeProjectUploadAction,
@@ -570,5 +571,40 @@ describe('copying an app into a new app of this person', () => {
     );
     expect(revoked.status).toBe(204);
     expect(artifacts.revoked).toContain(tokenId);
+  });
+});
+
+describe('deleting a project’s repository', () => {
+  it('deletes it only once CloudChef says this person may delete the project, and again is done', async () => {
+    const { env, artifacts, commit, store } = await setup();
+    await commit('t-storefront', 'v1', 'First');
+    let answer: Response = Response.json(
+      { error: 'Only the project’s owner, or one of its team’s admins, can delete it.' },
+      { status: 403 },
+    );
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+      String(input).endsWith('runtime-projects/deletable')
+        ? answer.clone()
+        : new Response('unavailable', { status: 503 }),
+    );
+    const ask = () =>
+      userRuntimeDeleteProjectRepositoryAction(
+        {
+          request: new Request('https://runtime.test/v1/projects/delete-repository', {
+            method: 'POST',
+            body: JSON.stringify({ orgProjectId: TEAM_PROJECT }),
+          }),
+          env,
+        },
+        store,
+      );
+
+    expect((await ask()).status).toBe(403);
+    expect(artifacts.repos.has('t-storefront')).toBe(true);
+
+    answer = Response.json({ repo: 't-storefront' });
+    expect((await ask()).status).toBe(204);
+    expect(artifacts.repos.has('t-storefront')).toBe(false);
+    expect((await ask()).status).toBe(204);
   });
 });

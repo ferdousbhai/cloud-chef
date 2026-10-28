@@ -117,6 +117,27 @@ export async function openProject(env: RuntimeEnv, identity: Identity, orgProjec
   return readAnswer(response, openedProjectSchema, 'CloudChef could not open the project.');
 }
 
+const deletableSchema = z.object({ repo: z.string().nullable() });
+
+/**
+ * The repository of a project this runtime's person may delete (its owner, or one of its team's admins), for the
+ * runtime to delete; null when it never had one. Throws `ProjectAccessError` when they may not.
+ */
+export async function deletableProjectRepository(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+): Promise<string | null> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/deletable', { orgProjectId });
+  if (response.status === 401 || response.status === 403 || response.status === 404) {
+    throw new ProjectAccessError(
+      await failureMessage(response, 'Only the project’s owner, or one of its team’s admins, can delete it.'),
+      response.status,
+    );
+  }
+  return (await readAnswer(response, deletableSchema, 'CloudChef could not check the project.')).repo;
+}
+
 const accessMemberSchema = z.object({ member: memberSchema.nullable().optional().catch(null) });
 
 /**
