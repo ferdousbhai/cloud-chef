@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { isWorkspaceReadOnlyToolName, WORKSPACE_TOOL_NAMES } from '../../cloudchef-agent/model-tool-inputs';
+import { isWorkspaceReadOnlyToolName, MODEL_TOOL_NAMES } from '../../cloudchef-agent/model-tool-inputs';
 
-const WORKSPACE_READ_ONLY_TOOL_NAMES = WORKSPACE_TOOL_NAMES.filter(isWorkspaceReadOnlyToolName);
+const WORKSPACE_READ_ONLY_TOOL_NAMES = MODEL_TOOL_NAMES.filter(isWorkspaceReadOnlyToolName);
 import { BUILDER_TOOL_DEADLINES_MS } from '../../app/lib/.server/llm/builder-turn-limits';
 import {
   CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS,
@@ -31,13 +31,10 @@ describe('operation lease policy', () => {
   it('maps every model tool that can hold the workspace to a lane', () => {
     const governed = new Set(Object.values(OPERATION_LANE_TOOLS).flat());
 
-    // The VFS-only workspace tools never take a lane; everything else must. A discovery tool that slipped into a lane would wait on the container it exists to
-    // avoid.
+    // The VFS-only read never takes a lane; everything else must. A read that slipped into a lane would wait on
+    // the container it exists to avoid.
     expect(Object.keys(BUILDER_TOOL_DEADLINES_MS).filter((tool) => !governed.has(tool as never))).toEqual([
       ...WORKSPACE_READ_ONLY_TOOL_NAMES,
-      // cloudflare_request is sent by the runtime Worker directly and must never take a
-      // workspace lane, so it belongs with the other ungoverned tools.
-      'cloudflare_request',
     ]);
   });
 

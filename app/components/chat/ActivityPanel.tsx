@@ -10,7 +10,7 @@ import type {
 import { activityRevealStore } from '~/lib/stores/activity-reveal';
 import { AssistantMessage } from './AssistantMessage';
 import { DetailsToggle } from './DetailsToggle';
-import { validationFailed } from './validation-verdict';
+import { isValidationCall, validationFailed } from './validation-verdict';
 import styles from './BaseChat.module.css';
 
 const filePathInput = z.object({ path: z.string() });
@@ -134,7 +134,7 @@ function ActivityRun({
       }),
   );
   const validation = tools.findLast(
-    (tool) => tool.toolName === 'validate' && (tool.state === 'output-available' || tool.state === 'output-error'),
+    (tool) => isValidationCall(tool) && (tool.state === 'output-available' || tool.state === 'output-error'),
   );
   const summary = [
     `${tools.length} tool step${tools.length === 1 ? '' : 's'}`,

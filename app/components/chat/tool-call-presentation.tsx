@@ -7,31 +7,25 @@ import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudc
 import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
+import { VALIDATE_COMMAND } from 'cloudchef-agent/constants';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z } from 'zod';
-import { cloudflareApiRequestDisplaySchema, cloudflareApiRequestIsRead } from 'cloudchef-agent/cloudflare-api';
 import { isCloudChefToolResult, toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type { LinkedPublishView } from '~/lib/common/linked-publish';
-import { validationFailed } from './validation-verdict';
+import { attachedValidation, validationFailed } from './validation-verdict';
 
 const MAX_TOOL_TITLE_VALUE_CHARACTERS = 160;
 /** Keyed by the model-facing tool name, which arrives as an unconstrained string on the invocation. */
 const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['read', 'File read stopped'],
-  ['ls', 'File listing stopped'],
-  ['grep', 'File search stopped'],
   ['write', 'File write stopped'],
   ['edit', 'File edit stopped'],
   ['exec', 'Command stopped'],
-  ['validate', 'Checks stopped'],
-  ['cloudflare_request', 'Cloudflare API request stopped'],
   ['publish_preview', 'Preview stopped'],
   ['publish', 'Publishing stopped'],
   ['commit', 'Saving stopped'],
   ['history', 'History search stopped'],
 ]);
-
-const cloudflareRequestMethodSchema = cloudflareApiRequestDisplaySchema.pick({ method: true });
 
 /** A team project's publish that was not sent, or whose build failed or hit a conflict. */
 function publishFailed(publish: LinkedPublishView): boolean {
@@ -82,10 +76,6 @@ export function toolTitle(
   switch (invocation.toolName) {
     case 'read':
       return readTitle(invocation, status);
-    case 'ls':
-      return listTitle(invocation, status);
-    case 'grep':
-      return searchTitle(invocation, status);
     case 'write':
       return writeTitle(invocation);
     case 'edit':
@@ -95,6 +85,9 @@ export function toolTitle(
         return publishTitle(publish);
       }
       const args = MODEL_TOOL_INPUT_SCHEMAS.exec.safeParse(invocation.input);
+      if (args.data?.command.trim() === VALIDATE_COMMAND) {
+        return validationTitle(invocation, status);
+      }
       return titleRow(
         args.success
           ? `${status === 'running' ? 'Running' : 'Ran'} ${compactToolLabel(args.data.command)}`
@@ -104,12 +97,6 @@ export function toolTitle(
         <FileIcon />,
       );
     }
-    case 'validate':
-      return isToolActivityStatusActive(status)
-        ? titleRow('Checking the project')
-        : validationFailed(invocation)
-          ? titleRow('Checks failed', <Cross2Icon className="text-content-secondary" />)
-          : titleRow('Checked the project', <CheckIcon className="text-content-secondary" />);
     case 'commit':
       return isToolActivityStatusActive(status)
         ? titleRow('Saving a version')
@@ -119,18 +106,6 @@ export function toolTitle(
               alreadySaved(invocation) ? 'Already saved' : 'Saved a version',
               <CheckIcon className="text-content-secondary" />,
             );
-    case 'cloudflare_request': {
-      const request = cloudflareRequestMethodSchema.safeParse(invocation.input).data;
-      return request && cloudflareApiRequestIsRead(request)
-        ? titleRow(
-            status === 'running' ? 'Reading Cloudflare account' : 'Read Cloudflare account',
-            <MagnifyingGlassIcon className="text-content-secondary" />,
-          )
-        : titleRow(
-            status === 'running' ? 'Preparing Cloudflare change' : 'Cloudflare change proposal',
-            <Pencil1Icon className="text-content-secondary" />,
-          );
-    }
     case 'publish_preview':
     case 'publish':
       if (publish) {
@@ -145,6 +120,15 @@ export function toolTitle(
     default:
       return invocation.toolName;
   }
+}
+
+/** The project's full checks, run as `cloudchef validate`. */
+function validationTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
+  return isToolActivityStatusActive(status)
+    ? titleRow('Checking the project')
+    : validationFailed(invocation)
+      ? titleRow('Checks failed', <Cross2Icon className="text-content-secondary" />)
+      : titleRow('Checked the project', <CheckIcon className="text-content-secondary" />);
 }
 
 /** A publish's title as its build stands: building, built, or failed. */
@@ -190,7 +174,7 @@ function alreadySaved(invocation: CloudChefToolInvocation): boolean {
 }
 
 export function isErrorResult(invocation: CloudChefToolInvocation): boolean {
-  if (invocation.toolName === 'validate') {
+  if (attachedValidation(invocation)) {
     return validationFailed(invocation);
   }
   return (
@@ -239,25 +223,6 @@ function readTitle(invocation: CloudChefToolInvocation, status: ToolActivityStat
   return titleRow(
     `${status === 'running' ? 'Reading' : 'Read'} ${renderedPath}${extra}`,
     <FileIcon className="text-content-secondary" />,
-  );
-}
-
-function listTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
-  const args = MODEL_TOOL_INPUT_SCHEMAS.ls.safeParse(invocation.input);
-  const target = args.success && args.data.path ? getRelativePath(args.data.path) || args.data.path : 'the project';
-  return titleRow(
-    `${status === 'running' ? 'Listing' : 'Listed'} ${compactToolLabel(target)}`,
-    <FileIcon className="text-content-secondary" />,
-  );
-}
-
-function searchTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
-  const args = MODEL_TOOL_INPUT_SCHEMAS.grep.safeParse(invocation.input);
-  return titleRow(
-    args.success
-      ? `${status === 'running' ? 'Searching' : 'Searched'} for ${compactToolLabel(args.data.pattern)}`
-      : `${status === 'running' ? 'Searching' : 'Searched'} the project`,
-    <MagnifyingGlassIcon className="text-content-secondary" />,
   );
 }
 

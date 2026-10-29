@@ -5,7 +5,7 @@ import type { Tool } from 'cloudchef-agent/tool';
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   createWorkersAiTools: vi.fn(),
-  toolNames: ['read', 'ls', 'grep', 'write', 'edit', 'exec', 'validate'] as const,
+  toolNames: ['read', 'write', 'edit', 'exec'] as const,
 }));
 
 vi.mock('./workers-ai-tools', () => ({
@@ -41,8 +41,6 @@ describe('Pi tool adapter', () => {
 
   it.each([
     ['read', { path: '/home/project/src/app.ts' }],
-    ['ls', { recursive: true }],
-    ['grep', { pattern: 'createRouter' }],
     ['write', { path: '/home/project/src/app.ts', content: 'export {};' }],
     ['edit', { path: '/home/project/src/app.ts', old_string: 'export {};', new_string: 'changed' }],
     ['exec', { command: 'pnpm test' }],

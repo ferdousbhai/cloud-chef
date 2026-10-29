@@ -32,18 +32,14 @@ export const BUILDER_TURN_FIRST_PROGRESS_MS = 60_000;
  * failed tool result: the model sees it and decides what to do next, and the turn goes on.
  */
 export const BUILDER_TOOL_DEADLINES_MS = {
+  // A read never leaves the Durable Object, so two minutes of it is already a wedged workspace rather than
+  // slow work; it must not inherit a container-sized deadline.
   read: 2 * 60_000,
-  // Discovery never leaves the Durable Object, so a minute of it is already a wedged workspace
-  // rather than slow work; it must not inherit a container-sized deadline.
-  ls: 60_000,
-  grep: 60_000,
   write: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
   edit: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
+  // Also the longest a Cloudflare change `cf` asked for can wait for the person's approval inside the command;
+  // the approval itself expires sooner.
   exec: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
-  validate: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
-  // Reads are one bounded API request; writes only persist an approval proposal. An approved
-  // write runs later in its own durable fiber under the client's own deadline.
-  cloudflare_request: 90_000,
 } as const satisfies Record<ModelToolName, number>;
 
 export class BuilderToolDeadlineError extends Error {

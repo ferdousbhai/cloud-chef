@@ -71,7 +71,6 @@ import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/li
 import { logProviderFailure } from './provider-error-logging';
 import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-error';
 import type { PiSteeringQueue } from './pi-steering';
-import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 type Messages = CloudChefMessage[];
@@ -101,11 +100,11 @@ export interface PiAgentOptions {
   /** For a gateway provider's model: which of the account's keys for it, as Cloudflare last changed it; a different key forgets what the old one was refused. */
   gatewayKeyRevision?: string;
   workspace: BuilderWorkspaceApi;
-  cloudflareApi?: CloudflareApiModelToolContext;
   /** Set when the workspace is one of a team's projects: its name and default branch, for the prompt. */
   linkedProject?: { repository: string; defaultBranch: string };
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   pushResult?: BuilderOperationContext['pushResult'];
+  cloudflareChange?: BuilderOperationContext['cloudflareChange'];
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
   onSettled: (report: BuilderTurnReport) => void;
@@ -180,10 +179,10 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     gatewayLogging,
     gatewayKeyRevision,
     workspace,
-    cloudflareApi,
     linkedProject,
     onValidationStage,
     pushResult,
+    cloudflareChange,
     runWithKeepAlive,
     steering,
     onSettled,
@@ -223,10 +222,8 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       skillContext,
       piTools: createPiToolBundle(
         workspace,
-        { onValidationStage, pushResult, runWithKeepAlive },
+        { onValidationStage, pushResult, cloudflareChange, runWithKeepAlive },
         skillContext.reader,
-        cloudflareApi,
-        linkedProject !== undefined,
       ),
     };
   });
@@ -300,7 +297,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
   let currentTurnStreamedContent = false;
   let runtimeContextCompacted = false;
   let toolIndeterminateError: WorkspaceToolOperationIndeterminateError | undefined;
-  let cloudflareApprovalPending = false;
   let terminalReason: BuilderTurnTerminalReason = 'failed';
   let stepCount = 0;
   let toolCallCount = 0;
@@ -310,8 +306,8 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
   let firstProgressTimer: ReturnType<typeof setTimeout> | undefined;
   const toolAccounting = createToolTimeAccounting();
 
-  /** Stop for an indeterminate workspace operation or a pending user approval. */
-  const turnInterrupted = () => toolIndeterminateError !== undefined || cloudflareApprovalPending;
+  /** Stop for an indeterminate workspace operation. */
+  const turnInterrupted = () => toolIndeterminateError !== undefined;
 
   const clearInactivityWatchdog = () => {
     clearTimeout(inactivityTimer);
@@ -462,12 +458,6 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     if (event.type === 'tool_execution_end') {
       const result = piToolResultDetails(event.result);
       toolIndeterminateError ??= event.isError ? toolIndeterminateErrorFromResult(event.result) : undefined;
-      // A proposal (or a change filed for a team's admins) is a completed tool result, but it deliberately ends
-      // this Pi run before another model step.
-      cloudflareApprovalPending ||=
-        event.toolName === 'cloudflare_request' &&
-        isRecord(result) &&
-        (result.kind === 'cloudflare_request_proposal' || result.kind === 'cloudflare_request_filed');
       if (event.isError && !hasStructuredToolResult(event.result)) {
         await writer.write({
           type: 'tool-output-error',

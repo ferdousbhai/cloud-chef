@@ -69,7 +69,6 @@ import {
 import { createWorkersAiSessionAffinity } from '~/lib/.server/llm/workers-ai-prompt-cache';
 import {
   boundBuilderMessageForPersistence,
-  builderTranscriptBindingsEqual,
   loadBuilderTranscriptBinding,
   loadConversationScope,
   recordAppAdoption,
@@ -155,14 +154,17 @@ import type { BuilderValidationStage } from '~/lib/common/builder-validation-pro
 import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
+import { isRecord } from 'cloudchef-agent/utils/isRecord';
 import type { DeploymentExecution } from '~/server-handlers/deployments';
 import { toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import { reviewDomainChange } from './cloudflare-domain-review';
 import {
   BuilderCloudflareExecutionRepository,
-  CLOUDFLARE_EXECUTION_RISK_NOTE,
+  cloudflareChangeAnswer,
+  CloudflareExecutionDecisionError,
   cloudflareExecutionStatusForOutcome,
   isCloudflareExecutionTerminal,
+  ONE_CHANGE_PER_COMMAND,
   publicExecutionState,
   safeCloudflareExecutionOutcome,
   sameCloudflareConnectionIdentity,
@@ -172,23 +174,22 @@ import {
 import {
   cloudflareApiRequestIsRead,
   CloudflareApiRequestRejectedError,
+  cloudflareApiRequestSchema,
   normalizeCloudflareApiRequest,
   type CloudflareApiRequest,
-  type CloudflareApiRequestInput,
   type CloudflareExecutionDecisionResult,
   type CloudflareExecutionPublicState,
   type CloudflareExecutionSafeOutcome,
   type CloudflareRequestFiled,
   type CloudflareRequestFinalResult,
-  type CloudflareRequestImmediateResult,
-  type CloudflareRequestProposal,
 } from 'cloudchef-agent/cloudflare-api';
+import { cloudflareApiErrorBody, type CloudflareChangeAnswer } from '~/lib/.server/cloudflare/cloudflare-api-proxy';
 import {
   readCloudflareApiRuntimeIdentity,
   type RuntimeConnectionIdentity,
   runtimeConnectionIdentity,
 } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { CloudflareApiClient, type CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
+import { CloudflareApiClient } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import {
   confirmUserWorkspaceAccess,
   modelRequestAccess,
@@ -201,12 +202,13 @@ import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.se
 import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
 import { requireBuilderModel, requireBuilderReasoningLevel } from '~/lib/.server/llm/workers-ai-model-catalog';
-import type {
-  CloudflareApiModelToolContext,
-  ModelToolExecutionOptions,
-} from '~/lib/.server/llm/cloudflare-api-model-tools';
 
 const logger = createScopedLogger('ConversationAgent');
+
+/** A change `cf` asked for that is answered at once, in Cloudflare's error shape so `cf` prints why. */
+function refusedChange(status: number, message: string): CloudflareChangeAnswer {
+  return { kind: 'answer', status, body: cloudflareApiErrorBody(message) };
+}
 
 /**
  * The tool-call identity every publication of one validated revision shares. Deployment and its
@@ -301,9 +303,13 @@ const contextCompactionJobSchema = z.object({ throughMessageId: z.string().min(1
 
 const cloudflareExecutionDecisionSchema = z.object({ executionId: z.string().uuid() }).strict();
 
-const TEAM_READ_REFUSAL =
-  'In a team’s account only its admins read the account directly. Propose the change itself: it goes to the ' +
-  'team’s admins to approve.';
+const workspaceCloudflareChangeSchema = z.object({
+  toolCallId: z.string().min(1).max(512),
+  request: cloudflareApiRequestSchema,
+});
+const WORKSPACE_CHANGE_REFUSAL = 'This workspace can’t change the Cloudflare account.';
+/** A change whose proxy hasn't asked about it for this long has no command waiting for it any more. */
+const CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS = 15_000;
 const TEAM_APPROVAL_NOTE =
   'This changes the team’s Cloudflare account. One of the team’s admins approves or rejects it on their Approvals ' +
   'page; approving sends this exact request once.';
@@ -313,9 +319,11 @@ const filedApprovalSchema = z.object({
   warning: z.string().nullable(),
 });
 const refusalSchema = z.object({ error: z.string() });
-/** A step whose change still waits for the team's admins. */
+/** A command whose change still waits for the team's admins. */
 const filedToolPartSchema = z.object({
-  output: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
+  output: z.object({
+    cloudflareChange: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
+  }),
 });
 const approvalOutcomeSchema = z.object({
   agentName: z.string(),
@@ -495,6 +503,10 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   private readonly contextCompaction = new DurableObjectContextCompactionRepository(this);
   private readonly identityRepository: ConversationAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
+  /** Changes a running command filed for the team's admins, until that command's output takes them. */
+  private readonly filedCloudflareChanges = new Map<string, CloudflareRequestFiled>();
+  /** When the proxy holding each waiting change last asked about it, by execution: a change no one waits for is not sent. */
+  private readonly waitingCloudflareChanges = new Map<string, number>();
   private readonly workspace: BuilderWorkspaceApi;
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
@@ -532,6 +544,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       env,
       () => this.workspaceProjectId(),
       () => this.userId,
+      () => this.name,
     );
     this.runtimeActivity = new BuilderRuntimeActivity({
       db: env.DB,
@@ -721,9 +734,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       if (!job) {
         return { status: 'error', error: 'missing Cloudflare execution recovery data' };
       }
-      const execution = this.cloudflareExecutions.recoverIndeterminate(job.executionId, job.proposalSha256);
+      this.cloudflareExecutions.recoverIndeterminate(job.executionId, job.proposalSha256);
       this.refreshCloudflareExecutionState();
-      await this.persistCloudflareExecutionResult(execution);
       return {
         status: 'error',
         error: 'The approved Cloudflare execution was interrupted and will not be replayed.',
@@ -842,7 +854,6 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       // The browser prepares the workspace before it sends, but nothing else seeds a new one.
       await this.initializeWorkspace(durableIdentity.transcript);
       await this.nameGitRepository(chatInitialId);
-      const cloudflareApi = await this.createCloudflareApiToolContext(durableIdentity.transcript);
       const linkedProject = await this.linkedProjectSummary();
       if (shouldGenerateTitle) {
         await this.scheduleTitleGeneration(
@@ -872,10 +883,10 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         }),
         gatewayKeyRevision,
         workspace: this.workspace,
-        cloudflareApi,
         linkedProject,
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         pushResult: (toolCallId) => this.gitPushResult(toolCallId),
+        cloudflareChange: async (toolCallId) => this.settleCommandCloudflareChange(toolCallId),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
         onSettled: () => {
@@ -1054,7 +1065,6 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!parsed.success) {
       throw new Response('Invalid Cloudflare execution decision.', { status: 400 });
     }
-    await this.waitForCloudflareDecisionBoundary();
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
     await this.refuseIfClosed();
     const proposal = await this.cloudflareExecutions.verify(parsed.data.executionId, binding);
@@ -1071,7 +1081,14 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       proposalSha256: proposal.proposalSha256,
     };
     await this.runtimeActivity.admit();
-    const fiber = await this.startFiber(
+    // Sent only while the command that asked still waits for it: its proxy asks again every few seconds.
+    const asked = this.waitingCloudflareChanges.get(proposal.executionId);
+    if (asked === undefined || Date.now() - asked > CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS) {
+      this.cloudflareExecutions.withdraw(proposal.toolCallId);
+      this.refreshCloudflareExecutionState();
+      throw new Response('The command that asked for this change has stopped, so it wasn’t sent.', { status: 409 });
+    }
+    await this.startFiber(
       CLOUDFLARE_EXECUTION_FIBER,
       async () => {
         await this.runtimeActivity.run(() => this.runApprovedCloudflareExecution(job, binding));
@@ -1087,10 +1104,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       throw new Error('The Cloudflare execution disappeared after its durable fiber completed.');
     }
     this.refreshCloudflareExecutionState();
-    return {
-      execution: publicExecutionState(execution),
-      resumeTurn: fiber.accepted && execution.status !== 'rejected' && execution.status !== 'expired',
-    };
+    return { execution: publicExecutionState(execution) };
   }
 
   @callable()
@@ -1099,12 +1113,10 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!parsed.success) {
       throw new Response('Invalid Cloudflare execution decision.', { status: 400 });
     }
-    await this.waitForCloudflareDecisionBoundary();
     const binding = await this.requireCurrentCloudflareExecutionBinding('reject_cloudflare_execution');
-    const { record, transitioned } = await this.cloudflareExecutions.reject(parsed.data.executionId, binding);
+    const { record } = await this.cloudflareExecutions.reject(parsed.data.executionId, binding);
     this.refreshCloudflareExecutionState();
-    await this.persistCloudflareExecutionResult(record);
-    return { execution: publicExecutionState(record), resumeTurn: transitioned };
+    return { execution: publicExecutionState(record) };
   }
 
   @callable()
@@ -2126,66 +2138,141 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     );
   }
 
-  private async createCloudflareApiToolContext(
-    transcript: BuilderTranscriptBinding,
-  ): Promise<CloudflareApiModelToolContext | undefined> {
-    if (
-      !this.userId ||
-      !this.transcriptBinding ||
-      !builderTranscriptBindingsEqual(this.transcriptBinding, transcript)
-    ) {
-      return undefined;
-    }
-    const expectedIdentity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
-    if (expectedIdentity) {
-      return expectedIdentity.userId === this.userId
-        ? { request: (input, options) => this.handleCloudflareRequest(input, options, expectedIdentity, transcript) }
-        : undefined;
-    }
-    // A team's member: their changes go to the team's admins, and CloudChef sends what an admin approves.
-    const member = runtimeConnectionIdentity(this.env);
-    return member && member.userId === this.userId && this.env.CLOUDCHEF_SHARED_ACCOUNT === '1'
-      ? { request: (input, options) => this.fileTeamCloudflareRequest(input, options, member, transcript) }
-      : undefined;
-  }
-
   /**
-   * A team member's change, filed for the team's admins. The member's workspace never holds the team account's
-   * authorization: reads are refused, and a change is checked and sent by CloudChef once an admin approves it.
+   * A change `cf` asked for while this conversation's command `toolCallId` runs (the runtime's CloudflareApiProxy
+   * asks). In the person's own account, or a team's for its admins, it waits in that command's place in the chat
+   * until the person approves or rejects it; a team member's goes to the team's admins. The answer is for `cf`.
    */
-  private async fileTeamCloudflareRequest(
-    input: CloudflareApiRequestInput,
-    options: ModelToolExecutionOptions,
-    identity: RuntimeConnectionIdentity,
-    transcript: BuilderTranscriptBinding,
-  ): Promise<CloudflareRequestImmediateResult | CloudflareRequestFiled> {
-    options.abortSignal?.throwIfAborted();
+  async proposeWorkspaceCloudflareChange(input: {
+    toolCallId: string;
+    request: CloudflareApiRequest;
+  }): Promise<CloudflareChangeAnswer> {
+    const parsed = workspaceCloudflareChangeSchema.safeParse(input);
+    const account = runtimeConnectionIdentity(this.env);
+    const transcript = this.transcriptBinding;
+    if (!parsed.success || !account || !this.userId || !transcript) {
+      return refusedChange(403, WORKSPACE_CHANGE_REFUSAL);
+    }
+    const { toolCallId } = parsed.data;
     let request: CloudflareApiRequest;
     try {
-      request = normalizeCloudflareApiRequest(input, identity.accountId);
+      request = normalizeCloudflareApiRequest(parsed.data.request, account.accountId);
     } catch (error) {
       if (!(error instanceof CloudflareApiRequestRejectedError)) {
         throw error;
       }
-      return cloudflareRequestFailure(identity.accountId, error.message);
+      return refusedChange(403, error.message);
     }
     if (cloudflareApiRequestIsRead(request)) {
-      return cloudflareRequestFailure(identity.accountId, TEAM_READ_REFUSAL);
+      return refusedChange(400, 'Only changes wait for approval.');
+    }
+    const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
+    if (!identity) {
+      // A team's member: their changes go to the team's admins, and CloudChef sends what an admin approves.
+      return account.userId === this.userId && this.env.CLOUDCHEF_SHARED_ACCOUNT === '1'
+        ? this.fileTeamCloudflareChange(toolCallId, request, account, transcript)
+        : refusedChange(403, WORKSPACE_CHANGE_REFUSAL);
+    }
+    if (identity.userId !== this.userId) {
+      return refusedChange(403, WORKSPACE_CHANGE_REFUSAL);
+    }
+    const review = await reviewDomainChange(request, (path) => this.readCloudflareText(identity, path));
+    if ('refusal' in review) {
+      return refusedChange(403, review.refusal);
+    }
+    let record: CloudflareExecutionRecord;
+    try {
+      record = await this.cloudflareExecutions.createProposal({
+        toolCallId,
+        binding: { ...identity, transcript },
+        request,
+        warning: review.warning,
+      });
+    } catch (error) {
+      if (error instanceof CloudflareExecutionDecisionError) {
+        return refusedChange(409, error.message);
+      }
+      throw error;
+    }
+    this.refreshCloudflareExecutionState();
+    return this.answerWaitingChange(record);
+  }
+
+  /** The answer for `cf`, noting that the proxy still waits when the change is not settled yet. */
+  private answerWaitingChange(record: CloudflareExecutionPublicState): CloudflareChangeAnswer {
+    const answer = cloudflareChangeAnswer(record);
+    if (answer.kind === 'waiting') {
+      this.waitingCloudflareChanges.set(record.executionId, Date.now());
+    } else {
+      this.waitingCloudflareChanges.delete(record.executionId);
+    }
+    return answer;
+  }
+
+  /** What became of a change the command `toolCallId` asked for: still waiting, or the answer for `cf`. */
+  async workspaceCloudflareChangeOutcome(input: {
+    toolCallId: string;
+    executionId: string;
+  }): Promise<CloudflareChangeAnswer> {
+    const record = this.cloudflareExecutions.get(input.executionId);
+    if (!record || record.toolCallId !== input.toolCallId) {
+      return refusedChange(404, 'This change is not waiting for approval.');
+    }
+    if (record.status === 'awaiting_approval' && record.expiresAt <= Date.now()) {
+      this.refreshCloudflareExecutionState();
+      return this.answerWaitingChange(this.cloudflareExecutions.get(input.executionId) ?? record);
+    }
+    return this.answerWaitingChange(record);
+  }
+
+  /** The command that asked for a change stopped while it waited: it is never sent. */
+  async withdrawWorkspaceCloudflareChange(input: { toolCallId: string; executionId: string }): Promise<void> {
+    const record = this.cloudflareExecutions.get(input.executionId);
+    if (record?.toolCallId === input.toolCallId && this.cloudflareExecutions.withdraw(input.toolCallId)) {
+      this.refreshCloudflareExecutionState();
+    }
+  }
+
+  /**
+   * After a command ends: a change it left waiting is withdrawn, since nothing waits for its answer any more, and
+   * a change it filed for the team's admins is given for its output, where their decision later lands.
+   */
+  private settleCommandCloudflareChange(toolCallId: string): CloudflareRequestFiled | undefined {
+    if (this.cloudflareExecutions.withdraw(toolCallId)) {
+      this.refreshCloudflareExecutionState();
+    }
+    const filed = this.filedCloudflareChanges.get(toolCallId);
+    this.filedCloudflareChanges.delete(toolCallId);
+    return filed;
+  }
+
+  /**
+   * A team member's change, filed for the team's admins. The member's workspace never holds the team account's
+   * authorization: a change is checked and sent by CloudChef once an admin approves it.
+   */
+  private async fileTeamCloudflareChange(
+    toolCallId: string,
+    request: CloudflareApiRequest,
+    identity: RuntimeConnectionIdentity,
+    transcript: BuilderTranscriptBinding,
+  ): Promise<CloudflareChangeAnswer> {
+    if (this.filedCloudflareChanges.has(toolCallId)) {
+      return refusedChange(409, ONE_CHANGE_PER_COMMAND);
     }
     const answer = await postRuntimeRoute(this.env, identity, 'runtime-projects/approvals/file', {
       agentName: transcript.agentName,
-      toolCallId: options.toolCallId,
+      toolCallId,
       requestJson: JSON.stringify(request),
     });
     const body: unknown = await answer.json().catch(() => null);
     const filed = filedApprovalSchema.safeParse(body);
     if (!answer.ok || !filed.success) {
-      return cloudflareRequestFailure(
-        identity.accountId,
+      return refusedChange(
+        answer.status === 403 ? 403 : 502,
         refusalSchema.safeParse(body).data?.error ?? 'The change couldn’t be sent to the team’s admins. Try again.',
       );
     }
-    return {
+    this.filedCloudflareChanges.set(toolCallId, {
       kind: 'cloudflare_request_filed',
       status: 'awaiting_team_admin',
       approvalId: filed.data.approvalId,
@@ -2195,8 +2282,13 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       expiresAt: filed.data.expiresAt,
       note:
         'Filed for the team’s admins, who approve or reject it on their Approvals page; CloudChef then sends it once. ' +
-        'Tell the person a team admin needs to approve it. Its result replaces this one when they decide.',
-    };
+        'Its result replaces this one when they decide.',
+    });
+    return refusedChange(
+      202,
+      'Not changed yet: this was sent to the team’s admins to approve. CloudChef makes the change once one of ' +
+        'them approves it, and its result shows in the chat.',
+    );
   }
 
   /** Reads back every change this conversation filed for the team's admins that still shows as waiting. */
@@ -2208,7 +2300,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     const waiting = this.messages.flatMap((message) =>
       message.parts.flatMap((part) => {
         const filed = filedToolPartSchema.safeParse(part);
-        return filed.success ? [filed.data.output.approvalId] : [];
+        return filed.success ? [filed.data.output.cloudflareChange.approvalId] : [];
       }),
     );
     for (const approvalId of waiting) {
@@ -2217,8 +2309,9 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   }
 
   /**
-   * A team admin decided a change this conversation filed: its result replaces the filed step's output. Answers
-   * whether it did; the control plane is asked what was decided, so nothing the caller says is taken on trust.
+   * A team admin decided a change this conversation filed: its result replaces the filed change in the output of
+   * the command that asked. Answers whether it did; the control plane is asked what was decided, so nothing the
+   * caller says is taken on trust.
    */
   async settleTeamApproval(input: { approvalId: string; ownerId: string }): Promise<boolean> {
     const durable = await this.readDurableIdentity();
@@ -2244,7 +2337,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!final) {
       return false;
     }
-    const output: CloudflareRequestFinalResult = {
+    const decision: CloudflareRequestFinalResult = {
       kind: 'cloudflare_request_final_result',
       executionId: input.approvalId,
       accountId: identity.accountId,
@@ -2253,8 +2346,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       outcome: outcome ?? { status: 'denied', summary: 'No team admin decided before the request expired.' },
     };
     const messages = replaceToolCallPart(this.messages, toolCallId, (part, invocation) =>
-      invocation.toolName === 'cloudflare_request' && invocation.state === 'output-available'
-        ? { ...part, output }
+      invocation.toolName === 'exec' && invocation.state === 'output-available' && isRecord(invocation.output)
+        ? { ...part, output: { ...invocation.output, cloudflareChange: decision } }
         : null,
     );
     if (messages) {
@@ -2263,109 +2356,12 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     return true;
   }
 
-  private async waitForCloudflareDecisionBoundary(): Promise<void> {
-    const stable = await this.waitUntilStable({ timeout: 30_000, pendingInteraction: () => false });
-    if (!stable) {
-      throw new Response('The builder turn has not finished storing this proposal.', { status: 409 });
-    }
-  }
-
-  /** Reads are sent now. Every other method becomes a durable proposal that pauses the turn for approval. */
-  private async handleCloudflareRequest(
-    input: CloudflareApiRequestInput,
-    options: ModelToolExecutionOptions,
-    expectedIdentity: RuntimeConnectionIdentity,
-    transcript: BuilderTranscriptBinding,
-  ): Promise<CloudflareRequestImmediateResult | CloudflareRequestProposal> {
-    options.abortSignal?.throwIfAborted();
-    let request: CloudflareApiRequest;
-    try {
-      request = normalizeCloudflareApiRequest(input, expectedIdentity.accountId);
-    } catch (error) {
-      if (!(error instanceof CloudflareApiRequestRejectedError)) {
-        throw error;
-      }
-      return cloudflareRequestFailure(expectedIdentity.accountId, error.message);
-    }
-    const write = !cloudflareApiRequestIsRead(request);
-    const identity = await this.readCurrentCloudflareApiIdentity(expectedIdentity);
-    if (!identity) {
-      return cloudflareRequestFailure(expectedIdentity.accountId, CLOUDFLARE_API_IDENTITY_CHANGED);
-    }
-    if (!write) {
-      const signal = options.abortSignal ?? new AbortController().signal;
-      let outcome: CloudflareApiOutcome;
-      try {
-        outcome = await this.createCloudflareApiClient(identity).send(request, signal);
-      } catch {
-        // A failed tool result lets the model report or retry instead of ending the turn.
-        signal.throwIfAborted();
-        return cloudflareRequestFailure(identity.accountId, 'The Cloudflare credential is unavailable.');
-      }
-      return {
-        kind: 'cloudflare_request_result',
-        // Only a change can be left half-applied; an unobserved read is simply a failure to retry.
-        status: outcome.status === 'indeterminate' ? 'failure' : outcome.status,
-        accountId: identity.accountId,
-        content: outcome.content,
-        requestId: outcome.requestId,
-        httpStatus: outcome.httpStatus,
-        truncated: outcome.truncated,
-      };
-    }
-    const review = await reviewDomainChange(request, (path) =>
-      this.readCloudflareText(identity, path, options.abortSignal),
-    );
-    if ('refusal' in review) {
-      return cloudflareRequestFailure(identity.accountId, review.refusal);
-    }
-    if (!this.transcriptBinding || !builderTranscriptBindingsEqual(this.transcriptBinding, transcript)) {
-      throw new Error('The transcript changed before the Cloudflare request proposal was stored.');
-    }
-    const record = await this.cloudflareExecutions.createProposal({
-      toolCallId: options.toolCallId,
-      binding: { ...identity, transcript },
-      request,
-    });
-    this.refreshCloudflareExecutionState();
-    return {
-      kind: 'cloudflare_request_proposal',
-      status: 'awaiting_approval',
-      executionId: record.executionId,
-      toolCallId: record.toolCallId,
-      accountId: record.accountId,
-      request: record.request,
-      proposalSha256: record.proposalSha256,
-      riskNote: review.warning ? `${review.warning} ${CLOUDFLARE_EXECUTION_RISK_NOTE}` : CLOUDFLARE_EXECUTION_RISK_NOTE,
-      expiresAt: record.expiresAt,
-    };
-  }
-
-  /** The approval fiber re-admits the stored change; a rejection there settles it as failed. */
-  private async requireCloudflareApiWriteAdmission(expectedIdentity: RuntimeConnectionIdentity): Promise<void> {
-    if (!(await this.readCurrentCloudflareApiIdentity(expectedIdentity))) {
-      throw new Error(CLOUDFLARE_API_IDENTITY_CHANGED);
-    }
-  }
-
-  /** The runtime's Cloudflare API identity, only while it is still the connection the turn started with. */
-  private async readCurrentCloudflareApiIdentity(
-    expectedIdentity: RuntimeConnectionIdentity,
-  ): Promise<RuntimeConnectionIdentity | null> {
-    const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
-    return identity && sameCloudflareConnectionIdentity(identity, expectedIdentity) ? identity : null;
-  }
-
   /** A read of the account's API by its path below `/client/v4`: the response's text, or null when it fails. */
-  private async readCloudflareText(
-    identity: RuntimeConnectionIdentity,
-    path: string,
-    signal = new AbortController().signal,
-  ): Promise<string | null> {
+  private async readCloudflareText(identity: RuntimeConnectionIdentity, path: string): Promise<string | null> {
     try {
       const outcome = await this.createCloudflareApiClient(identity).send(
         { method: 'GET', url: `https://api.cloudflare.com/client/v4${path}` },
-        signal,
+        new AbortController().signal,
       );
       return outcome.status === 'success' ? outcome.content : null;
     } catch {
@@ -2399,13 +2395,13 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         throw new Error('The approved Cloudflare execution digest changed.');
       }
       this.refreshCloudflareExecutionState();
-      await this.requireCloudflareApiWriteAdmission(binding);
+      // Re-admitted as it is sent: a demoted admin or a replaced connection sends nothing.
+      const current = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
+      if (!current || !sameCloudflareConnectionIdentity(current, binding)) {
+        throw new Error('The Cloudflare connection changed before the approved change was sent.');
+      }
       const executing = await this.cloudflareExecutions.beginExecution(job.executionId, binding);
       if (!executing) {
-        const settled = this.cloudflareExecutions.get(job.executionId);
-        if (settled && isCloudflareExecutionTerminal(settled.status)) {
-          await this.persistCloudflareExecutionResult(settled);
-        }
         return;
       }
       this.refreshCloudflareExecutionState();
@@ -2413,58 +2409,34 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         executing.request,
         new AbortController().signal,
       );
-      const safeOutcome = safeCloudflareExecutionOutcome(outcome);
-      const status = cloudflareExecutionStatusForOutcome(outcome);
-      const completed = this.cloudflareExecutions.complete(job.executionId, status, safeOutcome);
+      this.cloudflareExecutions.complete(
+        job.executionId,
+        cloudflareExecutionStatusForOutcome(outcome),
+        safeCloudflareExecutionOutcome(outcome),
+      );
       this.refreshCloudflareExecutionState();
-      await this.persistCloudflareExecutionResult(completed);
     } catch {
       const current = this.cloudflareExecutions.get(job.executionId);
       if (!current || isCloudflareExecutionTerminal(current.status)) {
-        if (current) {
-          await this.persistCloudflareExecutionResult(current);
-        }
         return;
       }
       const failure: CloudflareExecutionSafeOutcome = {
         status: 'failure',
-        summary: 'The approved Cloudflare execution could not be started safely.',
+        summary: 'The approved change could not be sent safely, so nothing was sent to Cloudflare.',
       };
-      const failed =
-        current.status === 'approved'
-          ? this.cloudflareExecutions.failApproved(job.executionId, failure)
-          : current.status === 'executing'
-            ? this.cloudflareExecutions.complete(job.executionId, 'failed', failure)
-            : this.cloudflareExecutions.recoverIndeterminate(job.executionId, job.proposalSha256);
+      if (current.status === 'approved') {
+        this.cloudflareExecutions.failApproved(job.executionId, failure);
+      } else if (current.status === 'executing') {
+        this.cloudflareExecutions.complete(job.executionId, 'failed', failure);
+      } else {
+        this.cloudflareExecutions.recoverIndeterminate(job.executionId, job.proposalSha256);
+      }
       // The raw error text stays out of the log by policy (runtime-log-privacy); the durable
       // outcome record carries what happened, keyed by executionId.
       logger.warn('Cloudflare execution fiber settled without a provider success', {
         executionId: job.executionId,
       });
       this.refreshCloudflareExecutionState();
-      await this.persistCloudflareExecutionResult(failed);
-    }
-  }
-
-  private async persistCloudflareExecutionResult(record: CloudflareExecutionRecord): Promise<void> {
-    if (!isCloudflareExecutionTerminal(record.status) || !record.outcome) {
-      return;
-    }
-    const output: CloudflareRequestFinalResult = {
-      kind: 'cloudflare_request_final_result',
-      executionId: record.executionId,
-      accountId: record.accountId,
-      proposalSha256: record.proposalSha256,
-      status: record.status,
-      outcome: record.outcome,
-    };
-    const messages = replaceToolCallPart(this.messages, record.toolCallId, (part, invocation) =>
-      invocation.toolName === 'cloudflare_request' && invocation.state === 'output-available'
-        ? { ...part, output }
-        : null,
-    );
-    if (messages) {
-      await this.persistReplacedToolOutput(messages);
     }
   }
 
@@ -3300,21 +3272,6 @@ function isSeedRefusal(error: Error): boolean {
 
 function deploymentErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Deployment failed.';
-}
-
-const CLOUDFLARE_API_IDENTITY_CHANGED =
-  'Cloudflare API requests are unavailable or the authenticated connection changed.';
-
-function cloudflareRequestFailure(accountId: string, content: string): CloudflareRequestImmediateResult {
-  return {
-    kind: 'cloudflare_request_result',
-    status: 'failure',
-    accountId,
-    content,
-    requestId: null,
-    httpStatus: null,
-    truncated: false,
-  };
 }
 
 /** Whether every one of `promises` settled within `timeoutMs`. */

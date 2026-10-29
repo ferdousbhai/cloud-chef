@@ -140,10 +140,10 @@ describe('AssistantMessage file grouping', () => {
               filePart('write', 'w1', 'src/b.css'),
               {
                 type: 'dynamic-tool',
-                toolName: 'validate',
+                toolName: 'exec',
                 toolCallId: 'v1',
                 state: 'output-available',
-                input: {},
+                input: { command: 'cloudchef validate' },
                 output: { summary: 'ok' },
               },
             ],

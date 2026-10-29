@@ -383,49 +383,6 @@ describe('piAgentRunner', () => {
     expect(chunks.at(-1)).toEqual({ type: 'finish', finishReason: 'stop' });
   });
 
-  it('ends the current run after cloudflare_request stores an approval proposal', async () => {
-    const proposal = {
-      kind: 'cloudflare_request_proposal',
-      status: 'awaiting_approval',
-      executionId: 'execution-1',
-      toolCallId: 'cloudflare-execute-1',
-      accountId: 'account-1',
-      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-      proposalSha256: 'a'.repeat(64),
-      riskNote: 'This exact digest requires approval.',
-      expiresAt: Date.now() + 60_000,
-    };
-    mocks.piRun.mockImplementation(
-      async (_context: AgentContext, config: StopAwareLoopConfig, emit: RunnerEventSink) => {
-        await emit({
-          type: 'tool_execution_end',
-          toolCallId: proposal.toolCallId,
-          toolName: 'cloudflare_request',
-          result: { details: proposal },
-          isError: false,
-        });
-        expect(await endsTurn(config)).toBe(true);
-        await emit({
-          type: 'turn_end',
-          message: assistantMessage([
-            { type: 'toolCall', id: proposal.toolCallId, name: 'cloudflare_request', arguments: {} },
-          ]),
-          toolResults: [],
-        });
-      },
-    );
-
-    const chunks = await collectChunks(await createAgentStream());
-
-    expect(chunks).toContainEqual({
-      type: 'tool-output-available',
-      toolCallId: proposal.toolCallId,
-      output: proposal,
-      dynamic: true,
-    });
-    expect(chunks.some((chunk) => chunk.type === 'error')).toBe(false);
-  });
-
   it('stops before another model turn after an indeterminate tool settlement', async () => {
     const payload = JSON.stringify({
       code: 'workspace_tool_operation_indeterminate',

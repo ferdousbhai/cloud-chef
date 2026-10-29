@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { BuilderCloudflareExecutionRepository, type CloudflareExecutionBinding } from './builder-cloudflare-execution';
+import { z } from 'zod';
+import type { CloudflareExecutionPublicState } from 'cloudchef-agent/cloudflare-api';
+import {
+  BuilderCloudflareExecutionRepository,
+  cloudflareChangeAnswer,
+  ONE_CHANGE_PER_COMMAND,
+  type CloudflareExecutionBinding,
+} from './builder-cloudflare-execution';
 
 type TestRow = {
   execution_id: string;
@@ -128,6 +135,16 @@ class TestExecutionStorage {
           (row.status === 'awaiting_approval' || row.status === 'approved' || row.status === 'executing');
         if (row && written) {
           row.status = 'indeterminate';
+          row.completed_at = Number(bindings[0]);
+          row.outcome_json = String(bindings[1]);
+        }
+        return result([], written ? 1 : 0);
+      }
+      if (normalized.includes("SET status = 'expired'") && normalized.includes('WHERE execution_id = ?')) {
+        const row = this.rows.get(String(bindings[2]));
+        const written = row?.status === 'awaiting_approval';
+        if (row && written) {
+          row.status = 'expired';
           row.completed_at = Number(bindings[0]);
           row.outcome_json = String(bindings[1]);
         }
@@ -265,6 +282,133 @@ describe('durable Cloudflare execution approval repository', () => {
     expect(recovered.status).toBe('indeterminate');
     expect(recovered.outcome?.status).toBe('indeterminate');
     await expect(repository.beginExecution(proposal.executionId, binding)).resolves.toBeNull();
+  });
+});
+
+describe('a change a workspace command asked for', () => {
+  const deleteSite = {
+    method: 'DELETE' as const,
+    url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/site',
+  };
+
+  it('shows the exact request with its risk, and CloudChef’s note on what it does', async () => {
+    const { repository } = executionRepository();
+    const proposal = await repository.createProposal({
+      toolCallId: 'exec-1',
+      binding,
+      request: deleteSite,
+      warning: 'This deletes the site people visit.',
+    });
+
+    expect(proposal).toMatchObject({
+      toolCallId: 'exec-1',
+      request: deleteSite,
+      riskNote: expect.stringMatching(/^This deletes the site people visit\. This changes your Cloudflare account/),
+    });
+  });
+
+  it('keeps one change per command: the same one again is the same proposal, another is refused', async () => {
+    const { repository } = executionRepository();
+    const first = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
+
+    await expect(
+      repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite }),
+    ).resolves.toMatchObject({ executionId: first.executionId });
+    await expect(
+      repository.createProposal({
+        toolCallId: 'exec-1',
+        binding,
+        request: { ...deleteSite, url: deleteSite.url.replace('site', 'other') },
+      }),
+    ).rejects.toThrow(ONE_CHANGE_PER_COMMAND);
+  });
+
+  it('withdraws the change of a command that ended before anyone decided, so it can never be approved', async () => {
+    const { repository } = executionRepository();
+    const proposal = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
+
+    expect(repository.withdraw('exec-1')).toBe(true);
+    expect(repository.withdraw('exec-1')).toBe(false);
+    const withdrawn = repository.get(proposal.executionId)!;
+    expect(withdrawn.status).toBe('expired');
+    expect(withdrawn.outcome?.summary).toContain('The command ended before anyone approved the change');
+    await expect(repository.approve(proposal.executionId, binding)).rejects.toThrow('can no longer be approved');
+  });
+
+  it('withdraws nothing once a change was approved', async () => {
+    const { repository } = executionRepository();
+    const proposal = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
+    await repository.approve(proposal.executionId, binding);
+
+    expect(repository.withdraw('exec-1')).toBe(false);
+    expect(repository.get(proposal.executionId)?.status).toBe('approved');
+  });
+});
+
+describe('what cf is answered about a change', () => {
+  const state = (overrides: Partial<CloudflareExecutionPublicState>): CloudflareExecutionPublicState => ({
+    executionId: 'execution-1',
+    toolCallId: 'exec-1',
+    accountId: 'account-1',
+    proposalSha256: 'a'.repeat(64),
+    status: 'awaiting_approval',
+    createdAt: 1,
+    decidedAt: null,
+    startedAt: null,
+    completedAt: null,
+    expiresAt: 2,
+    outcome: null,
+    request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/site' },
+    riskNote: 'risk',
+    ...overrides,
+  });
+  const errorSchema = z.object({ errors: z.array(z.object({ message: z.string() })) });
+  const message = (answer: ReturnType<typeof cloudflareChangeAnswer>) =>
+    answer.kind === 'answer' ? errorSchema.parse(JSON.parse(answer.body)).errors[0]?.message : null;
+
+  it.each(['awaiting_approval', 'approved', 'executing'] as const)('keeps cf waiting while it is %s', (status) => {
+    expect(cloudflareChangeAnswer(state({ status }))).toEqual({ kind: 'waiting', executionId: 'execution-1' });
+  });
+
+  it("answers with Cloudflare's own answer once the change was made", () => {
+    expect(
+      cloudflareChangeAnswer(
+        state({
+          status: 'succeeded',
+          outcome: { status: 'success', summary: 'applied', content: '{"success":true}', httpStatus: 200 },
+        }),
+      ),
+    ).toEqual({ kind: 'answer', status: 200, body: '{"success":true}' });
+  });
+
+  it('answers a success whose content was withheld without the content', () => {
+    const answer = cloudflareChangeAnswer(
+      state({
+        status: 'succeeded',
+        outcome: { status: 'success', summary: 'Withheld.', httpStatus: 200, sensitiveContentWithheld: true },
+      }),
+    );
+    expect(answer).toMatchObject({ kind: 'answer', status: 200 });
+    expect(answer.kind === 'answer' && JSON.parse(answer.body)).toMatchObject({ success: true, result: null });
+  });
+
+  it.each([
+    ['rejected', 'The person declined this change'],
+    ['expired', 'No one approved this change in time'],
+  ] as const)('says nothing was sent when the change was %s', (status, said) => {
+    const answer = cloudflareChangeAnswer(state({ status }));
+    expect(answer).toMatchObject({ kind: 'answer', status: 403 });
+    expect(message(answer)).toContain(said);
+    expect(message(answer)).toContain('nothing was sent');
+  });
+
+  it("passes on Cloudflare's error when the change failed", () => {
+    const error = '{"success":false,"errors":[{"code":7003,"message":"No route"}]}';
+    expect(
+      cloudflareChangeAnswer(
+        state({ status: 'failed', outcome: { status: 'failure', summary: error, httpStatus: 404 } }),
+      ),
+    ).toEqual({ kind: 'answer', status: 404, body: error });
   });
 });
 

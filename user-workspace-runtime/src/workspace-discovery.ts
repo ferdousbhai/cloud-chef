@@ -23,21 +23,13 @@ export type DiscoveryFilesystem = {
 };
 
 /**
- * Model-visible output ceiling shared by both discovery tools.
+ * Output ceiling of a search.
  *
- * A listing and a search result are generated streams, not a file the model named, so they are
- * bounded like exec output rather than like a read: the model can always narrow the prefix or the
- * pattern and ask again, it is told when the result was cut, and no byte is reachable only through
- * these tools.
+ * A search result is a generated stream, not a file someone named, so it is bounded like exec
+ * output rather than like a read: the caller can always narrow the pattern and ask again, it is told
+ * when the result was cut, and no byte is reachable only through a search.
  */
 export const DISCOVERY_MAX_OUTPUT_BYTES = COMPUTER_TOOL_LIMITS.execMaxBytesPerStream;
-
-/**
- * Entries per listing. A listing is navigation rather than content: a directory needing more than
- * a thousand paths to describe itself needs a narrower prefix, and spending the context window on
- * paths starves the reads that have to follow. The model is told when the listing was cut.
- */
-export const DISCOVERY_MAX_LIST_ENTRIES = 1_000;
 
 /**
  * Matches per search. A search returning more than this has a pattern too broad to act on; the
@@ -82,14 +74,6 @@ export const DISCOVERY_MAX_PATTERN_CHARS = 200;
 
 type ProjectEntry = { path: string; type: 'file' | 'dir' };
 
-type ProjectListing = {
-  path: string;
-  recursive: boolean;
-  entries: ProjectEntry[];
-  entryCount: number;
-  truncated: boolean;
-};
-
 type ProjectSearchMatch = { path: string; line: number; text: string };
 
 type ProjectSearchResult = {
@@ -102,8 +86,6 @@ type ProjectSearchResult = {
   truncated: boolean;
 };
 
-type ProjectListingOptions = { recursive: boolean; limit: number };
-
 type ProjectSearchOptions = { pattern: string; ignoreCase: boolean; limit: number };
 
 export type DiscoveryScope = {
@@ -114,15 +96,6 @@ export type DiscoveryScope = {
   /** Names of those directories, relative to the root. */
   prunedRoots: ReadonlySet<string>;
 };
-
-/** Validate the non-path listing arguments; the caller resolves the path because it owns the project-root rule. */
-export function requireProjectListingOptions(value: unknown): ProjectListingOptions {
-  const request = requireRecord(value);
-  return {
-    recursive: requireOptionalBoolean(request.recursive, 'recursive') ?? false,
-    limit: requireBoundedCount(request.limit, 'limit', DISCOVERY_MAX_LIST_ENTRIES),
-  };
-}
 
 /** Validate the non-path search arguments, including the untrusted pattern. */
 export function requireProjectSearchOptions(value: unknown): ProjectSearchOptions {
@@ -140,34 +113,6 @@ export function requireProjectSearchOptions(value: unknown): ProjectSearchOption
     pattern,
     ignoreCase: requireOptionalBoolean(request.ignoreCase, 'ignoreCase') ?? false,
     limit: requireBoundedCount(request.limit, 'limit', DISCOVERY_MAX_MATCHES),
-  };
-}
-
-/** Enumerate one directory, or the tree beneath it, straight from the VFS; a path naming a file lists that file. */
-export async function enumerateProjectEntries(
-  fs: DiscoveryFilesystem,
-  scope: DiscoveryScope,
-  options: ProjectListingOptions,
-): Promise<ProjectListing> {
-  const walk = await scopeWalk(fs, scope, options.recursive);
-  const entries: ProjectEntry[] = [];
-  let bytes = 0;
-  let truncated = false;
-  for await (const entry of walk.entries) {
-    const entryBytes = utf8Length(entry.path) + entry.type.length;
-    if (entries.length >= options.limit || bytes + entryBytes > DISCOVERY_MAX_OUTPUT_BYTES) {
-      truncated = true;
-      break;
-    }
-    entries.push(entry);
-    bytes += entryBytes;
-  }
-  return {
-    path: scope.path,
-    recursive: options.recursive,
-    entries,
-    entryCount: entries.length,
-    truncated: truncated || walk.stopped(),
   };
 }
 
