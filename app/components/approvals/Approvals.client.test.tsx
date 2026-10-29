@@ -11,6 +11,7 @@ const change: Approval = {
   orgId: 'org-1',
   orgName: 'Sites',
   kind: 'cloudflare_change',
+  source: 'agent',
   requester: { name: 'Sara', email: 'sara@example.com' },
   request: {
     method: 'POST',
@@ -87,12 +88,22 @@ describe('Approvals', () => {
     expect(text).toContain('Sites · from Sara · 5 min ago');
     expect(text).toContain('Create /accounts/a/workers/domains');
     expect(text).toContain('This puts shop.example.com on the Worker shop.');
+    expect(text).toContain('Sara’s agent asked for this.');
     expect(document.querySelector('details pre')?.textContent).toContain('"hostname": "shop.example.com"');
 
     await act(async () => button('Approve').click());
     await vi.waitFor(() => expect(document.body.textContent).toContain('Nothing is waiting for you.'));
     expect(decisions).toEqual([{ id: change.id, decision: 'approve' }]);
     expect(document.body.textContent).toContain('Approved by Ada, and Cloudflare made the change');
+  });
+
+  it('says when the member typed the change in their own terminal', async () => {
+    listed = { admin: true, waiting: [{ ...change, source: 'terminal' }], decided: [], productionRequests: [] };
+    await render();
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Cloudflare change'));
+
+    expect(document.body.textContent).toContain('Sara typed this in their workspace’s terminal.');
+    expect(document.body.textContent).not.toContain('agent asked');
   });
 
   it('lists members’ requests to make a draft a team project beside the changes', async () => {

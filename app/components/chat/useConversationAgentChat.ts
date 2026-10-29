@@ -694,17 +694,10 @@ async function refreshProjectMetadata(
   }
 }
 
-/** A command whose change waits for the team's admins, then the same command once they decided. */
-const filedOutputSchema = z.object({
-  output: z.object({
-    cloudflareChange: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
-  }),
-});
-const decidedOutputSchema = z.object({
-  output: z.object({
-    cloudflareChange: z.object({ kind: z.literal('cloudflare_request_final_result'), executionId: z.string() }),
-  }),
-});
+/** A command's changes filed for the team's admins: each one waiting, or what they decided. */
+const commandChangesSchema = z.object({ output: z.object({ cloudflareChanges: z.array(z.unknown()) }) });
+const filedChangeSchema = z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() });
+const decidedChangeSchema = z.object({ kind: z.literal('cloudflare_request_final_result'), executionId: z.string() });
 
 /**
  * Notes each change `messages` show waiting for a team's admins in `filed`, and answers those noted earlier that
@@ -713,14 +706,16 @@ const decidedOutputSchema = z.object({
 function decidedTeamApprovals(messages: readonly UIMessage[], filed: Set<string>): string[] {
   const decided: string[] = [];
   for (const part of messages.flatMap((message) => message.parts)) {
-    const waiting = filedOutputSchema.safeParse(part);
-    if (waiting.success) {
-      filed.add(waiting.data.output.cloudflareChange.approvalId);
-      continue;
-    }
-    const result = decidedOutputSchema.safeParse(part);
-    if (result.success && filed.has(result.data.output.cloudflareChange.executionId)) {
-      decided.push(result.data.output.cloudflareChange.executionId);
+    for (const change of commandChangesSchema.safeParse(part).data?.output.cloudflareChanges ?? []) {
+      const waiting = filedChangeSchema.safeParse(change);
+      if (waiting.success) {
+        filed.add(waiting.data.approvalId);
+        continue;
+      }
+      const result = decidedChangeSchema.safeParse(change);
+      if (result.success && filed.has(result.data.executionId)) {
+        decided.push(result.data.executionId);
+      }
     }
   }
   return decided;

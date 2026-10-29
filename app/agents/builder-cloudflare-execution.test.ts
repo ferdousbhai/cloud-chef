@@ -4,7 +4,6 @@ import type { CloudflareExecutionPublicState } from 'cloudchef-agent/cloudflare-
 import {
   BuilderCloudflareExecutionRepository,
   cloudflareChangeAnswer,
-  ONE_CHANGE_PER_COMMAND,
   type CloudflareExecutionBinding,
 } from './builder-cloudflare-execution';
 
@@ -42,8 +41,10 @@ class TestExecutionStorage {
         return result(row ? [row] : []);
       }
       if (normalized.startsWith('SELECT') && normalized.includes('WHERE tool_call_id = ?')) {
-        const row = [...this.rows.values()].find((candidate) => candidate.tool_call_id === bindings[0]);
-        return result(row ? [row] : []);
+        const rows = [...this.rows.values()]
+          .filter((candidate) => candidate.tool_call_id === bindings[0])
+          .sort((left, right) => left.created_at - right.created_at);
+        return result(rows);
       }
       if (normalized.startsWith('SELECT') && normalized.includes('ORDER BY created_at DESC')) {
         const limit = Number(bindings[0]);
@@ -187,7 +188,23 @@ const binding: CloudflareExecutionBinding = {
 function executionRepository(storage = new TestExecutionStorage()) {
   // SAFETY: the repository exercises only synchronous SQL iteration, rowsWritten, and
   // transactionSync; this test double implements those exact members for every emitted query.
-  return { storage, repository: new BuilderCloudflareExecutionRepository(storage as never) };
+  return { storage, repository: new ProposingRepository(storage as never) };
+}
+
+/** The repository, whose proposals in these tests are each the first waiting in their command. */
+class ProposingRepository extends BuilderCloudflareExecutionRepository {
+  override async createProposal(...args: Parameters<BuilderCloudflareExecutionRepository['createProposal']>) {
+    const proposal = await super.createProposal(...args);
+    if (!proposal) {
+      throw new Error('An earlier change of this command still waits.');
+    }
+    return proposal;
+  }
+
+  /** What the repository itself answers, a change queued behind another of its command among them. */
+  propose(...args: Parameters<BuilderCloudflareExecutionRepository['createProposal']>) {
+    return super.createProposal(...args);
+  }
 }
 
 describe('durable Cloudflare execution approval repository', () => {
@@ -307,20 +324,31 @@ describe('a change a workspace command asked for', () => {
     });
   });
 
-  it('keeps one change per command: the same one again is the same proposal, another is refused', async () => {
+  it("queues a command's next change until the one before it is settled, then waits for its own decision", async () => {
     const { repository } = executionRepository();
+    const other = { ...deleteSite, url: deleteSite.url.replace('site', 'other') };
     const first = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
 
-    await expect(
-      repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite }),
-    ).resolves.toMatchObject({ executionId: first.executionId });
-    await expect(
-      repository.createProposal({
-        toolCallId: 'exec-1',
-        binding,
-        request: { ...deleteSite, url: deleteSite.url.replace('site', 'other') },
-      }),
-    ).rejects.toThrow(ONE_CHANGE_PER_COMMAND);
+    // Each change of a command is approved in turn: the next one waits its turn, even the same request again.
+    await expect(repository.propose({ toolCallId: 'exec-1', binding, request: other })).resolves.toBeNull();
+    await expect(repository.propose({ toolCallId: 'exec-1', binding, request: deleteSite })).resolves.toBeNull();
+    // Another command's change waits on its own.
+    await expect(repository.propose({ toolCallId: 'exec-2', binding, request: other })).resolves.not.toBeNull();
+
+    await repository.reject(first.executionId, binding);
+    const second = await repository.propose({ toolCallId: 'exec-1', binding, request: other });
+    expect(second).toMatchObject({ toolCallId: 'exec-1', status: 'awaiting_approval', request: other });
+    expect(second?.executionId).not.toBe(first.executionId);
+  });
+
+  it('withdraws only the change a stopped request waited for, when named', async () => {
+    const { repository } = executionRepository();
+    const proposal = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
+
+    expect(repository.withdraw('exec-1', 'another-execution')).toBe(false);
+    expect(repository.get(proposal.executionId)?.status).toBe('awaiting_approval');
+    expect(repository.withdraw('exec-1', proposal.executionId)).toBe(true);
+    expect(repository.get(proposal.executionId)?.status).toBe('expired');
   });
 
   it('withdraws the change of a command that ended before anyone decided, so it can never be approved', async () => {

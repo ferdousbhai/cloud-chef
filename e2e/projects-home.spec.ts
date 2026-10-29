@@ -255,6 +255,7 @@ test("shows a team admin what their members asked for, from the sidebar's Approv
     orgId: 'e2e-org',
     orgName: 'Sites',
     kind: 'cloudflare_change',
+    source: 'agent',
     requester: { name: 'Sara', email: 'sara@example.invalid' },
     request: {
       method: 'POST',

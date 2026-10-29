@@ -264,7 +264,8 @@ class SandboxComputerHost implements IWorkspaceContainerAPI {
 
   // `enableInternet` is only ever false here: the container backend runs with `egress: none`, so it
   // never asks for direct egress and never calls `interceptAllOutboundHttp`. The sandbox container
-  // has whatever egress the platform grants it; there is no per-start network toggle to honor.
+  // reaches the internet directly (only the hosts `interceptWorkspaceOutbound` names go through
+  // CloudChef's proxies); there is no per-start network toggle to honor.
   async start(_env: Record<string, string>, _enableInternet: boolean): Promise<{ runtimeId: string }> {
     return { runtimeId: await this.sandbox.startComputerd(_env) };
   }

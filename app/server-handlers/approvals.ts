@@ -155,8 +155,12 @@ async function send(env: Env, connectionId: string, request: CloudflareApiReques
 async function tellWorkspace(
   request: Request,
   env: Env,
-  args: { requestedBy: string; connectionId: string; agentName: string; approvalId: string },
+  args: { requestedBy: string; connectionId: string; agentName: string | null; approvalId: string },
 ): Promise<void> {
+  // A change typed in the member's terminal belongs to no conversation: its result is on the Approvals page.
+  if (args.agentName === null) {
+    return;
+  }
   const runtime = await runtimeFor(request, env, args.requestedBy, args.connectionId);
   if ('refusal' in runtime) {
     return;
@@ -176,18 +180,25 @@ async function tellWorkspace(
 
 const MAX_FILED_REQUEST_BYTES = 80 * 1024;
 
-const fileSchema = z
-  .object({
-    agentName: z.string().min(1).max(256),
-    toolCallId: z.string().min(1).max(256),
-    requestJson: z.string().max(MAX_FILED_REQUEST_BYTES),
-  })
-  .strict();
+/** A change a member's agent asked for (a runtime that predates `source` sends none), or one typed in their terminal. */
+const fileSchema = z.union([
+  z
+    .object({
+      source: z.literal('agent').optional(),
+      agentName: z.string().min(1).max(256),
+      toolCallId: z.string().min(1).max(256),
+      // Which of the command's changes this is, from 1 (a runtime that predates several changes sends none).
+      changeNumber: z.number().int().min(1).max(1000).optional(),
+      requestJson: z.string().max(MAX_FILED_REQUEST_BYTES),
+    })
+    .strict(),
+  z.object({ source: z.literal('terminal'), requestJson: z.string().max(MAX_FILED_REQUEST_BYTES) }).strict(),
+]);
 
 /**
- * A member's workspace filing a change their agent asked for in the team's account. CloudChef checks it as it
- * would its own (another account's resources, CloudChef's own Workers and domains are refused) and files it for
- * the team's admins.
+ * A member's workspace filing a change in the team's account, asked for by their agent or typed in their terminal.
+ * CloudChef checks it as it would its own (another account's resources, CloudChef's own Workers and domains are
+ * refused) and files it for the team's admins.
  */
 export async function runtimeFileApprovalAction(args: { request: Request; env: Env }): Promise<Response> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, fileSchema, {
@@ -235,8 +246,15 @@ export async function runtimeFileApprovalAction(args: { request: Request; env: E
     orgId: connection.orgId,
     connectionId: connection.id,
     userId: identity.userId,
-    agentName: body.agentName,
-    toolCallId: body.toolCallId,
+    from:
+      body.source === 'terminal'
+        ? { source: 'terminal' }
+        : {
+            source: 'agent',
+            agentName: body.agentName,
+            toolCallId: body.toolCallId,
+            changeNumber: body.changeNumber ?? 1,
+          },
     request,
     requestSha256: await sha256Hex(JSON.stringify(request)),
     warning: review.warning ?? null,

@@ -150,7 +150,10 @@ function WaitingChange({ approval, onDecided }: { approval: Approval; onDecided:
       <strong className="min-w-0 font-mono text-xs">{title}</strong>
       {approval.warning ? <p className="text-xs text-content-primary">{approval.warning}</p> : null}
       <p className="text-xs text-content-secondary">
-        {who}’s agent asked for this. It may change, delete or add costs to things in the team’s account.
+        {approval.source === 'terminal'
+          ? `${who} typed this in their workspace’s terminal.`
+          : `${who}’s agent asked for this.`}{' '}
+        It may change, delete or add costs to things in the team’s account.
       </p>
       <RequestDetails request={approval.request} />
       <div className="flex flex-wrap items-center gap-2">

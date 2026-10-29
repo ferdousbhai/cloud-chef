@@ -34,9 +34,14 @@ export const ToolCall = memo(function ToolCall({
   const invocation = activity?.invocation ?? rawInvocation;
   const status = partStatus(activities, partId, invocation);
   const publish = useLinkedPublishView((now) => linkedPublishView(invocation, now));
-  const cloudflareExecution = cloudflareExecutions?.find((execution) => execution.toolCallId === invocation.toolCallId);
+  // A command's changes, in the order it asked for them: each waits here for the person in turn.
+  const commandExecutions = (cloudflareExecutions ?? [])
+    .filter((execution) => execution.toolCallId === invocation.toolCallId)
+    .toSorted((left, right) => left.createdAt - right.createdAt);
   const expanded =
-    showAction || isToolActivityStatusActive(status) || cloudflareExecution?.status === 'awaiting_approval';
+    showAction ||
+    isToolActivityStatusActive(status) ||
+    commandExecutions.some((execution) => execution.status === 'awaiting_approval');
 
   const toggleAction = () => {
     setShowAction((visible) => !visible);
@@ -61,7 +66,7 @@ export const ToolCall = memo(function ToolCall({
               invocation={invocation}
               status={status}
               progress={progress}
-              cloudflareExecution={cloudflareExecution}
+              cloudflareExecutions={commandExecutions}
               onCloudflareExecutionDecision={onCloudflareExecutionDecision}
               publish={publish}
             />

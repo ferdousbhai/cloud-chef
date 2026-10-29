@@ -207,7 +207,7 @@ a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the
 repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
 its builds are switched) and remembered (`workers_builds_script_tag`); `/runtime-projects/status` matches a
 commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, which each
-turn's context names so the agent can read the live site with `curl`. Workers Builds' API names no Artifacts provider for a repository
+turn's context names so the agent knows where the live site is (it reads it with `curl`, like any address). Workers Builds' API names no Artifacts provider for a repository
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
 `/api/projects/<id>/workers-builds/switch` says when it is done, and otherwise how.
 
@@ -316,10 +316,14 @@ command of its own, runs the project's full validation, the one a publish reuses
 own `cloudchef` program only says so when it is reached any other way). Listing and searching files are ordinary
 commands (`ls`, `find`, `grep`, `rg`). `@cloudflare/computer/tools` contributes only types.
 
-What a command may do beyond the container is decided where it leaves it, by the per-host proxies the
-ProjectWorkspace intercepts for its container (`interceptWorkspaceOutbound`, `user-workspace-runtime/src/computer-sandbox.ts`),
-not by tools of their own: `git.internal` for the project's repository (below, under Project Repositories) and
-`cloudflare-api.internal` for Cloudflare's API (below). The container holds no credential for either.
+The container has internet access: commands run there, by the agent or typed by the person in the terminal, reach
+the public internet directly (package registries, documentation, the project's own live and preview sites, any other
+address).
+What a command may do with CloudChef's and Cloudflare's own services is decided where it leaves the container, by the
+per-host proxies the ProjectWorkspace intercepts for its container (`interceptWorkspaceOutbound`,
+`user-workspace-runtime/src/computer-sandbox.ts`), not by tools of their own: `git.internal` for the project's
+repository (below, under Project Repositories) and `cloudflare-api.internal` for Cloudflare's API (below). The container
+holds no credential for either.
 
 Reference guidance is mostly retrieved rather than mirrored. Cloudflare's documentation is searched live with
 `cf docs search` in the workspace, which needs no login and returns ranked pages; a page is read as markdown with
@@ -346,16 +350,36 @@ one (the public v4 API only, and only the connected account; a change's body JSO
 forwards the container's headers. A read (GET) is sent at once with a fresh access token from the credential broker,
 in the person's own account or, in a team's, only for its active admins; Cloudflare's answer passes back with no
 headers but its type and ray id. Any other method is a change: the proxy asks the ProjectWorkspace which agent
-command is running (the workspace notes each agent's `exec` by its tool call while it runs), and a change asked for
-with none running (from the terminal, say) is refused. The agent records it as a durable, expiring proposal bound to
-the account, connection, transcript, that command's tool call and the exact request digest, after CloudChef's domain
-review, and the chat shows it in that command's card with Approve and Reject; one change waits per command. The proxy
-holds `cf`'s request and asks the agent every 1.5 s until the proposal is settled, then answers with Cloudflare's own
-answer to the approved request (content that looks like a credential withheld), or why nothing was sent. The approval
-expires after 15 minutes, inside `exec`'s own deadline; a command that ends first withdraws its change, so a late
-approval can never send it; an interrupted approved request is marked indeterminate rather than replayed. A team
-member's change is filed for the team's admins instead (`runtime-projects/approvals/file`) and `cf` is answered at
-once that it was sent to them; the command's output keeps the filed change, and the admins' decision replaces it there.
+command is running (the workspace notes each agent's `exec` by its tool call while it runs).
+
+A change asked for while an agent command runs is the agent's. The agent records it as a durable, expiring proposal
+bound to the account, connection, transcript, that command's tool call and the exact request digest, after CloudChef's
+domain review, and the chat shows it in that command's card with Approve and Reject. A command may ask for several
+changes: each waits in the same card in turn, one at a time (`cf` sends them one after another; one that arrives
+while an earlier one of the same command still waits or is being sent is queued, and the proxy asks again until its
+turn, provided the command still runs). The proxy holds `cf`'s request and asks the agent every 1.5 s until the
+proposal is settled, then answers with Cloudflare's own answer to the approved request (content that looks like a
+credential withheld), or why nothing was sent. The approval expires after 15 minutes, inside `exec`'s own deadline; a
+command that ends first withdraws whatever change of it still waits, so a late approval can never send it; an
+interrupted approved request is marked indeterminate rather than replayed. A team member's change is filed for the
+team's admins instead (`runtime-projects/approvals/file`, `source` 'agent') and `cf` is answered at once that it was
+sent to them; the command's output keeps each filed change (`cloudflareChanges`), and the admins' decision replaces
+it there. Each change of a command is filed under its own `change_number`: the first keeps the command's tool call id
+as its key, a later one is keyed `<tool call id>#<n>`, so `UNIQUE (agent_name, tool_call_id)` still makes filing the
+same change twice answer the one already filed.
+
+A change asked for with no agent command running came from the person's own terminal, typed by them, so it needs no
+approval: when they may change the account (its owner, or one of a team's admins, the same check a read makes) the
+proxy sends it at once with the account's credential, with the same account and path checks, JSON and size rules and
+header stripping as any request, answers with Cloudflare's answer, and logs it to the workspace runtime's log
+(`cloudflare_change_from_terminal`: who, which account, method, path, status and ray id), since no approval records
+it. A team member's terminal change is filed for the team's admins as the agent's are, recorded with `source`
+'terminal' and no conversation (`approval_requests`, migration 0051, which only adds columns); the Approvals page says the member typed it,
+and its result is shown there rather than in a chat. The proxy tells the terminal from the agent only by whether an
+agent command is running at that moment: a process the agent starts in the background and leaves running after its
+command ends has no command any more, so a change it asks for later is treated as typed in the terminal and is sent
+without approval (or filed for the team's admins). Nothing closes that gap; the agent is told that each change waits
+for approval in its command, and a change from the terminal is logged.
 
 Model tools and editor reads use the same workspace API. Browser saves use
 compare-and-swap against the numeric revision the browser loaded; a conflict refreshes from the user runtime and never

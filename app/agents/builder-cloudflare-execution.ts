@@ -63,10 +63,6 @@ const RISK_REASON = 'Cloudflare changes can be externally visible, destructive, 
 const riskReasonsSchema = z.array(z.string());
 const EXPIRED_SUMMARY = 'No one approved this change in time, so nothing was sent to Cloudflare.';
 
-/** Said to `cf` of a second change in one command, which can't have a place of its own in the chat. */
-export const ONE_CHANGE_PER_COMMAND =
-  'Only one change to the Cloudflare account can wait for approval per command. Run each change as its own command.';
-
 const credentialishPatterns: readonly RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/iu,
   /\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/iu,
@@ -86,7 +82,7 @@ const storedExecutionOutcomeSchema = z
     sensitiveContentWithheld: z.boolean().optional(),
   })
   .strict() satisfies z.ZodType<CloudflareExecutionSafeOutcome>;
-export class CloudflareExecutionDecisionError extends Error {
+class CloudflareExecutionDecisionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CloudflareExecutionDecisionError';
@@ -96,23 +92,25 @@ export class CloudflareExecutionDecisionError extends Error {
 export class BuilderCloudflareExecutionRepository {
   constructor(private readonly storage: CloudflareExecutionStorage) {}
 
+  /**
+   * A change the command `toolCallId` asked for, waiting for the person. A command may ask for several, each waiting
+   * in turn in its card: null while an earlier one of the same command is still waiting or being sent, so this one
+   * is asked for again once that is settled.
+   */
   async createProposal(args: {
     toolCallId: string;
     binding: CloudflareExecutionBinding;
     request: CloudflareApiRequest;
     /** CloudChef's plain-words note on what the change does, shown with it. */
     warning?: string | null;
-  }): Promise<CloudflareExecutionRecord> {
+  }): Promise<CloudflareExecutionRecord | null> {
     const now = Date.now();
     const inputJson = JSON.stringify(args.request);
     const proposalSha256 = await proposalDigest(args.toolCallId, args.binding, inputJson);
+    this.expireAwaiting();
     return this.storage.transactionSync(() => {
-      const existing = this.findByToolCallId(args.toolCallId);
-      if (existing) {
-        if (existing.proposalSha256 !== proposalSha256 || !executionBindingsEqual(existing.binding, args.binding)) {
-          throw new CloudflareExecutionDecisionError(ONE_CHANGE_PER_COMMAND);
-        }
-        return existing;
+      if (this.unsettledFor(args.toolCallId)) {
+        return null;
       }
       const executionId = crypto.randomUUID();
       const expiresAt = now + CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS;
@@ -303,27 +301,31 @@ export class BuilderCloudflareExecutionRepository {
     });
   }
 
-  /** The command that asked for these changes ended before anyone decided: they are never sent. */
-  withdraw(toolCallId: string): boolean {
+  /**
+   * The command that asked for a change ended (or stopped waiting for `executionId`) before anyone decided: it is
+   * never sent. Answers whether a change was waiting.
+   */
+  withdraw(toolCallId: string, executionId?: string): boolean {
     const now = Date.now();
     const outcome: CloudflareExecutionSafeOutcome = {
       status: 'denied',
       summary: 'The command ended before anyone approved the change, so nothing was sent to Cloudflare.',
     };
     return this.storage.transactionSync(() => {
-      const waiting = this.findByToolCallId(toolCallId);
-      if (waiting?.status !== 'awaiting_approval') {
-        return false;
-      }
-      this.storage.sql.exec(
-        `UPDATE builder_cloudflare_executions
-         SET status = 'expired', completed_at = ?, outcome_json = ?
-         WHERE execution_id = ? AND status = 'awaiting_approval'`,
-        now,
-        JSON.stringify(outcome),
-        waiting.executionId,
+      const waiting = this.awaitingFor(toolCallId).filter(
+        (record) => executionId === undefined || record.executionId === executionId,
       );
-      return true;
+      for (const record of waiting) {
+        this.storage.sql.exec(
+          `UPDATE builder_cloudflare_executions
+           SET status = 'expired', completed_at = ?, outcome_json = ?
+           WHERE execution_id = ? AND status = 'awaiting_approval'`,
+          now,
+          JSON.stringify(outcome),
+          record.executionId,
+        );
+      }
+      return waiting.length > 0;
     });
   }
 
@@ -361,14 +363,22 @@ export class BuilderCloudflareExecutionRepository {
     return record;
   }
 
-  private findByToolCallId(toolCallId: string): CloudflareExecutionRecord | null {
-    const row = first(
-      this.storage.sql.exec<CloudflareExecutionRow>(
-        `SELECT ${EXECUTION_COLUMNS} FROM builder_cloudflare_executions WHERE tool_call_id = ? LIMIT 1`,
+  /** Whether a change of the command `toolCallId` still waits for the person, or is being sent. */
+  private unsettledFor(toolCallId: string): boolean {
+    return this.changesOf(toolCallId).some((record) => !isCloudflareExecutionTerminal(record.status));
+  }
+
+  private awaitingFor(toolCallId: string): CloudflareExecutionRecord[] {
+    return this.changesOf(toolCallId).filter((record) => record.status === 'awaiting_approval');
+  }
+
+  private changesOf(toolCallId: string): CloudflareExecutionRecord[] {
+    return [
+      ...this.storage.sql.exec<CloudflareExecutionRow>(
+        `SELECT ${EXECUTION_COLUMNS} FROM builder_cloudflare_executions WHERE tool_call_id = ? ORDER BY created_at`,
         toolCallId,
       ),
-    );
-    return row ? recordFromRow(row) : null;
+    ].map(recordFromRow);
   }
 }
 
