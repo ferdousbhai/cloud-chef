@@ -621,7 +621,7 @@ describe('removing a deleted team project’s workspace', () => {
       INSERT INTO conversations (workspace_id, conversation_index, agent_name, transition_token, created_at, updated_at)
         VALUES ('linked-1', 0, 'linked-agent', 'token-2', 1, 1);
     `);
-    const remove = (body: unknown) =>
+    const remove = (body: { orgProjectId: string }) =>
       userRuntimeRemoveProjectWorkspaceAction({
         request: new Request('https://runtime.test/v1/projects/remove-workspace', {
           method: 'POST',
