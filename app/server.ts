@@ -81,6 +81,7 @@ import {
   disconnectGitHubAction,
   GITHUB_RETURN_PATH,
   listGitHubRepositoriesAction,
+  startGitHubAccountReuseAction,
   startGitHubInstallAction,
 } from './server-handlers/github-projects';
 import {
@@ -188,6 +189,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/auth/email/complete': ['POST', completeEmailSignInAction],
     '/api/auth/google/start': ['POST', startGoogleSignInAction],
     '/api/organizations/github/start': ['POST', startGitHubInstallAction],
+    '/api/organizations/github/reuse': ['POST', startGitHubAccountReuseAction],
     '/api/organizations/github/disconnect': ['POST', disconnectGitHubAction],
     '/api/organizations/github/repositories': ['GET', listGitHubRepositoriesAction],
     '/api/organizations/production-requests/approve': ['POST', approveProductionRequestAction],

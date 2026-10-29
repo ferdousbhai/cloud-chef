@@ -107,6 +107,31 @@ export async function listGitHubInstallations(
   }));
 }
 
+/**
+ * The App's installations on a GitHub user's own account that `userId` connected to another of their accounts
+ * (Personal, or a team) and not yet to `connectionId`: a GitHub account they proved theirs there, which they may
+ * connect here too once GitHub confirms it's them again.
+ */
+export async function listReusableGitHubInstallations(
+  db: D1Database,
+  args: { userId: string; connectionId: string },
+): Promise<GitHubInstallationSummary[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT installation_id, MIN(account_login) AS account_login FROM github_installations
+       WHERE connected_by = ?1 AND account_type = 'User' AND connection_id != ?2
+         AND installation_id NOT IN (SELECT installation_id FROM github_installations WHERE connection_id = ?2)
+       GROUP BY installation_id ORDER BY account_login COLLATE NOCASE`,
+    )
+    .bind(args.userId, args.connectionId)
+    .all<{ installation_id: number; account_login: string }>();
+  return results.map((row) => ({
+    installationId: row.installation_id,
+    accountLogin: row.account_login,
+    accountType: 'User',
+  }));
+}
+
 /** Records an installation for the scope, alongside any on other GitHub accounts. */
 export async function saveGitHubInstallation(
   db: D1Database,

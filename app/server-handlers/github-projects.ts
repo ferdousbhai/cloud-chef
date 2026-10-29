@@ -9,6 +9,7 @@ import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/li
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import {
   listGitHubInstallations,
+  listReusableGitHubInstallations,
   removeGitHubInstallation,
   requireProjectScope,
   saveGitHubInstallation,
@@ -31,6 +32,11 @@ const scopeFields = { orgId: z.string().uuid().optional() };
 const scopeSchema = z.strictObject(scopeFields);
 const disconnectSchema = z.strictObject({ ...scopeFields, installationId: z.number().int().positive() });
 const startSchema = z.strictObject({ ...scopeFields, callbackURL: z.string().max(2_048).optional() });
+const reuseSchema = z.strictObject({
+  ...scopeFields,
+  installationId: z.number().int().positive(),
+  callbackURL: z.string().max(2_048).optional(),
+});
 
 const UNAVAILABLE = 'GitHub is not configured for this environment.';
 
@@ -51,22 +57,12 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
     const scope = await requireProjectScope(env.DB, session.user.id, body.data.orgId);
     // No fresh CloudChef sign-in needed: GitHub has the person install and authorize there, and the return
     // is accepted only for an installation they own.
-    const state = crypto.randomUUID();
-    const origin = new URL(request.url).origin;
-    const now = Date.now();
-    await env.DB.prepare(
-      `INSERT INTO github_install_states (id, connection_id, user_id, return_to, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        state,
-        scope.connectionId,
-        session.user.id,
-        safeReturnTo(body.data.callbackURL, origin),
-        now + STATE_TTL_MS,
-        now,
-      )
-      .run();
+    const state = await createInstallState(env.DB, {
+      connectionId: scope.connectionId,
+      userId: session.user.id,
+      returnTo: safeReturnTo(body.data.callbackURL, new URL(request.url).origin),
+      installationId: null,
+    });
     const installUrl = new URL(app.installUrl());
     installUrl.searchParams.set('state', state);
     return Response.json(
@@ -216,23 +212,85 @@ async function authorizeFirst(args: {
   installationId: number;
 }): Promise<Response> {
   const { request, env, app, pending, installationId } = args;
-  const state = crypto.randomUUID();
-  const now = Date.now();
-  await env.DB.prepare(
-    `INSERT INTO github_install_states (id, connection_id, user_id, return_to, installation_id, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(state, pending.connection_id, pending.user_id, pending.return_to, installationId, now + STATE_TTL_MS, now)
-    .run();
-  const redirectUri = new URL(GITHUB_RETURN_PATH, new URL(request.url).origin).toString();
+  const state = await createInstallState(env.DB, {
+    connectionId: pending.connection_id,
+    userId: pending.user_id,
+    returnTo: pending.return_to,
+    installationId,
+  });
   return new Response(null, {
     status: 303,
     headers: {
-      Location: app.authorizeUrl(state, redirectUri),
+      Location: authorizeUrl(app, state, request),
       'Cache-Control': 'no-store',
       'Set-Cookie': githubReturnCookie(state, STATE_TTL_MS / 1_000, request),
     },
   });
+}
+
+/**
+ * Connects a GitHub account the person already connected to another of their accounts (Personal, or a team) to the
+ * one they're working in now: the App is on it already, so GitHub has nothing to install. Only an installation on
+ * their own GitHub user account that they connected themselves is offered, and it is not connected here until
+ * GitHub's user authorization proves again that they are that GitHub user, as a Configure return's is.
+ */
+export function startGitHubAccountReuseAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const app = gitHubAppFromEnv(env);
+    if (!app) {
+      return Response.json({ error: UNAVAILABLE }, { status: 503 });
+    }
+    const body = await readJsonRequest(request, reuseSchema, 'Choose a GitHub account.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const scope = await requireProjectScope(env.DB, session.user.id, body.data.orgId);
+    const reusable = await listReusableGitHubInstallations(env.DB, {
+      userId: session.user.id,
+      connectionId: scope.connectionId,
+    });
+    if (!reusable.some((installation) => installation.installationId === body.data.installationId)) {
+      return Response.json({ error: "That isn't a GitHub account you connected to CloudChef." }, { status: 404 });
+    }
+    const state = await createInstallState(env.DB, {
+      connectionId: scope.connectionId,
+      userId: session.user.id,
+      returnTo: safeReturnTo(body.data.callbackURL, new URL(request.url).origin),
+      installationId: body.data.installationId,
+    });
+    return Response.json(
+      { authorizeUrl: authorizeUrl(app, state, request) },
+      {
+        status: 201,
+        headers: { 'Set-Cookie': githubReturnCookie(state, STATE_TTL_MS / 1_000, request) },
+      },
+    );
+  });
+}
+
+/**
+ * A connection in progress, for this browser's return from GitHub: who started it, for which account, where to go
+ * back to, and the installation it names when the return carries none (user authorization's).
+ */
+async function createInstallState(
+  db: D1Database,
+  args: { connectionId: string; userId: string; returnTo: string; installationId: number | null },
+): Promise<string> {
+  const state = crypto.randomUUID();
+  const now = Date.now();
+  await db
+    .prepare(
+      `INSERT INTO github_install_states (id, connection_id, user_id, return_to, installation_id, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(state, args.connectionId, args.userId, args.returnTo, args.installationId, now + STATE_TTL_MS, now)
+    .run();
+  return state;
+}
+
+/** GitHub's user authorization, returning to this origin's GitHub return with `state`. */
+function authorizeUrl(app: GitHubApp, state: string, request: Request): string {
+  return app.authorizeUrl(state, new URL(GITHUB_RETURN_PATH, new URL(request.url).origin).toString());
 }
 
 /**
@@ -268,15 +326,29 @@ export function listGitHubRepositoriesAction({
       return Response.json({ error: 'Choose a team.' }, { status: 400 });
     }
     const scope = await requireProjectScope(env.DB, session.user.id, parsed.data.orgId);
+    // The person's own GitHub account, when they connected it elsewhere and not here: the dialog offers it, so the
+    // App already on it isn't "installed" again.
+    const reusable = app
+      ? (
+          await listReusableGitHubInstallations(env.DB, { userId: session.user.id, connectionId: scope.connectionId })
+        ).map((installation) => ({
+          installationId: installation.installationId,
+          accountLogin: installation.accountLogin,
+        }))
+      : [];
     const installed = await installedRepositories(env.DB, scope, app);
-    if (installed instanceof Response) {
+    // Nothing connected here yet (with the App configured) lists nothing, with what can be reused.
+    const notConnected = app !== null && installed instanceof Response && installed.status === 409;
+    if (installed instanceof Response && !notConnected) {
       return installed;
     }
+    const listed = installed instanceof Response ? { unreachable: [], repositories: [] } : installed;
     return Response.json(
       {
+        reusable,
         // The GitHub accounts that couldn't be listed just now, so the picker can say some are missing.
-        unreachable: installed.unreachable,
-        repositories: installed.repositories.map((repository) => ({
+        unreachable: listed.unreachable,
+        repositories: listed.repositories.map((repository) => ({
           id: repository.id,
           fullName: repository.full_name,
           defaultBranch: repository.default_branch,

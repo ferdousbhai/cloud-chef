@@ -7,7 +7,13 @@ import { createGitHubAppJwt } from '~/lib/.server/github/app-jwt';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
 import { createOrganizationAction, listOrganizationsAction, updateMemberAction } from './organizations';
-import { completeGitHubInstallAction, disconnectGitHubAction, startGitHubInstallAction } from './github-projects';
+import {
+  completeGitHubInstallAction,
+  disconnectGitHubAction,
+  listGitHubRepositoriesAction,
+  startGitHubAccountReuseAction,
+  startGitHubInstallAction,
+} from './github-projects';
 import { listMyProjectsAction, registerGitHubImport, setProjectAccessAction } from './projects';
 import { answeringOrganizationErrors } from './signed-in';
 import { requireProjectScope } from '~/lib/cloudflare/data/org-projects.server';
@@ -579,6 +585,136 @@ describe('GitHub projects', () => {
     expect(database.prepare('SELECT connection_id FROM github_installations').all()).toEqual([
       { connection_id: 'ada-own' },
     ]);
+  });
+
+  describe('a GitHub account connected in another space', () => {
+    const appEnv = (env: Env) =>
+      envWith({
+        ...env,
+        GITHUB_APP_CLIENT_ID: 'Iv1.test',
+        GITHUB_APP_CLIENT_SECRET: 'secret',
+        GITHUB_APP_PRIVATE_KEY: 'unused',
+        GITHUB_APP_SLUG: 'cloudchef',
+      });
+    const listingSchema = z.object({
+      reusable: z.array(z.object({ installationId: z.number(), accountLogin: z.string() })),
+      repositories: z.array(z.object({ fullName: z.string() })),
+    });
+
+    /** The person's own projects' listing, as the import dialog reads it. */
+    async function listing(env: Env, app: GitHubApp, cookie: string) {
+      const response = await listGitHubRepositoriesAction({
+        request: new Request(`${ORIGIN}/api/organizations/github/repositories`, { headers: { cookie } }),
+        env,
+        app,
+      });
+      expect(response.status).toBe(200);
+      return listingSchema.parse(await response.json());
+    }
+
+    function reuse(env: Env, cookie: string, installationId: number) {
+      return startGitHubAccountReuseAction({
+        request: post(cookie, '/api/organizations/github/reuse', {
+          installationId,
+          callbackURL: `${ORIGIN}/?import=github`,
+        }),
+        env: appEnv(env),
+      });
+    }
+
+    /** Ada connects her own GitHub account and the ada-labs organization to the team, and has her own Cloudflare. */
+    async function connectedInTeam() {
+      const context = await setup();
+      context.database
+        .prepare(
+          `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+           VALUES ('ada-own', ?, 'account-ada', 'active', 1, 1)`,
+        )
+        .run(context.admin.userId);
+      await install(context.env, context.app, context.admin.cookie, context.orgId);
+      await install(context.env, context.app, context.admin.cookie, context.orgId, LABS_INSTALLATION_ID);
+      return context;
+    }
+
+    it('is offered in Personal, and connected there only after GitHub confirms who authorizes', async () => {
+      const { database, env, admin, app } = await connectedInTeam();
+      // Her own GitHub account is offered; the organization, whose ownership GitHub would have to check again, isn't.
+      expect(await listing(env, app, admin.cookie)).toEqual({
+        reusable: [{ installationId: INSTALLATION_ID, accountLogin: 'ada' }],
+        repositories: [],
+      });
+
+      const started = await reuse(env, admin.cookie, INSTALLATION_ID);
+      expect(started.status).toBe(201);
+      const { authorizeUrl } = z.object({ authorizeUrl: z.string() }).parse(await started.json());
+      const authorize = new URL(authorizeUrl);
+      expect(`${authorize.origin}${authorize.pathname}`).toBe('https://github.com/login/oauth/authorize');
+      expect(authorize.searchParams.get('redirect_uri')).toBe(`${ORIGIN}/github/return`);
+      const state = authorize.searchParams.get('state') ?? '';
+      expect(started.headers.get('set-cookie')).toContain(`cloudchef_github_state=${state}`);
+      // Nothing is connected before GitHub's answer.
+      expect(
+        database.prepare(`SELECT COUNT(*) AS n FROM github_installations WHERE connection_id = 'ada-own'`).get(),
+      ).toEqual({
+        n: 0,
+      });
+
+      const returned = await completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` },
+        }),
+        env,
+        app,
+      });
+      expect(githubMessage(returned)).toBe('Connected GitHub.');
+      expect(new URL(returned.headers.get('location') ?? '').searchParams.get('import')).toBe('github');
+      expect(await listing(env, app, admin.cookie)).toEqual({
+        reusable: [],
+        repositories: REPOSITORIES.map((repository) => ({ fullName: repository.full_name })),
+      });
+    });
+
+    it('is not connected when someone else authorizes on GitHub', async () => {
+      const { database, env, admin } = await connectedInTeam();
+      const started = await reuse(env, admin.cookie, INSTALLATION_ID);
+      const state = new URL(
+        z.object({ authorizeUrl: z.string() }).parse(await started.json()).authorizeUrl,
+      ).searchParams.get('state');
+      // GitHub's signed-in user is now eve, not ada.
+      const { pem } = await pkcs8Pem();
+      const asEve = fakeGitHub(pem, 'eve');
+      const returned = await completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?code=c&state=${state}`, {
+          headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` },
+        }),
+        env,
+        app: asEve.app,
+      });
+      expect(githubMessage(returned)).toBe('Only the owner of that GitHub account or organization can connect it.');
+      expect(
+        database.prepare(`SELECT COUNT(*) AS n FROM github_installations WHERE connection_id = 'ada-own'`).get(),
+      ).toEqual({
+        n: 0,
+      });
+    });
+
+    it("doesn't offer or connect another person's GitHub account", async () => {
+      const { database, env, member, app } = await connectedInTeam();
+      database
+        .prepare(
+          `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+           VALUES ('sam-own', ?, 'account-sam', 'active', 1, 1)`,
+        )
+        .run(member.userId);
+      expect((await listing(env, app, member.cookie)).reusable).toEqual([]);
+      const refused = await reuse(env, member.cookie, INSTALLATION_ID);
+      expect(refused.status).toBe(404);
+      expect(
+        database.prepare(`SELECT COUNT(*) AS n FROM github_install_states WHERE connection_id = 'sam-own'`).get(),
+      ).toEqual({
+        n: 0,
+      });
+    });
   });
 });
 
