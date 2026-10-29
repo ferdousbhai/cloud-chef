@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceApi } from '~/agents/builder-workspace-api';
 import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
-import { conversationAgentHarness, CHAT_INITIAL_ID, type BuilderPublisher } from './harness';
+import { AGENT_NAME, conversationAgentHarness, CHAT_INITIAL_ID, type BuilderPublisher } from './harness';
 
 /**
  * A chat is one project. A new conversation in it (a subchat) has an agent and a context of its own, and
@@ -144,5 +144,25 @@ describe('an app a team adopted as one of its projects', () => {
     await expect(harness.agent.deployValidatedRevision()).rejects.toMatchObject({ status: 409 });
     await harness.agent.prepareWorkspace();
     expect(harness.agent.state).toMatchObject({ conversationClosed: true, conversationAdopted: true });
+  });
+
+  it('keeps the messages of a chat from before pi-durable to read, once, and leaves its old table in place', async () => {
+    const harness = await conversationAgentHarness({
+      legacyMessages: [
+        { id: 'old-1', role: 'user', parts: [{ type: 'text', text: 'Build a todo app' }] },
+        { id: 'old-2', role: 'assistant', parts: [{ type: 'text', text: 'Done.' }] },
+      ],
+    });
+
+    expect((await harness.messages()).map((message) => message.id)).toEqual(['old-1', 'old-2']);
+    // Started again on the same storage, it converts nothing twice; the table stays for a rollback.
+    const restarted = await harness.restart();
+    const again = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, subchatIndex: 0 });
+    expect(again.messages.map((message) => message.id)).toEqual(['old-1', 'old-2']);
+    expect(
+      harness.ctx.storage.sql
+        .exec(`SELECT name FROM sqlite_master WHERE name = 'cf_agents_session_messages'`)
+        .toArray(),
+    ).toHaveLength(1);
   });
 });

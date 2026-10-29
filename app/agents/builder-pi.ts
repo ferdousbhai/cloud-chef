@@ -102,6 +102,8 @@ export class BuilderChatStream {
         this.#source.onActivity?.();
         this.#schedule();
       });
+      // A commit between the first read and the subscription is read now.
+      this.#schedule();
       void stream.closed.then(() => {
         // pi closed (a storage error, or the object is going away): the next call starts the stream again.
         if (this.#stream === stream) {

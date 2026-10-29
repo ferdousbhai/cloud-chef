@@ -171,7 +171,7 @@ import { providerFailureText } from '~/lib/.server/llm/provider-failure-text';
 import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
 import { BUILDER_SETTINGS, BuilderChatStream, builderExtension } from './builder-pi';
 import { CHAT_ENTRY, toolOutputEntryData, userEntryData } from './builder-chat-view';
-import { dropLegacyChatTables, readLegacyMessages } from './legacy-chat';
+import { readLegacyMessages } from './legacy-chat';
 import type { BuilderModel, BuilderModelId, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
@@ -617,6 +617,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await this.hydrateDurableIdentity();
     }
     this.refreshCloudflareExecutionState();
+    if (this.userId) {
+      await this.convertLegacyChat();
+    }
     // A team admin may have decided a change this conversation filed while CloudChef couldn't reach it.
     if (this.userId) {
       this.ctx.waitUntil(
@@ -628,7 +631,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       this.setState({ ...this.state, upgradeWaiting: false });
     }
     if (this.userId) {
-      await this.convertLegacyChat();
       await this.chat.start();
       this.resumeTurn();
     }
@@ -667,7 +669,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         }, BACKGROUND_CONTEXT);
       }
     }
-    dropLegacyChatTables(this.ctx.storage.sql);
   }
 
   /** A turn this instance recorded before it stopped: wait for its run again, or end it if it never reached pi. */

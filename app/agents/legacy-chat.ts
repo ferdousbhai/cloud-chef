@@ -4,24 +4,11 @@ import { z } from 'zod';
 /**
  * A chat from before pi-durable kept its messages in the Agents SDK's session tables, written by AI Chat. Each one is
  * moved once into the pi-durable transcript as a display-only entry (`cloudchef.legacy`), which the model never sees:
- * such a chat goes on in a fresh context, and the chat still shows what came before. The old tables are then dropped.
+ * such a chat goes on in a fresh context, and the chat still shows what came before. The old tables stay, unused,
+ * so a rollback to the release before keeps every chat; a later release drops them.
  */
 
 type LegacySql = Pick<DurableObjectStorage['sql'], 'exec'>;
-
-const LEGACY_TABLES = [
-  'cf_agents_session_messages',
-  'cf_agents_session_message_chunks',
-  'cf_agents_session_compactions',
-  'cf_agents_session_config',
-  'cf_agents_session_attachment_chunks',
-  'cf_agents_session_attachment_meta',
-  'cf_agents_session_attachment_refs',
-  'cf_ai_chat_agent_messages',
-  'cf_ai_chat_agent_tool_runs',
-  'cf_ai_chat_agent_tool_milestones',
-  'cf_ai_chat_request_context',
-] as const;
 
 const rowSchema = z.object({ id: z.string(), content: z.string(), content_chunks: z.number() });
 const chunkSchema = z.object({ content: z.string() });
@@ -70,11 +57,4 @@ export function readLegacyMessages(sql: LegacySql): JsonValue[] {
       return [];
     }
   });
-}
-
-/** Drops what AI Chat kept, once its messages are in the pi-durable transcript. */
-export function dropLegacyChatTables(sql: LegacySql): void {
-  for (const table of LEGACY_TABLES) {
-    sql.exec(`DROP TABLE IF EXISTS ${table}`);
-  }
 }

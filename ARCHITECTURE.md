@@ -309,7 +309,9 @@ messages are a rebuildable view of that.
 - The agent keeps only the turn's own bookkeeping in its state: which pi operation the turn waits for, so a restarted
   agent waits for it again and then publishes what the turn pushed.
 - A chat from before pi-durable is converted once when its agent starts: AI Chat's messages become `cloudchef.legacy`
-  entries and its tables are dropped. Such a chat goes on in a fresh context: the model does not see the old messages.
+  entries. Such a chat goes on in a fresh context: the model does not see the old messages. AI Chat's tables are left in
+  place, unused, so a rollback to the release before keeps every chat; a later release drops them (a drop takes two
+  releases).
 - The checkpoint the data API returns for a transcript (reload, a subchat's branch point) is derived from the chat's
   messages; it is not stored.
 
