@@ -73,6 +73,7 @@ import { ProviderStopError, providerStopDiagnosticCode } from './provider-stop-e
 import type { PiSteeringQueue } from './pi-steering';
 import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
+import { redactedThinkingMetadata, signedThinkingMetadata, toolStepMetadata } from 'cloudchef-agent/signed-thinking';
 
 type Messages = CloudChefMessage[];
 type UIMessageChunk = PiStreamChunk;
@@ -309,6 +310,11 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
   let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
   let firstProgressTimer: ReturnType<typeof setTimeout> | undefined;
   const toolAccounting = createToolTimeAccounting();
+  // Claude's thinking is sent back signed when the conversation continues, so the transcript keeps each
+  // block's signature and which model response (step) it and the step's tool calls belong to.
+  const recordsSignedThinking = handle.model.api === 'anthropic-messages';
+  let modelStep: string = crypto.randomUUID();
+  const toolStep = () => (recordsSignedThinking ? { providerMetadata: toolStepMetadata(modelStep) } : {});
 
   /** Stop for an indeterminate workspace operation or a pending user approval. */
   const turnInterrupted = () => toolIndeterminateError !== undefined || cloudflareApprovalPending;
@@ -339,6 +345,9 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
   const emit = async (event: AgentEvent) => {
     if (event.type === 'message_end') {
       archive([event.message]);
+    }
+    if (event.type === 'message_start' && event.message.role === 'assistant') {
+      modelStep = crypto.randomUUID();
     }
     if (event.type === 'tool_execution_start') {
       toolsInFlight += 1;
@@ -388,11 +397,25 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       } else if (assistantEvent.type === 'thinking_start') {
         // Reasoning is shown live so the wait is legible, and it stays out of the turn's content
         // accounting: a turn that only thought still counts as having produced nothing.
-        await writer.write({ type: 'reasoning-start', id: streamPartId });
+        const metadata = recordsSignedThinking
+          ? thinkingBlockMetadata(assistantEvent.partial, assistantEvent.contentIndex, modelStep, 'redacted')
+          : undefined;
+        await writer.write({
+          type: 'reasoning-start',
+          id: streamPartId,
+          ...(metadata && { providerMetadata: metadata }),
+        });
       } else if (assistantEvent.type === 'thinking_delta' && assistantEvent.delta) {
         await writer.write({ type: 'reasoning-delta', id: streamPartId, delta: assistantEvent.delta });
       } else if (assistantEvent.type === 'thinking_end') {
-        await writer.write({ type: 'reasoning-end', id: streamPartId });
+        const metadata = recordsSignedThinking
+          ? thinkingBlockMetadata(assistantEvent.partial, assistantEvent.contentIndex, modelStep, 'any')
+          : undefined;
+        await writer.write({
+          type: 'reasoning-end',
+          id: streamPartId,
+          ...(metadata && { providerMetadata: metadata }),
+        });
       } else if (assistantEvent.type === 'toolcall_start') {
         const streamed = streamedToolCall(assistantEvent);
         if (streamed) {
@@ -402,6 +425,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
             toolCallId: streamed.toolCallId,
             toolName: streamed.toolName,
             dynamic: true,
+            ...toolStep(),
           });
         }
       } else if (assistantEvent.type === 'toolcall_delta') {
@@ -423,6 +447,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
             toolName: toolCall.name,
             input: toolCall.arguments,
             dynamic: true,
+            ...toolStep(),
           });
         }
       }
@@ -436,6 +461,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
           toolCallId: event.toolCallId,
           toolName: event.toolName,
           dynamic: true,
+          ...toolStep(),
         });
         await writer.write({
           type: 'tool-input-available',
@@ -443,6 +469,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
           toolName: event.toolName,
           input: event.args,
           dynamic: true,
+          ...toolStep(),
         });
         completedToolInputs.add(event.toolCallId);
       }
@@ -804,6 +831,29 @@ function addUsage(total: Usage, usage: Usage): Usage {
       total: total.cost.total + usage.cost.total,
     },
   };
+}
+
+/**
+ * What a reasoning part records for the thinking block at `contentIndex`: its signature (or a redacted
+ * block's opaque data) and the model that wrote it, or nothing for a block that has neither, such as one
+ * cut off before its signature arrived. A redacted block's data is known from its start, which lets the
+ * part hide from its first chunk; a signature arrives only by the block's end.
+ */
+function thinkingBlockMetadata(
+  message: AssistantMessage,
+  contentIndex: number,
+  step: string,
+  which: 'redacted' | 'any',
+) {
+  const block = message.content[contentIndex];
+  if (block?.type !== 'thinking' || !block.thinkingSignature) {
+    return undefined;
+  }
+  const model = { provider: message.provider, api: message.api, model: message.model };
+  if (block.redacted) {
+    return redactedThinkingMetadata(step, model, block.thinkingSignature);
+  }
+  return which === 'any' ? signedThinkingMetadata(step, model, block.thinkingSignature) : undefined;
 }
 
 function eventContentIndex(event: AssistantMessageEvent): number | undefined {

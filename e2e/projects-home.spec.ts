@@ -387,3 +387,94 @@ test('deletes a project only after listing what goes with it and having its name
   expect(deletions).toEqual([{ projectId: '00000000-0000-4000-8000-000000000020', confirm: 'Booking site' }]);
   await assertClean();
 });
+
+declare global {
+  interface Window {
+    /** What the page registered with the stand-in WebMCP below, by name. */
+    webMcpTools?: Map<string, WebMcpTool>;
+  }
+}
+
+const listedSchema = z.object({ account: z.string(), projects: z.array(z.object({ name: z.string() })) });
+const publishSchema = z.object({
+  latestPublish: z.object({ state: z.string(), failedAt: z.string().nullable(), reason: z.string().nullable() }),
+  log: z.string().nullable(),
+});
+
+test('offers an in-browser agent WebMCP tools that read projects, and fill in a new project for the person to send', async ({
+  page,
+}, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo);
+  const projectId = '00000000-0000-4000-8000-000000000030';
+  await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' }, [
+    {
+      id: projectId,
+      name: 'Storefront',
+      fullName: 'ada/storefront',
+      role: 'edit',
+      repo: 't-storefront',
+      deploysWith: 'cloudchef',
+      deployment: {
+        id: '00000000-0000-4000-8000-0000000000d1',
+        state: 'failed',
+        failureStage: 'build',
+        reason: 'The build failed.',
+        updatedAt: Date.now(),
+      },
+    },
+  ]);
+  await page.route(`${RUNTIME_ORIGIN}/v1/projects/deploy-log?*`, (route) =>
+    route.fulfill({ contentType: 'text/plain', body: 'src/main.ts(3,1): error TS1005' }),
+  );
+  // A stand-in for the browser's WebMCP: it keeps what the page registers, as an agent would see it.
+  await page.addInitScript(() => {
+    const tools = new Map<string, WebMcpTool>();
+    window.webMcpTools = tools;
+    const modelContext: WebMcpModelContext = {
+      registerTool(tool, options) {
+        tools.set(tool.name, tool);
+        options?.signal?.addEventListener('abort', () => tools.delete(tool.name));
+      },
+    };
+    Object.defineProperty(document, 'modelContext', { value: modelContext });
+  });
+  const registered = () => page.evaluate(() => [...(window.webMcpTools?.keys() ?? [])].sort());
+  const call = (name: string, input: WebMcpToolInput = {}) =>
+    page.evaluate(
+      // The input crosses into the page as JSON text, as an agent's arguments do.
+      async ({ toolName, toolInput }) => {
+        const tool = window.webMcpTools?.get(toolName);
+        const parsed: WebMcpToolInput = JSON.parse(toolInput);
+        return tool ? (await tool.execute(parsed)).content.map((part) => part.text).join('\n') : 'missing';
+      },
+      { toolName: name, toolInput: JSON.stringify(input) },
+    );
+
+  await page.goto('/');
+  await expect(page.getByPlaceholder(/Describe your app/i)).toBeVisible();
+  await expect
+    .poll(registered)
+    .toEqual([
+      'get_publish',
+      'list_approvals',
+      'list_projects',
+      'list_public_projects',
+      'open_project',
+      'start_project',
+    ]);
+
+  const listed = listedSchema.parse(JSON.parse(await call('list_projects')));
+  expect(listed.account).toBe('Personal');
+  expect(listed.projects.map((project) => project.name)).toEqual(['Storefront', 'Booking site', 'Recipe planner']);
+  const publish = publishSchema.parse(JSON.parse(await call('get_publish', { projectId, includeLog: true })));
+  expect(publish.latestPublish).toEqual({ state: 'failed', failedAt: 'build', reason: 'The build failed.' });
+  expect(publish.log).toContain('error TS1005');
+  expect(await call('get_publish', { projectId: 'nope' })).toContain('No project with that id');
+
+  // Starting a project only fills in the message box: the person sends it.
+  await call('start_project', { prompt: 'A sign-up page for the spring fair' });
+  await expect(page).toHaveURL(/prefill=/);
+  await expect(page.getByPlaceholder(/Describe your app/i)).toHaveValue('A sign-up page for the spring fair');
+  await page.screenshot({ path: testInfo.outputPath('webmcp-start-project.png') });
+  await assertClean();
+});

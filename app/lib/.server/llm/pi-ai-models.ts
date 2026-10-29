@@ -464,6 +464,21 @@ function createGatewayFetch(
         })
       : writtenBodySchema.parse(body);
     let response = await send(query);
+    if (response.status === 400 && route.reasoning.model.api === 'anthropic-messages') {
+      // Claude refuses replayed thinking whose signature no longer matches: one bound to a conversation
+      // whose earlier turns have changed since (enforced for accounts made from 2026-08-31), or one it
+      // cannot read. Its documented recovery is to send the conversation once more without any thinking
+      // blocks, so the turn goes on without that reasoning rather than failing.
+      const withoutThinking = refusesReplayedThinking(await readText(response.clone()))
+        ? withoutThinkingBlocks(query)
+        : null;
+      if (withoutThinking) {
+        await response.body?.cancel().catch(() => undefined);
+        request.signal.throwIfAborted();
+        recordPiStage('gateway_thinking_stripped_retry', route.reasoning.model.id);
+        response = await send(withoutThinking);
+      }
+    }
     if (
       response.status === 400 &&
       parsed.success &&
@@ -517,6 +532,43 @@ function refusedSummaryKeys(binding: Ai): Set<string> {
  */
 function refusesReasoningSummaries(body: string): boolean {
   return /reasoning[ ._]summar/i.test(body) && /verif/i.test(body);
+}
+
+/**
+ * Anthropic's refusal of a replayed thinking block: "Invalid `signature` in `thinking` block", naming
+ * the block's place in `messages`. Both words are required, so no other 400 is retried.
+ */
+function refusesReplayedThinking(body: string): boolean {
+  return /signature/i.test(body) && /thinking/i.test(body);
+}
+
+/** An Anthropic Messages request as far as its turns' content blocks; a turn's content may also be plain text. */
+const anthropicMessagesBodySchema = z.looseObject({
+  messages: z.array(z.looseObject({ content: z.union([z.string(), z.array(z.looseObject({ type: z.string() }))]) })),
+});
+
+/**
+ * The request with every `thinking` and `redacted_thinking` block taken out of its messages (each turn's
+ * text and tool calls stay), or null when it has none to take out.
+ */
+function withoutThinkingBlocks(body: ProviderRequestBody | WrittenBody): WrittenBody | null {
+  const parsed = anthropicMessagesBodySchema.safeParse(body);
+  if (!parsed.success) {
+    return null;
+  }
+  let stripped = false;
+  const messages = parsed.data.messages.map((message) => {
+    if (!Array.isArray(message.content)) {
+      return message;
+    }
+    const content = message.content.filter((block) => {
+      const thinking = block.type === 'thinking' || block.type === 'redacted_thinking';
+      stripped ||= thinking;
+      return !thinking;
+    });
+    return { ...message, content };
+  });
+  return stripped ? { ...parsed.data, messages } : null;
 }
 
 async function readText(response: Response): Promise<string> {

@@ -11,6 +11,7 @@ import { BrandLink } from '~/components/BrandLink';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm.client';
+import { useWebMcpTools } from '~/lib/webmcp.client';
 
 const ProjectMenu = lazy(() => import('./ProjectMenu.client').then((module) => ({ default: module.ProjectMenu })));
 const ProjectDialogs = lazy(() =>
@@ -36,6 +37,16 @@ export function Header() {
     session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
   // Approvals are in the sidebar; while some wait, its button says so.
   const waitingApprovals = useWaitingApprovals(teamAdmin);
+  // An agent in the browser gets a few of CloudChef's actions as tools, while someone is signed in to build.
+  const context = session?.context ?? null;
+  useWebMcpTools(
+    context
+      ? {
+          account: context.kind === 'organization' ? context.orgName : 'Personal',
+          mayStartProjects: context.kind !== 'organization' || context.draftsAllowed,
+        }
+      : null,
+  );
   const menuLabel = isMenuOpen ? 'Close project menu' : 'Open project menu';
 
   return (
