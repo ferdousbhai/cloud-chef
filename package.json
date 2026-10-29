@@ -48,6 +48,7 @@
     "ops": "node scripts/ops-report.mjs",
     "ops:json": "node scripts/ops-report.mjs --json",
     "ops:session": "node scripts/ops-session.mjs",
+    "rollback:workspace-containers": "node scripts/rollback-workspace-containers.mjs",
     "provision:production": "node scripts/provision-cloudflare-production.mjs",
     "provision:production:check": "node scripts/provision-cloudflare-production.mjs --check",
     "verify:stack": "node scripts/verify-stack-alignment.mjs",

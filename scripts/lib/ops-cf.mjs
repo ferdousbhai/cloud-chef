@@ -1,6 +1,7 @@
 /**
- * What `pnpm run ops` and `pnpm run ops:session` share: reading production through the operator's own `cf`
- * login, with every command checked against a read-only allowlist before a process starts.
+ * What `pnpm run ops`, `pnpm run ops:session` and the reads of `pnpm run rollback:workspace-containers` share:
+ * reading production through the operator's own `cf` login, with every command checked against a read-only allowlist
+ * before a process starts.
  */
 import { execFile } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
@@ -26,6 +27,7 @@ const READ_ONLY_CF_COMMANDS = Object.freeze([
   'ai-gateway logs get-request',
   'ai-gateway logs get-response',
   'builds list',
+  'containers applications list',
 ]);
 
 /**

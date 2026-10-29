@@ -692,7 +692,12 @@ A release from before this one cannot start containers under `durable_object`: i
 an image and `scheduling_policy: "default"`, which Cloudflare is expected to refuse, the policy being immutable.
 Rolling back a moved runtime is therefore two things: deploy the earlier release, and delete the runtime's two
 `durable_object` applications (`cf containers applications delete <id>`, an application's id being its namespace's under
-this policy, as Wrangler expects) while the runtime is idle. The earlier release's provisioning, whose
+this policy, as Wrangler expects) while the runtime is idle. `scripts/rollback-workspace-containers.mjs`
+(`pnpm run rollback:workspace-containers`) does the second: it lists the runtimes from the control plane's D1, prints
+each one's `<worker>` and `<worker>-builder` applications on `durable_object` (a dry run, by default), and with
+`--apply` deletes them one runtime at a time, each only while its own D1 shows nothing running, just ended, or holding
+an upgrade window, the same test that grants the window; one whose activity can't be read waits for `--force`
+(DEVELOPMENT.md). The earlier release's provisioning, whose
 container step is retried with backoff and whose failed-after-redeploy upgrades every sweep restarts, then finds no
 application and creates the platform-scheduled one with its own image. Workspace files are in the Durable Objects and
 survive both directions; the base snapshot row stays in D1, unused, until a release with its key runs again.
