@@ -131,9 +131,7 @@ export function CloudflareSignInPrompt({
       </div>
       {session ? null : (
         <div className="mt-6 border-t border-bolt-elements-borderColor pt-4">
-          <p className="wrap-break-word text-sm text-content-secondary">
-            Or sign in with Google or an emailed link.
-          </p>
+          <p className="wrap-break-word text-sm text-content-secondary">Or sign in with Google or an emailed link.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="neutral"
