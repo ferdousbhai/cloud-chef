@@ -8,8 +8,8 @@ describe('rejectedWorkspaceCommand', () => {
     'cd /home/project && cf auth list',
     'pnpm exec cf auth login',
     'npx cf auth whoami',
-  ])('points the credential command %j at cloudflare_request', (command) => {
-    expect(rejectedWorkspaceCommand(command)).toMatch(/cloudflare_request/);
+  ])('refuses the credential command %j, since cf is signed in outside the container', (command) => {
+    expect(rejectedWorkspaceCommand(command)).toMatch(/cf needs no sign-in here/);
   });
 
   it.each(['cf cli search "list d1 databases"', 'cf schema d1 list', 'cf d1 list --dry-run'])(

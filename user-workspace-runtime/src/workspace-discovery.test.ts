@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DISCOVERY_MAX_LIST_ENTRIES,
   DISCOVERY_MAX_MATCH_TEXT_CHARS,
   DISCOVERY_MAX_MATCHES,
   DISCOVERY_MAX_OUTPUT_BYTES,
@@ -8,8 +7,6 @@ import {
   DISCOVERY_MAX_SEARCH_FILE_BYTES,
   DISCOVERY_MAX_SEARCH_FILES,
   DISCOVERY_MAX_TRAVERSAL_DEPTH,
-  enumerateProjectEntries,
-  requireProjectListingOptions,
   requireProjectSearchOptions,
   scanProjectFiles,
   type DiscoveryFilesystem,
@@ -19,104 +16,24 @@ import {
 const ROOT = '/home/project';
 const PRUNED = new Set(['node_modules', 'dist']);
 
-describe('workspace discovery listing', () => {
-  it('shows generated directories but never walks into them', async () => {
-    const fs = fakeFilesystem({
-      '/home/project/src/app.ts': 'export {};',
-      '/home/project/dist/bundle.js': 'x',
-      '/home/project/node_modules/@tanstack/react-start/package.json': '{}',
-    });
-
-    const listing = await enumerateProjectEntries(fs, scope(), { recursive: true, limit: 100 });
-
-    expect(listing.entries.map((entry) => entry.path)).toEqual([
-      '/home/project/dist',
-      '/home/project/node_modules',
-      '/home/project/src',
-      '/home/project/src/app.ts',
-    ]);
-  });
-
-  it('walks inside a generated directory when that directory is the requested scope', async () => {
-    const fs = fakeFilesystem({
-      '/home/project/node_modules/@tanstack/react-start/package.json': '{}',
-    });
-
-    const listing = await enumerateProjectEntries(fs, scope('/home/project/node_modules/@tanstack'), {
-      recursive: true,
-      limit: 100,
-    });
-
-    expect(listing.entries.map((entry) => entry.path)).toEqual([
-      '/home/project/node_modules/@tanstack/react-start',
-      '/home/project/node_modules/@tanstack/react-start/package.json',
-    ]);
-  });
-
-  it('reports truncation and stops reading rather than returning an unbounded listing', async () => {
-    const files = Object.fromEntries(
-      Array.from({ length: 20 }, (_, index) => [`/home/project/src/file-${index}.ts`, 'export {};']),
-    );
-    const fs = fakeFilesystem(files);
-
-    const listing = await enumerateProjectEntries(fs, scope(), { recursive: true, limit: 3 });
-
-    expect(listing.entryCount).toBe(3);
-    expect(listing.truncated).toBe(true);
-  });
-
-  it('treats a workspace that was never seeded as an empty project, not a failure', async () => {
-    const listing = await enumerateProjectEntries(fakeFilesystem({}), scope(), { recursive: true, limit: 10 });
-
-    expect(listing).toMatchObject({ entryCount: 0, truncated: false });
-  });
-
-  it('surfaces a missing subdirectory instead of pretending it is empty', async () => {
-    const fs = fakeFilesystem({ '/home/project/src/app.ts': 'export {};' });
-
-    await expect(
-      enumerateProjectEntries(fs, scope('/home/project/missing'), { recursive: false, limit: 10 }),
-    ).rejects.toThrow(/ENOENT/);
-  });
-
-  it('lists just that file when the path names a file rather than a directory', async () => {
-    const fs = fakeFilesystem({
-      '/home/project/src/lib/media.ts': 'export {};',
-      '/home/project/src/lib/other.ts': 'export {};',
-    });
-
-    for (const recursive of [false, true]) {
-      const listing = await enumerateProjectEntries(fs, scope('/home/project/src/lib/media.ts'), {
-        recursive,
-        limit: 10,
-      });
-
-      expect(listing).toEqual({
-        path: '/home/project/src/lib/media.ts',
-        recursive,
-        entries: [{ path: '/home/project/src/lib/media.ts', type: 'file' }],
-        entryCount: 1,
-        truncated: false,
-      });
-    }
-  });
-
+describe('workspace discovery walk', () => {
   it('terminates on a directory cycle instead of walking forever', async () => {
     // A symlinked directory that resolves back onto its own ancestor is the shape that makes a
     // naive recursive walk non-terminating and takes the Durable Object down with it.
+    let directoriesRead = 0;
     const fs: DiscoveryFilesystem = {
-      readdir: async () => [{ name: 'loop', isFile: false, isDirectory: true }],
+      readdir: async () => {
+        directoriesRead += 1;
+        return [{ name: 'loop', isFile: false, isDirectory: true }];
+      },
       stat: async () => ({ size: 0, isFile: false }),
       readFile: async () => '',
     };
 
-    const listing = await enumerateProjectEntries(fs, scope(), {
-      recursive: true,
-      limit: DISCOVERY_MAX_LIST_ENTRIES,
-    });
+    const result = await scanProjectFiles(fs, scope(), { pattern: 'x', ignoreCase: false, limit: 10 });
 
-    expect(listing.truncated).toBe(true);
-    expect(listing.entryCount).toBe(DISCOVERY_MAX_TRAVERSAL_DEPTH);
+    expect(result.truncated).toBe(true);
+    expect(directoriesRead).toBeLessThanOrEqual(DISCOVERY_MAX_TRAVERSAL_DEPTH + 1);
   });
 });
 
@@ -279,10 +196,9 @@ describe('workspace discovery search', () => {
 
 describe('workspace discovery request validation', () => {
   it('defaults to the ceilings and rejects nonsense counts', () => {
-    expect(requireProjectListingOptions({})).toEqual({ recursive: false, limit: DISCOVERY_MAX_LIST_ENTRIES });
-    expect(requireProjectListingOptions({ limit: 10_000 }).limit).toBe(DISCOVERY_MAX_LIST_ENTRIES);
-    expect(() => requireProjectListingOptions({ limit: 0 })).toThrow(SyntaxError);
-    expect(() => requireProjectListingOptions({ recursive: 'yes' })).toThrow(SyntaxError);
+    expect(requireProjectSearchOptions({ pattern: 'x', limit: 10_000 }).limit).toBe(DISCOVERY_MAX_MATCHES);
+    expect(() => requireProjectSearchOptions({ pattern: 'x', limit: 0 })).toThrow(SyntaxError);
+    expect(() => requireProjectSearchOptions({ pattern: 'x', ignoreCase: 'yes' })).toThrow(SyntaxError);
     expect(requireProjectSearchOptions({ pattern: 'x' })).toEqual({
       pattern: 'x',
       ignoreCase: false,

@@ -19,7 +19,6 @@ import {
   type WorkspaceCommandProgress,
   type WorkspaceCommandRequest,
   type WorkspaceCommandResult,
-  type WorkspaceListingRequest,
   type WorkspaceSearchRequest,
   type WorkspaceSeedExpectation,
   type WorkspaceSyncPageRequest,
@@ -115,8 +114,8 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
         }
       },
       readdir: async (path) => (await this.#stub()).readDirectory(path),
-      // Computer's grep and find back the model's search tools: `grep` is a literal content search
-      // (`searchProjectFiles`), and `find` filters the known file list rather than walking the tree.
+      // Computer's grep and find: `grep` is a literal content search (`searchProjectFiles`), and
+      // `find` filters the known file list rather than walking the tree.
       grep: async (pattern, path, options) => {
         const result = await this.searchProjectFiles({ pattern, path, ignoreCase: options?.ignoreCase });
         return result.matches.map((match) => ({ path: match.path, line: match.line, text: match.text }));
@@ -156,6 +155,8 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     private readonly env: Env,
     private readonly getProjectId: () => string,
     private readonly getUserId: () => string | null,
+    /** The agent using this workspace, named on each of its commands so a change asked for there is approved in its chat. */
+    private readonly getAgentName: () => string | null = () => null,
   ) {}
 
   get projectId(): string {
@@ -291,17 +292,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
   }
 
   /**
-   * Discovery goes straight to the workspace and is not registered as the active tool: the
+   * A search goes straight to the workspace and is not registered as the active tool: the
    * workspace answers it from its SQLite VFS outside the operation lane, so attributing it to a
    * tool operation would journal work that has nothing to replay and nothing to reattach.
    */
-  listProjectEntries(request: WorkspaceListingRequest, abortSignal?: AbortSignal) {
-    return raceAgainstAbort(
-      this.#stub().then((stub) => stub.listProjectEntries(request)),
-      abortSignal,
-    );
-  }
-
   searchProjectFiles(request: WorkspaceSearchRequest, abortSignal?: AbortSignal) {
     return raceAgainstAbort(
       this.#stub().then((stub) => stub.searchProjectFiles(request)),
@@ -332,6 +326,10 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     const streamRequest: WorkspaceCommandRequest = { command: args.command, cwd: args.cwd, backend: args.backend };
     if (operationKey) {
       streamRequest.operationKey = operationKey;
+      const agentName = this.getAgentName();
+      if (agentName) {
+        streamRequest.agentName = agentName;
+      }
     }
     let stream: ReadableStream<Uint8Array>;
     try {

@@ -7,7 +7,6 @@ import { attachedValidation } from './validation-verdict';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
   cloudflareApiRequestDisplaySchema,
-  cloudflareApiRequestIsRead,
   type CloudflareApiRequestDisplay,
   type CloudflareExecutionDecisionHandler,
   type CloudflareExecutionPublicState,
@@ -15,7 +14,6 @@ import {
 import { Button } from '~/components/ui/primitives/Button';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 import type { LinkedPublishView } from '~/lib/common/linked-publish';
-import { getRelativePath } from 'cloudchef-agent/utils/workDir';
 import { messageOf } from '~/lib/json-request';
 
 export const ToolUseContents = memo(function ToolUseContents({
@@ -38,58 +36,51 @@ export const ToolUseContents = memo(function ToolUseContents({
   // invocation alone cannot say whether work is still happening. The card's own status can, and a
   // tool that is no longer running must never show the running placeholder.
   const running = isToolInvocationInProgress(invocation) && isToolActivityStatusActive(status);
-  if (invocation.toolName === 'cloudflare_request') {
-    return (
-      <CloudflareRequestContents
+  // A change to the Cloudflare account the command asked for: waiting for the person in its place, or decided.
+  const change =
+    invocation.toolName === 'exec' ? (
+      <CloudflareChangeContents
         invocation={invocation}
-        running={running}
         execution={cloudflareExecution}
         onDecision={onCloudflareExecutionDecision}
       />
+    ) : null;
+  if (running) {
+    return (
+      <>
+        <RunningToolContents invocation={invocation} progress={progress} />
+        {change}
+      </>
     );
   }
-  if (running) {
-    return <RunningToolContents invocation={invocation} progress={progress} />;
-  }
   if (isToolInvocationInProgress(invocation)) {
-    return <ToolResultFrame>{unfinishedToolSummary(status)}</ToolResultFrame>;
+    return (
+      <>
+        <ToolResultFrame>{unfinishedToolSummary(status)}</ToolResultFrame>
+        {change}
+      </>
+    );
   }
-  if (invocation.toolName === 'validate') {
+  if (attachedValidation(invocation)) {
     return <ValidationToolContents invocation={invocation} />;
   }
   if (invocation.toolName === 'publish' || invocation.toolName === 'publish_preview') {
     return publish ? <PublishContents view={publish} /> : <StructuredResultTool invocation={invocation} />;
   }
-  if (invocation.toolName === 'exec' && publish) {
+  if (invocation.toolName === 'exec') {
     // A command that pushed to the project: what became of the push first, then the command itself.
     return (
       <>
-        <PublishContents view={publish} />
+        {publish ? <PublishContents view={publish} /> : null}
         <StructuredResultTool invocation={invocation} />
+        {change}
       </>
     );
   }
-  if (
-    invocation.toolName === 'read' ||
-    invocation.toolName === 'write' ||
-    invocation.toolName === 'edit' ||
-    invocation.toolName === 'exec'
-  ) {
-    return <StructuredResultTool invocation={invocation} />;
+  if (invocation.toolName === 'history' && invocation.state !== 'output-error') {
+    return <HistoryContents invocation={invocation} />;
   }
-  if (invocation.state === 'output-error') {
-    return <ToolResultFrame>{invocation.errorText ?? 'This tool call failed.'}</ToolResultFrame>;
-  }
-  switch (invocation.toolName) {
-    case 'ls':
-      return <ListingContents invocation={invocation} />;
-    case 'grep':
-      return <SearchContents invocation={invocation} />;
-    case 'history':
-      return <HistoryContents invocation={invocation} />;
-    default:
-      return <pre className="overflow-x-auto whitespace-pre-wrap">{JSON.stringify(invocation, null, 2)}</pre>;
-  }
+  return <StructuredResultTool invocation={invocation} />;
 });
 
 function unfinishedToolSummary(status: ToolActivityStatus): string {
@@ -134,29 +125,15 @@ function RunningToolContents({ invocation, progress }: { invocation: CloudChefTo
   );
 }
 
-const cloudflareRequestProposalSchema = z.object({
-  kind: z.literal('cloudflare_request_proposal'),
-  status: z.literal('awaiting_approval'),
-  executionId: z.string(),
-  toolCallId: z.string(),
-  accountId: z.string(),
-  request: cloudflareApiRequestDisplaySchema,
-  proposalSha256: z.string(),
-  riskNote: z.string(),
-  expiresAt: z.number(),
-});
-
-/** A team member's change, waiting for one of the team's admins. */
+/** A team member's change, filed for the team's admins, in the output of the command that asked. */
 const cloudflareRequestFiledSchema = z.object({
   kind: z.literal('cloudflare_request_filed'),
   status: z.literal('awaiting_team_admin'),
-  approvalId: z.string(),
   request: cloudflareApiRequestDisplaySchema,
   riskNote: z.string(),
-  expiresAt: z.number(),
 });
 
-/** What became of an approved, rejected or expired change, as its step keeps it. */
+/** What became of a change the team's admins decided, in place of the filed one. */
 const cloudflareRequestFinalResultSchema = z.object({
   kind: z.literal('cloudflare_request_final_result'),
   status: z.enum(['rejected', 'succeeded', 'failed', 'indeterminate', 'expired']),
@@ -166,15 +143,7 @@ const cloudflareRequestFinalResultSchema = z.object({
   }),
 });
 
-const cloudflareRequestResultSchema = z.object({
-  kind: z.literal('cloudflare_request_result'),
-  status: z.enum(['success', 'failure', 'insufficient_scope']),
-  accountId: z.string(),
-  content: z.string().optional(),
-  requestId: z.string().nullable(),
-  httpStatus: z.number().nullable(),
-  truncated: z.boolean(),
-});
+const commandChangeSchema = z.looseObject({ cloudflareChange: z.unknown().optional() });
 
 function CloudflareRequestLine({ request }: { request: CloudflareApiRequestDisplay }) {
   return (
@@ -185,156 +154,73 @@ function CloudflareRequestLine({ request }: { request: CloudflareApiRequestDispl
   );
 }
 
-function CloudflareRequestContents({
+/**
+ * The change to the Cloudflare account a command asked for, if it asked for one: in the person's own account (or a
+ * team's, for its admins) it waits here for their approval while the command waits; a team member's shows that it
+ * went to the team's admins, then what they decided.
+ */
+function CloudflareChangeContents({
   invocation,
-  running,
   execution,
   onDecision,
 }: {
   invocation: CloudChefToolInvocation;
-  running: boolean;
   execution?: CloudflareExecutionPublicState;
   onDecision?: CloudflareExecutionDecisionHandler;
 }) {
-  const input = cloudflareApiRequestDisplaySchema.safeParse(invocation.input).data;
+  if (execution) {
+    return <CloudflareApprovalContents execution={execution} onDecision={onDecision} />;
+  }
   const output = invocation.state === 'output-available' ? invocation.output : undefined;
-  const proposal = cloudflareRequestProposalSchema.safeParse(output).data;
-  const filed = cloudflareRequestFiledSchema.safeParse(output).data;
-  const final = cloudflareRequestFinalResultSchema.safeParse(output).data;
-  if (filed || (final && !execution)) {
-    const shown = filed?.request ?? input;
-    return (
-      <ToolResultFrame>
-        <div className="space-y-3" data-testid="cloudflare-request-team-approval">
-          {shown ? <CloudflareRequestLine request={shown} /> : null}
-          {filed ? (
-            <>
-              <p className="text-xs leading-5 text-content-secondary">{filed.riskNote}</p>
-              <p className="text-content-primary" role="status">
-                Waiting for a team admin to approve it.
-              </p>
-            </>
-          ) : final ? (
-            <CloudflareExecutionStatus
-              status={final.status}
-              outcome={{ status: 'success', summary: final.outcome.summary, content: final.outcome.content }}
-            />
-          ) : null}
-        </div>
-      </ToolResultFrame>
-    );
-  }
-  if (execution || proposal || (running && input && !cloudflareApiRequestIsRead(input))) {
-    return (
-      <CloudflareRequestApprovalContents
-        invocation={invocation}
-        input={input}
-        proposal={proposal}
-        running={running}
-        execution={execution}
-        onDecision={onDecision}
-      />
-    );
-  }
-  if (running) {
-    return (
-      <ToolResultFrame>
-        <div className="space-y-1.5">
-          <div className="text-content-secondary">Reading the connected Cloudflare account…</div>
-          {input ? <CloudflareRequestLine request={input} /> : null}
-        </div>
-      </ToolResultFrame>
-    );
-  }
-  if (invocation.state === 'output-error') {
-    return <ToolResultFrame>{invocation.errorText ?? 'The Cloudflare API request failed.'}</ToolResultFrame>;
-  }
-  if (isToolInvocationInProgress(invocation)) {
-    return <ToolResultFrame>{unfinishedToolSummary('aborted')}</ToolResultFrame>;
-  }
-  const result = cloudflareRequestResultSchema.safeParse(output).data;
-  if (!result) {
-    return <ToolResultFrame>The Cloudflare API returned an invalid result.</ToolResultFrame>;
+  const change = commandChangeSchema.safeParse(output).data?.cloudflareChange;
+  const filed = cloudflareRequestFiledSchema.safeParse(change).data;
+  const final = cloudflareRequestFinalResultSchema.safeParse(change).data;
+  if (!filed && !final) {
+    return null;
   }
   return (
     <ToolResultFrame>
-      <div className="space-y-1.5">
-        <div className={result.status === 'success' ? 'text-content-primary' : 'text-bolt-elements-icon-error'}>
-          {result.status === 'success'
-            ? 'Cloudflare API request completed.'
-            : result.status === 'insufficient_scope'
-              ? 'The connected Cloudflare grant does not allow this request.'
-              : 'The Cloudflare API request failed.'}
-        </div>
-        {input ? <CloudflareRequestLine request={input} /> : null}
-        {result.content ? (
-          <pre className="max-h-64 overflow-auto whitespace-pre-wrap wrap-break-word text-xs text-content-secondary">
-            {result.content}
-          </pre>
+      <div className="space-y-3" data-testid="cloudflare-request-team-approval">
+        {filed ? (
+          <>
+            <CloudflareRequestLine request={filed.request} />
+            <p className="text-xs leading-5 text-content-secondary">{filed.riskNote}</p>
+            <p className="text-content-primary" role="status">
+              Waiting for a team admin to approve it.
+            </p>
+          </>
+        ) : final ? (
+          <CloudflareExecutionStatus
+            status={final.status}
+            outcome={{ status: 'success', summary: final.outcome.summary, content: final.outcome.content }}
+          />
         ) : null}
-        {result.truncated ? <div className="text-xs text-content-tertiary">Result was truncated.</div> : null}
       </div>
     </ToolResultFrame>
   );
 }
 
-function CloudflareRequestApprovalContents({
-  invocation,
-  running,
+function CloudflareApprovalContents({
   execution,
   onDecision,
-  input,
-  proposal,
 }: {
-  invocation: CloudChefToolInvocation;
-  running: boolean;
-  execution?: CloudflareExecutionPublicState;
+  execution: CloudflareExecutionPublicState;
   onDecision?: CloudflareExecutionDecisionHandler;
-  input?: CloudflareApiRequestDisplay;
-  proposal?: z.infer<typeof cloudflareRequestProposalSchema>;
 }) {
   const [pendingDecision, setPendingDecision] = useState<'approve' | 'reject' | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
-  const expiresAt = proposal?.expiresAt ?? execution?.expiresAt;
-  // The deadline that has passed; a proposal with another deadline (or none) hasn't expired.
+  const { expiresAt } = execution;
+  // The deadline that has passed; a change with another deadline hasn't expired.
   const [passedDeadline, setPassedDeadline] = useState<number | null>(() =>
-    expiresAt !== undefined && expiresAt <= Date.now() ? expiresAt : null,
+    expiresAt <= Date.now() ? expiresAt : null,
   );
-  const expired = expiresAt !== undefined && passedDeadline === expiresAt;
+  const expired = passedDeadline === expiresAt;
   useEffect(() => {
-    if (!expiresAt) {
-      return undefined;
-    }
     const timeout = window.setTimeout(() => setPassedDeadline(expiresAt), Math.max(0, expiresAt - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [expiresAt]);
 
-  if (running) {
-    return (
-      <ToolResultFrame>
-        <div className="space-y-1.5">
-          <div className="text-content-secondary">Preparing a Cloudflare change for your approval…</div>
-          {input ? <CloudflareRequestLine request={input} /> : null}
-        </div>
-      </ToolResultFrame>
-    );
-  }
-  if (isToolInvocationInProgress(invocation) && !proposal && !execution) {
-    return <ToolResultFrame>{unfinishedToolSummary('aborted')}</ToolResultFrame>;
-  }
-  if (invocation.state === 'output-error') {
-    return <ToolResultFrame>{invocation.errorText ?? 'The Cloudflare change proposal failed.'}</ToolResultFrame>;
-  }
-  if (!proposal && !execution) {
-    return <ToolResultFrame>The Cloudflare change proposal is unavailable.</ToolResultFrame>;
-  }
-
-  const executionId = proposal?.executionId ?? execution?.executionId ?? '';
-  const request = proposal?.request ?? input;
-  const accountId = proposal?.accountId ?? execution?.accountId ?? '';
-  const digest = proposal?.proposalSha256 ?? execution?.proposalSha256 ?? '';
-  const status = execution?.status ?? 'awaiting_approval';
-  const effectiveStatus = status === 'awaiting_approval' && expired ? 'expired' : status;
+  const effectiveStatus = execution.status === 'awaiting_approval' && expired ? 'expired' : execution.status;
   const canDecide = effectiveStatus === 'awaiting_approval' && Boolean(onDecision) && pendingDecision === null;
 
   const decide = async (decision: 'approve' | 'reject') => {
@@ -344,9 +230,9 @@ function CloudflareRequestApprovalContents({
     setPendingDecision(decision);
     setDecisionError(null);
     try {
-      await onDecision(executionId, decision);
+      await onDecision(execution.executionId, decision);
     } catch (error) {
-      setDecisionError(messageOf(error, 'The Cloudflare execution decision failed.'));
+      setDecisionError(messageOf(error, 'Your decision couldn’t be saved. Try again.'));
     } finally {
       setPendingDecision(null);
     }
@@ -356,15 +242,12 @@ function CloudflareRequestApprovalContents({
     <ToolResultFrame>
       <div className="space-y-3" data-testid="cloudflare-request-approval">
         <div className="grid gap-1 text-xs text-content-tertiary">
-          <div>Account: {accountId}</div>
-          <div>Digest: {digest.slice(0, 12)}</div>
+          <div>Account: {execution.accountId}</div>
+          <div>Digest: {execution.proposalSha256.slice(0, 12)}</div>
         </div>
-        {request ? <CloudflareRequestLine request={request} /> : null}
-        <p className="text-xs leading-5 text-content-secondary">
-          {proposal?.riskNote ??
-            'This exact request may make destructive, irreversible, or billable Cloudflare account changes.'}
-        </p>
-        <CloudflareExecutionStatus status={effectiveStatus} outcome={execution?.outcome ?? null} />
+        <CloudflareRequestLine request={execution.request} />
+        <p className="text-xs leading-5 text-content-secondary">{execution.riskNote}</p>
+        <CloudflareExecutionStatus status={effectiveStatus} outcome={execution.outcome} />
         {effectiveStatus === 'awaiting_approval' ? (
           <div className="flex flex-wrap gap-2">
             <Button
@@ -406,16 +289,16 @@ function CloudflareExecutionStatus({
     status === 'awaiting_approval'
       ? 'Waiting for approval.'
       : status === 'approved' || status === 'executing'
-        ? 'Approved. Sending the exact request…'
+        ? 'Approved. Sending exactly this request…'
         : status === 'rejected'
           ? 'Rejected. Nothing was sent to Cloudflare.'
           : status === 'expired'
-            ? 'Approval expired. Propose the change again to continue.'
+            ? 'Not approved in time. Nothing was sent to Cloudflare.'
             : status === 'succeeded'
-              ? 'Cloudflare applied the change.'
+              ? 'Cloudflare made the change.'
               : status === 'indeterminate'
-                ? 'Outcome indeterminate. Reconcile current state before proposing another change.'
-                : 'The Cloudflare change failed.';
+                ? 'It’s not known whether Cloudflare made the change. Check the account before trying again.'
+                : 'The change didn’t go through.';
   const error = status === 'failed' || status === 'indeterminate' || status === 'expired';
   return (
     <div className="space-y-2" role="status">
@@ -590,84 +473,11 @@ export function PublishLinks({ view }: { view: LinkedPublishView }) {
   );
 }
 
-const MAX_LISTED_ROWS = 40;
-
-const listingOutputSchema = z.looseObject({
-  entries: z.array(z.looseObject({ path: z.string(), type: z.string() })),
-  entryCount: z.number().optional(),
-  truncated: z.boolean().optional(),
-});
-
-const searchOutputSchema = z.looseObject({
-  matches: z.array(z.looseObject({ path: z.string(), line: z.number(), text: z.string() })),
-  matchCount: z.number().optional(),
-  truncated: z.boolean().optional(),
-});
-
 const historySearchOutputSchema = z.looseObject({
   totalMatches: z.number(),
   entries: z.array(z.looseObject({ role: z.string(), excerpt: z.string() })),
 });
 const historyReadOutputSchema = z.looseObject({ role: z.string(), text: z.string() });
-
-function moreRows(shown: number, total: number, truncated: boolean | undefined): string | null {
-  const hidden = total - shown;
-  return hidden > 0 ? `…and ${hidden} more` : truncated ? '…and more' : null;
-}
-
-function ListingContents({ invocation }: { invocation: CloudChefToolInvocation }) {
-  const listing = listingOutputSchema.safeParse(invocation.output).data;
-  if (!listing) {
-    return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
-  }
-  const shown = listing.entries.slice(0, MAX_LISTED_ROWS);
-  const more = moreRows(shown.length, listing.entryCount ?? listing.entries.length, listing.truncated);
-  return (
-    <ToolResultFrame>
-      {shown.length === 0 ? (
-        'Nothing here.'
-      ) : (
-        <ul className="max-h-56 overflow-auto text-xs leading-5 text-content-secondary">
-          {shown.map((entry) => (
-            <li key={entry.path} className="truncate">
-              {getRelativePath(entry.path) || entry.path}
-              {entry.type === 'dir' ? '/' : ''}
-            </li>
-          ))}
-          {more ? <li className="text-content-tertiary">{more}</li> : null}
-        </ul>
-      )}
-    </ToolResultFrame>
-  );
-}
-
-function SearchContents({ invocation }: { invocation: CloudChefToolInvocation }) {
-  const search = searchOutputSchema.safeParse(invocation.output).data;
-  if (!search) {
-    return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
-  }
-  const shown = search.matches.slice(0, MAX_LISTED_ROWS);
-  const more = moreRows(shown.length, search.matchCount ?? search.matches.length, search.truncated);
-  return (
-    <ToolResultFrame>
-      {shown.length === 0 ? (
-        'No matches.'
-      ) : (
-        <ul className="max-h-56 overflow-auto text-xs leading-5 text-content-secondary">
-          {shown.map((match) => (
-            <li key={`${match.path}:${match.line}`} className="truncate">
-              <span className="text-content-primary">
-                {getRelativePath(match.path) || match.path}:{match.line}
-              </span>{' '}
-              {match.text.trim()}
-            </li>
-          ))}
-          {more ? <li className="text-content-tertiary">{more}</li> : null}
-        </ul>
-      )}
-    </ToolResultFrame>
-  );
-}
 
 const MAX_HISTORY_TEXT = 600;
 

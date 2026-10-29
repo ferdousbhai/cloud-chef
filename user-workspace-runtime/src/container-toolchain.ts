@@ -1,10 +1,14 @@
 import { GENERATED_PROJECT_PNPM_VERSION } from '../../cloudchef-agent/cloudflare-computer';
-import { WORK_DIR } from '../../cloudchef-agent/constants';
+import { VALIDATE_COMMAND, WORK_DIR } from '../../cloudchef-agent/constants';
 import templatePackage from '../../template/package.json' with { type: 'json' };
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { shellQuote } from './shell-quote';
 import { abortableSleep } from '../../app/lib/abortable-sleep';
 import { GIT_BASE_PATH, GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
+import {
+  CLOUDFLARE_API_PROXY_BASE_URL,
+  CLOUDFLARE_API_PROXY_TOKEN,
+} from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 
 /**
@@ -97,16 +101,17 @@ export async function runIdempotentBootstrapStage(options: {
 export const CF_CLI_VERSION = templatePackage.devDependencies.cf;
 const CF_CLI_ROOT = '/opt/cloudchef/cf';
 export const CF_CLI_WRAPPER = '/usr/local/bin/cf';
+const CLOUDCHEF_COMMAND = '/usr/local/bin/cloudchef';
 
 /**
- * Install pnpm and a `cf` launcher, in one bootstrap stage.
+ * Install pnpm, a `cf` launcher and the `cloudchef` command, in one bootstrap stage.
  *
- * Only discovery (`cf cli search`, `cf schema`) and `--dry-run` are useful here: the container
- * holds no Cloudflare credential, and the runtime Worker sends the request the model copies from
- * dry-run output. The account id makes those dry-run URLs name the connected account. The launcher
- * runs the project's own pinned `cf` once dependencies are installed, and otherwise fetches the same
- * pin on first use, without the optional local simulator nothing here runs. Concurrent first uses
- * each stage their own install and the first rename wins.
+ * The container holds no Cloudflare credential: `cf` sends its API requests to the runtime's
+ * CloudflareApiProxy, which adds the account's authorization outside the container, sends reads, and
+ * holds each change for the person's approval. The account id makes `cf` act on the connected account.
+ * The launcher runs the project's own pinned `cf` once dependencies are installed, and otherwise
+ * fetches the same pin on first use, without the optional local simulator nothing here runs. Concurrent
+ * first uses each stage their own install and the first rename wins.
  */
 export function containerToolchainBootstrapCommand(accountId: string): string {
   const expectedVersion = shellQuote(GENERATED_PROJECT_PNPM_VERSION);
@@ -117,6 +122,8 @@ export function containerToolchainBootstrapCommand(accountId: string): string {
     `test "$(pnpm --version)" = ${expectedVersion}`,
     `printf %s ${shellQuote(cfCliLauncherScript(accountId))} > ${shellQuote(CF_CLI_WRAPPER)}`,
     `chmod 0755 ${shellQuote(CF_CLI_WRAPPER)}`,
+    `printf %s ${shellQuote(cloudchefCommandScript())} > ${shellQuote(CLOUDCHEF_COMMAND)}`,
+    `chmod 0755 ${shellQuote(CLOUDCHEF_COMMAND)}`,
     `test -x ${shellQuote(REAL_GIT)}`,
     `mkdir -p ${shellQuote(GIT_HOOKS)}`,
     ...[
@@ -362,6 +369,9 @@ export function cfCliLauncherScript(accountId: string): string {
     '#!/bin/sh',
     'set -eu',
     `export CLOUDFLARE_ACCOUNT_ID=${shellQuote(accountId)}`,
+    // The proxy puts the account's authorization in place of this stand-in; the container never holds it.
+    `export CLOUDFLARE_API_BASE_URL=${shellQuote(CLOUDFLARE_API_PROXY_BASE_URL)}`,
+    `export CLOUDFLARE_API_TOKEN=${shellQuote(CLOUDFLARE_API_PROXY_TOKEN)}`,
     `if [ -x ${shellQuote(projectCf)} ]; then exec ${shellQuote(projectCf)} "$@"; fi`,
     `root=${shellQuote(installRoot)}`,
     'if [ ! -x "$root/node_modules/.bin/cf" ]; then',
@@ -371,6 +381,20 @@ export function cfCliLauncherScript(accountId: string): string {
     '  mv -T "$staging" "$root" 2>/dev/null || rm -rf "$staging"',
     'fi',
     'exec "$root/node_modules/.bin/cf" "$@"',
+    '',
+  ].join('\n');
+}
+
+/**
+ * `cloudchef validate` is answered by the agent's exec tool itself, which runs the project's full validation (the
+ * one a publish recognizes) when the command is exactly that. Reaching this script means it was run some other
+ * way: inside a longer command line, or from the terminal.
+ */
+export function cloudchefCommandScript(): string {
+  return [
+    '#!/bin/sh',
+    `echo ${shellQuote(`${VALIDATE_COMMAND} runs the project's full checks when the agent runs it as a command of its own, exactly as written.`)} >&2`,
+    'exit 2',
     '',
   ].join('\n');
 }

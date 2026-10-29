@@ -11,17 +11,12 @@ import {
   BuilderToolUnsettledError,
 } from './builder-turn-limits';
 import { createWorkersAiTools, type BuilderOperationContext } from './workers-ai-tools';
-import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
 
 const toolLabels = {
   read: 'Read file',
-  ls: 'List files',
-  grep: 'Search files',
   write: 'Write file',
   edit: 'Edit file',
   exec: 'Run command',
-  validate: 'Validate project',
-  cloudflare_request: 'Cloudflare API request',
 } satisfies Record<ModelToolName, string>;
 
 /** Adapt the canonical model tools to Pi's validated tool contract. */
@@ -29,17 +24,11 @@ export function createPiToolBundle(
   workspace: BuilderWorkspaceApi,
   operationContext: BuilderOperationContext,
   skillReader: BuilderSkillReader,
-  cloudflareApi?: CloudflareApiModelToolContext,
-  linked = false,
 ): Record<string, AgentTool> {
-  const canonicalTools = createWorkersAiTools(workspace, operationContext, skillReader, cloudflareApi, linked);
-  const tools: Record<string, AgentTool> = Object.fromEntries(
-    MODEL_TOOL_NAMES.flatMap((name) => {
-      const definition = canonicalTools[name];
-      return definition ? [[name, adaptTool(name, definition, toolLabels[name])]] : [];
-    }),
+  const canonicalTools = createWorkersAiTools(workspace, operationContext, skillReader);
+  return Object.fromEntries(
+    MODEL_TOOL_NAMES.map((name) => [name, adaptTool(name, canonicalTools[name], toolLabels[name])]),
   );
-  return tools;
 }
 
 function adaptTool(name: ModelToolName, definition: Tool, label: string): AgentTool {

@@ -1,6 +1,7 @@
 /**
  * The two things a workspace shell command must never do: touch CloudChef's own platform processes
- * and state, or handle a Cloudflare credential. Everything else runs as asked; per-tool time limits
+ * and state, or handle a Cloudflare credential (`cf auth`, which would sign `cf` in past the proxy that
+ * holds the account's authorization). Everything else runs as asked; per-tool time limits
  * stop a command that does not finish.
  */
 
@@ -16,9 +17,8 @@ const PLATFORM_STATE_REJECTION =
   'CloudChef and must not be modified.';
 
 const CF_CREDENTIAL_REJECTION =
-  'Rejected: cf has no Cloudflare credential in this workspace, by design. Find the operation with ' +
-  '`cf cli search`, check it with `cf schema`, print the request with `--dry-run`, then send that output ' +
-  'with the cloudflare_request tool.';
+  "Rejected: cf needs no sign-in here. CloudChef adds the account's authorization outside the container, so " +
+  "run the cf command itself; a change waits for the person's approval.";
 
 const RUNNER_COMMANDS = new Set(['pnpm', 'npm', 'yarn', 'bun']);
 

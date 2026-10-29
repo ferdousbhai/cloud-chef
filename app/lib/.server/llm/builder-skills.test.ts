@@ -42,8 +42,11 @@ describe('builder skills', () => {
     expect(linked.prompt).toContain('/__skills__/cf-cli/SKILL.md');
   });
 
-  it('promises cloudflare_request only as a tool the agent may have, since it comes with the Cloudflare API control', () => {
-    expect(createBuilderSkillContext().prompt).toContain('cloudflare_request, when you have it, sends them');
+  it('says cf is signed in outside the container and that its changes wait for approval', () => {
+    const prompt = createBuilderSkillContext().prompt;
+    expect(prompt).toContain('signed in to this account by CloudChef outside the container');
+    expect(prompt).toContain("a change it makes waits for the person's approval");
+    expect(prompt).not.toContain('cloudflare_request');
   });
 
   // Regression for #125: the catalog once advertised /home/project/node_modules/..., which a

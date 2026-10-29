@@ -20,6 +20,7 @@ import { type ScheduledCallbackPayload, ScheduledCallbacks } from './scheduled-c
 import { first } from './sql-rows';
 import { runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
+import { CLOUDFLARE_API_PROXY_HOST } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 
 /**
  * How long a container may sit with no request reaching its Durable Object before the platform stops
@@ -71,6 +72,7 @@ const COMPUTERD_ENV = {
 type WorkspaceRuntimeExports = {
   WorkspaceProxy(options: { props: WorkspaceRef }): Fetcher;
   GitProxy(options: { props: { workspaceId: string } }): Fetcher;
+  CloudflareApiProxy(options: { props: { workspaceId: string } }): Fetcher;
 };
 
 /** The runtime binding every workspace container reads; the container never receives a credential. */
@@ -186,20 +188,25 @@ export abstract class ComputerSandboxBase<
   }
 
   /**
-   * Computer asks for its own host once each time the container starts; git's host is intercepted with it,
-   * so git in the container reaches the project's repository only through the GitProxy. That one failing
-   * leaves git without its remote, never the workspace without its container.
+   * Computer asks for its own host once each time the container starts; the hosts the container reaches
+   * CloudChef through are intercepted with it. git reaches the project's repository only through the GitProxy,
+   * and `cf` reaches Cloudflare's API only through the CloudflareApiProxy, which holds the account's
+   * authorization and asks the person before any change. One of those failing leaves that tool without its
+   * service, never the workspace without its container.
    */
   async interceptWorkspaceOutbound(host: string, ref: WorkspaceRef): Promise<void> {
     const exports = workspaceRuntimeExports(this.ctx.exports);
     await this.ctx.container!.interceptOutboundHttp(host, exports.WorkspaceProxy({ props: ref }));
-    try {
-      await this.ctx.container!.interceptOutboundHttp(
-        GIT_PROXY_HOST,
-        exports.GitProxy({ props: { workspaceId: this.ctx.id.toString() } }),
-      );
-    } catch (error) {
-      console.error('Unable to intercept the workspace git remote', error);
+    const props = { props: { workspaceId: this.ctx.id.toString() } };
+    for (const [proxyHost, proxy] of [
+      [GIT_PROXY_HOST, exports.GitProxy],
+      [CLOUDFLARE_API_PROXY_HOST, exports.CloudflareApiProxy],
+    ] as const) {
+      try {
+        await this.ctx.container!.interceptOutboundHttp(proxyHost, proxy(props));
+      } catch (error) {
+        console.error(`Unable to intercept ${proxyHost} for the workspace`, error);
+      }
     }
   }
 
@@ -337,7 +344,7 @@ export abstract class ComputerSandboxBase<
       budgetMs: CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
       attempt: async (remainingMs) => {
         await runTrackedSandboxCommand({
-          // The connected account `cf --dry-run` output names. The container never receives a credential.
+          // The connected account `cf` acts on. The container never receives a credential: its proxy adds it.
           command: sandboxShellCommand(containerToolchainBootstrapCommand(this.env.CLOUDFLARE_ACCOUNT_ID)),
           timeout: remainingMs,
           exec: (argv, options) =>
@@ -367,8 +374,8 @@ export abstract class ComputerSandboxBase<
 }
 
 function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeExports {
-  if (!('WorkspaceProxy' in exports) || !('GitProxy' in exports)) {
-    throw new Error('The workspace runtime is missing its WorkspaceProxy or GitProxy export.');
+  if (!('WorkspaceProxy' in exports) || !('GitProxy' in exports) || !('CloudflareApiProxy' in exports)) {
+    throw new Error('The workspace runtime is missing its WorkspaceProxy, GitProxy or CloudflareApiProxy export.');
   }
   // `ctx.exports.WorkspaceProxy` is the loopback binding for the WorkspaceProxy WorkerEntrypoint,
   // which is callable as `WorkspaceProxy({ props })` to mint a Fetcher but is a native binding, not
@@ -379,6 +386,7 @@ function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeE
   return {
     WorkspaceProxy: exports.WorkspaceProxy as WorkspaceRuntimeExports['WorkspaceProxy'],
     GitProxy: exports.GitProxy as WorkspaceRuntimeExports['GitProxy'],
+    CloudflareApiProxy: exports.CloudflareApiProxy as WorkspaceRuntimeExports['CloudflareApiProxy'],
   };
 }
 

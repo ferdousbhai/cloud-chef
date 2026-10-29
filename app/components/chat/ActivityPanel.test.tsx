@@ -26,7 +26,7 @@ const message: CloudChefMessage = {
     { type: 'text', text: 'Your app is ready.', state: 'done' },
     tool('write', 'write-1', 'src/index.ts'),
     tool('write', 'write-2', 'src/index.ts'),
-    { ...tool('validate', 'validate-1'), output: { validation: toolSuccess('All checks passed') } },
+    { ...tool('exec', 'validate-1'), output: { validation: toolSuccess('All checks passed') } },
   ],
 };
 
@@ -55,7 +55,7 @@ it('collapses finished tool history into an accurate summary without duplicating
 it('reports the latest validation failure rather than an earlier success', async () => {
   const failed: CloudChefMessage = {
     ...message,
-    parts: [...message.parts, { ...tool('validate', 'validate-2'), output: { validation: toolFailure('Type error') } }],
+    parts: [...message.parts, { ...tool('exec', 'validate-2'), output: { validation: toolFailure('Type error') } }],
   };
   await act(async () => root.render(<ActivityPanel messages={[failed]} isStreaming={false} compact={false} />));
   expect(container.textContent).toContain('Checks failed');
@@ -107,39 +107,27 @@ it("shows Claude's readable thinking but never a redacted block, which is kept o
   expect(container.textContent).not.toContain('opaque');
 });
 
-// The browser streams the call as `dynamic-tool`; the agent's saved transcript, which replaces it once the turn
-// pauses for approval, types it by its tool.
-it.each(['dynamic-tool', 'tool-cloudflare_request'])(
-  'keeps pending approvals visible even in the compact panel (%s)',
+// The browser streams the call as `dynamic-tool`; the agent's saved transcript types it by its tool.
+it.each(['dynamic-tool', 'tool-exec'])(
+  'keeps a change waiting for approval visible even in the compact panel (%s)',
   async (type) => {
-    const proposal: CloudChefMessage = {
-      id: 'proposal',
+    const waiting: CloudChefMessage = {
+      id: 'waiting',
       role: 'assistant',
       parts: [
         {
           type,
-          toolName: 'cloudflare_request',
+          toolName: 'exec',
           toolCallId: 'approval-call',
-          state: 'output-available',
-          input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-          output: {
-            kind: 'cloudflare_request_proposal',
-            status: 'awaiting_approval',
-            executionId: 'approval',
-            toolCallId: 'approval-call',
-            accountId: 'account',
-            request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-            proposalSha256: 'a'.repeat(64),
-            riskNote: 'Review this action.',
-            expiresAt: Date.now() + 60_000,
-          },
+          state: 'input-available',
+          input: { command: 'cf zones delete zone-1' },
         },
       ],
     };
     await act(async () =>
       root.render(
         <ActivityPanel
-          messages={[proposal]}
+          messages={[waiting]}
           isStreaming={false}
           compact
           cloudflareExecutions={[
@@ -155,6 +143,8 @@ it.each(['dynamic-tool', 'tool-cloudflare_request'])(
               completedAt: null,
               expiresAt: Date.now() + 60_000,
               outcome: null,
+              request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
+              riskNote: 'Review this action.',
             },
           ]}
         />,
