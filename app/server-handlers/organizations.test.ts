@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore, withStatementHook } from '~/test/control-plane-d1';
-import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import {
+  controlPlaneDatabase,
+  createProvenEmailUser,
+  envWith,
+  sessionCookieSignedInBefore,
+  withStatementHook,
+} from '~/test/control-plane-d1';
+import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import {
   acceptInviteAction,
   createOrganizationAction,
@@ -14,6 +20,7 @@ import {
   switchContextAction,
   updateMemberAction,
 } from './organizations';
+import { completeEmailSignInAction, startEmailSignInAction } from './email-auth';
 import { listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
 import { sha256Hex } from '~/lib/hex-digest';
@@ -35,7 +42,7 @@ async function setup() {
   });
   /** A signed-in person, by email: their session cookie. */
   const signIn = async (email: string) => {
-    const user = await upsertVerifiedEmailUser(db, { email });
+    const user = await createProvenEmailUser(db, email);
     const cookie = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
       ';',
     )[0];
@@ -50,6 +57,24 @@ function post(cookie: string, path: string, body: Record<string, string | boolea
     headers: { Origin: ORIGIN, 'Content-Type': 'application/json', cookie },
     body: JSON.stringify(body),
   });
+}
+
+/** Signs in by the link emailed to `email`, as the invite page has someone do: their session cookie. */
+async function signInByEmailedLink(env: Env, sent: string[], email: string) {
+  const start = await startEmailSignInAction({
+    request: post('', '/api/auth/email/start', { email, callbackURL: `${ORIGIN}/join` }),
+    env,
+  });
+  expect(start.status).toBe(202);
+  const token = /sign-in\/email\?token=([\w-]+)/.exec(sent.at(-1) ?? '')?.[1] ?? 'missing';
+  const complete = await completeEmailSignInAction({
+    request: post('', '/api/auth/email/complete', { token }),
+    env,
+  });
+  expect(complete.status).toBe(200);
+  const cookie = (complete.headers.get('set-cookie') ?? '').split(';')[0];
+  const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie } }));
+  return { userId: session?.user.id ?? 'missing', cookie };
 }
 
 const createdSchema = z.object({ orgId: z.string() });
@@ -104,7 +129,8 @@ describe('organizations', () => {
     expect(sent[0]).toContain('"to":"sam@acme.com"');
     expect(sent[0]).toContain(invited.body?.inviteUrl ?? 'missing');
 
-    const sam = await signIn('sam@acme.com');
+    // Sam has no CloudChef account: the invite lets an emailed link make one.
+    const sam = await signInByEmailedLink(env, sent, 'sam@acme.com');
     const prepareWorkspace = vi.fn().mockResolvedValue(undefined);
     const accepted = await acceptInviteAction({
       request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
@@ -247,7 +273,7 @@ describe('organizations', () => {
 
   it('creates an organization from a session signed in a while ago', async () => {
     const { database, env } = await setup();
-    const user = await upsertVerifiedEmailUser(env.DB, { email: 'ada@acme.com' });
+    const user = await createProvenEmailUser(env.DB, 'ada@acme.com');
     // Signed in an hour ago: creating needs no fresh sign-in, and connecting is approved on Cloudflare.
     const cookie = await sessionCookieSignedInBefore(env, user.id, 60 * 60_000);
     const created = await createOrganizationAction({
@@ -1108,7 +1134,7 @@ describe('a team’s name and deletion', () => {
     );
     const owners: string[] = [];
     for (let index = 0; index < 10; index += 1) {
-      const person = await upsertVerifiedEmailUser(env.DB, { email: `p${index}@acme.com` });
+      const person = await createProvenEmailUser(env.DB, `p${index}@acme.com`);
       insertRuntime.run(person.id, `worker-${index}`);
       owners.push(person.id);
     }

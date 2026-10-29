@@ -68,7 +68,7 @@ test('never starts a build for someone who connected from settings', async ({ pa
     },
     [PENDING_PROMPT_STORAGE_KEY, PENDING_SUBMIT_STORAGE_KEY, PROMPT] as const,
   );
-  await page.getByRole('button', { name: 'Connect Cloudflare' }).click();
+  await page.getByRole('button', { name: 'Continue with Cloudflare' }).click();
 
   await expect(page.getByPlaceholder(/Describe your app/i)).toHaveValue(PROMPT);
   // The home's project list waits for the workspace to list what's in it; that's the only wait, and

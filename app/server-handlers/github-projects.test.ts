@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
-import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { controlPlaneDatabase, createProvenEmailUser, envWith, withStatementHook } from '~/test/control-plane-d1';
+import { createAuthSession } from '~/lib/.server/auth';
 import { createGitHubAppJwt } from '~/lib/.server/github/app-jwt';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
@@ -96,7 +96,7 @@ async function setup() {
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
-    const user = await upsertVerifiedEmailUser(db, { email });
+    const user = await createProvenEmailUser(db, email);
     const cookie = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
       ';',
     )[0];
