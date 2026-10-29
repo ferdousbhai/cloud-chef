@@ -40,7 +40,12 @@ import {
   retryProjectDeploy,
   type ProjectRef,
 } from '~/lib/cloudflare/projects.client';
-import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
+import {
+  cloudflareReauthorizationRequiredStore,
+  userWorkspacePreparingStore,
+  userWorkspaceUpgradingStore,
+} from '~/lib/cloudflare/runtime-session';
+import { CloudflareReauthorizePrompt, noteCloudflareReauthorization } from '~/components/CloudflareReauthorizePrompt';
 import { isImportReturn, IMPORT_RETURN_PARAM } from '~/lib/github-app.client';
 import { messageOf } from '~/lib/json-request';
 import { CloneDialog } from './CloneDialog.client';
@@ -99,6 +104,9 @@ export function ProjectsHome({ userId }: { userId: string }) {
     }
   }, []);
 
+  // Permissions to approve again block every list here: the first section says so once, and the rest stay quiet.
+  const reauthorize = useStore(cloudflareReauthorizationRequiredStore);
+
   // Beside the first section's heading: the team's in a team, the person's own otherwise.
   const addProject = canImport ? <AddProjectMenu onDialog={setDialog} /> : null;
 
@@ -110,6 +118,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
           admin={team.role === 'admin'}
           heading={team.role === 'admin' ? 'Team projects' : 'Shared with me'}
           action={addProject}
+          reauthorization={reauthorize ? 'prompt' : null}
           onDialog={setDialog}
         />
       ) : null}
@@ -118,6 +127,7 @@ export function ProjectsHome({ userId }: { userId: string }) {
           userId={userId}
           hideWhenEmpty={team !== null}
           action={team ? null : addProject}
+          reauthorization={reauthorize ? (team ? 'quiet' : 'prompt') : null}
           onDialog={setDialog}
         />
       ) : null}
@@ -226,6 +236,9 @@ export function ProjectsHome({ userId }: { userId: string }) {
   );
 }
 
+/** Whether Cloudflare must be reauthorized before the lists load: the section that prompts, the others quiet. */
+type Reauthorization = 'prompt' | 'quiet' | null;
+
 /** One quiet control for bringing in code made elsewhere: from GitHub, or a ZIP. */
 function AddProjectMenu({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
   return (
@@ -263,6 +276,7 @@ function OwnProjects({
   userId,
   hideWhenEmpty,
   action,
+  reauthorization,
   onDialog,
 }: {
   userId: string;
@@ -272,6 +286,8 @@ function OwnProjects({
    */
   hideWhenEmpty: boolean;
   action: ReactNode;
+  /** Whether Cloudflare must be reauthorized first, and whether this section is the one that says so. */
+  reauthorization: Reauthorization;
   onDialog: (dialog: OpenDialog) => void;
 }) {
   const history = useWorkspaceHistory(userId);
@@ -282,9 +298,10 @@ function OwnProjects({
   const apps = useApps(chats.map((chat) => chat.initialId).join(' '));
   const addedProjects = added.projects ?? [];
   const empty = chats.length === 0 && addedProjects.length === 0;
-  const failed = history.error != null || added.loadFailed;
+  const blocked = reauthorization !== null;
+  const failed = !blocked && (history.error != null || added.loadFailed);
 
-  if (hideWhenEmpty && chats.length === 0 && history.error == null) {
+  if (hideWhenEmpty && chats.length === 0 && (history.error == null || blocked)) {
     return null;
   }
 
@@ -344,7 +361,8 @@ function OwnProjects({
           </Button>
         </div>
       ) : null}
-      {history.isLoading && empty ? (
+      {reauthorization === 'prompt' ? <CloudflareReauthorizePrompt /> : null}
+      {blocked ? null : history.isLoading && empty ? (
         <>
           <p className="text-sm text-content-tertiary" role="status">
             {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
@@ -540,6 +558,8 @@ type ConnectionProjects = {
   loadFailed: boolean;
   reload: () => void;
   opening: string | null;
+  /** Why opening a project last failed, beside its Edit button. */
+  openFailure: { id: string; message: string } | null;
   open: (project: TeamProject) => Promise<void>;
   retrying: string | null;
   retry: (project: TeamProject, deploymentId: string, options?: { toWantedWorker?: true }) => Promise<void>;
@@ -557,6 +577,7 @@ function useConnectionProjects(
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [opening, setOpening] = useState<string | null>(null);
+  const [openFailure, setOpenFailure] = useState<{ id: string; message: string } | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   // The list the last refresh showed, so a publish that ends since is announced once.
@@ -575,8 +596,9 @@ function useConnectionProjects(
         setProjects(listed);
         setLoadFailed(false);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!controller.signal.aborted) {
+          noteCloudflareReauthorization(error);
           setLoadFailed(true);
         }
       });
@@ -647,12 +669,19 @@ function useConnectionProjects(
 
   const open = async (project: TeamProject) => {
     setOpening(project.id);
+    setOpenFailure(null);
     try {
       if (!(await openTeamProject(project))) {
         setOpening(null);
       }
-    } catch {
-      toast.error(`${project.name} could not be opened. Try again.`);
+    } catch (error) {
+      // Permissions to approve again show as the page's one prompt; anything else is said beside Edit.
+      if (!(error instanceof Error && noteCloudflareReauthorization(error))) {
+        setOpenFailure({
+          id: project.id,
+          message: messageOf(error, `${project.name} could not be opened. Try again.`),
+        });
+      }
       setOpening(null);
     }
   };
@@ -665,6 +694,7 @@ function useConnectionProjects(
       setAttempt((count) => count + 1);
     },
     opening,
+    openFailure,
     open,
     retrying,
     retry,
@@ -754,6 +784,7 @@ function ConnectionProjectCard({
       isPublic={project.visibility === 'public'}
       badge={badge ?? undefined}
       deploy={deploy}
+      note={connection.openFailure?.id === project.id ? connection.openFailure.message : null}
       primary={
         canEdit ? (
           <Button
@@ -824,12 +855,14 @@ function TeamProjects({
   admin,
   heading,
   action,
+  reauthorization,
   onDialog,
 }: {
   orgId: string;
   admin: boolean;
   heading: string;
   action: ReactNode;
+  reauthorization: Reauthorization;
   onDialog: (dialog: OpenDialog) => void;
 }) {
   const connection = useConnectionProjects(true, onDialog, orgId);
@@ -840,7 +873,8 @@ function TeamProjects({
       <SectionHeading id="team-projects" action={action}>
         {heading}
       </SectionHeading>
-      {connection.loadFailed ? (
+      {reauthorization === 'prompt' ? <CloudflareReauthorizePrompt /> : null}
+      {connection.loadFailed && reauthorization !== null ? null : connection.loadFailed ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-content-secondary">
           <span>{heading} could not be loaded.</span>
           <Button size="xs" variant="neutral" onClick={connection.reload}>

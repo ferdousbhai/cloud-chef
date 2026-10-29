@@ -8,7 +8,11 @@ import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth
 import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import type { App, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { refreshSession } from '~/lib/auth-client';
-import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import { cloudflareReauthorizationRequiredStore, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import {
+  ASK_ADMIN_TO_REAUTHORIZE_MESSAGE,
+  REAUTHORIZE_CLOUDFLARE_MESSAGE,
+} from '~/components/CloudflareReauthorizePrompt';
 import { toast } from 'sonner';
 import { ProjectsHome, PUBLISHING_REFRESH_MS } from './ProjectsHome.client';
 
@@ -31,6 +35,10 @@ let teamProjects: TeamProject[] = [];
 let apps: App[] = [];
 /** The workspace runtime's publish routes, or null where it hasn't been upgraded to have them. */
 let deployRoutes: { log: string } | null = null;
+/** Whether the control plane refuses a workspace session until Cloudflare is reauthorized. */
+let reauthorizationRequired = false;
+/** What the workspace runtime answers when a team project is opened, when it fails. */
+let openFailure: string | null = null;
 const deployRequests: unknown[] = [];
 const visibilityRequests: unknown[] = [];
 const copyRequests: unknown[] = [];
@@ -80,6 +88,18 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
     visibilityRequests.push(body);
     return Response.json({ visibility: body.visibility });
   }
+  if (url === '/api/cloudflare/runtime-session' && reauthorizationRequired) {
+    return Response.json(
+      {
+        code: 'cloudflare_reauthorization_required',
+        error: 'CloudChef needs updated Cloudflare permissions for this workspace.',
+      },
+      { status: 409 },
+    );
+  }
+  if (url === `${RUNTIME}/v1/data` && openFailure && String(init?.body).includes('messages.openLinkedChat')) {
+    return Response.json({ error: openFailure }, { status: 503 });
+  }
   if (url === '/api/cloudflare/runtime-session') {
     return Response.json({ endpoint: RUNTIME, token: 'runtime-token', expiresAt: Date.now() + 3_600_000 });
   }
@@ -113,6 +133,9 @@ beforeEach(() => {
   teamProjects = [];
   apps = [];
   deployRoutes = null;
+  reauthorizationRequired = false;
+  openFailure = null;
+  cloudflareReauthorizationRequiredStore.set(false);
   deployRequests.length = 0;
   visibilityRequests.length = 0;
   copyRequests.length = 0;
@@ -616,6 +639,65 @@ describe('ProjectsHome', () => {
     await click(dialog!, 'Make a copy');
     await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/chat/chat-9'));
     expect(copyRequests).toEqual([{ projectId: 'chat-1', name: 'Booking site' }]);
+  });
+
+  it('asks once to reauthorize Cloudflare when the workspace needs it, instead of saying projects failed', async () => {
+    context = personal;
+    reauthorizationRequired = true;
+    await render('user-reauthorize');
+    await vi.waitFor(() => expect(document.body.textContent).toContain(REAUTHORIZE_CLOUDFLARE_MESSAGE));
+
+    const prompts = document.querySelectorAll('[aria-label="Cloudflare permissions needed"]');
+    expect(prompts).toHaveLength(1);
+    expect(buttons(document.body)).toContain('Reauthorize Cloudflare');
+    // Under the list it blocks, with no failure, empty list or raw refusal beside it.
+    expect(
+      document
+        .querySelector('#my-projects')
+        ?.closest('section')
+        ?.contains(prompts[0] ?? null),
+    ).toBe(true);
+    expect(document.body.textContent).not.toContain('could not be loaded');
+    expect(document.body.textContent).not.toContain('No projects yet');
+    expect(document.body.textContent).not.toContain('updated Cloudflare permissions');
+  });
+
+  it("asks a team member to have the team's admin reauthorize when opening a project needs it", async () => {
+    context = teamMember;
+    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
+    reauthorizationRequired = true;
+    await render('user-member-reauthorize');
+    await vi.waitFor(() => card('Storefront'));
+    expect(document.body.textContent).not.toContain(ASK_ADMIN_TO_REAUTHORIZE_MESSAGE);
+    const failed = vi.spyOn(toast, 'error');
+
+    const edit = card('Storefront').querySelector<HTMLButtonElement>('button[aria-label="Edit Storefront"]');
+    await act(async () => edit?.click());
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain(ASK_ADMIN_TO_REAUTHORIZE_MESSAGE));
+    expect(document.querySelectorAll('[aria-label="Cloudflare permissions needed"]')).toHaveLength(1);
+    expect(buttons(document.body)).not.toContain('Reauthorize Cloudflare');
+    expect(failed).not.toHaveBeenCalled();
+    failed.mockRestore();
+    expect(card('Storefront').querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('says beside Edit why a project could not be opened', async () => {
+    context = teamMember;
+    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
+    openFailure = 'The workspace runtime is unavailable.';
+    await render('user-member-open-failure');
+    await vi.waitFor(() => card('Storefront'));
+
+    const edit = card('Storefront').querySelector<HTMLButtonElement>('button[aria-label="Edit Storefront"]');
+    await act(async () => edit?.click());
+
+    await vi.waitFor(() =>
+      expect(card('Storefront').querySelector('[role="alert"]')?.textContent).toBe(
+        'The workspace runtime is unavailable.',
+      ),
+    );
+    expect(edit?.disabled).toBe(false);
   });
 
   it("says an uploaded project is code only, or isn't published yet", async () => {

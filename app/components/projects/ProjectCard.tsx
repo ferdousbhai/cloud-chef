@@ -44,6 +44,7 @@ export function ProjectCard({
   isPublic = false,
   badge,
   deploy,
+  note,
   primary,
   menuItems,
 }: {
@@ -62,6 +63,8 @@ export function ProjectCard({
   badge?: string;
   /** For a project CloudChef publishes itself, how its newest publish went. */
   deploy?: CardDeploy;
+  /** Why the main action just failed, said beside it. */
+  note?: string | null;
   /** The main action: Edit, or nothing for a project the person may only view. */
   primary: ReactNode;
   menuItems: ReactNode;
@@ -123,6 +126,11 @@ export function ProjectCard({
           </p>
         </div>
         {deploy ? <DeployNote deploy={deploy} siteShown={siteUrl !== null} title={title} /> : null}
+        {note ? (
+          <p role="alert" className="text-xs wrap-anywhere text-bolt-elements-icon-error">
+            {note}
+          </p>
+        ) : null}
         <div className="mt-auto flex min-w-0 items-center gap-2">
           {primary}
           {siteUrl ? (

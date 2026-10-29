@@ -4,6 +4,7 @@ import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
 import { Toaster } from '~/components/ui/Toaster';
 import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { CloudflareReauthorizePanel, needsCloudflareReauthorization } from '~/components/CloudflareReauthorizePrompt';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { useStore } from '@nanostores/react';
@@ -100,6 +101,9 @@ export function ProjectLoadError({ error, onRetry }: { error: Error; onRetry: ()
         <WorkspacePreparingPanel onKeepWaiting={retry} />
       </div>
     );
+  }
+  if (needsCloudflareReauthorization(error)) {
+    return <CloudflareReauthorizePanel />;
   }
   // A refusal that waits on the person (new Cloudflare permissions, the Workers plan) says what to do, with its button.
   if (error instanceof UserRuntimeSessionError && error.code) {

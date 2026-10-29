@@ -3,6 +3,7 @@ import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { BrandLink } from '~/components/BrandLink';
 import { WorkspacePreparingPanel } from '~/components/WorkspacePreparing';
+import { CloudflareReauthorizePrompt, needsCloudflareReauthorization } from '~/components/CloudflareReauthorizePrompt';
 import { isWorkspacePreparingError } from '~/lib/cloudflare/client';
 import { retryAfterRuntimeError } from '~/lib/cloudflare/runtime-session';
 
@@ -22,6 +23,15 @@ export function ErrorDisplay({ error, resetErrorBoundary }: ErrorDisplayProps) {
     return (
       <main className="app-page-shell flex min-h-svh items-center justify-center px-4 py-6">
         <WorkspacePreparingPanel onKeepWaiting={retry} />
+      </main>
+    );
+  }
+
+  // Cloudflare permissions to approve again are a prompt to act on, not a page that broke.
+  if (isError && needsCloudflareReauthorization(error)) {
+    return (
+      <main className="app-page-shell flex min-h-svh items-center justify-center px-4 py-6">
+        <CloudflareReauthorizePrompt className="w-full max-w-md" />
       </main>
     );
   }
