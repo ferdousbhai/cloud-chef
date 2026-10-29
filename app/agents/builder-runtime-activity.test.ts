@@ -106,7 +106,7 @@ describe('builder agent runtime activity', () => {
     const { db } = userWorkspaceDatabase();
     vi.useFakeTimers({ now: START });
     await claimRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: START });
-    // The new Worker is deployed and its container image rolling out: the upgrade renews its window
+    // The new Worker is deployed and its container applications being replaced: the upgrade renews its window
     // every minute, then releases it.
     const renewals = setInterval(
       () => void holdRuntimeUpgradeWindow(db, { targetVersion: NEW_VERSION, holder: HOLDER, now: Date.now() }),

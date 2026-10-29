@@ -10,21 +10,15 @@ import {
   CF_CLI_WRAPPER,
   cfCliLauncherScript,
   cloudchefCommandScript,
-  COMPUTERD_BINARY,
-  COMPUTERD_INSTALLATION_CURRENT,
-  COMPUTERD_ROOT,
-  COMPUTERD_BOOTSTRAP_TIMEOUT_MS,
   CONTAINER_CONNECT_TIMEOUT_MS,
   CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
   ContainerToolchainBootstrapError,
-  computerdBootstrapCommand,
-  computerdInstallationStateCommand,
   containerToolchainBootstrapCommand,
-  reusableComputerdProcess,
   runIdempotentBootstrapStage,
   strictSubshellCommand,
 } from './container-toolchain';
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
+import { BASE_CONTAINER_START_BUDGET_MS, BASE_SETUP_TIMEOUT_MS } from './base-container';
 import {
   CLOUDFLARE_API_PROXY_BASE_URL,
   CLOUDFLARE_API_PROXY_TOKEN,
@@ -107,46 +101,6 @@ describe('container toolchain bootstrap', () => {
     expect(local.stdout).toBe(`${join(project, 'node_modules/.bin/cf')}|acc'1|schema d1 list\n`);
   });
 
-  it('reinstalls computerd when the pinned layer digest changes, not only when it is missing', () => {
-    const command = computerdBootstrapCommand();
-
-    expect(command).toMatch(/^\(\nset -eu\n[\s\S]+\n\)$/);
-    // Existence alone would trust a computerd left by an earlier client version on a warm
-    // container, whose exec protocol no longer matches — so gate on the recorded layer digest.
-    expect(command).toContain(`if [ "$(cat '${COMPUTERD_ROOT}/.layer-digest' 2>/dev/null)" != 'sha256:`);
-    expect(command).toContain(`rm -rf '${COMPUTERD_ROOT}'`);
-    expect(command).toContain(`echo 'sha256:`);
-    expect(command).toContain(`> '${COMPUTERD_ROOT}/.layer-digest'`);
-    expect(command).toContain('ghcr.io/v2/cloudflare/computer-computerd-linux-x64/blobs/sha256:');
-    expect(command).toContain(`test -x '${COMPUTERD_BINARY}'`);
-  });
-
-  it('checks the installed layer before reusing a live computerd process', async () => {
-    const command = computerdInstallationStateCommand();
-    const running = { status: async () => ({ state: 'running' }) };
-    const exited = { status: async () => ({ state: 'exited' }) };
-    let reads = 0;
-
-    expect(command).toContain(`cat '${COMPUTERD_ROOT}/.layer-digest'`);
-    expect(command).toContain(`-x '${COMPUTERD_BINARY}'`);
-    expect(command).toContain(`printf %s '${COMPUTERD_INSTALLATION_CURRENT}'`);
-    await expect(
-      reusableComputerdProcess(running, async () => {
-        reads += 1;
-        return COMPUTERD_INSTALLATION_CURRENT;
-      }),
-    ).resolves.toBe(running);
-    await expect(reusableComputerdProcess(running, async () => 'stale')).resolves.toBeNull();
-    await expect(
-      reusableComputerdProcess(exited, async () => {
-        reads += 1;
-        return COMPUTERD_INSTALLATION_CURRENT;
-      }),
-    ).resolves.toBeNull();
-    await expect(reusableComputerdProcess(null, async () => COMPUTERD_INSTALLATION_CURRENT)).resolves.toBeNull();
-    expect(reads).toBe(1);
-  });
-
   it('derives the toolchain bootstrap bound from the shared package-install ceiling', () => {
     // The #131 defect was a bootstrap bound declared nowhere in this
     // repository (a hardcoded 30s vendor connect abort). The bootstrap is the
@@ -156,12 +110,14 @@ describe('container toolchain bootstrap', () => {
   });
 
   it('gives the vendor connect deadline room for every bootstrap stage it contains', () => {
-    // CloudflareContainerBackend arms its connect deadline before host.start(),
-    // so both bootstraps spend from the connect budget. A connect ceiling below
-    // the stage budgets recreates the invisible shorter clock from #127/#131.
-    expect(CONTAINER_CONNECT_TIMEOUT_MS).toBeGreaterThanOrEqual(
-      CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS + COMPUTERD_BOOTSTRAP_TIMEOUT_MS,
+    // ContainerBackend arms its connect deadline before host.start(), and the
+    // base start (a first start's setup) and the toolchain bootstrap run inside
+    // that start, so they spend from the connect budget. A connect ceiling below
+    // their budgets recreates the invisible shorter clock from #127/#131.
+    expect(CONTAINER_CONNECT_TIMEOUT_MS).toBeGreaterThan(
+      BASE_CONTAINER_START_BUDGET_MS + CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
     );
+    expect(BASE_CONTAINER_START_BUDGET_MS).toBeGreaterThan(BASE_SETUP_TIMEOUT_MS);
   });
 
   it('keeps strict shell flags inside the bootstrap command', () => {

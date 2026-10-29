@@ -1,5 +1,5 @@
 {
-  "total": 854,
+  "total": 843,
   "counts": {
     "app/agents/builder-deployment-command.test.ts": {
       "anti-slop/no-module-mocking": 1,
@@ -125,7 +125,7 @@
     },
     "app/lib/.server/cloudflare/user-account-api.ts": {
       "anti-slop/no-runtime-typeof": 11,
-      "anti-slop/no-unknown-parameters": 10,
+      "anti-slop/no-unknown-parameters": 7,
       "anti-slop/no-unsafe-dictionary-type": 3,
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },
@@ -405,7 +405,7 @@
       "anti-slop/no-runtime-typeof": 1
     },
     "scripts/check-runtime-artifacts.mjs": {
-      "anti-slop/no-runtime-typeof": 3
+      "anti-slop/no-runtime-typeof": 2
     },
     "scripts/check-runtime-artifacts.spec.ts": {
       "anti-slop/no-runtime-typeof": 1
@@ -575,9 +575,6 @@
     },
     "user-workspace-runtime/src/workspace-operation-lane.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 8
-    },
-    "user-workspace-runtime/src/workspace-sync-retry.test.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 7
     }
   }
 }

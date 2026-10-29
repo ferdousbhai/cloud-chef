@@ -13,7 +13,7 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { listOutdatedUserWorkspaceRuntimes } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { completeCloudflareConnectionAction, startCloudflareConnectionAction } from './cloudflare-integration';
 
@@ -191,7 +191,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
     );
     const current = [
       USER_WORKSPACE_RUNTIME_SHA256,
-      USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+      USER_WORKSPACE_IMAGE,
       USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     ] as const;
     insertRuntime.run(user.id, 'own', 5, 'sam-own', ...current);
@@ -242,7 +242,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
     expect(team?.generation).toBe(5);
     const outdated = await listOutdatedUserWorkspaceRuntimes(db, {
       runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-      imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+      imageDigest: USER_WORKSPACE_IMAGE,
       protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     });
     expect(outdated.map((runtime) => runtime.connectionId)).toEqual(['team', 'team']);

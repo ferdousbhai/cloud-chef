@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index 68b728218a7a86764d78c96c0f72cdb02b249204..8af7d78c4b7629a5980e297b9d2b7bd9a9d89b1f 100644
+index f9aca8adb65a8514ba9427cfd4acf2af4b515826..b647274dae347043ee41d779d016d132bd708d7a 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -2899,17 +2899,15 @@ var Database = class {
+@@ -3280,17 +3280,15 @@ var Database = class {
  		this.sql = storage.sql;
  		this.transactionSync = (closure) => {
  			if (this.#txDepth > 0) {
@@ -27,7 +27,7 @@ index 68b728218a7a86764d78c96c0f72cdb02b249204..8af7d78c4b7629a5980e297b9d2b7bd9
  				} finally {
  					this.#txDepth--;
  				}
-@@ -3165,7 +3163,7 @@ function toHex(bytes) {
+@@ -4004,7 +4002,7 @@ function toHex(bytes) {
  	for (const b of bytes) out += b.toString(16).padStart(2, "0");
  	return out;
  }

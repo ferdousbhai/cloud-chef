@@ -87,17 +87,39 @@ export function findForbiddenFiles(paths) {
   return findForbiddenPaths(rootDir, paths, 'CloudChef uses pnpm lockfiles only');
 }
 
-export function findSandboxRuntimePinErrors(packageSpec, installedVersion, provisionerSource) {
+/**
+ * The pins the workspace containers' base setup installs (user-workspace-runtime/src/base-container.ts) kept in step
+ * with this checkout: Node at `.nvmrc`'s version, computerd at the installed @cloudflare/computer release whose
+ * protocol it speaks (pinned exactly in package.json), and pnpm and cf taken from the generated projects' own pins
+ * rather than restated.
+ */
+export function findWorkspaceBasePinErrors({ baseSource, nvmrc, computerSpec, computerInstalled }) {
   const errors = [];
-  const image = /docker\.io\/cloudflare\/sandbox:([^@'\s]+)@sha256:([a-f0-9]{64})/.exec(provisionerSource);
-  if (!image) {
-    return ['user workspace runtime must pin a Cloudflare Sandbox image tag and SHA-256 digest.'];
+  const constant = (name) => new RegExp(`^(?:export )?const ${name} = '([^']+)';$`, 'm').exec(baseSource)?.[1];
+  const node = constant('BASE_NODE_VERSION');
+  if (node !== nvmrc.trim()) {
+    errors.push(`The workspace base setup must install Node ${nvmrc.trim()} (.nvmrc); it pins ${node ?? 'none'}.`);
   }
-  if (image[1] !== installedVersion) {
-    errors.push(`Cloudflare Sandbox package ${installedVersion} must match container image tag ${image[1]}.`);
+  const computerd = constant('BASE_COMPUTERD_VERSION');
+  if (computerd !== computerInstalled) {
+    errors.push(
+      `The workspace base setup's computerd ${computerd ?? '(missing)'} must match @cloudflare/computer ${computerInstalled}.`,
+    );
   }
-  if (packageSpec !== installedVersion) {
-    errors.push(`package.json must pin the installed Cloudflare Sandbox version ${installedVersion} exactly.`);
+  if (computerSpec !== computerInstalled) {
+    errors.push(`package.json must pin the installed @cloudflare/computer version ${computerInstalled} exactly.`);
+  }
+  if (!/^const BASE_PNPM_VERSION = GENERATED_PROJECT_PNPM_VERSION;$/m.test(baseSource)) {
+    errors.push("The workspace base setup must install the generated projects' pnpm (GENERATED_PROJECT_PNPM_VERSION).");
+  }
+  if (!/^const BASE_CF_CLI_VERSION = templatePackage\.devDependencies\.cf;$/m.test(baseSource)) {
+    errors.push("The workspace base setup must install the template's cf (template/package.json).");
+  }
+  if (!/^const BASE_NODE_SHA256 = '[a-f0-9]{64}';$/m.test(baseSource)) {
+    errors.push("The workspace base setup must check Node's tarball against a SHA-256.");
+  }
+  if (!/^const BASE_COMPUTERD_LAYER_DIGEST = 'sha256:[a-f0-9]{64}';$/m.test(baseSource)) {
+    errors.push("The workspace base setup must check computerd's layer against a SHA-256 digest.");
   }
   return errors;
 }
@@ -161,10 +183,10 @@ export function findRootWorkspacePolicyErrors(workspace) {
     generatedProjectPolicy = generatedProjectPolicy.replace(pattern, '');
   }
   const computerSqlPatch =
-    /^patchedDependencies:\n  '@cloudflare\/computer@0\.2\.1': patches\/@cloudflare__computer@0\.2\.1\.patch$/gm;
+    /^patchedDependencies:\n  '@cloudflare\/computer@0\.8\.0': patches\/@cloudflare__computer@0\.8\.0\.patch$/gm;
   const computerSqlPatchEntries = workspace.match(computerSqlPatch) ?? [];
   if (computerSqlPatchEntries.length !== 1) {
-    errors.push('pnpm-workspace.yaml must apply the reviewed Computer 0.2.1 SQL probe patch exactly once.');
+    errors.push('pnpm-workspace.yaml must apply the reviewed Computer 0.8.0 SQL patch exactly once.');
   }
   errors.push(...findBuildApprovalErrors(generatedProjectPolicy.replace(computerSqlPatch, ''), 'pnpm-workspace.yaml'));
   if (/set this to true or false/i.test(workspace)) {
@@ -187,7 +209,7 @@ export function verifyStackAlignment() {
   const rootPackage = readJson('package.json');
   const agentPackage = readJson('cloudchef-agent/package.json');
   const templatePackage = readJson('template/package.json');
-  const sandboxPackage = readJson('node_modules/@cloudflare/sandbox/package.json');
+  const computerPackage = readJson('node_modules/@cloudflare/computer/package.json');
 
   verifyPackage(errors, rootPackage, 'package.json', rootRequiredPackages, CONTROL_PLANE_TOOLCHAIN);
   verifyPackage(errors, agentPackage, 'cloudchef-agent/package.json', agentRequiredPackages, CONTROL_PLANE_TOOLCHAIN);
@@ -210,11 +232,12 @@ export function verifyStackAlignment() {
     ),
     ...findForbiddenFiles(forbiddenLockfiles),
     ...findMissingPaths(rootDir, requiredPaths),
-    ...findSandboxRuntimePinErrors(
-      rootPackage.dependencies?.['@cloudflare/sandbox'],
-      sandboxPackage.version,
-      readFileSync(resolve(rootDir, 'app/workflows/user-workspace-runtime-provisioning.ts'), 'utf8'),
-    ),
+    ...findWorkspaceBasePinErrors({
+      baseSource: readFileSync(resolve(rootDir, 'user-workspace-runtime/src/base-container.ts'), 'utf8'),
+      nvmrc: readFileSync(resolve(rootDir, '.nvmrc'), 'utf8'),
+      computerSpec: rootPackage.dependencies?.['@cloudflare/computer'],
+      computerInstalled: computerPackage.version,
+    }),
   );
 
   if (rootPackage.license !== 'Apache-2.0') {

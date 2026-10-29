@@ -5,7 +5,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { WORK_DIR } from '../../cloudchef-agent/constants';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
-import { TERMINAL_HOME, terminalCommand, terminalEnvironment } from './workspace-terminal';
+import {
+  parseTerminalResize,
+  TERMINAL_HOME,
+  terminalCommand,
+  terminalEnvironment,
+  terminalSessionCommand,
+} from './workspace-terminal';
 
 describe('workspace terminal', () => {
   it('keeps its home under /home, outside the project, and its caches and installs on the container disk', () => {
@@ -21,6 +27,24 @@ describe('workspace terminal', () => {
     expect(env.npm_config_store_dir).toBe(CONTAINER_PNPM_STORE_DIR);
     expect(env.CF_SEND_TELEMETRY).toBe('false');
     expect(env.TERM).toBe('xterm-256color');
+  });
+
+  it('attaches to the one kept tmux session, or starts it in the folder with the environment and login shell', () => {
+    const argv = terminalSessionCommand(WORK_DIR);
+
+    expect(argv.slice(0, 7)).toEqual(['tmux', 'new-session', '-A', '-s', 'workspace', '-c', WORK_DIR]);
+    expect(argv).toContain(`HOME=${TERMINAL_HOME}`);
+    expect(argv).toContain('TERM=xterm-256color');
+    expect(argv.slice(-3)).toEqual([...terminalCommand()]);
+  });
+
+  it('takes a resize from both the current page and a page from before Sandbox 1.0, and nothing else', () => {
+    expect(parseTerminalResize('{"cols":120,"rows":40}')).toEqual({ cols: 120, rows: 40 });
+    expect(parseTerminalResize('{"type":"resize","cols":120,"rows":40}')).toEqual({ cols: 120, rows: 40 });
+    expect(parseTerminalResize('{"cols":1,"rows":40}')).toBeNull();
+    expect(parseTerminalResize('{"cols":"120","rows":40}')).toBeNull();
+    expect(parseTerminalResize('not json')).toBeNull();
+    expect(parseTerminalResize('null')).toBeNull();
   });
 
   it('creates the home quietly, then starts a login shell', () => {

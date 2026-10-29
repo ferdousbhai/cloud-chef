@@ -30,8 +30,7 @@ import { sha256Hex } from '~/lib/hex-digest';
 import { z } from 'zod';
 import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
-export const USER_WORKSPACE_SANDBOX_BASE_IMAGE =
-  'docker.io/cloudflare/sandbox:0.13.0-next.724.1@sha256:d5856e09ccb02c2cd00f73946360369d5655faa9b67b156e0d8627bf143619f1';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 
 type ProvisioningParams = {
   userId: string;
@@ -49,7 +48,7 @@ type ProvisioningError = z.infer<typeof provisioningErrorSchema>;
 
 export type UserWorkspaceRuntimeProvisioningErrorCode = ProvisioningError['errorCode'];
 
-/** A failure after the Worker was redeployed, which left it serving without its container image or schedule. */
+/** A failure after the Worker was redeployed, which left it serving without its container applications or schedule. */
 const redeployedFailureSchema = z.object({ status: z.literal('error'), redeployed: z.literal(true) });
 
 /**
@@ -240,7 +239,7 @@ async function createOrGetProvisioningInstance(args: {
  */
 async function provisioningInstanceId(params: ProvisioningParams): Promise<string> {
   return `workspace-${await sha256Hex(
-    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
+    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_IMAGE}`,
   )}`;
 }
 
@@ -311,7 +310,7 @@ export class UserWorkspaceRuntimeProvisioningWorkflow extends WorkflowEntrypoint
   }
 }
 
-/** Provision the user-owned D1, Worker, and Sandbox container as one durable sequence. */
+/** Provision the user-owned D1, Worker, and workspace containers as one durable sequence. */
 export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   env: Env;
   /** `instanceId` names this upgrade to the runtime, as the holder of the window it claims. */
@@ -427,9 +426,10 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       }
       await args.step.sleep(`wait for an idle workspace (attempt ${attempt + 1})`, outcome.waitMs);
     }
-    // An upgrade keeps its window open on the runtime it just deployed until that runtime serves on the new
-    // container image: the rollout replaces running containers at once, so work that started meanwhile
-    // would be cut off, and the new Worker would talk to the old image. A first workspace has no window.
+    // An upgrade keeps its window open on the runtime it just deployed until that runtime serves from its new
+    // container applications: replacing an application ends its running containers at once, so work that started
+    // meanwhile would be cut off, and the new Worker starts containers only under the `durable_object` policy. A
+    // first workspace has no window.
     const window = {
       endpoint,
       controlPlaneSecret,
@@ -488,12 +488,13 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.enableWorkerSubdomain(workerName);
       },
     );
-    await heldStep('deploy Sandbox container', LONG_STEP_CONFIG, async () => {
-      await accountApi.ensureWorkspaceRuntimeContainer({
-        applicationName: workerName,
-        namespaceId,
-        image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
-      });
+    // Each container application on the `durable_object` policy, under which the runtime starts its containers from
+    // Cloudflare's managed image and its own base snapshot. One a release before this created on the platform-
+    // scheduled policy is deleted and created again for the same Durable Object namespace, inside the window, since
+    // Cloudflare never changes an application's policy: its Durable Objects, and every workspace's files in them,
+    // stay as they are.
+    await heldStep('deploy workspace container', LONG_STEP_CONFIG, async () => {
+      await accountApi.ensureWorkspaceRuntimeContainer({ applicationName: workerName, namespaceId });
     });
     const builderNamespace = builderNamespaceId;
     if (builderNamespace) {
@@ -502,7 +503,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.ensureWorkspaceRuntimeContainer({
           applicationName: `${workerName}-builder`,
           namespaceId: builderNamespace,
-          image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
         });
       });
     }
@@ -531,7 +531,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         workerName,
         endpoint,
         runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-        imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+        imageDigest: USER_WORKSPACE_IMAGE,
         protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
       });
     });
@@ -682,10 +682,7 @@ export function connectionProvisionsWorkspace(
   );
 }
 
-/** Whether a ready runtime runs this release's build on its sandbox image, so speaks its protocol. */
+/** Whether a ready runtime runs this release's build on this release's container applications, so speaks its protocol. */
 export function isCurrentUserWorkspaceRuntime(runtime: { runtimeVersion: string; imageDigest: string }): boolean {
-  return (
-    runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 &&
-    runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE
-  );
+  return runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 && runtime.imageDigest === USER_WORKSPACE_IMAGE;
 }

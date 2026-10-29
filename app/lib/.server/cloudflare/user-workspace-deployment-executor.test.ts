@@ -40,7 +40,7 @@ describe('deployment credential boundary', () => {
     const transientCommand = runtimeSource.slice(transientCommandStart, transientCommandEnd);
     expect(transientCommand).toContain('runTrackedSandboxCommand');
     expect(transientCommand).toContain(
-      "this.sandboxProcesses.exec(trackedCommand, { ...options, env: { CI: 'true', ...CONTAINER_TOOL_ENV } })",
+      "this.containerProcesses.exec(trackedCommand, { ...options, env: { CI: 'true', ...CONTAINER_COMMAND_ENV } })",
     );
     expect(transientCommand).not.toMatch(/apiToken|CLOUDFLARE_API_TOKEN|authorization/i);
     expect(runtimeSource).not.toContain("route.operation === 'deploy'");

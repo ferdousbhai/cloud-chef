@@ -48,9 +48,7 @@ export default defineConfig((config) => {
       alias: isTest ? { 'cloudflare:workers': fromRoot('./app/test/cloudflare-workers-shim.ts') } : undefined,
     },
     ssr: {
-      noExternal: isTest
-        ? ['@cloudflare/computer', '@cloudflare/sandbox', '@cloudflare/containers', 'agents']
-        : undefined,
+      noExternal: isTest ? ['@cloudflare/computer', '@cloudflare/containers', 'agents'] : undefined,
     },
     test: {
       // Agent worktrees are whole checkouts of this repository; their tests belong to their own runs.

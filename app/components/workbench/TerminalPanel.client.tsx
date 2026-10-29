@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { SandboxAddon, type ConnectionState } from '@cloudflare/sandbox/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { Cross2Icon, InfoCircledIcon } from '@radix-ui/react-icons';
 import { getUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
@@ -11,6 +10,11 @@ const STORAGE_TIP_CLOSED_KEY = 'cloudchef.terminal.storage-tip-closed';
 
 /** How often the runtime capability the socket's address carries is refreshed, so a reconnect uses a live one. */
 const CAPABILITY_REFRESH_MS = 60_000;
+/** Reconnecting waits a second, doubling to at most this long, and stops after the last attempt. */
+const RECONNECT_MAX_DELAY_MS = 30_000;
+const RECONNECT_ATTEMPTS = 10;
+
+type ConnectionState = 'connecting' | 'connected' | 'disconnected';
 
 /**
  * A shell in this project's workspace container, beside the chat: for people who would rather work themselves,
@@ -36,42 +40,75 @@ export function TerminalPanel({ workspaceId }: { workspaceId: string }) {
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
-    const sandbox = new SandboxAddon({
-      getWebSocketUrl: ({ cursor }) => {
-        const url = new URL('/v1/terminal', session?.endpoint);
-        url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
-        url.searchParams.set('chat', workspaceId);
-        url.searchParams.set('capability', session?.token ?? '');
-        url.searchParams.set('cols', String(terminal.cols));
-        url.searchParams.set('rows', String(terminal.rows));
-        if (cursor) {
-          url.searchParams.set('cursor', cursor);
-        }
-        return url.toString();
-      },
-      onStateChange: (next) => {
-        if (!disposed) {
-          setState(next);
-        }
-      },
-    });
-    terminal.loadAddon(sandbox);
     terminal.open(element);
     fit.fit();
+    const encoder = new TextEncoder();
+    let socket: WebSocket | null = null;
+    let attempts = 0;
+    let reconnectTimer: number | undefined;
+    const report = (next: ConnectionState) => {
+      if (!disposed) {
+        setState(next);
+      }
+    };
+    const send = (data: string | Uint8Array) => {
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(data);
+      }
+    };
+    // Keystrokes go as binary frames, a resize as JSON text; the shell's output comes back as binary frames.
+    const input = terminal.onData((data) => send(encoder.encode(data)));
+    const resizes = terminal.onResize(({ cols, rows }) => send(JSON.stringify({ cols, rows })));
+    const connect = () => {
+      if (disposed || !session) {
+        return;
+      }
+      report('connecting');
+      const url = new URL('/v1/terminal', session.endpoint);
+      url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:';
+      url.searchParams.set('chat', workspaceId);
+      url.searchParams.set('capability', session.token);
+      url.searchParams.set('cols', String(terminal.cols));
+      url.searchParams.set('rows', String(terminal.rows));
+      const next = new WebSocket(url);
+      next.binaryType = 'arraybuffer';
+      socket = next;
+      next.addEventListener('message', (event) => {
+        if (event.data instanceof ArrayBuffer) {
+          attempts = 0;
+          report('connected');
+          terminal.write(new Uint8Array(event.data));
+          return;
+        }
+        // Text frames are control messages: `ready` once the shell is attached. A runtime from before Sandbox 1.0
+        // also sends a header before each output frame, which carries nothing the output frame does not.
+        if (String(event.data).includes('"ready"')) {
+          attempts = 0;
+          report('connected');
+          terminal.focus();
+          send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
+        }
+      });
+      next.addEventListener('close', () => {
+        if (socket !== next || disposed) {
+          return;
+        }
+        socket = null;
+        report('disconnected');
+        if (attempts >= RECONNECT_ATTEMPTS) {
+          return;
+        }
+        const delay = Math.min(1_000 * 2 ** attempts, RECONNECT_MAX_DELAY_MS);
+        attempts += 1;
+        reconnectTimer = window.setTimeout(connect, delay);
+      });
+    };
     const refresh = async () => {
       session = await getUserRuntimeSession();
     };
     void refresh()
-      .then(() => {
-        if (!disposed) {
-          sandbox.connect({ sandboxId: workspaceId });
-        }
-      })
-      .catch(() => {
-        if (!disposed) {
-          setState('disconnected');
-        }
-      });
+      .then(connect)
+      .catch(() => report('disconnected'));
     const refreshTimer = window.setInterval(() => void refresh().catch(() => undefined), CAPABILITY_REFRESH_MS);
     const resize = new ResizeObserver(() => fit.fit());
     resize.observe(element);
@@ -79,7 +116,11 @@ export function TerminalPanel({ workspaceId }: { workspaceId: string }) {
       disposed = true;
       window.clearInterval(refreshTimer);
       resize.disconnect();
-      sandbox.dispose();
+      window.clearTimeout(reconnectTimer);
+      input.dispose();
+      resizes.dispose();
+      socket?.close();
+      socket = null;
       terminal.dispose();
     };
   }, [workspaceId]);

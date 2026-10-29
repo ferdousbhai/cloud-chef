@@ -4,7 +4,7 @@ import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspa
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from './cloudflare-oauth-scope-manifest';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import {
   FAILED_UPGRADE_RESTART_EVERY_SWEEPS,
   sweepUserWorkspaceRuntimeUpgrades,
@@ -116,20 +116,30 @@ function controlPlane() {
             created_at, updated_at, image_digest, protocol_version)
          VALUES (?, ?, 1, 'worker', 'https://workspace.example', 'earlier', 'ready', 1, 1, ?, ?)`,
       )
-      .run(userId, id, USER_WORKSPACE_SANDBOX_BASE_IMAGE, USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION);
+      .run(userId, id, USER_WORKSPACE_IMAGE, USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION);
   };
   const makeCurrent = (id: string) =>
     database
       .prepare('UPDATE user_computer_runtimes SET runtime_version = ? WHERE connection_id = ?')
       .run(USER_WORKSPACE_RUNTIME_SHA256, id);
+  /** A runtime whose container applications a release before the `durable_object` policy created. */
+  const useEarlierContainers = (id: string) =>
+    database
+      .prepare('UPDATE user_computer_runtimes SET image_digest = ? WHERE connection_id = ?')
+      .run(`docker.io/cloudflare/sandbox:0.13.0@sha256:${'a'.repeat(64)}`, id);
   /** A reconnect: the connection moves to a new generation, and its runtime's secret stops authenticating. */
   const reconnect = (id: string) =>
     database
       .prepare('UPDATE cloudflare_connections SET connection_generation = connection_generation + 2 WHERE id = ?')
       .run(id);
-  const env = (binding: Env['USER_WORKSPACE_RUNTIME_PROVISIONING']) =>
-    envWith({ DB: db, USER_WORKSPACE_RUNTIME_PROVISIONING: binding });
-  return { add, makeCurrent, reconnect, env };
+  const env = (binding: Env['USER_WORKSPACE_RUNTIME_PROVISIONING'], canary = '') =>
+    envWith({
+      DB: db,
+      USER_WORKSPACE_RUNTIME_PROVISIONING: binding,
+      // SAFETY: the generated type is the committed value (none); a canary release commits user ids instead.
+      WORKSPACE_RUNTIME_UPGRADE_CANARY: canary as Env['WORKSPACE_RUNTIME_UPGRADE_CANARY'],
+    });
+  return { add, makeCurrent, useEarlierContainers, reconnect, env };
 }
 
 describe('scheduled workspace runtime upgrade sweep', () => {
@@ -145,6 +155,40 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
     ).resolves.toMatchObject({ started: 2, skipped: 0 });
     expect(workflow.created).toEqual(['owner-of-a', 'owner-of-b']);
+  });
+
+  it('upgrades only the canary runtimes while a canary is named', async () => {
+    const plane = controlPlane();
+    plane.add('a');
+    plane.add('b');
+    const workflow = workflows(() => null);
+
+    await expect(
+      sweepUserWorkspaceRuntimeUpgrades({
+        env: plane.env(workflow.binding, ' owner-of-b ,'),
+        scheduledTime: 0,
+      }),
+    ).resolves.toMatchObject({ started: 1, skipped: 1 });
+    expect(workflow.created).toEqual(['owner-of-b']);
+  });
+
+  it('upgrades a runtime of this build whose container applications are still platform-scheduled', async () => {
+    const plane = controlPlane();
+    plane.add('platform-scheduled');
+    plane.makeCurrent('platform-scheduled');
+    plane.useEarlierContainers('platform-scheduled');
+    plane.add('canary-held');
+    plane.makeCurrent('canary-held');
+    plane.useEarlierContainers('canary-held');
+    const workflow = workflows(() => null);
+
+    await expect(
+      sweepUserWorkspaceRuntimeUpgrades({
+        env: plane.env(workflow.binding, 'owner-of-platform-scheduled'),
+        scheduledTime: 0,
+      }),
+    ).resolves.toMatchObject({ started: 1, skipped: 1 });
+    expect(workflow.created).toEqual(['owner-of-platform-scheduled']);
   });
 
   it("prepares a runtime a reconnect left behind for the connection's new generation, even on this build", async () => {

@@ -24,7 +24,7 @@ export const RUNTIME_QUIET_PERIOD_MS = 2 * 60_000;
 
 /**
  * How long a claimed or renewed upgrade window holds new work back. The upgrade renews it while it
- * redeploys the Worker, rolls out the container image, and waits for the new runtime to be ready, and
+ * redeploys the Worker, replaces its container applications, and waits for the new runtime to be ready, and
  * releases it when it is; this bounds the wait when an upgrade stops partway and never releases it.
  */
 export const RUNTIME_UPGRADE_WINDOW_MS = 5 * 60_000;

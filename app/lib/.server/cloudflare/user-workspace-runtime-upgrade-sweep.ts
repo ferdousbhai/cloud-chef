@@ -5,10 +5,11 @@ import {
   connectionProvisionsWorkspace,
   isCurrentUserWorkspaceRuntime,
   sweepUserWorkspaceRuntimeUpgrade,
-  USER_WORKSPACE_SANDBOX_BASE_IMAGE,
   type UserWorkspaceRuntimeUpgradeSweepOutcome,
 } from '~/workflows/user-workspace-runtime-provisioning';
 import { findActiveCloudflareConnection } from './cloudflare-connection-repository';
+import { USER_WORKSPACE_IMAGE } from './user-workspace-image';
+import { workspaceRuntimeUpgradeAllowed } from './user-workspace-runtime-rollout';
 import { findUserWorkspaceRuntime, listOutdatedUserWorkspaceRuntimes } from './user-workspace-runtime-repository';
 
 /**
@@ -34,7 +35,7 @@ type UserWorkspaceRuntimeUpgradeSweepSummary = Record<UserWorkspaceRuntimeUpgrad
  * window and never interrupts a turn, so the sweep only decides when one starts.
  */
 export async function sweepUserWorkspaceRuntimeUpgrades(args: {
-  env: Pick<Env, 'DB' | 'USER_WORKSPACE_RUNTIME_PROVISIONING'>;
+  env: Pick<Env, 'DB' | 'USER_WORKSPACE_RUNTIME_PROVISIONING' | 'WORKSPACE_RUNTIME_UPGRADE_CANARY'>;
   scheduledTime: number;
 }): Promise<UserWorkspaceRuntimeUpgradeSweepSummary> {
   const summary: UserWorkspaceRuntimeUpgradeSweepSummary = {
@@ -47,13 +48,18 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
   const sweep = Math.floor(args.scheduledTime / UPGRADE_SWEEP_INTERVAL_MS);
   const candidates = await listOutdatedUserWorkspaceRuntimes(args.env.DB, {
     runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-    imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+    imageDigest: USER_WORKSPACE_IMAGE,
     protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
   });
   const restartFailed = sweep % FAILED_UPGRADE_RESTART_EVERY_SWEEPS === 0;
   for (const candidate of candidates) {
     if (summary.started + summary.restarted >= UPGRADE_SWEEP_MAX_LAUNCHES) {
       break;
+    }
+    // During a canary only the named people's runtimes are upgraded; everyone else's keeps serving as it is.
+    if (!workspaceRuntimeUpgradeAllowed(args.env, candidate.userId)) {
+      summary.skipped += 1;
+      continue;
     }
     try {
       const connection = await findActiveCloudflareConnection(args.env.DB, candidate.connectionId);
@@ -100,7 +106,7 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
 
 /** The scheduled entry point: a sweep that fails is logged and tried again on the next schedule. */
 export async function sweepUserWorkspaceRuntimeUpgradesBestEffort(
-  env: Pick<Env, 'DB' | 'USER_WORKSPACE_RUNTIME_PROVISIONING'>,
+  env: Pick<Env, 'DB' | 'USER_WORKSPACE_RUNTIME_PROVISIONING' | 'WORKSPACE_RUNTIME_UPGRADE_CANARY'>,
   scheduledTime: number,
 ): Promise<void> {
   try {

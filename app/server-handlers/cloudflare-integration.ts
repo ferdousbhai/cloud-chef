@@ -38,6 +38,7 @@ import {
 } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '~/lib/bounded-body';
+import { workspaceRuntimeUpgradeAllowed } from '~/lib/.server/cloudflare/user-workspace-runtime-rollout';
 import {
   isCurrentUserWorkspaceRuntime,
   startUserWorkspaceRuntimeProvisioning,
@@ -223,7 +224,8 @@ export async function cloudflareRuntimeSessionAction({
     );
   }
   const { runtime, upgradePending } = usable;
-  if (upgradePending) {
+  // During a canary only the named people's runtimes are upgraded; everyone else's keeps serving as it is.
+  if (upgradePending && workspaceRuntimeUpgradeAllowed(env, session.user.id)) {
     // The runtime is from an earlier release but speaks this one's protocol: the browser keeps working
     // with it while the upgrade waits, in the background, for a moment nothing is running in it.
     await provision(provisioning).then(

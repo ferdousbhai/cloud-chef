@@ -26,6 +26,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 - `app/lib/.server/cloudflare/deployment-config.ts` — trusted generated-app deployment configuration
 - `cloudchef-agent/` — shared prompts, protocol types, parsers, and tool schemas
 - `user-workspace-runtime/src/index.ts` and `user-workspace-runtime/src/protocol.ts` — project storage, validation, deployment, and browser protocol
+- `user-workspace-runtime/src/computer-sandbox.ts`, `base-container.ts`, `container-process.ts`, `workspace-terminal.ts` — the workspace container on the `durable_object` scheduling policy (Computer's `ContainerBackend` through CloudChef's own host, the Container API): Cloudflare's managed image set up once per runtime and kept as its base snapshot, which later starts restore; provisioning moves platform-scheduled applications over inside the upgrade window (`ensureWorkspaceRuntimeContainer` in `app/lib/.server/cloudflare/user-account-api.ts`), and the canary gate for runtime upgrades (`app/lib/.server/cloudflare/user-workspace-runtime-rollout.ts`)
 - `template/` — generated application source and security migrations
 - `make-bootstrap-snapshot.js` and `scripts/verify-template.mjs` — template artifact generation and verification
 - `scripts/ops-report.mjs` — read-only production status report

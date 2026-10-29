@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { cloudflareConnectMessageText } from '~/lib/cloudflare/authorization-recovery';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
@@ -195,6 +195,26 @@ describe('Cloudflare-only authentication', () => {
       expect(sessionsRecorded(env)).toBe(1);
     },
   );
+
+  it("upgrades a platform-scheduled runtime during a canary only when it is the canary's", async () => {
+    const platformScheduled = () =>
+      runtimeRow({ imageDigest: `docker.io/cloudflare/sandbox:x@sha256:${'a'.repeat(64)}` });
+    for (const [canary, upgraded] of [
+      ['someone-else', false],
+      ['someone-else, user-1', true],
+    ] as const) {
+      mocks.getAuthSession.mockResolvedValue(signedInSession);
+      mocks.findConnection.mockResolvedValue(activeConnection());
+      const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
+      const env = runtimeEnv([platformScheduled()], canary);
+
+      const response = await cloudflareRuntimeSessionAction({ request: runtimeSessionRequest(), env, provision });
+
+      // Outside the canary the runtime keeps serving as it is, on its platform-scheduled applications.
+      expect(response.status).toBe(200);
+      expect(provision).toHaveBeenCalledTimes(upgraded ? 1 : 0);
+    }
+  });
 
   it('keeps an earlier runtime working when its upgrade cannot be started', async () => {
     mocks.getAuthSession.mockResolvedValue(signedInSession);
@@ -857,7 +877,7 @@ function runtimeRow(
     worker_name: 'cloudchef-workspace-test',
     endpoint: 'https://workspace.example',
     runtime_version: overrides.runtimeVersion ?? USER_WORKSPACE_RUNTIME_SHA256,
-    image_digest: overrides.imageDigest ?? USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+    image_digest: overrides.imageDigest ?? USER_WORKSPACE_IMAGE,
     protocol_version: overrides.protocolVersion ?? USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     last_session_at: 100,
     created_at: 100,
@@ -874,7 +894,8 @@ function runtimeSessionRequest() {
 
 const recordedSessions = new WeakMap<Env, { count: number }>();
 
-function runtimeEnv(rows: Array<ReturnType<typeof runtimeRow> | null>): Env {
+/** `canary`: the `WORKSPACE_RUNTIME_UPGRADE_CANARY` a release commits, none by default. */
+function runtimeEnv(rows: Array<ReturnType<typeof runtimeRow> | null>, canary = ''): Env {
   const queue = [...rows];
   const sessions = { count: 0 };
   const db = {
@@ -900,6 +921,7 @@ function runtimeEnv(rows: Array<ReturnType<typeof runtimeRow> | null>): Env {
   const env = {
     DB: db,
     CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: btoa(String.fromCharCode(...new Uint8Array(32).fill(1))),
+    WORKSPACE_RUNTIME_UPGRADE_CANARY: canary,
   } as unknown as Env;
   recordedSessions.set(env, sessions);
   return env;

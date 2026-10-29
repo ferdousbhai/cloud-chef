@@ -5,6 +5,8 @@ import { describe, expect, test } from 'vitest';
 const workloadTables = [
   'agent_gc_candidates',
   'app_resource_gc_candidates',
+  // The handle of the runtime's base container snapshot: no person's data, only which snapshot later starts restore.
+  'base_container_snapshots',
   'conversations',
   'deployment_activity',
   'deployment_resources',

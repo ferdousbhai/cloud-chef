@@ -14,17 +14,10 @@
  * $0.11 per idle hour, and the workspace is now warmed when a chat opens rather than when the
  * first command runs — so a chat nobody sends a message in still pays. The workspace runtime's
  * ten-minute idle window bounds that cost.
+ *
+ * Under the `durable_object` scheduling policy the size is asked for at each `ctx.container.start()`, by the
+ * workspace and the project builder alike, rather than set on the application, which takes no instance limit
+ * either: each of those Durable Objects runs at most one container, so how many run at once follows how many
+ * workspaces and publishes are in use.
  */
 export const PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE = 'standard-4';
-export const PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES = 10;
-
-/**
- * The dimensions Cloudflare resolves the tier to. A readback echoes either the tier name or
- * these, so they have to move together — a readback that still recognised only the previous
- * tier's shape would accept a container the policy no longer asks for.
- */
-export const PROJECT_WORKSPACE_CONTAINER_DIMENSIONS = {
-  vcpu: 4,
-  memoryMib: 12_288,
-  diskMb: 20_000,
-} as const;
