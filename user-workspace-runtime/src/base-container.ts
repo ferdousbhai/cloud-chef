@@ -44,7 +44,8 @@ const BASE_CF_CLI_VERSION = templatePackage.devDependencies.cf;
 /**
  * The system packages the runtime's and the builder's own commands use: fuse3 for computerd's mount; git; tmux for
  * the person's terminal; coreutils' `timeout`, findutils' `find -printf`, procps' `pkill`, util-linux's `flock` and
- * `setpriv`, and passwd's `useradd`; curl, jq and the archive tools the setup and the projects' installs use.
+ * `setpriv`, and passwd's `useradd`; curl, jq and the archive tools the setup and the projects' installs use;
+ * libatomic1, which nodejs.org's Node 26 binary loads and the managed image's slim Debian leaves out.
  */
 const BASE_SYSTEM_PACKAGES = [
   'ca-certificates',
@@ -54,6 +55,7 @@ const BASE_SYSTEM_PACKAGES = [
   'fuse3',
   'git',
   'jq',
+  'libatomic1',
   'passwd',
   'procps',
   'tar',
