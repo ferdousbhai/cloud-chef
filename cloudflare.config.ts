@@ -44,7 +44,7 @@ export default defineConfig({
       // Whose outdated workspace runtimes are upgraded: empty for everyone, or comma-separated CloudChef user ids
       // for a canary (app/lib/.server/cloudflare/user-workspace-runtime-rollout.ts). Changed by a release, never
       // in the dashboard.
-      WORKSPACE_RUNTIME_UPGRADE_CANARY: bindings.text(''),
+      WORKSPACE_RUNTIME_UPGRADE_CANARY: bindings.text('4128ec6e-8d8b-4c8a-8f93-ea2973525d00'),
       ...deployVar('COMMIT_SHA'),
       ...deployVar('CLOUDFLARE_OAUTH_CLIENT_ID'),
       // Migrations live in migrations/; scripts/apply-d1-migrations.mjs applies them to this database id.
