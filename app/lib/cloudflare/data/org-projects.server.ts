@@ -107,27 +107,6 @@ export async function listGitHubInstallations(
   }));
 }
 
-/**
- * An installation `userId` connected for any space, having shown GitHub they control its account then: what lets
- * them add it to another space, which GitHub returns to without that proof.
- */
-export async function findInstallationConnectedBy(
-  db: D1Database,
-  installationId: number,
-  userId: string,
-): Promise<GitHubInstallationSummary | null> {
-  const row = await db
-    .prepare(
-      `SELECT installation_id, account_login, account_type FROM github_installations
-       WHERE installation_id = ? AND connected_by = ? LIMIT 1`,
-    )
-    .bind(installationId, userId)
-    .first<{ installation_id: number; account_login: string; account_type: 'User' | 'Organization' }>();
-  return row
-    ? { installationId: row.installation_id, accountLogin: row.account_login, accountType: row.account_type }
-    : null;
-}
-
 /** Records an installation for the scope, alongside any on other GitHub accounts. */
 export async function saveGitHubInstallation(
   db: D1Database,
@@ -566,6 +545,65 @@ export async function recordMainRewrite(db: D1Database, rewrite: MainRewrite): P
       rewrite.rewrittenAt,
     )
     .run();
+}
+
+/** A push to a team project's main, as a member's runtime passed it on: who, when, and main's commit before (null for its first) and after. */
+type MainPush = {
+  projectId: string;
+  userId: string;
+  oldCommit: string | null;
+  newCommit: string;
+  pushedAt: number;
+};
+
+/** Keeps a record that `userId` pushed the project's main from `oldCommit` to `newCommit`. */
+export async function recordMainPush(db: D1Database, push: MainPush): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO project_main_pushes (id, project_id, pushed_by, old_commit, new_commit, pushed_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), push.projectId, push.userId, push.oldCommit, push.newCommit, push.pushedAt)
+    .run();
+}
+
+/**
+ * Who last changed each project's main and when, by project id: its newest recorded push, or rewrite
+ * (`cloudchef repo rewrite-main`). The name is null for someone no longer on CloudChef; a project with neither
+ * recorded isn't in it.
+ */
+export async function latestMainChanges(
+  db: D1Database,
+  projectIds: readonly string[],
+): Promise<Map<string, { by: string | null; at: number }>> {
+  const latest = new Map<string, { by: string | null; at: number }>();
+  if (projectIds.length === 0) {
+    return latest;
+  }
+  const { results } = await db
+    .prepare(
+      `WITH changes AS (
+         SELECT project_id, pushed_by AS changed_by, pushed_at AS changed_at FROM project_main_pushes
+         WHERE project_id IN (SELECT value FROM json_each(?1))
+         UNION ALL
+         SELECT project_id, rewritten_by, rewritten_at FROM project_main_rewrites
+         WHERE project_id IN (SELECT value FROM json_each(?1))
+       ),
+       newest AS (
+         SELECT project_id, changed_by, changed_at,
+           ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY changed_at DESC) AS position
+         FROM changes
+       )
+       SELECT newest.project_id, newest.changed_at, people.name
+       FROM newest LEFT JOIN "user" AS people ON people.id = newest.changed_by
+       WHERE newest.position = 1`,
+    )
+    .bind(JSON.stringify(projectIds))
+    .all<{ project_id: string; changed_at: number; name: string | null }>();
+  for (const row of results) {
+    latest.set(row.project_id, { by: row.name, at: row.changed_at });
+  }
+  return latest;
 }
 
 /** Gives a team member a role on one project, changes it, or (null) withdraws it. */

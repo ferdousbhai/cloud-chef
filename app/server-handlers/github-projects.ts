@@ -8,7 +8,6 @@ import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-ap
 import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import {
-  findInstallationConnectedBy,
   listGitHubInstallations,
   removeGitHubInstallation,
   requireProjectScope,
@@ -84,7 +83,8 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
  * GitHub's return after installing, with the installation and an authorization code for the GitHub user
  * who installed it. The installation id in the URL proves nothing on its own: it is recorded only if
  * that user owns the account it is installed on (their own, or an organization they own), for the
- * team or person that started here in this browser.
+ * team or person that started here in this browser. An account that already has the App returns from GitHub's
+ * "Configure" with no code: the person is sent on to GitHub's user authorization, whose return carries one.
  */
 export async function completeGitHubInstallAction({
   request,
@@ -134,51 +134,40 @@ async function completeInstallation(args: {
   const pending = await env.DB.prepare(
     `UPDATE github_install_states SET used_at = ?
      WHERE id = ? AND used_at IS NULL AND expires_at > ?
-     RETURNING connection_id, user_id, return_to`,
+     RETURNING connection_id, user_id, return_to, installation_id`,
   )
     .bind(now, state, now)
-    .first<{ connection_id: string; user_id: string; return_to: string }>();
+    .first<{ connection_id: string; user_id: string; return_to: string; installation_id: number | null }>();
   returnTo = pending?.return_to ?? null;
-  const installationId = Number(url.searchParams.get('installation_id'));
+  // A return from user authorization names no installation: the state CloudChef started it with does.
+  const installationId = pending?.installation_id ?? Number(url.searchParams.get('installation_id'));
   const code = url.searchParams.get('code');
   if (!pending || !app) {
     return back('install_expired');
   }
-  if (!code && url.searchParams.get('setup_action') === 'update') {
+  const session = await getAuthSession(env, request);
+  const scope =
+    session?.user.id === pending.user_id ? await managedScope(env.DB, pending.connection_id, session.user.id) : null;
+  if (!code && pending.installation_id === null && url.searchParams.get('setup_action') === 'update') {
     // Changing the repositories of an installation this connection already has returns without a code:
     // there is nothing new to record, and nothing is recorded for any other installation.
     const current = await listGitHubInstallations(env.DB, pending.connection_id);
     if (current.some((installation) => installation.installationId === installationId)) {
       return back('repositories_updated');
     }
-    // GitHub has one installation per account: an account that has the App already comes back here, with no code
-    // to prove who controls it again. A personal GitHub account its owner proved for another space may be added
-    // here too, since who owns it can't change; an organization's owners can, so that needs a fresh install.
+    // GitHub has one installation per account: an account that has the App already comes back here ("Configure"),
+    // with no code to prove who controls it. The person authorizes the App as themselves on GitHub first, and the
+    // installation is recorded only if the GitHub user who just did owns its account, as for a new install.
     if (Number.isSafeInteger(installationId) && installationId > 0) {
-      const session = await getAuthSession(env, request);
-      const scope =
-        session?.user.id === pending.user_id
-          ? await managedScope(env.DB, pending.connection_id, session.user.id)
-          : null;
-      const found = scope ? await findInstallationConnectedBy(env.DB, installationId, pending.user_id) : null;
-      const proven = found?.accountType === 'User' ? found : null;
       if (!scope) {
         return back('install_other_admin');
       }
-      if (!proven) {
-        // Their own organization's installation, proven for another space: GitHub won't prove it again here.
-        return back(found ? 'install_organization_elsewhere' : 'install_already_there');
-      }
-      await saveGitHubInstallation(env.DB, { scope, userId: pending.user_id, installation: proven });
-      return back('connected');
+      return authorizeFirst({ request, env, app, pending, installationId });
     }
   }
   if (!code || !Number.isSafeInteger(installationId) || installationId <= 0) {
     return back('install_cancelled');
   }
-  const session = await getAuthSession(env, request);
-  const scope =
-    session?.user.id === pending.user_id ? await managedScope(env.DB, pending.connection_id, session.user.id) : null;
   if (!scope) {
     return back('install_other_admin');
   }
@@ -212,6 +201,38 @@ async function completeInstallation(args: {
     }
     throw error;
   }
+}
+
+/**
+ * Sends a return that named an installation without proof of who controls it on to GitHub's user authorization,
+ * with a new state of its own that keeps the installation, for the same person, connection and page to go back to.
+ * GitHub returns here with a code for the GitHub user who authorized, which is then checked as a new install's is.
+ */
+async function authorizeFirst(args: {
+  request: Request;
+  env: Env;
+  app: GitHubApp;
+  pending: { connection_id: string; user_id: string; return_to: string };
+  installationId: number;
+}): Promise<Response> {
+  const { request, env, app, pending, installationId } = args;
+  const state = crypto.randomUUID();
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO github_install_states (id, connection_id, user_id, return_to, installation_id, expires_at, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(state, pending.connection_id, pending.user_id, pending.return_to, installationId, now + STATE_TTL_MS, now)
+    .run();
+  const redirectUri = new URL(GITHUB_RETURN_PATH, new URL(request.url).origin).toString();
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: app.authorizeUrl(state, redirectUri),
+      'Cache-Control': 'no-store',
+      'Set-Cookie': githubReturnCookie(state, STATE_TTL_MS / 1_000, request),
+    },
+  });
 }
 
 /**

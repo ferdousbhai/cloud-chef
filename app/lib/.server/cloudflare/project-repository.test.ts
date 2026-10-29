@@ -2,6 +2,7 @@ import { inflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import { fakeArtifacts } from '~/test/fake-artifacts';
 import { crc32 } from './zip-archive';
+import { updateRemoteRef, ZERO_OID } from './repository-wire';
 import {
   filesMatchTree,
   importedProjectRepo,
@@ -298,18 +299,54 @@ describe('ProjectRepositories', () => {
     expect(artifacts.revoked.slice(1)).toEqual(writes);
   });
 
-  it('hands out a read token for one import, without its expiry suffix', async () => {
+  it('hands out a read token for one import on a read-only fork of main alone, without its expiry suffix', async () => {
     const { artifacts, repositories } = setup();
     await artifacts.create('p-1');
+    const main = await artifacts.commitDirect('p-1', 'main', { 'index.html': 'live' });
+    // A workspace's saved branch, and another branch: neither is the copy's to read.
+    await artifacts.commitDirect('p-1', 'feature', { 'index.html': 'draft' });
+    const remote = await repositories.gitAccess('p-1', 'write');
+    await updateRemoteRef(
+      artifacts.fetch,
+      remote,
+      { ref: 'refs/cloudchef/workspaces/w1/main', oldOid: ZERO_OID, newOid: main },
+      new Uint8Array(),
+    );
+
     const access = await repositories.readAccess('p-1');
+
+    const copy = `c-${access.tokenId}`;
     expect(access).toEqual({
-      remote: 'https://artifacts.test/git/cloudchef/p-1.git',
-      tokenId: 'token',
+      remote: `https://artifacts.test/git/cloudchef/${copy}.git`,
+      tokenId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       token: 'art_v2_x_0123456789abcdef',
       expiresAt: '2030-01-01T00:00:00.000Z',
     });
+    expect(artifacts.forks.at(-1)).toEqual({ from: 'p-1', to: copy, readOnly: true });
     // As long as an import may take, not the year a clone token lasted.
-    expect(artifacts.tokens.at(-1)).toMatchObject({ repo: 'p-1', scope: 'read', ttl: 35 * 60 });
+    expect(artifacts.tokens.at(-1)).toMatchObject({ repo: copy, scope: 'read', ttl: 35 * 60 });
+    expect([...(await repositories.refs(copy)).keys()].filter((ref) => ref !== 'HEAD')).toEqual(['refs/heads/main']);
+
+    await repositories.endReadAccess(access.tokenId);
+    expect(artifacts.repos.has(copy)).toBe(false);
+    expect(artifacts.repos.has('p-1')).toBe(true);
+    await expect(repositories.endReadAccess('p-1')).rejects.toThrow('not a read token');
+  });
+
+  it('deletes import copies no one ended once their token has expired, and nothing else', async () => {
+    const { artifacts, repositories } = setup();
+    await artifacts.create('p-1');
+    await artifacts.commitDirect('p-1', 'main', { 'index.html': 'live' });
+    const left = await repositories.readAccess('p-1');
+    const fresh = await repositories.readAccess('p-1');
+    artifacts.repos.get(`c-${left.tokenId}`)!.createdAt = new Date(Date.now() - 36 * 60_000).toISOString();
+    artifacts.repos.get('p-1')!.createdAt = new Date(0).toISOString();
+
+    await repositories.readAccess('p-1');
+
+    expect(artifacts.repos.has(`c-${left.tokenId}`)).toBe(false);
+    expect(artifacts.repos.has(`c-${fresh.tokenId}`)).toBe(true);
+    expect(artifacts.repos.has('p-1')).toBe(true);
   });
 
   it('streams a commit as a ZIP archive', async () => {

@@ -19,6 +19,7 @@ import {
   approveProductionRequest,
   declineProductionRequest,
   importProject,
+  latestMainChanges,
   listAccessibleProjects,
   recordWorkersBuildsScriptTag,
   requireManagedProject,
@@ -80,11 +81,17 @@ export function listMyProjectsAction({
           ),
       ),
     );
+    // Who last changed what each one publishes, as the team's runtimes reported their pushes of main.
+    const changes = await latestMainChanges(
+      env.DB,
+      projects.map((project) => project.id),
+    );
     return Response.json(
       {
         projects: projects.map(
           ({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith, createdAt, ...rest }) => {
             const deployment = deployments.get(id);
+            const change = changes.get(id);
             return {
               id,
               name,
@@ -100,6 +107,7 @@ export function listMyProjectsAction({
               siteUrl,
               siteFrameable,
               deploysWith,
+              lastChange: change ? { by: change.by, at: new Date(change.at).toISOString() } : null,
               deployment: deployment
                 ? {
                     id: deployment.id,

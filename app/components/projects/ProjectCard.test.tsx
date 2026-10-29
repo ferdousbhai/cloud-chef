@@ -34,6 +34,23 @@ describe('a project card', () => {
   it('shows a site that allows it live', () => {
     expect(card(true)).not.toContain('>theforbiddenfeminine.com<');
   });
+
+  it('says who last changed it, when that is known', () => {
+    const at = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+    const markup = (updatedBy: string | null) =>
+      renderToStaticMarkup(
+        <ProjectCard
+          title="Shop"
+          updatedAt={at}
+          updatedBy={updatedBy}
+          siteUrl={null}
+          primary={null}
+          menuItems={null}
+        />,
+      );
+    expect(markup('Sara')).toMatch(/Updated <time[^>]*>2 hours ago<\/time> by Sara/);
+    expect(markup(null)).not.toContain(' by ');
+  });
 });
 
 describe('a project card for a project CloudChef publishes', () => {

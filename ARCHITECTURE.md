@@ -195,7 +195,10 @@ repository is imported by its address (its default branch read from the ref adve
 credentials, so no GitHub token is needed); a private one through CloudChef's GitHub App, which a team's admin, or a
 person for their own projects, installs on the GitHub account holding it (`app/server-handlers/github-projects.ts`).
 The installation is recorded for the connection only after the returning person's own GitHub authorization shows
-they control it: their own account, or a GitHub organization they own. No GitHub token is stored. Importing makes
+they control it: their own account, or a GitHub organization they own. An account that already has the App comes
+back from GitHub's "Configure" with no authorization, so CloudChef sends the person on to GitHub's user authorization
+(a new state that keeps the installation id, `github_install_states.installation_id`) and checks the code it returns
+the same way; no earlier proof is reused. No GitHub token is stored. Importing makes
 the project at once, with its source (`import_repo_full_name`, `import_branch`) and no repository; the first member
 who may edit it and opens it imports it: their workspace runtime asks the control plane
 (`/api/cloudflare/runtime-projects/open`), which answers with the source and, for a private repository, a fresh App
@@ -246,17 +249,32 @@ later commits never show as changes undone, with secret files and build output e
 committing `.env`/`.dev.vars` and rewriting main. Its remote is `http://git.internal/project.git`, which the
 runtime's `GitProxy` (`user-workspace-runtime/src/git-proxy.ts`, `app/lib/.server/cloudflare/git-proxy.ts`) answers:
 it checks the person's access on each request, adds a short-lived Artifacts token the container never sees, refuses
-deleting main or pushing anything but branches and tags, and records the refs a push updated. A push moves main only
-as a fast-forward from the commit git read, so no push rewrites it. Replacing main's history on purpose (to drop large
+deleting main or pushing anything but branches and tags, and records the refs a push updated. Every branch a push
+sets (from a workspace, or from the person's own computer through `/v1/git/…`, which uses the same proxy) lands first
+on a ref of its own under `refs/cloudchef/incoming/`, and the branch moves to it from the commit git read only once it
+adds or changes no `.env`/`.dev.vars` file compared with the branch's old commit, or for a new branch with main (with
+nothing, for main's first push). A push moves main only as a fast-forward, so no push rewrites it. Replacing main's history on purpose (to drop large
 files from old commits) is the project owner's, or a team admin's, `cloudchef repo rewrite-main BRANCH`
 (`app/server-handlers/main-rewrite.ts`, then the runtime's `POST /v1/projects/rewrite-main`): main moves to the pushed
-branch's commit only from the commit the owner read, never with a secret file main didn't hold, is recorded in
-`project_main_rewrites`, and publishes as a push to main does. A CloudChef app's
+branch's commit only from the commit the owner read, never for a branch that only adds to main (that is pushed as
+usual), never with a secret file in any commit the new history brings or in its last commit (even one main already
+held), is recorded in `project_main_rewrites`, and publishes as a push to main does. A push to a team project's main
+goes from the member's runtime straight to the repository, and Workers Builds reads main from there, so the control
+plane never sees it go by: the runtime's git proxy tells it once main has moved (`runtime-projects/main-pushed`), and
+it keeps who pushed, when, and main's commit before and after in `project_main_pushes`, for a member who may edit the
+project. The projects home shows the newest push or rewrite on the project's card ("Updated 2 hours ago by Sara"). A
+push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
+checked). A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
 change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication
 follows. A fork copies the repository to the new chat's own `p-<id>` (main moved back to the chosen commit) and the
-new chat's workspace seeds from it. A team project's workspace seeds from its main (importing it first, when the
+new chat's workspace seeds from it. A copy of a project or app (from the browser or the command line, into the
+copier's own account) imports it over git with a 35-minute read token, and Artifacts scopes a token to a repository, not to
+refs: so the source's runtime first forks the project's main alone into a read-only `c-<id>` repository, mints the
+token there, and deletes that fork once the copy is made or has failed (`ProjectRepositories.readAccess`,
+`endReadAccess`), so the token never reads the project's other branches or CloudChef's `refs/cloudchef/*`. A fork never
+ended is deleted by the next `readAccess` once its token has expired. A team project's workspace seeds from its main (importing it first, when the
 control plane gives an import source); a push of a branch makes a preview and a push of main publishes, each shown
 in the pushing command's card while a background watch reads Workers Builds' status for the commit from the control
 plane (`runtime-projects/status`). The browser

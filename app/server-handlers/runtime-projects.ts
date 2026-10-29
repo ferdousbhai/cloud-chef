@@ -22,6 +22,7 @@ import {
   findReadableProject,
   listGitHubInstallations,
   recordImportedRepo,
+  recordMainPush,
   removeProject,
   requireProjectScope,
   type Project,
@@ -434,6 +435,33 @@ export async function runtimeAbandonImportAction(args: { request: Request; env: 
     connectionId: connection.id,
   });
   return json({ removed }, 200);
+}
+
+const mainPushedSchema = z.strictObject({ ...projectFields, oldCommit: COMMIT.nullable(), newCommit: COMMIT });
+
+/**
+ * `runtime-projects/main-pushed`: the runtime's person pushed the project's main, from `oldCommit` (null for its first
+ * push) to `newCommit`, which their runtime's git proxy passed on to the repository. The push itself goes from the
+ * runtime straight to Artifacts and Workers Builds reads main from there, so this is the only way the team learns who
+ * published. Kept only for someone who may edit the project.
+ */
+export async function runtimeMainPushedAction(args: { request: Request; env: Env }): Promise<Response> {
+  const opened = await openProject(args, mainPushedSchema);
+  if (opened instanceof Response) {
+    return opened;
+  }
+  const { project, body, identity } = opened;
+  if (project.role !== 'edit') {
+    return json({ error: 'You can view this project but not change it.' }, 403);
+  }
+  await recordMainPush(args.env.DB, {
+    projectId: project.id,
+    userId: identity.userId,
+    oldCommit: body.oldCommit,
+    newCommit: body.newCommit,
+    pushedAt: Date.now(),
+  });
+  return json({ recorded: true }, 200);
 }
 
 /** What Workers Builds reports for a commit of the project: none yet, queued, building, succeeded or failed. */

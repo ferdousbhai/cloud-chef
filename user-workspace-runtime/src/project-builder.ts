@@ -1432,6 +1432,7 @@ export class BuilderSourceProxy extends WorkerEntrypoint<BuilderEnv, BuilderProx
       // Never asked: a push is refused above.
       isAncestor: async () => false,
       secretFilesChanged: async () => [],
+      mainHead: async () => null,
       // A namespace no workspace has: the build sees branches and tags only.
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.builderId),
       recordPush: async () => undefined,

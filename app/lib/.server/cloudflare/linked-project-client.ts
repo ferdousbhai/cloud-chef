@@ -172,6 +172,22 @@ export async function reportMainRewritten(
   await response.body?.cancel().catch(() => undefined);
 }
 
+/**
+ * Records that this runtime's person pushed the project's main from `oldCommit` (null for its first push) to
+ * `newCommit`, so the team can see who published.
+ */
+export async function reportMainPushed(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; oldCommit: string | null; newCommit: string },
+): Promise<void> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/main-pushed', body);
+  if (!response.ok) {
+    throw await failure(response, 'CloudChef could not record who pushed main.');
+  }
+  await response.body?.cancel().catch(() => undefined);
+}
+
 const accessMemberSchema = z.object({ member: memberSchema.nullable().optional().catch(null) });
 
 /**

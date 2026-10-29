@@ -329,26 +329,28 @@ describe('GitHub projects', () => {
     expect(githubMessage(await changeRepositories(INSTALLATION_ID))).toBe(
       'Updated which repositories CloudChef can reach on GitHub.',
     );
-    // One someone else set up for another space is not theirs to add: nothing is recorded.
-    expect(githubMessage(await changeRepositories(INSTALLATION_ID + 1))).toMatch(/already has CloudChef's GitHub App/);
+    // Another installation, with no proof of who controls it, is sent to GitHub to authorize first: nothing is recorded.
+    const another = await changeRepositories(INSTALLATION_ID + 1);
+    expect(another.headers.get('location')).toMatch(/^https:\/\/github\.com\/login\/oauth\/authorize\?/);
     expect(await env.DB.prepare('SELECT installation_id FROM github_installations').all()).toMatchObject({
       results: [{ installation_id: INSTALLATION_ID }],
     });
   });
 
-  it('adds an account the App is already on, for another space of the person who connected it', async () => {
-    const { database, env, orgId, admin, app } = await setup();
-    database
-      .prepare(
-        `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
-         VALUES ('ada-own', ?, 'account-ada', 'active', 1, 1)`,
-      )
-      .run(admin.userId);
-    // Connected first for the person's own projects, with GitHub's proof that they own the account.
-    await install(env, app, admin.cookie, undefined);
-    // GitHub sends the team's attempt on the same account to Configure, which returns without that proof.
+  /**
+   * GitHub's "Configure" return for an account the App is already on, as the browser that started connecting it
+   * for `orgId` (the person's own projects when undefined) brings it: no code, so CloudChef sends it on to GitHub's
+   * user authorization, which returns with a code for whoever authorized and the state CloudChef started it with.
+   */
+  async function configure(
+    env: Env,
+    app: GitHubApp,
+    cookie: string,
+    orgId: string | undefined,
+    installationId: number,
+  ) {
     const started = await startGitHubInstallAction({
-      request: post(admin.cookie, '/api/organizations/github/start', { orgId }),
+      request: post(cookie, '/api/organizations/github/start', orgId ? { orgId } : {}),
       env: envWith({
         ...env,
         GITHUB_APP_CLIENT_ID: 'Iv1.test',
@@ -360,16 +362,94 @@ describe('GitHub projects', () => {
     const state = /cloudchef_github_state=([^;]+)/.exec(started.headers.get('set-cookie') ?? '')?.[1] ?? '';
     const returned = await completeGitHubInstallAction({
       request: new Request(
-        `${ORIGIN}/github/return?installation_id=${INSTALLATION_ID}&setup_action=update&state=${state}`,
-        { headers: { cookie: `${admin.cookie}; cloudchef_github_state=${state}` } },
+        `${ORIGIN}/github/return?installation_id=${installationId}&setup_action=update&state=${state}`,
+        { headers: { cookie: `${cookie}; cloudchef_github_state=${state}` } },
       ),
       env,
       app,
     });
-    expect(githubMessage(returned)).toBe('Connected GitHub.');
+    const authorize = new URL(returned.headers.get('location') ?? '/', ORIGIN);
+    const next = /cloudchef_github_state=([^;]+)/.exec(returned.headers.get('set-cookie') ?? '')?.[1] ?? '';
+    const authorized = (as: { state?: string; code?: string } = {}) =>
+      completeGitHubInstallAction({
+        request: new Request(`${ORIGIN}/github/return?code=${as.code ?? 'c'}&state=${as.state ?? next}`, {
+          headers: { cookie: `${cookie}; cloudchef_github_state=${as.state ?? next}` },
+        }),
+        env,
+        app,
+      });
+    return { returned, authorize, next, first: state, authorized };
+  }
+
+  it('connects an account the App is already on only once its owner authorizes on GitHub', async () => {
+    const { database, env, orgId, admin, app, calls } = await setup();
+    database
+      .prepare(
+        `INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+         VALUES ('ada-own', ?, 'account-ada', 'active', 1, 1)`,
+      )
+      .run(admin.userId);
+    // Connected first for the person's own projects, with GitHub's proof that they own the account.
+    await install(env, app, admin.cookie, undefined);
+    // GitHub sends the team's attempt on the same account to Configure, which returns without that proof: an earlier
+    // proof isn't reused, the person authorizes on GitHub again.
+    const { returned, authorize, next, first, authorized } = await configure(
+      env,
+      app,
+      admin.cookie,
+      orgId,
+      INSTALLATION_ID,
+    );
+    expect(returned.status).toBe(303);
+    expect(`${authorize.origin}${authorize.pathname}`).toBe('https://github.com/login/oauth/authorize');
+    expect(authorize.searchParams.get('client_id')).toBe('Iv1.test');
+    expect(authorize.searchParams.get('redirect_uri')).toBe(`${ORIGIN}/github/return`);
+    expect(authorize.searchParams.get('state')).toBe(next);
+    expect(next).not.toBe(first);
+    expect(database.prepare('SELECT connection_id FROM github_installations').all()).toEqual([
+      { connection_id: 'ada-own' },
+    ]);
+
+    calls.length = 0;
+    expect(githubMessage(await authorized())).toBe('Connected GitHub.');
+    expect(calls.map((call) => call.url)).toContain(`https://api.github.com/app/installations/${INSTALLATION_ID}`);
     expect(database.prepare('SELECT connection_id FROM github_installations ORDER BY connection_id').all()).toEqual([
       { connection_id: 'acme-connection' },
       { connection_id: 'ada-own' },
+    ]);
+    // Its state is used up: the same return again does nothing.
+    expect(githubMessage(await authorized())).toBe(
+      'That GitHub connection expired or was already finished. Try again.',
+    );
+  });
+
+  it('connects an organization the App is already on for one of its owners, and refuses anyone else', async () => {
+    const { database, env, orgId, admin, app } = await setup();
+    const { authorized } = await configure(env, app, admin.cookie, orgId, LABS_INSTALLATION_ID);
+    expect(githubMessage(await authorized())).toBe('Connected GitHub.');
+    expect(database.prepare('SELECT account_login FROM github_installations').all()).toEqual([
+      { account_login: 'ada-labs' },
+    ]);
+
+    // Someone else authorizing on GitHub doesn't own Ada's account: nothing is recorded for it.
+    const { pem } = await pkcs8Pem();
+    const other = fakeGitHub(pem, 'mallory');
+    const refused = await configure(env, other.app, admin.cookie, orgId, INSTALLATION_ID);
+    expect(githubMessage(await refused.authorized())).toBe(
+      'Only the owner of that GitHub account or organization can connect it.',
+    );
+    // Turned down on GitHub: no code comes back.
+    const declined = await configure(env, app, admin.cookie, orgId, INSTALLATION_ID);
+    const cancelled = await completeGitHubInstallAction({
+      request: new Request(`${ORIGIN}/github/return?error=access_denied&state=${declined.next}`, {
+        headers: { cookie: `${admin.cookie}; cloudchef_github_state=${declined.next}` },
+      }),
+      env,
+      app,
+    });
+    expect(githubMessage(cancelled)).toBe('GitHub was not connected: the installation was cancelled. Try again.');
+    expect(database.prepare('SELECT account_login FROM github_installations').all()).toEqual([
+      { account_login: 'ada-labs' },
     ]);
   });
 
