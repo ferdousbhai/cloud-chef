@@ -1,14 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
+import { z } from 'zod';
 import type { DurableObjectStorageLike, WorkspaceOptions } from '@cloudflare/computer';
 import {
+  ContainerBackend,
   type ContainerLaunchSpec,
   type ContainerRuntimeInfo,
-  type ILegacyWorkspaceContainerAPI,
-  LegacyContainerBackend,
-  LegacyWorkspaceContainerAPI,
+  type IWorkspaceContainerAPI,
   type WorkspaceRef,
-} from '@cloudflare/computer/backends/container-legacy';
-import { Files, SandboxFileError } from '@cloudflare/sandbox';
+} from '@cloudflare/computer/backends/container';
+import { BaseSnapshotStore, COMPUTERD_ENTRYPOINT, START_COMPUTERD_COMMAND, startBaseContainer } from './base-container';
 import { ContainerProcesses } from './container-process';
 import {
   CONTAINER_CONNECT_TIMEOUT_MS,
@@ -21,6 +21,8 @@ import { first } from './sql-rows';
 import { runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
 import { CLOUDFLARE_API_PROXY_HOST } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
+import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from '../../app/lib/.server/cloudflare/project-workspace-container-policy';
+import { base64ToBytes, sha256Hex } from '../../app/lib/hex-digest';
 
 /**
  * How long a container may sit with no request reaching its Durable Object before the platform stops
@@ -56,7 +58,7 @@ const COMPUTER_COMMAND_VARIABLE_PREFIX = 'COMPUTER_VAR_';
 /**
  * computerd's launch environment. computerd passes its commands only `PATH`, `HOME`, `TMPDIR`, `TZ`,
  * `LANG`, `TERM`, `LC_*`, and the prefixed variables, so the model's commands see the same command
- * environment as the runtime's own; `RPC_CLIENT_SECRET`, which Computer adds at launch and computerd
+ * environment as the runtime's own; `RPC_CLIENT_SECRET`, which the host adds at launch and computerd
  * drops from its own environment once read, never reaches them.
  */
 const COMPUTERD_ENV = {
@@ -69,14 +71,25 @@ const COMPUTERD_ENV = {
   ),
 };
 
+/** Where this object keeps computerd's per-workspace bearer secret (the key Computer's own hosts use). */
+const CLIENT_SECRET_KEY = 'computer:container-client-secret';
+/**
+ * What the running container was launched with, written only once computerd was told to start, so a container a
+ * launch left partway is never adopted.
+ */
+const LAUNCH_DIGEST_KEY = 'cloudchef:container-launch-digest';
+
 type WorkspaceRuntimeExports = {
   WorkspaceProxy(options: { props: WorkspaceRef }): Fetcher;
   GitProxy(options: { props: { workspaceId: string } }): Fetcher;
   CloudflareApiProxy(options: { props: { workspaceId: string } }): Fetcher;
 };
 
-/** The runtime binding every workspace container reads; the container never receives a credential. */
-type ComputerSandboxEnv = { CLOUDFLARE_ACCOUNT_ID: string };
+/**
+ * The runtime bindings every workspace container reads: the account `cf` acts on, and the runtime's D1, which keeps
+ * the base snapshot. The container never receives a credential.
+ */
+type ComputerSandboxEnv = { CLOUDFLARE_ACCOUNT_ID: string; DB: D1Database };
 
 type ContainerFileListing = {
   success: true;
@@ -84,25 +97,21 @@ type ContainerFileListing = {
 };
 
 /**
- * The narrow adapter between the Durable Object Container API, Computer's container backend, and
- * Sandbox's file operations.
+ * The narrow adapter between the Durable Object Container API and Computer's container backend.
  *
- * The container application is platform-scheduled (`scheduling_policy: "default"`): the platform
- * picks the image and instance size from the application, and this object starts and stops the
- * container through `ctx.container`. Computer's `LegacyContainerBackend` starts it with computerd as
- * the image's entrypoint, authenticates computerd with a per-workspace `RPC_CLIENT_SECRET` it keeps
- * in this object's storage, and syncs the VFS with it. The runtime's own commands run beside
- * computerd through `ctx.container.exec`, and file transfers go through Sandbox's `Files`, which the
- * image's `sandbox-shim` serves. Moving to Computer's `ContainerBackend` needs the `durable_object`
- * scheduling policy, which cannot be undone; ARCHITECTURE.md describes that separate step.
+ * The container application uses the `durable_object` scheduling policy: this object starts its container itself,
+ * from Cloudflare's managed image or the runtime's base snapshot of it (base-container.ts), at the workspace's
+ * instance size and with internet access. Computer's `ContainerBackend` dials computerd through the host below,
+ * which authenticates it with a per-workspace `RPC_CLIENT_SECRET` kept in this object's storage, and syncs the VFS
+ * with it. The runtime's own commands, and its file transfers, run beside computerd through `ctx.container.exec`.
  */
 export abstract class ComputerSandboxBase<
   Env extends ComputerSandboxEnv = ComputerSandboxEnv,
 > extends DurableObject<Env> {
-  readonly containerBackend: LegacyContainerBackend;
+  readonly containerBackend: ContainerBackend;
   protected readonly containerProcesses: ContainerProcesses;
   protected readonly scheduledCallbacks: ScheduledCallbacks<string>;
-  #host: RecordingWorkspaceContainerHost | null = null;
+  #host: ManagedWorkspaceContainerHost | null = null;
   #runtimeId: string | null;
   #keepAlive = false;
 
@@ -123,7 +132,7 @@ export abstract class ComputerSandboxBase<
           'SELECT runtime_id FROM cloudchef_container_runtime WHERE singleton = 1',
         ),
       )?.runtime_id ?? null;
-    this.containerBackend = new LegacyContainerBackend({
+    this.containerBackend = new ContainerBackend({
       container: () => this,
       workspace: { binding: 'PROJECT_WORKSPACE', id: ctx.id.toString() },
       // The model's commands install packages and fetch from the public internet.
@@ -131,6 +140,7 @@ export abstract class ComputerSandboxBase<
       containerPort: 8080,
       containerEnv: COMPUTERD_ENV,
       connectTimeoutMs: CONTAINER_CONNECT_TIMEOUT_MS,
+      instance: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
       id: 'container-shell',
     });
     this.containerProcesses = new ContainerProcesses(
@@ -152,13 +162,16 @@ export abstract class ComputerSandboxBase<
   /** Run the named callback a `schedule` call stored, when its time comes. */
   protected abstract runScheduledCallback(callback: string, payload: ScheduledCallbackPayload): Promise<void>;
 
-  getWorkspaceContainer(): ILegacyWorkspaceContainerAPI {
-    this.#host ??= new RecordingWorkspaceContainerHost(
-      new LegacyWorkspaceContainerAPI(this.ctx),
-      (info) => this.recordContainerLaunch(info),
-      (host, ref) => this.interceptWorkspaceOutbound(host, ref),
-      (port) => this.ctx.container!.getTcpPort(port),
-    );
+  getWorkspaceContainer(): IWorkspaceContainerAPI {
+    const container = this.ctx.container;
+    if (!container) {
+      throw new Error('The workspace Durable Object has no container configured.');
+    }
+    this.#host ??= new ManagedWorkspaceContainerHost(container, this.ctx.storage, {
+      launch: (spec, clientSecret) => this.launchContainer(spec, clientSecret),
+      adopted: () => this.#runtimeId,
+      intercept: (host, ref) => this.interceptWorkspaceOutbound(host, ref),
+    });
     return this.#host;
   }
 
@@ -218,13 +231,15 @@ export abstract class ComputerSandboxBase<
 
   /** Stop the container. Its own disk goes with it; the durable VFS is untouched. */
   async destroy(): Promise<void> {
-    if (this.ctx.container?.running) {
+    if (this.#host) {
+      await this.#host.destroy();
+    } else if (this.ctx.container?.running) {
       await this.ctx.container.destroy();
     }
   }
 
   async mkdir(path: string, options: { recursive?: boolean } = {}): Promise<void> {
-    await (await this.files()).mkdir(path, { recursive: options.recursive ?? false });
+    await this.containerCommand(options.recursive ? ['mkdir', '-p', '--', path] : ['mkdir', '--', path]);
   }
 
   /** Write a container file; `base64` content is decoded first, any other encoding is text. */
@@ -233,8 +248,12 @@ export abstract class ComputerSandboxBase<
     content: string,
     options: { encoding?: 'utf8' | 'utf-8' | 'base64' } = {},
   ): Promise<{ success: true }> {
-    const bytes = options.encoding === 'base64' ? decodeBase64(content) : new TextEncoder().encode(content);
-    await (await this.files()).writeFile(path, bytes);
+    const bytes = options.encoding === 'base64' ? base64ToBytes(content) : new TextEncoder().encode(content);
+    // Written beside the file and renamed over it, so a reader never sees half of it.
+    await this.containerCommand(
+      ['sh', '-c', 'tmp="$1.cloudchef-$$" && cat > "$tmp" && mv -f -- "$tmp" "$1"', 'sh', path],
+      new Blob([bytes]).stream(),
+    );
     return { success: true };
   }
 
@@ -243,28 +262,31 @@ export abstract class ComputerSandboxBase<
     path: string,
     _options: { encoding: 'none' },
   ): Promise<{ success: true; content: ReadableStream<Uint8Array>; size: number }> {
-    const files = await this.files();
-    const stat = await files.stat(path);
-    if (stat.type !== 'file') {
-      throw new Error(`Container path is not a file: ${path}`);
+    const size = Number(
+      await this.containerCommand(['sh', '-c', 'test -f "$1" || exit 3; stat -L -c %s -- "$1"', 'sh', path]),
+    );
+    if (!Number.isSafeInteger(size)) {
+      throw new Error(`Container file size is unreadable: ${path}`);
     }
-    const response = await files.readFile(path);
-    if (!response.body) {
+    const process = await (
+      await this.runningContainer()
+    ).exec(['cat', '--', path], { stdout: 'pipe', stderr: 'ignore' });
+    if (!process.stdout) {
       throw new Error(`Container file returned no body: ${path}`);
     }
-    return { success: true, content: response.body, size: Number(stat.size) };
+    return { success: true, content: process.stdout, size };
   }
 
+  /** Whether anything is at `path`, a dangling symbolic link included. */
   async exists(path: string): Promise<{ exists: boolean }> {
-    try {
-      await (await this.files()).stat(path);
-      return { exists: true };
-    } catch (error) {
-      if (SandboxFileError.is(error) && (error.code === 'ENOENT' || error.code === 'ENOTDIR')) {
-        return { exists: false };
-      }
-      throw error;
+    const process = await (
+      await this.runningContainer()
+    ).exec(['sh', '-c', 'test -e "$1" || test -L "$1"', 'sh', path], { stdout: 'ignore', stderr: 'ignore' });
+    const code = await process.exitCode;
+    if (code !== 0 && code !== 1) {
+      throw new Error(`The container could not check ${path} (exit ${code}).`);
     }
+    return { exists: code === 0 };
   }
 
   /** Every entry under `root`, recursively, hidden ones included, in one container command. */
@@ -318,27 +340,60 @@ export abstract class ComputerSandboxBase<
     return container;
   }
 
-  private async files(): Promise<Files> {
-    return new Files(await this.runningContainer());
+  /** One short command of the runtime's own, which must succeed; its stdout. */
+  private async containerCommand(command: string[], stdin?: ReadableStream<Uint8Array>): Promise<string> {
+    const options: ContainerExecOptions = { stdout: 'pipe', stderr: 'pipe' };
+    if (stdin) {
+      options.stdin = stdin;
+    }
+    const process = await (await this.runningContainer()).exec(command, options);
+    const [code, stdout, stderr] = await Promise.all([
+      process.exitCode,
+      new Response(process.stdout).text(),
+      new Response(process.stderr).text(),
+    ]);
+    if (code !== 0) {
+      throw new Error(`${command[0]} failed in the container (exit ${code}): ${stderr.trim().slice(0, 500)}`);
+    }
+    return stdout;
   }
 
   /**
-   * Each launch or adoption: the runtime is recorded, the toolchain bootstrap (git wrapper and hooks,
-   * the credential-free `cf` launcher) is run in it, and the idle window is set. The bootstrap runs on
-   * the platform's exec, beside computerd, before Computer connects.
+   * Each launch: the container comes up on the runtime's base (its snapshot, or the managed image set up), the
+   * runtime is recorded, the idle window is set, the toolchain bootstrap (git wrapper and hooks, the
+   * credential-free `cf` launcher) runs in it, and only then is computerd told to start, before Computer connects.
    */
-  private async recordContainerLaunch(info: ContainerRuntimeInfo): Promise<void> {
-    if (info.runtimeId !== this.#runtimeId) {
-      this.ctx.storage.sql.exec(
-        `INSERT INTO cloudchef_container_runtime (singleton, runtime_id, launched_at) VALUES (1, ?, ?)
-         ON CONFLICT(singleton) DO UPDATE SET runtime_id = excluded.runtime_id, launched_at = excluded.launched_at`,
-        info.runtimeId,
-        Date.now(),
-      );
-      this.#runtimeId = info.runtimeId;
-    }
-    await this.applyInactivityTimeout();
+  private async launchContainer(spec: ContainerLaunchSpec, clientSecret: string): Promise<string> {
     const container = this.ctx.container!;
+    const runtimeId = crypto.randomUUID();
+    const started = await startBaseContainer({
+      container,
+      store: new BaseSnapshotStore(this.env.DB),
+      holder: `workspace:${this.ctx.id.toString()}:${runtimeId}`,
+      options: {
+        entrypoint: COMPUTERD_ENTRYPOINT,
+        env: { ...spec.env, RPC_CLIENT_SECRET: clientSecret },
+        enableInternet: spec.enableInternet,
+        instance: spec.instance ?? PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
+      },
+    });
+    console.info({
+      event: 'workspace_container_launched',
+      source: started.source,
+      snapshotTaken: started.snapshotTaken,
+    });
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cloudchef_container_runtime (singleton, runtime_id, launched_at) VALUES (1, ?, ?)
+       ON CONFLICT(singleton) DO UPDATE SET runtime_id = excluded.runtime_id, launched_at = excluded.launched_at`,
+      runtimeId,
+      Date.now(),
+    );
+    this.#runtimeId = runtimeId;
+    await this.applyInactivityTimeout();
+    const processes = new ContainerProcesses(
+      async () => container,
+      () => this.#runtimeId,
+    );
     await runIdempotentBootstrapStage({
       stage: 'toolchain (git, cf)',
       budgetMs: CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
@@ -347,14 +402,15 @@ export abstract class ComputerSandboxBase<
           // The connected account `cf` acts on. The container never receives a credential: its proxy adds it.
           command: sandboxShellCommand(containerToolchainBootstrapCommand(this.env.CLOUDFLARE_ACCOUNT_ID)),
           timeout: remainingMs,
-          exec: (argv, options) =>
-            new ContainerProcesses(
-              async () => container,
-              () => this.#runtimeId,
-            ).exec(argv, { ...options, env: CONTAINER_COMMAND_ENV }),
+          exec: (argv, options) => processes.exec(argv, { ...options, env: CONTAINER_COMMAND_ENV }),
         });
       },
     });
+    const start = await container.exec([...START_COMPUTERD_COMMAND], { stdout: 'ignore', stderr: 'ignore' });
+    if ((await start.exitCode) !== 0) {
+      throw new Error('The workspace container could not be told to start computerd.');
+    }
+    return runtimeId;
   }
 
   private async applyInactivityTimeout(): Promise<void> {
@@ -390,40 +446,89 @@ function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeE
   };
 }
 
+/** The digest of what a container was launched with, besides the secret: a different one is relaunched. */
+async function launchDigest(spec: ContainerLaunchSpec): Promise<string> {
+  const env = Object.keys(spec.env)
+    .sort()
+    .map((name) => [name, spec.env[name]]);
+  return sha256Hex(JSON.stringify({ env, enableInternet: spec.enableInternet, instance: spec.instance ?? null }));
+}
+
+type ContainerExitInfo = { exitedAt: number; reason: string };
+
+/** What the host needs of the Container API. */
+type HostContainer = Pick<Container, 'running' | 'destroy' | 'monitor' | 'setInactivityTimeout' | 'getTcpPort'>;
+/** What the host needs of this object's storage: two strings it keeps. */
+type HostStorage = {
+  get(key: string): Promise<string | undefined>;
+  put(key: string, value: string): Promise<void>;
+  delete(key: string): Promise<boolean>;
+};
+
+const storedStringSchema = z.string().min(1);
+
+type ManagedHostCallbacks = {
+  /** Start a container for `spec` and tell computerd to start; the new runtime's id. */
+  launch(spec: ContainerLaunchSpec, clientSecret: string): Promise<string>;
+  /** The runtime id of the container already running, as last recorded. */
+  adopted(): string | null;
+  intercept(host: string, workspace: WorkspaceRef): Promise<void>;
+};
+
 /**
- * Computer's container host, recording each runtime it launches or adopts. The client secret in
- * the launch result is handed to the backend and nowhere else: never stored here, never logged.
+ * Computer's container host, for a container this object schedules itself: it starts the container on the
+ * runtime's base rather than from an image named in the Worker upload (`ctx.container.images`, which the managed
+ * image is not), adopts the one already running when it was launched exactly so, and records how it exits. The
+ * client secret is kept in this object's storage and handed to computerd at launch, never logged.
  */
-class RecordingWorkspaceContainerHost implements ILegacyWorkspaceContainerAPI {
-  constructor(
-    private readonly inner: LegacyWorkspaceContainerAPI,
-    private readonly onLaunch: (info: ContainerRuntimeInfo) => Promise<void>,
-    private readonly intercept: (host: string, workspace: WorkspaceRef) => Promise<void>,
-    private readonly tcpPort: (port: number) => Fetcher,
-  ) {}
+export class ManagedWorkspaceContainerHost implements IWorkspaceContainerAPI {
+  readonly #container: HostContainer;
+  readonly #storage: HostStorage;
+  readonly #callbacks: ManagedHostCallbacks;
+  #exit: ContainerExitInfo | null = null;
+  #generation = 0;
+  #expectedExitGeneration: number | null = null;
+  #monitoring = false;
+
+  constructor(container: HostContainer, storage: HostStorage, callbacks: ManagedHostCallbacks) {
+    this.#container = container;
+    this.#storage = storage;
+    this.#callbacks = callbacks;
+  }
 
   async start(spec: ContainerLaunchSpec): Promise<ContainerRuntimeInfo> {
-    const info = await this.inner.start(spec);
-    await this.onLaunch(info);
-    return info;
+    const clientSecret = await this.#clientSecret();
+    const digest = await launchDigest(spec);
+    const runtimeId = this.#callbacks.adopted();
+    if (
+      this.#exit === null &&
+      this.#container.running &&
+      runtimeId !== null &&
+      storedStringSchema.safeParse(await this.#storage.get(LAUNCH_DIGEST_KEY)).data === digest
+    ) {
+      if (!this.#monitoring) {
+        this.#watch();
+      }
+      return { runtimeId, clientSecret, outcome: 'adopted' };
+    }
+    const outcome = this.#container.running ? 'relaunched' : 'launched';
+    return this.#launch(spec, clientSecret, digest, outcome);
   }
 
   async restart(spec: ContainerLaunchSpec): Promise<ContainerRuntimeInfo> {
-    const info = await this.inner.restart(spec);
-    await this.onLaunch(info);
-    return info;
+    return this.#launch(spec, await this.#clientSecret(), await launchDigest(spec), 'launched');
   }
 
-  setInactivityTimeout(durationMs: number): Promise<void> {
-    return this.inner.setInactivityTimeout(durationMs);
+  async setInactivityTimeout(durationMs: number): Promise<void> {
+    await this.#container.setInactivityTimeout(durationMs);
   }
 
-  status() {
-    return this.inner.status();
+  async status(): Promise<{ running: boolean; exit: ContainerExitInfo | null }> {
+    return { running: this.#container.running, exit: this.#exit };
   }
 
-  exitInfo() {
-    return this.inner.exitInfo();
+  async exitInfo(): Promise<ContainerExitInfo | null> {
+    return this.#exit;
   }
 
   interceptAllOutboundHttp(_workspace: WorkspaceRef, _token: string): Promise<void> {
@@ -433,27 +538,84 @@ class RecordingWorkspaceContainerHost implements ILegacyWorkspaceContainerAPI {
   }
 
   interceptOutboundHttp(host: string, workspace: WorkspaceRef): Promise<void> {
-    return this.intercept(host, workspace);
+    return this.#callbacks.intercept(host, workspace);
   }
 
   fetchPort(port: number, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    return this.inner.fetchPort(port, input, init);
+    if (this.#exit !== null) {
+      return Promise.reject(new Error(`container exited: ${this.#exit.reason}`));
+    }
+    return this.#container.getTcpPort(port).fetch(input, init);
   }
 
   port(port: number): Fetcher {
-    return this.tcpPort(port);
+    return this.#container.getTcpPort(port);
+  }
+
+  /** Stop the container, as an exit this object asked for. */
+  async destroy(): Promise<void> {
+    await this.#storage.delete(LAUNCH_DIGEST_KEY);
+    if (this.#container.running) {
+      this.#expectedExitGeneration = this.#generation;
+      await this.#container.destroy();
+    }
+    this.#exit = null;
+  }
+
+  async #launch(
+    spec: ContainerLaunchSpec,
+    clientSecret: string,
+    digest: string,
+    outcome: ContainerRuntimeInfo['outcome'],
+  ): Promise<ContainerRuntimeInfo> {
+    await this.destroy().catch(() => undefined);
+    try {
+      const runtimeId = await this.#callbacks.launch(spec, clientSecret);
+      this.#watch();
+      await this.#storage.put(LAUNCH_DIGEST_KEY, digest);
+      return { runtimeId, clientSecret, outcome };
+    } catch (error) {
+      // A container a launch left partway never serves: computerd may not have been told to start.
+      await this.destroy().catch(() => undefined);
+      throw error;
+    }
+  }
+
+  #watch(): void {
+    this.#generation += 1;
+    const generation = this.#generation;
+    this.#exit = null;
+    this.#monitoring = true;
+    const exited = (reason: string) => {
+      if (generation !== this.#generation) {
+        return;
+      }
+      this.#monitoring = false;
+      const expected = this.#expectedExitGeneration === generation;
+      this.#expectedExitGeneration = null;
+      if (!expected) {
+        this.#exit = { exitedAt: Date.now(), reason };
+        console.warn({ event: 'workspace_container_exited', reason });
+      }
+    };
+    this.#container.monitor().then(
+      () => exited('exited normally'),
+      (error) => exited(error instanceof Error ? error.message : String(error)),
+    );
+  }
+
+  async #clientSecret(): Promise<string> {
+    const existing = storedStringSchema.safeParse(await this.#storage.get(CLIENT_SECRET_KEY));
+    if (existing.success) {
+      return existing.data;
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const secret = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    await this.#storage.put(CLIENT_SECRET_KEY, secret);
+    return secret;
   }
 }
 
 export function sandboxShellCommand(command: string): SandboxCommand {
   return ['/bin/bash', '-lc', command];
-}
-
-function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 }

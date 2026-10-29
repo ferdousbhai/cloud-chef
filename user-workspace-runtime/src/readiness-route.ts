@@ -31,7 +31,7 @@ type RuntimeReadinessEnv = {
 /**
  * The routes only the control plane calls, authenticated with the runtime's secret: readiness, and
  * the window an upgrade claims (`POST`) before it redeploys this Worker, holds (`PUT`) while the
- * container image rolls out and the new runtime readies, and releases (`DELETE`) once it serves.
+ * container applications are replaced and the new runtime readies, and releases (`DELETE`) once it serves.
  */
 export async function routeUserWorkspaceRuntimeControlPlaneRequest(
   request: Request,

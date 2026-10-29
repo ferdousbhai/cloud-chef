@@ -4,6 +4,7 @@ import { sha256Hex } from '~/lib/hex-digest';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import type { UserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import {
   RuntimeSecretRefusedError,
   RuntimeUpgradeWindowRefusedError,
@@ -67,7 +68,6 @@ const dependencies = {
   findRuntime: mocks.findRuntime,
   claimUpgradeWindow: mocks.claimUpgradeWindow,
   changeUpgradeWindow: mocks.changeUpgradeWindow,
-  imagePublished: () => true,
 } satisfies UserWorkspaceRuntimeProvisioningDependencies;
 
 describe('workspace runtime provisioning Workflow', () => {
@@ -277,18 +277,6 @@ describe('workspace runtime provisioning Workflow', () => {
     });
   });
 
-  it('prepares nothing while this release pins no published workspace image', async () => {
-    await expect(
-      runUserWorkspaceRuntimeProvisioningWorkflow({
-        ...workflowArgs(),
-        dependencies: { ...dependencies, imagePublished: () => false },
-      }),
-    ).resolves.toEqual({ status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null });
-    expect(mocks.requireActiveConnection).not.toHaveBeenCalled();
-    expect(mocks.accountApi.ensureD1Database).not.toHaveBeenCalled();
-    expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
-  });
-
   it('returns the two actionable eligibility outcomes without creating resources', async () => {
     for (const [entitlement, errorCode] of [
       [
@@ -376,7 +364,7 @@ describe('workspace runtime provisioning Workflow', () => {
       );
     });
 
-    it('configures the Worker, rolls out the container image and waits for readiness inside the window, then releases it', async () => {
+    it('configures the Worker, replaces its container applications and waits for readiness inside the window, then releases it', async () => {
       const calls: string[] = [];
       mocks.claimUpgradeWindow.mockImplementation(async () => {
         calls.push('claim');
@@ -396,7 +384,7 @@ describe('workspace runtime provisioning Workflow', () => {
         calls.push('configure Worker');
       });
       mocks.accountApi.ensureWorkspaceRuntimeContainer.mockImplementation(async () => {
-        calls.push('roll out container');
+        calls.push('container applications');
       });
       mocks.waitForReadiness.mockImplementation(async () => {
         calls.push('readiness');
@@ -415,7 +403,7 @@ describe('workspace runtime provisioning Workflow', () => {
         'hold window',
         'configure Worker',
         'hold window',
-        'roll out container',
+        'container applications',
         'hold window',
         'readiness',
         'release window',
@@ -426,7 +414,34 @@ describe('workspace runtime provisioning Workflow', () => {
       );
     });
 
-    it('keeps renewing the window while the container rollout runs', async () => {
+    it('moves the workspace and builder container applications to the durable_object policy, naming no image', async () => {
+      mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
+      mocks.accountApi.deployWorkspaceRuntimeWorker.mockResolvedValue({
+        namespaceId: 'namespace-1',
+        builderNamespaceId: 'namespace-2',
+      });
+      const held: boolean[] = [];
+      let holding = false;
+      mocks.changeUpgradeWindow.mockImplementation(async ({ change }: { change: string }) => {
+        holding = change === 'hold';
+      });
+      mocks.accountApi.ensureWorkspaceRuntimeContainer.mockImplementation(async () => {
+        held.push(holding);
+      });
+
+      await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toEqual({ status: 'ready' });
+
+      const { workerName } = await workspaceRuntimeNames(connection, 'user-1');
+      expect(mocks.accountApi.ensureWorkspaceRuntimeContainer.mock.calls).toEqual([
+        [{ applicationName: workerName, namespaceId: 'namespace-1' }],
+        [{ applicationName: `${workerName}-builder`, namespaceId: 'namespace-2' }],
+      ]);
+      // Replacing an application ends its containers, so each runs only while the window is held.
+      expect(held).toEqual([true, true]);
+      expect(mocks.upsertRuntime).toHaveBeenCalledWith(expect.objectContaining({ imageDigest: USER_WORKSPACE_IMAGE }));
+    });
+
+    it('keeps renewing the window while the container applications are replaced', async () => {
       vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'], now: NOW });
       mocks.claimUpgradeWindow.mockResolvedValue({ status: 'granted' });
       let rolledOut: () => void = () => undefined;

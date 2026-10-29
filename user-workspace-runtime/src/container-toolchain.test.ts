@@ -18,6 +18,7 @@ import {
   strictSubshellCommand,
 } from './container-toolchain';
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
+import { BASE_CONTAINER_START_BUDGET_MS, BASE_SETUP_TIMEOUT_MS } from './base-container';
 import {
   CLOUDFLARE_API_PROXY_BASE_URL,
   CLOUDFLARE_API_PROXY_TOKEN,
@@ -109,11 +110,14 @@ describe('container toolchain bootstrap', () => {
   });
 
   it('gives the vendor connect deadline room for every bootstrap stage it contains', () => {
-    // LegacyContainerBackend arms its connect deadline before host.start(), and
-    // the toolchain bootstrap runs inside that start, so it spends from the
-    // connect budget. A connect ceiling below the stage budget recreates the
-    // invisible shorter clock from #127/#131.
-    expect(CONTAINER_CONNECT_TIMEOUT_MS).toBeGreaterThan(CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS);
+    // ContainerBackend arms its connect deadline before host.start(), and the
+    // base start (a first start's setup) and the toolchain bootstrap run inside
+    // that start, so they spend from the connect budget. A connect ceiling below
+    // their budgets recreates the invisible shorter clock from #127/#131.
+    expect(CONTAINER_CONNECT_TIMEOUT_MS).toBeGreaterThan(
+      BASE_CONTAINER_START_BUDGET_MS + CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
+    );
+    expect(BASE_CONTAINER_START_BUDGET_MS).toBeGreaterThan(BASE_SETUP_TIMEOUT_MS);
   });
 
   it('keeps strict shell flags inside the bootstrap command', () => {

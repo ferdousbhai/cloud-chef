@@ -44,7 +44,7 @@ describe('ConversationAgent runtime activity', () => {
   });
 
   it('a window for the version already running holds work back too, until the upgrade releases it', async () => {
-    // Deployed, with its container image still rolling out: work started now would lose its container.
+    // Deployed, with its container applications still being replaced: work started now would lose its container.
     const harness = await conversationAgentHarness();
     harness.openUpgradeWindow(RUNTIME_VERSION);
 

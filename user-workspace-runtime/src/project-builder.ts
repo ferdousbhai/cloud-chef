@@ -42,13 +42,13 @@ import { runTrackedSandboxCommand, type SandboxCommand } from './tracked-command
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
 import { CONTAINER_COMMAND_ENV } from './computer-sandbox';
-import { ContainerProcesses, waitForContainerExec } from './container-process';
+import { ContainerProcesses } from './container-process';
+import { BaseSnapshotStore, IDLE_ENTRYPOINT, startBaseContainer } from './base-container';
+import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from '../../app/lib/.server/cloudflare/project-workspace-container-policy';
 import { type ScheduledCallbackPayload, ScheduledCallbacks } from './scheduled-callbacks';
 
 /** Kept a while after a publish, so the project's next one finds its tools and package downloads in place. */
 const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 15 * 60_000;
-/** How long a fresh builder container gets to accept its first command. */
-const BUILDER_CONTAINER_START_TIMEOUT_MS = 2 * 60_000;
 
 /**
  * Builds and deploys a project CloudChef deploys itself (one uploaded as a ZIP), one commit at a time, in a container
@@ -300,14 +300,25 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
   }
 
   /**
-   * A fresh container, its entrypoint replaced: the workspace image starts computerd, which a build has no use
-   * for. It reaches the internet for package downloads; Cloudflare's API only through the deploy proxy.
+   * A fresh container on the runtime's base (its snapshot, or the managed image set up, base-container.ts), idle
+   * until a step runs: a build has no use for computerd. It reaches the internet for package downloads; Cloudflare's
+   * API only through the deploy proxy.
    */
   private async start(): Promise<void> {
     const container = this.requireContainer();
-    container.start({ entrypoint: ['sleep', 'infinity'], enableInternet: true });
+    const started = await startBaseContainer({
+      container,
+      store: new BaseSnapshotStore(this.env.DB),
+      holder: `builder:${this.ctx.id.toString()}:${crypto.randomUUID()}`,
+      options: {
+        entrypoint: IDLE_ENTRYPOINT,
+        env: {},
+        enableInternet: true,
+        instance: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
+      },
+    });
+    console.info({ event: 'builder_container_started', source: started.source, snapshotTaken: started.snapshotTaken });
     await container.setInactivityTimeout(BUILDER_CONTAINER_IDLE_TIMEOUT_MS);
-    await waitForContainerExec(container, BUILDER_CONTAINER_START_TIMEOUT_MS);
   }
 
   /** Stops the container, and with it whatever still runs there. */

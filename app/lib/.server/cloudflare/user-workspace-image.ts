@@ -1,24 +1,18 @@
-import lock from '../../../../user-workspace-image/workspace-image.lock.json' with { type: 'json' };
+/**
+ * The image every workspace and project-builder container starts from: Cloudflare's managed Debian trixie image
+ * (Node 24 on `node:24.20.0-trixie-slim`, pinned by Cloudflare). It is offered only to container applications with
+ * the `durable_object` scheduling policy, where the Durable Object names it in `ctx.container.start()`; nothing is
+ * pushed to any registry. A container's first start installs what CloudChef needs on top of it and keeps the result
+ * as the runtime's base snapshot, which later starts restore (`user-workspace-runtime/src/base-container.ts`).
+ */
+export const WORKSPACE_MANAGED_IMAGE = 'cloudflare/debian-trixie';
 
-const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
-const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/;
+/** The scheduling policy of each runtime's container applications, fixed when Cloudflare creates one. */
+export const WORKSPACE_CONTAINER_SCHEDULING_POLICY = 'durable_object';
 
 /**
- * Whether a workspace image lock names a published image: a repository, a tag, and the manifest digest
- * `scripts/publish-user-workspace-image.mjs` recorded when it pushed that tag.
+ * The container identity recorded for each runtime (its `image_digest`), so a runtime whose applications are not
+ * yet on this policy and image is outdated, as one running an earlier runtime build is. What the base setup
+ * installs changes with the runtime build itself, which is already part of that comparison.
  */
-function isPublishedWorkspaceImageLock(value: { repository: string; tag: string; digest: string }): boolean {
-  return value.repository.length > 0 && IMAGE_TAG.test(value.tag) && SHA256_DIGEST.test(value.digest);
-}
-
-/**
- * CloudChef's own workspace image (`user-workspace-image/Dockerfile`: computerd as the entrypoint, sandbox-shim,
- * Node, pnpm, cf, git, tmux), as every runtime's container applications run it, pinned by digest. It is also the
- * image identity recorded for each runtime, so a new pin makes every runtime outdated, as a new runtime build does.
- */
-export const USER_WORKSPACE_IMAGE = `${lock.repository}:${lock.tag || 'unpublished'}@${lock.digest || `sha256:${'0'.repeat(64)}`}`;
-
-/** Whether this release pins a published workspace image. Without one, no runtime is prepared or upgraded. */
-export function isUserWorkspaceImagePublished(): boolean {
-  return isPublishedWorkspaceImageLock(lock);
-}
+export const USER_WORKSPACE_IMAGE = `${WORKSPACE_MANAGED_IMAGE} (${WORKSPACE_CONTAINER_SCHEDULING_POLICY})`;

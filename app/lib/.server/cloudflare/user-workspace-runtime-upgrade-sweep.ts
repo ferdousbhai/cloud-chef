@@ -8,7 +8,7 @@ import {
   type UserWorkspaceRuntimeUpgradeSweepOutcome,
 } from '~/workflows/user-workspace-runtime-provisioning';
 import { findActiveCloudflareConnection } from './cloudflare-connection-repository';
-import { isUserWorkspaceImagePublished, USER_WORKSPACE_IMAGE } from './user-workspace-image';
+import { USER_WORKSPACE_IMAGE } from './user-workspace-image';
 import { workspaceRuntimeUpgradeAllowed } from './user-workspace-runtime-rollout';
 import { findUserWorkspaceRuntime, listOutdatedUserWorkspaceRuntimes } from './user-workspace-runtime-repository';
 
@@ -37,7 +37,6 @@ type UserWorkspaceRuntimeUpgradeSweepSummary = Record<UserWorkspaceRuntimeUpgrad
 export async function sweepUserWorkspaceRuntimeUpgrades(args: {
   env: Pick<Env, 'DB' | 'USER_WORKSPACE_RUNTIME_PROVISIONING' | 'WORKSPACE_RUNTIME_UPGRADE_CANARY'>;
   scheduledTime: number;
-  imagePublished?: () => boolean;
 }): Promise<UserWorkspaceRuntimeUpgradeSweepSummary> {
   const summary: UserWorkspaceRuntimeUpgradeSweepSummary = {
     started: 0,
@@ -46,10 +45,6 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
     left: 0,
     skipped: 0,
   };
-  // A release that pins no published workspace image upgrades nothing: provisioning would refuse each one.
-  if (!(args.imagePublished ?? isUserWorkspaceImagePublished)()) {
-    return summary;
-  }
   const sweep = Math.floor(args.scheduledTime / UPGRADE_SWEEP_INTERVAL_MS);
   const candidates = await listOutdatedUserWorkspaceRuntimes(args.env.DB, {
     runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,

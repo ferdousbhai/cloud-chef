@@ -246,10 +246,10 @@ const CHECKPOINT_EXCLUDED_ROOTS = new Set([
 ]);
 const PROJECT_SCOPE: ProjectScope = { root: PROJECT_ROOT, excludedRoots: CHECKPOINT_EXCLUDED_ROOTS };
 /**
- * `--store-dir` points every install at the store the workspace image pre-warms, which is what
+ * `--store-dir` points every install at the one store each container keeps, which is what
  * turns a from-scratch dependency install into a hardlink pass. `--prefer-offline` keeps a warm
  * store from paying registry round-trips it does not need; anything the store is missing is still
- * fetched normally, so a project whose lockfile has moved past the image installs correctly.
+ * fetched normally, so a project whose lockfile has moved past the store installs correctly.
  */
 const INSTALL_COMMAND =
   'pnpm install --frozen-lockfile --ignore-scripts=true --ignore-pnpmfile --prefer-offline ' +

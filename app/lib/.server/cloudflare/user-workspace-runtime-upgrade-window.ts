@@ -79,7 +79,7 @@ export class RuntimeUpgradeWindowRefusedError extends Error {
 const holdRefusalSchema = z.object({ held: z.literal(false), busy: z.number().int().min(0) }).strict();
 
 /**
- * Keep the claimed window open (`hold`) while the upgrade rolls out the container image and waits for
+ * Keep the claimed window open (`hold`) while the upgrade replaces the container applications and waits for
  * the new runtime, or close it (`release`) once that runtime serves. Asked of the runtime just deployed,
  * which has these routes. A hold of a window that lapsed while work started throws
  * `RuntimeUpgradeWindowRefusedError`; any other failure throws, for the Workflow step to retry.

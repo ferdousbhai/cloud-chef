@@ -1,5 +1,5 @@
 {
-  "total": 849,
+  "total": 843,
   "counts": {
     "app/agents/builder-deployment-command.test.ts": {
       "anti-slop/no-module-mocking": 1,
@@ -125,7 +125,7 @@
     },
     "app/lib/.server/cloudflare/user-account-api.ts": {
       "anti-slop/no-runtime-typeof": 11,
-      "anti-slop/no-unknown-parameters": 10,
+      "anti-slop/no-unknown-parameters": 7,
       "anti-slop/no-unsafe-dictionary-type": 3,
       "anti-slop/require-safety-comment-for-type-assertion": 4
     },

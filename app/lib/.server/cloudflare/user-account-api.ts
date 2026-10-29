@@ -14,11 +14,7 @@ import {
   DEPLOYMENT_PREVIEW_URLS_ENABLED,
   DEPLOYMENT_SECURITY_CLEANUP_CRON,
 } from './deployment-runtime-policy';
-import {
-  PROJECT_WORKSPACE_CONTAINER_DIMENSIONS,
-  PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-  PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES,
-} from './project-workspace-container-policy';
+import { WORKSPACE_CONTAINER_SCHEDULING_POLICY } from './user-workspace-image';
 import { CLOUDCHEF_CONTROL_PLANE_ENDPOINT, USER_WORKSPACE_RUNTIME_GC_CRON } from './user-workspace-runtime-policy';
 import { bytesToBase64, sha256Hex } from '~/lib/hex-digest';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
@@ -39,8 +35,6 @@ const R2_BUCKET_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
 const R2_CLEANUP_BATCH_SIZE = 100;
 const R2_CLEANUP_LIFECYCLE_ID = 'cloudchef-project-deletion';
 const R2_CLEANUP_MAX_AGE_SECONDS = 24 * 60 * 60;
-const CONTAINER_ROLLOUT_DEADLINE_MS = 20 * 60_000;
-const CONTAINER_ROLLOUT_POLL_INTERVAL_MS = 5_000;
 /** How much of Cloudflare's own wording one entitlement verdict carries into an operator log. */
 const PROVIDER_TEXT_LIMIT = 400;
 
@@ -62,19 +56,6 @@ type DurableObjectNamespaceReadback = {
   class?: string;
   script?: string;
   use_sqlite?: boolean;
-};
-
-type ContainerApplicationReadback = {
-  id?: string;
-  name?: string;
-  durable_objects?: { namespace_id?: string };
-};
-
-type ContainerApplicationRolloutReadback = {
-  id?: string;
-  created_at?: string;
-  status?: string;
-  target_configuration?: unknown;
 };
 
 /**
@@ -100,13 +81,6 @@ type CloudflareResultInfo = {
 };
 
 type EnvelopeResult<T> = { result: T; resultInfo: CloudflareResultInfo | undefined };
-
-type WorkspaceContainerConfiguration = {
-  image: string;
-  instance_type: string;
-  observability: { logs: { enabled: boolean } };
-  wrangler_ssh: { enabled: boolean };
-};
 
 type WorkerUploadMetadata = {
   main_module: string;
@@ -171,14 +145,6 @@ const secretsStoreSecretSchema = z.looseObject({
 
 /** A Durable Object namespace as the account listing names it: the Worker and the class it belongs to. */
 const durableObjectNamespaceSchema = z.looseObject({ script: z.string(), class: z.string() });
-/** One rollout of a container application, as Cloudflare reports it. */
-const containerApplicationRolloutSchema = z.looseObject({
-  id: z.string(),
-  created_at: z.string(),
-  status: z.string(),
-  target_configuration: z.record(z.string(), z.json()),
-});
-
 /** A migration receipt's applied SQL; a receipt written before receipts kept it has none. */
 const appliedMigrationSqlSchema = z.looseObject({ sql: z.string() });
 /** A migration receipt's name and digest; a receipt from before receipts kept digests has none. */
@@ -207,10 +173,20 @@ const workerDeploymentsSchema = z.looseObject({
 type WorkerDeploymentRow = z.infer<typeof workerDeploymentsSchema>['deployments'][number];
 /** The account's container applications, each named. */
 const containerApplicationsSchema = z.array(z.looseObject({ name: z.string().min(1) }));
-/** A container application CloudChef found by name: its id and the Durable Object namespace it serves. */
+/**
+ * A container application CloudChef found by name: its id, the Durable Object namespace it serves, and its scheduling
+ * policy (absent or `default` on one a release before the `durable_object` policy created).
+ */
 const containerApplicationSchema = z.looseObject({
   id: z.string().min(1),
   durable_objects: z.looseObject({ namespace_id: z.string().min(1) }),
+  scheduling_policy: z.string().optional(),
+});
+/** The application Cloudflare created: the name and namespace asked for, on the `durable_object` policy. */
+const createdContainerApplicationSchema = z.looseObject({
+  name: z.string().min(1),
+  durable_objects: z.looseObject({ namespace_id: z.string().min(1) }),
+  scheduling_policy: z.literal(WORKSPACE_CONTAINER_SCHEDULING_POLICY).optional(),
 });
 
 /** An AI Gateway's settings as Cloudflare returns them, each kept so an update can write it back. */
@@ -1415,139 +1391,56 @@ export class UserCloudflareAccountApi {
     return workerVersionId;
   }
 
-  async ensureWorkspaceRuntimeContainer(args: {
-    applicationName: string;
-    namespaceId: string;
-    image: string;
-  }): Promise<void> {
+  /**
+   * The container application of one of the runtime's Durable Object namespaces, on the `durable_object` scheduling
+   * policy: the runtime's Durable Objects start their containers themselves, from Cloudflare's managed image and
+   * the runtime's base snapshot, at the size they ask for, so the application names no image, instance type or
+   * instance limit. Cloudflare fixes an application's policy when it creates it, so an application a release before
+   * this one created on the platform-scheduled policy is deleted and created again for the same namespace. Deleting
+   * it ends its running containers, which is why provisioning calls this only inside the runtime's upgrade window;
+   * the Durable Objects, and every workspace's files in their storage, are not touched. An application of the same
+   * name serving another namespace is never CloudChef's to replace.
+   */
+  async ensureWorkspaceRuntimeContainer(args: { applicationName: string; namespaceId: string }): Promise<void> {
     requireWorkerName(args.applicationName);
     if (!/^[0-9a-f-]{32,64}$/i.test(args.namespaceId)) {
-      throw new CloudflareAccountApiError('The workspace Sandbox namespace is invalid.');
+      throw new CloudflareAccountApiError('The workspace container namespace is invalid.');
     }
-    const applications = await this.callContainer<unknown>('/applications', {
-      method: 'GET',
-    });
-    const existing = existingContainerApplication(applications, args.applicationName);
+    const existing = existingContainerApplication(
+      await this.callContainer<unknown>('/applications', { method: 'GET' }),
+      args.applicationName,
+    );
     if (existing && existing.durable_objects.namespace_id !== args.namespaceId) {
       throw new CloudflareAccountApiError(
         'The workspace container name is already attached to a different Durable Object namespace.',
       );
     }
-    const configuration = {
-      configuration: {
-        image: args.image,
-        instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-        observability: { logs: { enabled: true } },
-        wrangler_ssh: { enabled: false },
-      },
-      max_instances: PROJECT_WORKSPACE_CONTAINER_MAX_INSTANCES,
-      constraints: { tiers: [1, 2] },
-      scheduling_policy: 'default',
-      rollout_active_grace_period: 0,
-    };
-    const result = existing
-      ? await this.callContainer<ContainerApplicationReadback>(`/applications/${encodeURIComponent(existing.id)}`, {
-          method: 'PATCH',
-          body: JSON.stringify(configuration),
-        })
-      : await this.callContainer<ContainerApplicationReadback>('/applications', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: args.applicationName,
-            ...configuration,
-            instances: 0,
-            durable_objects: { namespace_id: args.namespaceId },
-          }),
-        });
-    if (!result.id || result.name !== args.applicationName) {
-      throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container application.');
+    if (existing?.scheduling_policy === WORKSPACE_CONTAINER_SCHEDULING_POLICY) {
+      return;
     }
     if (existing) {
-      const rollouts = await this.callContainer<unknown>(`/applications/${encodeURIComponent(existing.id)}/rollouts`, {
-        method: 'GET',
-      });
-      const latestRollout = latestContainerApplicationRollout(rollouts);
-      const matchingRollout =
-        latestRollout && matchesWorkspaceContainerConfiguration(latestRollout.target_configuration, args.image)
-          ? latestRollout
-          : null;
-      if (matchingRollout?.status === 'completed') {
-        return;
-      }
-      const rolloutId =
-        matchingRollout && ['pending', 'progressing'].includes(matchingRollout.status)
-          ? matchingRollout.id
-          : await this.createWorkspaceRuntimeContainerRollout(
-              existing.id,
-              args.applicationName,
-              configuration.configuration,
-            );
-      await this.waitForWorkspaceRuntimeContainerRollout({
-        applicationId: existing.id,
-        applicationName: args.applicationName,
-        rolloutId,
-        image: args.image,
-      });
+      console.info({ event: 'workspace_container_application_replaced', from: existing.scheduling_policy ?? null });
+      // A retry after a delete Cloudflare had not finished finds it again and deletes it again, or finds it gone.
+      await this.deleteOptional(`/containers/applications/${encodeURIComponent(existing.id)}`);
     }
-  }
-
-  private async createWorkspaceRuntimeContainerRollout(
-    applicationId: string,
-    applicationName: string,
-    targetConfiguration: WorkspaceContainerConfiguration,
-  ): Promise<string> {
-    const rollout = await this.callContainer<{ id?: string }>(
-      `/applications/${encodeURIComponent(applicationId)}/rollouts`,
-      {
+    const created = createdContainerApplicationSchema.safeParse(
+      await this.callContainer<unknown>('/applications', {
         method: 'POST',
         body: JSON.stringify({
-          description: `CloudChef workspace runtime update for ${applicationName}`,
-          // A single 100% step is the direct-API equivalent of Wrangler's required --containers-rollout=immediate
-          // cutover. Stable and @next Sandbox control protocols cannot coexist during a gradual rollout.
-          strategy: 'rolling',
-          target_configuration: targetConfiguration,
-          step_percentage: 100,
-          kind: 'full_auto',
+          name: args.applicationName,
+          scheduling_policy: WORKSPACE_CONTAINER_SCHEDULING_POLICY,
+          durable_objects: { namespace_id: args.namespaceId },
+          observability: { logs: { enabled: true } },
         }),
-      },
+      }),
     );
-    if (!rollout.id) {
-      throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container rollout.');
+    if (
+      !created.success ||
+      created.data.name !== args.applicationName ||
+      created.data.durable_objects.namespace_id !== args.namespaceId
+    ) {
+      throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container application.');
     }
-    return rollout.id;
-  }
-
-  private async waitForWorkspaceRuntimeContainerRollout(args: {
-    applicationId: string;
-    applicationName: string;
-    rolloutId: string;
-    image: string;
-  }): Promise<void> {
-    const deadline = Date.now() + CONTAINER_ROLLOUT_DEADLINE_MS;
-    while (Date.now() < deadline) {
-      const rollout = requireContainerApplicationRollout(
-        await this.callContainer<unknown>(
-          `/applications/${encodeURIComponent(args.applicationId)}/rollouts/${encodeURIComponent(args.rolloutId)}`,
-          { method: 'GET' },
-        ),
-        args.rolloutId,
-      );
-      if (!matchesWorkspaceContainerConfiguration(rollout.target_configuration, args.image)) {
-        throw new CloudflareAccountApiError('Cloudflare changed the workspace container rollout configuration.');
-      }
-      if (rollout.status === 'completed') {
-        return;
-      }
-      if (!['pending', 'progressing'].includes(rollout.status)) {
-        throw new CloudflareAccountApiError(
-          `Cloudflare did not complete the workspace container rollout for ${args.applicationName}.`,
-        );
-      }
-      await scheduler.wait(Math.min(CONTAINER_ROLLOUT_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
-    }
-    throw new CloudflareAccountApiError(
-      `Cloudflare did not complete the workspace container rollout for ${args.applicationName} before the deadline.`,
-    );
   }
 
   /** Serve the Worker's active version at its workers.dev address, and no earlier version anywhere. */
@@ -2161,50 +2054,6 @@ function existingContainerApplication(
     throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container application.');
   }
   return existing.data;
-}
-
-function latestContainerApplicationRollout(value: unknown): Required<ContainerApplicationRolloutReadback> | null {
-  if (!Array.isArray(value)) {
-    throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container rollouts.');
-  }
-  const rollouts = value.map((rollout) => {
-    const parsed = containerApplicationRolloutSchema.safeParse(rollout);
-    if (!parsed.success) {
-      throw new CloudflareAccountApiError('Cloudflare returned invalid workspace container rollouts.');
-    }
-    return parsed.data;
-  });
-  return rollouts.sort((left, right) => right.created_at.localeCompare(left.created_at))[0] ?? null;
-}
-
-function requireContainerApplicationRollout(
-  value: unknown,
-  rolloutId: string,
-): Required<ContainerApplicationRolloutReadback> {
-  const rollout = containerApplicationRolloutSchema.safeParse(value).data;
-  if (rollout?.id !== rolloutId) {
-    throw new CloudflareAccountApiError('Cloudflare returned an invalid workspace container rollout.');
-  }
-  return rollout;
-}
-
-function matchesWorkspaceContainerConfiguration(value: unknown, image: string): boolean {
-  if (!isRecord(value) || value.image !== image) {
-    return false;
-  }
-  const ssh = isRecord(value.wrangler_ssh) ? value.wrangler_ssh : null;
-  const observability = isRecord(value.observability) ? value.observability : null;
-  const logs = observability && isRecord(observability.logs) ? observability.logs : null;
-  const disk = isRecord(value.disk) ? value.disk : null;
-  // Cloudflare echoes either the tier name or the dimensions it resolves to, so both are
-  // accepted - but both come from the policy, so changing the tier cannot leave this
-  // recognising only the previous one.
-  const configuredInstance =
-    value.instance_type === PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE ||
-    (value.vcpu === PROJECT_WORKSPACE_CONTAINER_DIMENSIONS.vcpu &&
-      value.memory_mib === PROJECT_WORKSPACE_CONTAINER_DIMENSIONS.memoryMib &&
-      disk?.size_mb === PROJECT_WORKSPACE_CONTAINER_DIMENSIONS.diskMb);
-  return ssh?.enabled === false && logs?.enabled === true && configuredInstance;
 }
 
 function workerModuleContentType(path: string): string {

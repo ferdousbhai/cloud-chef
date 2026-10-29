@@ -6,16 +6,14 @@
  * canary never interrupts anyone. A first workspace is always prepared on the current release.
  */
 export function workspaceRuntimeUpgradeAllowed(
-  env: Partial<Pick<Env, 'WORKSPACE_RUNTIME_UPGRADE_CANARY'>>,
+  env: { WORKSPACE_RUNTIME_UPGRADE_CANARY?: string },
   userId: string,
 ): boolean {
   const canary = workspaceRuntimeUpgradeCanary(env);
   return canary === null || canary.has(userId);
 }
 
-function workspaceRuntimeUpgradeCanary(
-  env: Partial<Pick<Env, 'WORKSPACE_RUNTIME_UPGRADE_CANARY'>>,
-): ReadonlySet<string> | null {
+function workspaceRuntimeUpgradeCanary(env: { WORKSPACE_RUNTIME_UPGRADE_CANARY?: string }): ReadonlySet<string> | null {
   const ids = (env.WORKSPACE_RUNTIME_UPGRADE_CANARY ?? '')
     .split(',')
     .map((id) => id.trim())

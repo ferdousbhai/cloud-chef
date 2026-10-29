@@ -2,6 +2,7 @@ import { GENERATED_PROJECT_PNPM_VERSION } from '../../cloudchef-agent/cloudflare
 import { VALIDATE_COMMAND, WORK_DIR } from '../../cloudchef-agent/constants';
 import templatePackage from '../../template/package.json' with { type: 'json' };
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
+import { BASE_CONTAINER_START_BUDGET_MS } from './base-container';
 import { shellQuote } from './shell-quote';
 import { abortableSleep } from '../../app/lib/abortable-sleep';
 import { GIT_BASE_PATH, GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
@@ -20,26 +21,28 @@ export const CONTAINER_PNPM_STORE_DIR = '/opt/cloudchef/pnpm-store';
 
 /**
  * The toolchain bootstrap writes the git wrapper, its hooks and the `cf` launcher into a container
- * whose image already carries pnpm and cf at their pins. It installs pnpm only when an image lacks
- * the pinned version, which is a network package installation into the same container the project's
- * own installs run in, so it shares their ceiling rather than declaring another number (#131).
+ * whose base already carries pnpm and cf at their pins (base-container.ts). It installs pnpm only
+ * when the base lacks the pinned version, which is a network package installation into the same
+ * container the project's own installs run in, so it shares their ceiling rather than declaring
+ * another number (#131).
  */
 export const CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS = CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS;
 
 /**
  * Health probing, POST /connect, and the /api upgrade that follow the container start. computerd is
- * the image's entrypoint, so nothing is downloaded before it answers.
+ * already on the container's base, so nothing is downloaded before it answers.
  */
 const CONTAINER_CONNECT_STAGES_MARGIN_MS = 2 * 60_000;
 
 /**
- * @cloudflare/computer's LegacyContainerBackend arms its whole connect deadline before calling
- * `host.start()`, and the toolchain bootstrap runs inside that start, so both spend from this same
- * budget. Derive it as the sum of the stages it must cover, so the vendor deadline cannot silently
- * undercut a stage budget declared here (the #127 guard shape, pinned by test).
+ * @cloudflare/computer's ContainerBackend arms its whole connect deadline before calling
+ * `host.start()`, and the host's start covers the base (restoring its snapshot, or setting it up on
+ * a first start) and the toolchain bootstrap, so all of them spend from this same budget. Derive it
+ * as the sum of the stages it must cover, so the vendor deadline cannot silently undercut a stage
+ * budget declared here (the #127 guard shape, pinned by test).
  */
 export const CONTAINER_CONNECT_TIMEOUT_MS =
-  CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS + CONTAINER_CONNECT_STAGES_MARGIN_MS;
+  BASE_CONTAINER_START_BUDGET_MS + CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS + CONTAINER_CONNECT_STAGES_MARGIN_MS;
 
 /** Pacing between bootstrap attempts, not a ceiling: the stage budget is. */
 export const BOOTSTRAP_RETRY_DELAY_MS = 5_000;

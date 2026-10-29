@@ -24,11 +24,17 @@ gap and an isolated, revision-aware design outperforms that baseline.
 
 ## Container provisioning
 
-Workspace containers run on `standard-4` with a maximum of 10 instances
-(`app/lib/.server/cloudflare/project-workspace-container-policy.ts`). The tier is chosen because the slow steps a user
+Workspace containers run on `standard-4` (`app/lib/.server/cloudflare/project-workspace-container-policy.ts`), asked
+for at each start under the `durable_object` scheduling policy, which takes no instance limit. The tier is chosen because the slow steps a user
 waits on (`pnpm install`, `tsc`, `eslint`, Vite) are CPU-bound and container CPU is billed on active use, so more cores
 finish the same work for the same CPU cost; the cost is a larger warm container while idle. No measurements compare
 tiers, so capacity is not a benchmark conclusion.
+
+The containers start from Cloudflare's managed `cloudflare/debian-trixie` image, set up once per runtime and kept as
+its base snapshot, rather than from an image of CloudChef's own: on 2026-10-29 the owner declined publishing one to
+Docker Hub, the `durable_object` policy pulls from no public registry, and Cloudflare's registry is private to each
+account. The owner also decided that the container keeps direct internet access (`enableInternet: true`), with only
+CloudChef's own hosts (`git.internal`, `cloudflare-api.internal`) intercepted.
 
 ## Cloudflare Think
 

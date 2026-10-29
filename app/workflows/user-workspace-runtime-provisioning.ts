@@ -30,7 +30,7 @@ import { sha256Hex } from '~/lib/hex-digest';
 import { z } from 'zod';
 import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
-import { isUserWorkspaceImagePublished, USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 
 type ProvisioningParams = {
   userId: string;
@@ -48,7 +48,7 @@ type ProvisioningError = z.infer<typeof provisioningErrorSchema>;
 
 export type UserWorkspaceRuntimeProvisioningErrorCode = ProvisioningError['errorCode'];
 
-/** A failure after the Worker was redeployed, which left it serving without its container image or schedule. */
+/** A failure after the Worker was redeployed, which left it serving without its container applications or schedule. */
 const redeployedFailureSchema = z.object({ status: z.literal('error'), redeployed: z.literal(true) });
 
 /**
@@ -132,8 +132,6 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
   findRuntime: typeof findUserWorkspaceRuntime;
   claimUpgradeWindow: typeof claimUserWorkspaceRuntimeUpgradeWindow;
   changeUpgradeWindow: typeof changeUserWorkspaceRuntimeUpgradeWindow;
-  /** Whether this release pins a published workspace image; nothing is prepared without one. */
-  imagePublished: () => boolean;
 };
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
@@ -145,7 +143,6 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   findRuntime: findUserWorkspaceRuntime,
   claimUpgradeWindow: claimUserWorkspaceRuntimeUpgradeWindow,
   changeUpgradeWindow: changeUserWorkspaceRuntimeUpgradeWindow,
-  imagePublished: isUserWorkspaceImagePublished,
 };
 
 /**
@@ -325,12 +322,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   try {
     const dependencies = args.dependencies ?? provisioningDependencies;
     const params = args.event.payload;
-    if (!dependencies.imagePublished()) {
-      // Fail closed before anything in the account changes: the Worker this release uploads needs CloudChef's own
-      // image (computerd, sandbox-shim), and the pin is empty until it is published (DEVELOPMENT.md).
-      console.error({ event: 'workspace_image_unpublished' });
-      return { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null };
-    }
     const connection = await expectedConnection(args.env, params, dependencies.requireConnection);
     const accountApi = await dependencies.openAccountApi(args.env, connection);
     const { workerName, databaseName } = await workspaceRuntimeNames(connection, params.userId);
@@ -435,9 +426,10 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       }
       await args.step.sleep(`wait for an idle workspace (attempt ${attempt + 1})`, outcome.waitMs);
     }
-    // An upgrade keeps its window open on the runtime it just deployed until that runtime serves on the new
-    // container image: the rollout replaces running containers at once, so work that started meanwhile
-    // would be cut off, and the new Worker would talk to the old image. A first workspace has no window.
+    // An upgrade keeps its window open on the runtime it just deployed until that runtime serves from its new
+    // container applications: replacing an application ends its running containers at once, so work that started
+    // meanwhile would be cut off, and the new Worker starts containers only under the `durable_object` policy. A
+    // first workspace has no window.
     const window = {
       endpoint,
       controlPlaneSecret,
@@ -496,12 +488,13 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.enableWorkerSubdomain(workerName);
       },
     );
+    // Each container application on the `durable_object` policy, under which the runtime starts its containers from
+    // Cloudflare's managed image and its own base snapshot. One a release before this created on the platform-
+    // scheduled policy is deleted and created again for the same Durable Object namespace, inside the window, since
+    // Cloudflare never changes an application's policy: its Durable Objects, and every workspace's files in them,
+    // stay as they are.
     await heldStep('deploy workspace container', LONG_STEP_CONFIG, async () => {
-      await accountApi.ensureWorkspaceRuntimeContainer({
-        applicationName: workerName,
-        namespaceId,
-        image: USER_WORKSPACE_IMAGE,
-      });
+      await accountApi.ensureWorkspaceRuntimeContainer({ applicationName: workerName, namespaceId });
     });
     const builderNamespace = builderNamespaceId;
     if (builderNamespace) {
@@ -510,7 +503,6 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.ensureWorkspaceRuntimeContainer({
           applicationName: `${workerName}-builder`,
           namespaceId: builderNamespace,
-          image: USER_WORKSPACE_IMAGE,
         });
       });
     }
@@ -690,7 +682,7 @@ export function connectionProvisionsWorkspace(
   );
 }
 
-/** Whether a ready runtime runs this release's build on its workspace image, so speaks its protocol. */
+/** Whether a ready runtime runs this release's build on this release's container applications, so speaks its protocol. */
 export function isCurrentUserWorkspaceRuntime(runtime: { runtimeVersion: string; imageDigest: string }): boolean {
   return runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 && runtime.imageDigest === USER_WORKSPACE_IMAGE;
 }

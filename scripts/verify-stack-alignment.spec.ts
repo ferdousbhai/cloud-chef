@@ -13,7 +13,7 @@ import {
   findPackageVersionAlignmentErrors,
   findRootWorkspacePolicyErrors,
   findRuntimePinErrors,
-  findSandboxRuntimePinErrors,
+  findWorkspaceBasePinErrors,
   findBuilderTemplateModuleErrors,
   packageDependencyVersion,
 } from './verify-stack-alignment.mjs';
@@ -67,16 +67,32 @@ describe('stack alignment verification helpers', () => {
     ).toEqual(['template/package.json must align ai with package.json 7.0.48; found 7.0.49.']);
   });
 
-  it('keeps the official Sandbox package and container image aligned', () => {
-    const version = '0.12.4';
-    const image = `docker.io/cloudflare/sandbox:${version}@sha256:${'a'.repeat(64)}`;
+  it("keeps the workspace base setup's pins in step with .nvmrc, Computer and the generated projects", () => {
+    const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+    const current = {
+      baseSource: read('user-workspace-runtime/src/base-container.ts'),
+      nvmrc: read('.nvmrc'),
+      computerSpec: '0.8.0',
+      computerInstalled: '0.8.0',
+    };
+    expect(findWorkspaceBasePinErrors(current)).toEqual([]);
 
-    expect(findSandboxRuntimePinErrors(version, version, image)).toEqual([]);
-    expect(findSandboxRuntimePinErrors('^0.12.4', version, image)).toEqual([
-      'package.json must pin the installed Cloudflare Sandbox version 0.12.4 exactly.',
-    ]);
-    expect(findSandboxRuntimePinErrors(version, version, image.replace(version, '0.12.3'))).toEqual([
-      'Cloudflare Sandbox package 0.12.4 must match container image tag 0.12.3.',
+    expect(
+      findWorkspaceBasePinErrors({
+        ...current,
+        nvmrc: '27.0.0\n',
+        computerSpec: '^0.9.0',
+        computerInstalled: '0.9.0',
+        baseSource: current.baseSource.replace(
+          'const BASE_PNPM_VERSION = GENERATED_PROJECT_PNPM_VERSION;',
+          "const BASE_PNPM_VERSION = '10.0.0';",
+        ),
+      }),
+    ).toEqual([
+      expect.stringContaining('must install Node 27.0.0'),
+      expect.stringContaining('computerd 0.8.0 must match @cloudflare/computer 0.9.0'),
+      'package.json must pin the installed @cloudflare/computer version 0.9.0 exactly.',
+      expect.stringContaining("generated projects' pnpm"),
     ]);
   });
 

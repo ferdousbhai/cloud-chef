@@ -60,10 +60,10 @@ approved Cloudflare request, a GitHub build watch, and seeding a new workspace c
 (`BuilderRuntimeActivity.run` in `app/agents/builder-runtime-activity.ts`), never from the deployment
 record in state, which an editor save rewrites while that work continues. Before redeploying,
 the Workflow asks the runtime, with its secret, for the upgrade window (`POST /v1/upgrade-window`): one statement
-grants it only when no row is active. It then redeploys the Worker, configures it, rolls out the container image,
-and waits for the new runtime to be ready, renewing the window on the new runtime (`PUT`) throughout, and releases
-it (`DELETE`) once the runtime serves; the rollout replaces running containers at once, so nothing may start before
-it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Each
+grants it only when no row is active. It then redeploys the Worker, configures it, replaces any container application
+still on the platform-scheduled policy (The container scheduling policy, below), and waits for the new runtime to be
+ready, renewing the window on the new runtime (`PUT`) throughout, and releases it (`DELETE`) once the runtime serves;
+deleting an application ends its running containers at once, so nothing may start before it completes. Each of these is its own Workflow step, so a retry never claims the window again or redeploys. Each
 call names the Workflow instance holding the window (a `cloudchef-upgrade-holder` header, which every call must
 carry): another upgrade's claim or renewal is refused while it is open, as for a busy workspace, and only its holder
 releases it. The holder's
@@ -73,12 +73,12 @@ that starts records itself first and then waits while any window is open, on the
 window lapses five minutes after its last renewal, which bounds the wait when an upgrade stops partway. A turn
 waits at most three minutes, then asks to be sent again; a Stop calls its wait off. A step's retries can outlast
 the window, so the runtime renews a lapsed window only while nothing is busy (`409` otherwise): work that started
-meanwhile would be cut off by the rollout, and the Workflow waits for it as for a busy workspace, without
+meanwhile would be cut off by the replacement, and the Workflow waits for it as for a busy workspace, without
 redeploying again. Work that cannot record itself or read the window retries for a minute before it starts anyway.
 A busy workspace is asked again with backoff (30 seconds doubling to 5 minutes); after 12 hours the Workflow ends without upgrading, and the
 next session request, or the next sweep, starts another. That limit applies only before the redeploy: once the new
 Worker serves, the steps after it wait, with the same backoff, for as long as work keeps them from the window, since
-that Worker still needs its container image, its schedule and its readiness check. A Workflow restarted partway
+that Worker still needs its container applications, its schedule and its readiness check. A Workflow restarted partway
 claims the window again and redeploys only once the workspace is idle, so it never cuts work off.
 
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
@@ -89,7 +89,7 @@ no longer use the connection, and starts or restarts the same gated Workflow ins
 until it has launched 10 (`UPGRADE_SWEEP_MAX_LAUNCHES`); upgrades still waiting don't count toward that cap, so they
 never keep a sweep from the rest. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
 restarted on one sweep in four, so at most hourly, unless it failed after redeploying the Worker (which then serves
-without its container image or schedule), which every sweep restarts. First-time provisioning never goes through the sweep: it lists only
+without its container applications or schedule), which every sweep restarts. First-time provisioning never goes through the sweep: it lists only
 runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
 plus 30 minutes.
 
@@ -97,9 +97,9 @@ A release can upgrade one person's runtime first. `WORKSPACE_RUNTIME_UPGRADE_CAN
 empty, which upgrades everyone, or a comma-separated list of CloudChef user ids, which upgrades only theirs: neither a
 session request nor the sweep starts the upgrade of anyone else's runtime, which keeps serving as a deferred one does
 (`user-workspace-runtime-rollout.ts`). A first workspace is always prepared on the current release. The variable is
-changed by a release, never in the dashboard. A runtime also records the workspace image it runs, so a new image pin
-makes every runtime outdated as a new runtime build does, and a release that pins no published image prepares and
-upgrades nothing (`user-workspace-image.ts`), and does not deploy.
+changed by a release, never in the dashboard. A runtime also records the container identity it runs on
+(`USER_WORKSPACE_IMAGE` in `user-workspace-image.ts`: the managed image and the `durable_object` policy), so a runtime
+whose applications are still platform-scheduled is outdated, as one on an earlier runtime build is.
 
 Because a deferred runtime keeps serving the current browser and control plane until it is idle, a release whose
 browser or control-plane calls that runtime cannot serve bumps the protocol version, and user-workspace D1
@@ -372,7 +372,7 @@ browser has no second SQLite or OPFS copy of chats, transcripts, or workspace fi
 
 The user workspace is a separate workspace package, `@cloudchef/user-workspace-runtime`. Its `./protocol` export is
 the only shared source for sync limits, request/result types, and readiness contracts. The runtime owns
-the `ProjectWorkspace` implementation; `computer-sandbox.ts` contains the Cloudflare Computer/Sandbox adapter on the
+the `ProjectWorkspace` implementation; `computer-sandbox.ts` contains the Cloudflare Computer container adapter on the
 Container API, and `container-process.ts` the lifecycle of the runtime's own container processes. Browser,
 control-plane, and Agent code import the protocol instead of reaching into that implementation.
 
@@ -515,7 +515,8 @@ verification consume that same data rather than maintaining separate security ov
 
 ## Cloudflare Computer Dependency
 
-CloudChef pins `@cloudflare/computer` to `0.8.0` and `@cloudflare/sandbox` to `1.0.3`, exactly. Computer calls its
+CloudChef pins `@cloudflare/computer` to `0.8.0`, exactly, and computerd to the same release (The container scheduling
+policy, The base snapshot). Computer calls its
 filesystem and tools stable, and its container backends, the sync protocol and computerd experimental; CloudChef depends
 on all three, so every upgrade is an architecture review. `cloudchef-agent/cloudflare-computer.test.ts` pins the
 declared and installed version (with no release-age exemption), canaries both hunks of the local patch
@@ -538,10 +539,12 @@ reached the VFS as saved. A non-streamed command uses Computer's own post-comman
 and reports itself pending; a streamed one cannot report it, so the runtime confirms it with a pull of its own.
 `Workspace.pull()` and `push()` are async iterables of blocks since 0.3, drained to completion.
 
-Sandbox 1.0 removed the `Sandbox` class, its process API, its scheduler and its terminal, leaving file operations
-(`Files`, served by the image's `sandbox-shim`). `ProjectWorkspace` and `ProjectBuilder` are plain Durable Objects on
-the Container API (`computer-sandbox.ts`, `project-builder.ts`): the runtime's own commands run beside computerd
-through `ctx.container.exec`, under GNU `timeout` as process-group leaders (`container-process.ts`), with only the
+CloudChef no longer depends on `@cloudflare/sandbox`: Sandbox 1.0 had removed the `Sandbox` class, its process API,
+its scheduler and its terminal, and what it left, file reads and writes through its `sandbox-shim` binary, is a few
+commands on the Container API (`mkdir`, a write beside the file renamed over it, `stat` and `cat`), so neither the
+package nor the binary is in the container. `ProjectWorkspace` and `ProjectBuilder` are plain Durable Objects on the
+Container API (`computer-sandbox.ts`, `project-builder.ts`): the runtime's own commands and file transfers run beside
+computerd through `ctx.container.exec`, under GNU `timeout` as process-group leaders (`container-process.ts`), with only the
 environment the runtime passes (`CONTAINER_COMMAND_ENV`; exec inherits nothing but `PATH`); scheduled callbacks are rows
 in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the idle window is
 `ctx.container.setInactivityTimeout` (10 minutes, an hour while a deployment holds its artifact, 15 minutes for the
@@ -551,34 +554,121 @@ browser's WebSocket, which reattaches to the container's one shell session. The 
 
 computerd passes its commands only `PATH`, `HOME`, `TMPDIR`, `TZ`, `LANG`, `TERM`, `LC_*`, and `COMPUTER_VAR_`-prefixed
 variables (unprefixed), so the command environment is passed that way, and `RPC_CLIENT_SECRET`, a random secret per
-workspace Computer keeps in that Durable Object's storage and adds only to the container's start environment, never
-reaches a command; CloudChef never reads, stores, or logs it.
+workspace the container host keeps in that Durable Object's storage and adds only to the container's start environment,
+never reaches a command; CloudChef never logs it.
 
 ### The container scheduling policy
 
-Computer has two container backends. `ContainerBackend` needs the `durable_object` scheduling policy, under which the
-Durable Object starts its own container from an image the Worker upload names (`ctx.container.images`).
-`LegacyContainerBackend` (deprecated, still shipped in 0.8.0) serves a platform-scheduled application
-(`scheduling_policy: "default"`), whose image and instance size the application itself carries. CloudChef runs the
-legacy backend on purpose: every runtime's container applications are platform-scheduled, Cloudflare makes the policy
-of an application immutable, and the only way across is to delete each application and create a new one for the same
-Durable Object namespace. That is irreversible per account: there is no rollback (a Worker from before it cannot
-start containers for the class, even after a rollback), deleting the application ends its containers and any command
-still running in them, and the `durable_object` policy pulls only from the account's own registry
-(`registry.cloudflare.com/<account>/…`), never Docker Hub. The upgrade to Computer 0.8 and Sandbox 1.0 therefore
-changes nothing about the applications but their image, and stays reversible: rolling back is redeploying the previous
-release and upgrading the runtimes again.
+Every runtime's two container applications (`<worker>` for `ProjectWorkspace`, `<worker>-builder` for `ProjectBuilder`)
+use the `durable_object` scheduling policy, and the Worker upload names no image (`containers: [{ class_name }]`, no
+`images`). Each Durable Object starts its own container with `ctx.container.start()`: at `standard-4`
+(`PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE`, asked for at each start; the application carries no instance type and,
+under this policy, no instance limit), with internet access (`enableInternet: true`), and from either Cloudflare's
+managed image `cloudflare/debian-trixie` (Node 24 on Debian trixie slim, offered only under this policy) or the
+runtime's base snapshot of it. Nothing of CloudChef's is published to any registry. The workspace runs Computer's
+`ContainerBackend` (`@cloudflare/computer/backends/container`) through a host of CloudChef's own
+(`ManagedWorkspaceContainerHost` in `computer-sandbox.ts`), because Computer's own host starts only images the Worker
+upload names in `ctx.container.images`, and the managed image is not one. The host keeps computerd's
+`RPC_CLIENT_SECRET` in the Durable Object's storage, adopts a running container only when it was launched with the
+same environment and computerd was told to start, and records an exit the platform reports.
 
-Moving to `ContainerBackend` is a separate, explicit owner decision, to be taken only when the legacy backend is about
-to be removed upstream or something needs the new policy. It would need, together: the image copied into each
-account's registry by provisioning; the Worker upload naming it under `containers[].images`; each application deleted
-and recreated with `scheduling_policy: "durable_object"` (no `image`, `instance_type` or `max_instances`) inside the
-upgrade window, refusing any application CloudChef did not create for exactly that name and namespace;
-`computer-sandbox.ts` switched to `ContainerBackend`/`WorkspaceContainerAPI` with the image name and instance size; and
-the builder's `start()` naming the image. Nothing a user keeps lives only in a container (project files, the change
-index, the tool journal, validation receipts and pending-sync intents are in the Durable Object's SQLite), except a
-command whose post-command pull has not landed, which is why the switch would run only inside the upgrade window.
-Until then nothing in this repository creates, changes or deletes an application with the `durable_object` policy.
+Outbound interception is the Container API's own (`ctx.container.interceptOutboundHttp`) under either policy: each
+launch intercepts Computer's egress host, `git.internal` (the GitProxy) and `cloudflare-api.internal` (the
+CloudflareApiProxy) for the workspace, and `git.internal` and the deploy proxy's `cloudflare-api.internal` for the
+builder, while everything else goes to the internet directly.
+
+#### The base snapshot
+
+The managed image carries none of what CloudChef needs, so a container's first start sets it up
+(`user-workspace-runtime/src/base-container.ts`). The entrypoint waits for a marker file, so nothing of CloudChef's
+runs while the setup does. The setup script installs, with apt, `fuse3` (computerd dlopens libfuse 3.17 for a real
+FUSE mount and falls back to its userspace shim without `/dev/fuse`, `FUSE_MOUNT=auto`), `git`, `tmux`, and the
+coreutils, findutils, procps, util-linux and passwd tools the runtime's and the builder's own commands use; it
+replaces the image's Node 24 with Node at `.nvmrc`'s version (the linux-x64 tarball, checked against its SHA-256);
+it installs pnpm and the credential-free cf CLI at the generated projects' pins with npm; and it downloads computerd
+0.8.0 from GHCR as the image's single layer, by that layer's digest, checked against it. It writes `/etc/tmux.conf`,
+empties `/home` (computerd's mount point, where the image keeps its `node` user's home) and records the key it is
+named by. Its pins are checked against `.nvmrc`, package.json and the template by `pnpm run verify:stack`
+(`findWorkspaceBasePinErrors`) and the base-container tests, and against what nodejs.org and GHCR serve by the daily
+`runtime-artifacts` workflow (`scripts/check-runtime-artifacts.mjs`).
+
+After the first successful setup the start takes a snapshot of the whole filesystem (`ctx.container.snapshotContainer`)
+before computerd starts, so nothing of a person's is in it, and keeps its handle in the runtime's D1
+(`base_container_snapshots`, `user-workspace-migrations/0023_base_container_snapshots.sql`), where the workspace and
+the builder Durable Objects of the runtime both read it. Its key names everything it depends on: the managed image and
+a digest of the setup script, which spells out every pin. Every later start of the runtime, of any workspace or of the
+builder, restores the snapshot whose key matches (`ctx.container.start({ containerSnapshot })`), checks that the
+container records that key, and only then lets computerd start. A start that finds no snapshot for its key, one not
+refreshed for 29 days (Cloudflare keeps one 30 days from when it was taken or last restored, and each restore starts
+them over), one Cloudflare refuses to restore, or one that does not record its key, sets up from the managed image
+instead and forgets the one that failed. Only one start at a time may take a snapshot for a key: it claims the right
+in D1 first (`setup_holder`, lapsing after 15 minutes), and any start that loses the claim sets up for itself and
+takes no snapshot. A release that changes the setup or a pin has a new key, so each runtime sets up once more and the
+new snapshot replaces the old row.
+
+What the runtime writes at each start (the git wrapper and its hooks, the cf launcher and the `cloudchef` command,
+`container-toolchain.ts`) runs after the restore, never into the snapshot, so it changes with the runtime and not with
+the base. A first setup is expected to take two to four minutes (apt, a 30 MB Node tarball, npm installs of pnpm and
+cf, a 43 MB computerd layer) and is bounded at 10 minutes; a restore takes about as long as any container start. The
+workspace connect budget (`CONTAINER_CONNECT_TIMEOUT_MS`) covers a first setup, the toolchain bootstrap and computerd's
+connect stages.
+
+The base snapshot is per runtime, not per Cloudflare account: a person's own account has one runtime, but each member
+of a team has their own runtime in the team's account, and each takes its own base snapshot once. A store every
+member's runtime can read would need a binding none has today, and restoring a snapshot taken by another Worker's
+Durable Object is not something the documentation states.
+
+Each start restores the same base, so programs a person installs outside their project are gone once the workspace
+sleeps after 10 minutes unused, as the terminal's tip says. A follow-up could keep them: a per-workspace snapshot taken
+as the container goes idle and restored at its next start, with its own 30-day lifetime and its own key.
+
+#### Moving a runtime from the default policy
+
+Runtimes provisioned before this release have platform-scheduled applications (`scheduling_policy: "default"`, the
+image in the application). Cloudflare fixes an application's policy when it creates it, so the upgrade replaces each
+one: `ensureWorkspaceRuntimeContainer` lists the account's applications, refuses one of the same name that serves
+another Durable Object namespace, leaves one already on `durable_object` alone, and otherwise deletes the
+application and creates it again with `scheduling_policy: "durable_object"` and the same name and namespace. The
+Durable Object namespaces belong to the Worker, not the application, so their storage is untouched: project files
+(Computer's VFS), the change index, the tool journal, validation receipts and pending-sync intents are in each
+Durable Object's SQLite, and computerd only syncs the container's `/home` with it. The upgrade runs in this order,
+each step inside the runtime's upgrade window, which is granted only while no turn, validation, publish, approved
+Cloudflare request, GitHub build watch or seeding runs, nor has for two minutes:
+
+1. The Workflow claims the window and redeploys the Worker with this release's runtime. From here the new code starts
+   containers only under `durable_object`, so a container start in this gap fails until step 3 (nothing should start
+   one: the window holds new work back).
+2. It configures the Worker (schedule, subdomain).
+3. It replaces the workspace application, then the builder application. Deleting an application ends its running
+   containers at once: a workspace container still inside its 10-minute idle window, and whatever runs in it that no
+   turn records, such as a command typed in the terminal, ends there and then. A model command cannot be running, since
+   its turn would hold the window back; one whose post-command pull had not landed keeps its pending-sync intent in
+   SQLite, and its retry reports a pull from the replacement container as lost rather than as saved, as for any
+   replaced container. Files the container wrote outside `/home` (installed programs, the pnpm store) go with it, as
+   they do when it sleeps.
+4. It waits for the new runtime to be ready, releases the window and records the runtime with its container identity
+   (`cloudflare/debian-trixie (durable_object)`).
+
+The next start of each workspace is a fresh container: the runtime's first one sets up and takes the base snapshot,
+the others restore it. A retried step finds an application already deleted gone, or deletes one Cloudflare had not
+finished deleting again, and creates it.
+
+The scheduled sweep and session requests start this upgrade as they start any other, and
+`WORKSPACE_RUNTIME_UPGRADE_CANARY` holds it to the named runtimes, so the owner's runtime moves first while everyone
+else's keeps serving from its platform-scheduled applications. A first workspace is created on `durable_object`
+directly.
+
+#### Rolling back
+
+A release from before this one cannot start containers under `durable_object`: its Worker names no image at
+`start()`, and its provisioning, finding an application of the right name and namespace, sends it a configuration with
+an image and `scheduling_policy: "default"`, which Cloudflare is expected to refuse, the policy being immutable.
+Rolling back a moved runtime is therefore two things: deploy the earlier release, and delete the runtime's two
+`durable_object` applications (`cf containers applications delete <id>`, an application's id being its namespace's under
+this policy, as Wrangler expects) while the runtime is idle. The earlier release's provisioning, whose
+container step is retried with backoff and whose failed-after-redeploy upgrades every sweep restarts, then finds no
+application and creates the platform-scheduled one with its own image. Workspace files are in the Durable Objects and
+survive both directions; the base snapshot row stays in D1, unused, until a release with its key runs again.
 
 ## Model Context and Prefix Caching
 

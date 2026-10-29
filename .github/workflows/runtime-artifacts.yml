@@ -7,7 +7,8 @@ on:
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
       - patches/**
-      - user-workspace-image/**
+      - .nvmrc
+      - user-workspace-runtime/src/base-container.ts
       - scripts/check-runtime-artifacts.mjs
       - .github/workflows/runtime-artifacts.yml
   schedule:

@@ -1,5 +1,4 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from './project-workspace-container-policy';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
 import { CloudflareAccountApiError, D1MigrationChangedError, UserCloudflareAccountApi } from './user-account-api';
@@ -1181,246 +1180,156 @@ describe('UserCloudflareAccountApi', () => {
     });
   });
 
-  test('creates the Sandbox container application in the user account', async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(
-        Response.json({
-          id: 'container-application-1',
-          name: 'cloudchef-workspace-user',
-          durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
-        }),
-      );
-    const api = accountApi('user-account', 'user-token', request);
-    const image = `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`;
-
-    await expect(
-      api.ensureWorkspaceRuntimeContainer({
-        applicationName: 'cloudchef-workspace-user',
-        namespaceId: '0123456789abcdef0123456789abcdef',
-        image,
-      }),
-    ).resolves.toBeUndefined();
-
-    expect(request).toHaveBeenNthCalledWith(
-      1,
-      'https://api.cloudflare.com/client/v4/accounts/user-account/containers/applications',
-      expect.objectContaining({ method: 'GET' }),
-    );
-    const [, createInit] = request.mock.calls[1];
-    const createPayload = JSON.parse(String(createInit?.body));
-    expect(createPayload).toMatchObject({
-      name: 'cloudchef-workspace-user',
-      configuration: {
-        image,
-        instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-        wrangler_ssh: { enabled: false },
-      },
-      max_instances: 10,
-      durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
-    });
-  });
-
-  test('rolls out a new Sandbox image for an existing container application', async () => {
-    const image = `docker.io/cloudflare/sandbox:0.12.5@sha256:${'b'.repeat(64)}`;
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json([
-          {
-            id: 'container-application-1',
-            name: 'cloudchef-workspace-user',
-            durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'cloudchef-workspace-user' }))
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(Response.json({ id: 'rollout-1' }))
-      .mockResolvedValueOnce(
-        Response.json({
-          id: 'rollout-1',
-          created_at: '2026-08-05T00:00:00Z',
-          status: 'completed',
-          target_configuration: {
-            image,
-            instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-            observability: { logs: { enabled: true } },
-            wrangler_ssh: { enabled: false },
-          },
-        }),
-      );
-
-    await accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-      applicationName: 'cloudchef-workspace-user',
-      namespaceId: '0123456789abcdef0123456789abcdef',
-      image,
-    });
-
-    expect(request).toHaveBeenNthCalledWith(
-      4,
-      'https://api.cloudflare.com/client/v4/accounts/user-account/containers/applications/container-application-1/rollouts',
-      expect.objectContaining({ method: 'POST' }),
-    );
-    const rollout = JSON.parse(String(request.mock.calls[3]?.[1]?.body));
-    expect(rollout).toMatchObject({
-      strategy: 'rolling',
-      step_percentage: 100,
-      kind: 'full_auto',
-      target_configuration: { image },
-    });
-  });
-
-  test('reuses a matching active Sandbox rollout', async () => {
-    const image = `docker.io/cloudflare/sandbox:0.12.5@sha256:${'b'.repeat(64)}`;
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json([
-          {
-            id: 'container-application-1',
-            name: 'cloudchef-workspace-user',
-            durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'cloudchef-workspace-user' }))
-      .mockResolvedValueOnce(
-        Response.json([
-          {
-            id: 'rollout-1',
-            created_at: '2026-08-05T00:00:00Z',
-            status: 'progressing',
-            target_configuration: {
-              image,
-              instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-              observability: { logs: { enabled: true } },
-              wrangler_ssh: { enabled: false },
-            },
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          id: 'rollout-1',
-          created_at: '2026-08-05T00:00:00Z',
-          status: 'completed',
-          target_configuration: {
-            image,
-            instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-            observability: { logs: { enabled: true } },
-            wrangler_ssh: { enabled: false },
-          },
-        }),
-      );
-
-    await accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-      applicationName: 'cloudchef-workspace-user',
-      namespaceId: '0123456789abcdef0123456789abcdef',
-      image,
-    });
-
-    expect(request).toHaveBeenCalledTimes(4);
-    expect(request).toHaveBeenLastCalledWith(
-      'https://api.cloudflare.com/client/v4/accounts/user-account/containers/applications/container-application-1/rollouts/rollout-1',
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  test('waits for a matching Sandbox rollout to complete', async () => {
-    const image = `docker.io/cloudflare/sandbox:0.12.5@sha256:${'b'.repeat(64)}`;
-    const targetConfiguration = {
-      image,
-      instance_type: PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE,
-      observability: { logs: { enabled: true } },
-      wrangler_ssh: { enabled: false },
-    };
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(
-        Response.json([
-          {
-            id: 'container-application-1',
-            name: 'cloudchef-workspace-user',
-            durable_objects: { namespace_id: '0123456789abcdef0123456789abcdef' },
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(Response.json({ id: 'container-application-1', name: 'cloudchef-workspace-user' }))
-      .mockResolvedValueOnce(
-        Response.json([
-          {
-            id: 'rollout-1',
-            created_at: '2026-08-05T00:00:00Z',
-            status: 'progressing',
-            target_configuration: targetConfiguration,
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          id: 'rollout-1',
-          created_at: '2026-08-05T00:00:00Z',
-          status: 'progressing',
-          target_configuration: targetConfiguration,
-        }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({
-          id: 'rollout-1',
-          created_at: '2026-08-05T00:00:00Z',
-          status: 'completed',
-          target_configuration: targetConfiguration,
-        }),
-      );
-    const wait = vi.fn(async () => undefined);
-    vi.stubGlobal('scheduler', { wait });
-
-    await accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
-      applicationName: 'cloudchef-workspace-user',
-      namespaceId: '0123456789abcdef0123456789abcdef',
-      image,
-    });
-
-    expect(wait).toHaveBeenCalledOnce();
-    vi.unstubAllGlobals();
-    expect(request).toHaveBeenCalledTimes(5);
-  });
-
-  test('preserves Cloudflare Containers error details', async () => {
-    const request = vi
-      .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json([]))
-      .mockResolvedValueOnce(
-        Response.json(
-          { success: false, errors: [{ code: 1000, message: 'wrangler_ssh must be an object' }] },
-          { status: 400 },
-        ),
-      );
-
-    await expect(
+  describe('workspace container applications', () => {
+    const NAMESPACE = '0123456789abcdef0123456789abcdef';
+    const APPLICATIONS = 'https://api.cloudflare.com/client/v4/accounts/user-account/containers/applications';
+    const ensure = (request: typeof fetch) =>
       accountApi('user-account', 'user-token', request).ensureWorkspaceRuntimeContainer({
         applicationName: 'cloudchef-workspace-user',
-        namespaceId: '0123456789abcdef0123456789abcdef',
-        image: `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`,
-      }),
-    ).rejects.toThrow('wrangler_ssh must be an object');
+        namespaceId: NAMESPACE,
+      });
+    const created = (overrides: { scheduling_policy?: string; durable_objects?: { namespace_id: string } } = {}) =>
+      Response.json({
+        id: NAMESPACE,
+        name: 'cloudchef-workspace-user',
+        scheduling_policy: 'durable_object',
+        durable_objects: { namespace_id: NAMESPACE },
+        ...overrides,
+      });
+
+    test('creates one on the durable_object policy, naming no image, instance type or instance limit', async () => {
+      const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(created());
+
+      await expect(ensure(request)).resolves.toBeUndefined();
+
+      expect(request).toHaveBeenNthCalledWith(1, APPLICATIONS, expect.objectContaining({ method: 'GET' }));
+      expect(request).toHaveBeenNthCalledWith(2, APPLICATIONS, expect.objectContaining({ method: 'POST' }));
+      expect(JSON.parse(String(request.mock.calls[1]?.[1]?.body))).toEqual({
+        name: 'cloudchef-workspace-user',
+        scheduling_policy: 'durable_object',
+        durable_objects: { namespace_id: NAMESPACE },
+        observability: { logs: { enabled: true } },
+      });
+    });
+
+    test('leaves one already on the durable_object policy as it is', async () => {
+      const request = vi.fn<typeof fetch>().mockResolvedValueOnce(
+        Response.json([
+          {
+            id: NAMESPACE,
+            name: 'cloudchef-workspace-user',
+            scheduling_policy: 'durable_object',
+            durable_objects: { namespace_id: NAMESPACE },
+          },
+        ]),
+      );
+
+      await ensure(request);
+
+      expect(request).toHaveBeenCalledOnce();
+    });
+
+    test('deletes a platform-scheduled one and creates it again for the same namespace', async () => {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json([
+            {
+              id: 'container-application-1',
+              name: 'cloudchef-workspace-user',
+              scheduling_policy: 'default',
+              durable_objects: { namespace_id: NAMESPACE },
+            },
+          ]),
+        )
+        .mockResolvedValueOnce(Response.json({ success: true, result: null }))
+        .mockResolvedValueOnce(created());
+      vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+      await ensure(request);
+
+      expect(request.mock.calls.map(([url, init]) => [init?.method, String(url)])).toEqual([
+        ['GET', APPLICATIONS],
+        ['DELETE', `${APPLICATIONS}/container-application-1`],
+        ['POST', APPLICATIONS],
+      ]);
+      expect(JSON.parse(String(request.mock.calls[2]?.[1]?.body))).toMatchObject({
+        scheduling_policy: 'durable_object',
+        durable_objects: { namespace_id: NAMESPACE },
+      });
+    });
+
+    test('replaces one created before applications reported their policy', async () => {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json([
+            {
+              id: 'container-application-1',
+              name: 'cloudchef-workspace-user',
+              durable_objects: { namespace_id: NAMESPACE },
+            },
+          ]),
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 404 }))
+        .mockResolvedValueOnce(created());
+      vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+      await ensure(request);
+
+      expect(request.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'DELETE', 'POST']);
+    });
+
+    test('never replaces an application of the same name serving another namespace', async () => {
+      const request = vi.fn<typeof fetch>().mockResolvedValueOnce(
+        Response.json([
+          {
+            id: 'container-application-1',
+            name: 'cloudchef-workspace-user',
+            scheduling_policy: 'default',
+            durable_objects: { namespace_id: 'f'.repeat(32) },
+          },
+        ]),
+      );
+
+      await expect(ensure(request)).rejects.toThrow('attached to a different Durable Object namespace');
+      expect(request).toHaveBeenCalledOnce();
+    });
+
+    test('refuses an application Cloudflare created on another policy or namespace', async () => {
+      for (const readback of [
+        created({ scheduling_policy: 'default' }),
+        created({ durable_objects: { namespace_id: 'f'.repeat(32) } }),
+      ]) {
+        const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([])).mockResolvedValueOnce(readback);
+        await expect(ensure(request)).rejects.toThrow('invalid workspace container application');
+      }
+    });
+
+    test('preserves Cloudflare Containers error details', async () => {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json([]))
+        .mockResolvedValueOnce(
+          Response.json(
+            { success: false, errors: [{ code: 1000, message: 'scheduling_policy is not allowed' }] },
+            { status: 400 },
+          ),
+        );
+
+      await expect(ensure(request)).rejects.toThrow('scheduling_policy is not allowed');
+    });
+
+    test('rejects a matching container application without provider identity', async () => {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json([{ name: 'cloudchef-workspace-user' }]));
+
+      await expect(ensure(request)).rejects.toThrow('invalid workspace container application');
+      expect(request).toHaveBeenCalledOnce();
+    });
   });
 
-  test('rejects a matching container application without provider identity', async () => {
-    const request = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([{ name: 'cloudchef-workspace-user' }]));
-    const api = accountApi('user-account', 'user-token', request);
-
-    await expect(
-      api.ensureWorkspaceRuntimeContainer({
-        applicationName: 'cloudchef-workspace-user',
-        namespaceId: '0123456789abcdef0123456789abcdef',
-        image: `docker.io/cloudflare/sandbox:0.12.4@sha256:${'b'.repeat(64)}`,
-      }),
-    ).rejects.toThrow('invalid workspace container application');
-    expect(request).toHaveBeenCalledOnce();
-  });
   test('resolves a named KV namespace through the same paged account listing', async () => {
     const namespaceId = '0123456789abcdef0123456789abcdef';
     const request = vi

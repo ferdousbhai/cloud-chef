@@ -108,51 +108,56 @@ one deterministic step. Do not edit generated files directly: the route trees, W
 `.cloudflare/wrangler.json` (the Wrangler-format copy of `cloudflare.config.ts` that `@cloudflare/vitest-plugin` and
 local D1 migrations read).
 
-## User Workspace Image
+## Workspace Containers
 
-Every workspace container, and every project builder's, runs CloudChef's own image, built from
-`user-workspace-image/Dockerfile`: computerd as the entrypoint, sandbox-shim for `@cloudflare/sandbox`'s file
-operations, Node at `.nvmrc`'s version, pnpm and the credential-free `cf` at the generated projects' pins, git, FUSE and
-tmux, every base pinned by digest. Each runtime's container applications are platform-scheduled
-(`scheduling_policy: "default"`) and name the image by the digest in `user-workspace-image/workspace-image.lock.json`;
-it is published to a public registry every account's application can pull from (Docker Hub, as the Cloudflare Sandbox
-image was). Until the lock pins a published image, provisioning prepares nothing, the upgrade sweep starts nothing, and
-the Workers Builds deploy refuses the release (`verify:workspace-image`, its first step).
+Every workspace container, and every project builder's, starts from Cloudflare's managed image
+`cloudflare/debian-trixie` on a container application with the `durable_object` scheduling policy. Nothing is built or
+published: the first container a runtime starts installs what CloudChef needs (fuse3, git, tmux and the system tools
+the runtime's commands use; Node at `.nvmrc`'s version, checked against its SHA-256; pnpm and the credential-free `cf`
+at the generated projects' pins; computerd at `@cloudflare/computer`'s version, by its GHCR layer digest), takes a
+snapshot of the result, and every later start of that runtime restores the snapshot (ARCHITECTURE.md, The base
+snapshot). The setup and its pins are in `user-workspace-runtime/src/base-container.ts`.
 
-Publishing is the owner's, from a machine with Docker and buildx, logged in to the lock's registry
-(`docker login`); nothing in CI or a deploy publishes:
+Changing a pin there, or anything in the setup, gives the base a new key: every runtime sets up once more on its next
+start and keeps a new snapshot. `pnpm run validate` checks the pins against `.nvmrc`, package.json and the template
+(`verify:stack`, and the base-container tests); `node scripts/check-runtime-artifacts.mjs` checks them against what
+nodejs.org and GHCR serve, as the daily `runtime-artifacts` workflow does. Bumping `@cloudflare/computer` means bumping
+computerd's version and layer digest with it (it speaks that package's protocol): read the new layer's digest from
+`https://ghcr.io/v2/cloudflare/computer-computerd-linux-x64/manifests/<version>` (an anonymous pull token from
+`https://ghcr.io/token?service=ghcr.io&scope=repository:cloudflare/computer-computerd-linux-x64:pull`), and check
+that the image is still one layer holding only `usr/local/bin/computerd`. Bumping `.nvmrc` means taking the linux-x64
+tarball's SHA-256 from `https://nodejs.org/dist/v<version>/SHASUMS256.txt`. Run `pnpm run generate:artifacts`
+afterwards, since the setup is part of the runtime bundle.
 
-```bash
-pnpm run workspace-image:check       # the Dockerfile's pins match package.json, .nvmrc and the template
-pnpm run workspace-image:publish     # build for linux/amd64, push, write the tag and digest into the lock
-git add user-workspace-image/workspace-image.lock.json
-```
-
-`node scripts/publish-user-workspace-image.mjs --repository docker.io/<namespace>/<name>` pushes somewhere other than
-the lock's repository (create it public first). The tag names the Computer and Sandbox versions and a digest of the
-build context, so a push never overwrites an earlier tag, and pushing changes no live runtime: a runtime runs the new
-image only once a release committing its pin is deployed and that runtime is upgraded. Bumping `@cloudflare/computer`
-or `@cloudflare/sandbox` means bumping the matching base in the Dockerfile (computerd and sandbox-shim speak those
-packages' protocols), republishing, and committing the lock; `scripts/check-runtime-artifacts.mjs` reports a drifted
-base.
+The base snapshot is kept in each runtime's own D1 (`base_container_snapshots`); the runtime Worker's logs
+(`base_setup_completed`, `base_snapshot_taken`, `base_snapshot_restore_failed`, and `workspace_container_launched` or
+`builder_container_started` with its `source`) say which a start used.
 
 ## Upgrading Workspace Runtimes
 
-A release that changes the runtime build or the image pin makes every runtime outdated. Each is upgraded by the same
-gated provisioning Workflow, started by its person's next session request or by the 15-minute sweep, and only in its
-upgrade window, so a running turn is never cut off (ARCHITECTURE.md, Runtime Upgrades). To try such a release on one
-runtime first:
+A release that changes the runtime build, or moves its container applications to another scheduling policy, makes
+every runtime outdated. Each is upgraded by the same gated provisioning Workflow, started by its person's next session
+request or by the 15-minute sweep, and only in its upgrade window, so a running turn is never cut off (ARCHITECTURE.md,
+Runtime Upgrades). The release that moves runtimes from platform-scheduled applications to `durable_object` ones
+replaces each application inside that window, which ends any container still running in it; workspace files stay in
+the Durable Objects (ARCHITECTURE.md, Moving a runtime from the default policy). To try such a release on one runtime
+first:
 
 1. Find the canary's CloudChef user id (`pnpm run ops:session -- <their email> --json` includes it with their runtime).
 2. Release with that id in `WORKSPACE_RUNTIME_UPGRADE_CANARY` (`cloudflare.config.ts`; comma-separated for several).
    Only their runtime is upgraded; everyone else's keeps serving as it is.
-3. Use the workspace: open a chat, run commands, open the terminal, publish. `pnpm run ops` shows which runtimes are
-   current; `pnpm run ops:session` reconstructs a session.
+3. Use the workspace: open a chat, run commands, open the terminal, publish. The first container start sets up the
+   base (two to four minutes); stop it (or let it sleep) and start it again to see a restore. `pnpm run ops` shows
+   which runtimes are current; `pnpm run ops:session` reconstructs a session.
 4. Release again with the variable empty. The next sweeps upgrade the rest, at most ten Workflows per sweep, each in its
    own upgrade window; `pnpm run ops` shows them catching up.
 
-To back out, release the previous runtime and image pin (with the variable naming nobody else, or empty); the canary's
-runtime is upgraded back the same way. Neither step changes a container application's scheduling policy.
+To back out a runtime build that kept the scheduling policy, release the previous runtime (with the variable naming
+nobody else, or empty); the canary's runtime is upgraded back the same way. To back out the move to `durable_object`,
+release the previous runtime and, for each moved runtime, while it is idle, delete its two applications
+(`cf containers applications delete <id>`, the Durable Object namespace id, for `<worker>` and `<worker>-builder`):
+the previous release's provisioning, which keeps retrying its container step, then creates platform-scheduled ones
+again (ARCHITECTURE.md, Rolling back).
 
 ## Deployment
 

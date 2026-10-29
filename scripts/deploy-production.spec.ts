@@ -66,7 +66,6 @@ describe('production deploy wrapper', () => {
     expect(packageJson.scripts['release:production']).toBeUndefined();
     expect(packageJson.scripts['workers-builds:deploy']).toBe('node scripts/deploy-production.mjs --workers-builds');
     expectOrdered(WORKERS_BUILDS_PRE_DEPLOY_STEPS.join(' && '), [
-      'verify:workspace-image',
       'provision:production:check',
       'd1:bookmark:production',
       'd1:migrations:apply:production',
@@ -445,12 +444,7 @@ describe('production deploy wrapper', () => {
 
       await expect(checkFails).rejects.toThrow('provision:production:check failed with exit status 1.');
       // It waited for validation, so the build log holds its output, and migrated nothing.
-      expect(failedCheckEvents).toEqual([
-        'validation started',
-        'verify:workspace-image',
-        'provision:production:check',
-        'validation finished',
-      ]);
+      expect(failedCheckEvents).toEqual(['validation started', 'provision:production:check', 'validation finished']);
     });
 
     it('deploys nothing, and says D1 was migrated, when the validated build does not carry the release vars', async () => {
