@@ -100,7 +100,6 @@ describe('ConversationAgent schema', () => {
       'builder_cloudflare_executions',
       'builder_cloudflare_executions_status_expiry',
       'builder_cloudflare_executions_tool_call',
-      'builder_context_state',
       'builder_identity',
     ]);
   });

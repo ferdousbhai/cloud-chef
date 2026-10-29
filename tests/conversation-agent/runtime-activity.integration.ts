@@ -3,7 +3,6 @@ import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
   conversationAgentHarness,
-  CHAT_INITIAL_ID,
   eventually,
   RUNTIME_VERSION,
   settle,
@@ -145,14 +144,11 @@ describe('ConversationAgent runtime activity', () => {
     const harness = await conversationAgentHarness({ cloudflareIdentity: true, ai: { models } });
     harness.openUpgradeWindow();
 
-    const turn = harness.agent.onChatMessage(undefined, {
+    const turn = harness.agent.sendMessage({
+      text: 'Build it',
       requestId: 'request-1',
-      body: {
-        chatInitialId: CHAT_INITIAL_ID,
-        subchatIndex: 0,
-        transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
-        modelId: CLOUDFLARE_WORKERS_AI_MODEL,
-      },
+      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      modelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     await settle();
     expectHeldByUpgradeWindow(harness);
@@ -180,22 +176,15 @@ describe('ConversationAgent runtime activity', () => {
     });
     const harness = await conversationAgentHarness({ cloudflareIdentity: true, ai: { models } });
     harness.openUpgradeWindow();
-    const stop = new AbortController();
 
-    const turn = Promise.resolve(
-      harness.agent.onChatMessage(undefined, {
-        requestId: 'request-1',
-        abortSignal: stop.signal,
-        body: {
-          chatInitialId: CHAT_INITIAL_ID,
-          subchatIndex: 0,
-          transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
-          modelId: CLOUDFLARE_WORKERS_AI_MODEL,
-        },
-      }),
-    );
+    const turn = harness.agent.sendMessage({
+      text: 'Build it',
+      requestId: 'request-1',
+      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      modelId: CLOUDFLARE_WORKERS_AI_MODEL,
+    });
     await eventually(() => harness.agent.state.upgradeWaiting === true);
-    stop.abort(new DOMException('Cancelled by the project owner', 'AbortError'));
+    await harness.agent.cancelActiveTurn();
 
     await expect(turn).rejects.toThrow('Cancelled by the project owner');
     expect(harness.agent.state.activeTurn).toBeNull();

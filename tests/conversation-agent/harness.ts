@@ -10,7 +10,14 @@ import { createRequire } from 'node:module';
 import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import type * as NodeSqlite from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
-import type { ChatResponseResult } from '@cloudflare/ai-chat';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import type { EntryDraft, JsonObject } from '@earendil-works/pi-durable';
+import { ROOT_SESSION } from 'agents/harness/pi';
+import type { FauxProviderHandle } from '@earendil-works/pi-ai/providers/faux';
+import { builderModels } from '~/lib/.server/llm/builder-models';
+import type { ModelHandle } from '~/lib/.server/llm/pi-ai-models';
+import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
+import { CLOUDFLARE_WORKERS_AI_MODEL, type BuilderModel, type BuilderModelId } from '~/lib/workers-ai-model';
 import { ConversationAgent } from '~/agents/conversation-agent';
 import type {
   deployValidatedRevisionForBuilder,
@@ -127,6 +134,19 @@ function durableObjectStorage() {
     delete: async (key: string) => values.delete(key),
     list: async () => new Map(values),
     transactionSync: <T>(operation: () => T): T => operation(),
+    // pi-durable's Durable Object adapter commits each of its writes in one of these.
+    transaction: async <T>(closure: () => Promise<T>): Promise<T> => {
+      database.exec('SAVEPOINT durable_object_transaction');
+      try {
+        const result = await closure();
+        database.exec('RELEASE durable_object_transaction');
+        return result;
+      } catch (error) {
+        database.exec('ROLLBACK TO durable_object_transaction');
+        database.exec('RELEASE durable_object_transaction');
+        throw error;
+      }
+    },
     getAlarm: async () => alarm,
     setAlarm: async (at: number | Date) => {
       alarm = Number(at);
@@ -154,6 +174,17 @@ function durableObjectState(name: string) {
     pending,
   };
 }
+
+/** What the scripted model stands in for. */
+const TEST_MODEL: BuilderModel = {
+  id: CLOUDFLARE_WORKERS_AI_MODEL,
+  label: 'Test model',
+  description: 'A scripted model',
+  contextTokens: 200_000,
+  requiresPaid: false,
+  reasoning: false,
+  vision: false,
+};
 
 const READY_WORKSPACE: BuilderWorkspaceState = {
   initialized: true,
@@ -203,12 +234,77 @@ function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublis
 }
 
 /**
- * The real ConversationAgent, with its protected end-of-turn hook reachable the way the AI Chat base
- * class reaches it once a turn's response settles.
+ * The real ConversationAgent, with what a turn's run leaves behind reachable: its end, as the agent's watch of the
+ * run calls it once pi-durable settles the run, and entries of the transcript pi-durable keeps.
  */
 class HarnessConversationAgent extends ConversationAgent {
-  respond(result: ChatResponseResult): Promise<void> {
-    return this.onChatResponse(result);
+  /** The model a turn runs on, scripted; without one, the agent reaches Workers AI and the control plane as it does. */
+  faux: FauxProviderHandle | null = null;
+
+  protected override async chooseModel(
+    userId: string,
+    modelId: BuilderModelId,
+    reasoningLevel: Parameters<ConversationAgent['chooseModel']>[2],
+  ): ReturnType<ConversationAgent['chooseModel']> {
+    if (!this.faux) {
+      return super.chooseModel(userId, modelId, reasoningLevel);
+    }
+    return {
+      accountCredentials: await getUserWorkersAiCredentials(this.env, userId),
+      model: TEST_MODEL,
+      gatewayKeyRevision: undefined,
+      chosenReasoningLevel: undefined,
+    };
+  }
+
+  protected override useModel(...args: Parameters<ConversationAgent['useModel']>): void {
+    const faux = this.faux;
+    if (!faux) {
+      super.useModel(...args);
+      return;
+    }
+    const handle = {
+      model: faux.getModel(),
+      stream: (...[model, context, options]: Parameters<ModelHandle['stream']>) => {
+        const { toolChoice: _toolChoice, ...rest } = options ?? {};
+        return faux.provider.streamSimple(model, context, rest);
+      },
+    };
+    this.turnModels = { handle, ...builderModels(handle) };
+  }
+
+  protected override async restoreTurnModel(...args: Parameters<ConversationAgent['restoreTurnModel']>) {
+    if (!this.faux) {
+      return super.restoreTurnModel(...args);
+    }
+    this.useModel(args[0], await getUserWorkersAiCredentials(this.env, OWNER_ID), TEST_MODEL);
+  }
+
+  protected override async requireModelAccess(): Promise<{ contentLogging: boolean }> {
+    return this.faux ? { contentLogging: false } : super.requireModelAccess();
+  }
+
+  protected override async scheduleTitleGeneration(
+    ...args: Parameters<ConversationAgent['scheduleTitleGeneration']>
+  ): Promise<void> {
+    if (!this.faux) {
+      await super.scheduleTitleGeneration(...args);
+    }
+  }
+
+  respond(status: 'completed' | 'aborted' | 'error'): Promise<void> {
+    const turn = this.state.activeTurn;
+    return turn ? this.endTurn(turn, status) : Promise.resolve();
+  }
+
+  /** Appends entries to the conversation's transcript, as its runs do. */
+  async appendEntries(entries: readonly EntryDraft[]): Promise<void> {
+    const conversation = await this.piHarness.conversation(ROOT_SESSION);
+    await conversation.commit(async (tx) => {
+      for (const entry of entries) {
+        await tx.appendEntry(conversation.id, entry);
+      }
+    }, BACKGROUND_CONTEXT);
   }
 }
 
@@ -234,6 +330,8 @@ export async function conversationAgentHarness(
      * yes unless a test says otherwise, so a turn that owes a publication publishes.
      */
     workspaceMatchesMain?: boolean;
+    /** The scripted model turns run on. */
+    faux?: FauxProviderHandle;
   } = {},
 ) {
   const artifacts = options.artifacts ?? fakeArtifacts();
@@ -244,7 +342,11 @@ export async function conversationAgentHarness(
     INSERT INTO conversations (workspace_id, conversation_index, agent_name, transition_token, created_at, updated_at)
       VALUES ('chat-1', 0, '${AGENT_NAME}', 'token-1', 1, 1);
   `);
-  const runtimeBindings: UserRuntimeBindings = { CLOUDCHEF_USER_RUNTIME: '1', AI: options.ai };
+  const runtimeBindings: UserRuntimeBindings = {
+    CLOUDCHEF_USER_RUNTIME: '1',
+    // A scripted model still runs where the account's Workers AI binding is.
+    AI: options.ai ?? (options.faux ? {} : undefined),
+  };
   if (options.cloudflareIdentity) {
     Object.assign(runtimeBindings, RUNTIME_IDENTITY);
   }
@@ -259,10 +361,10 @@ export async function conversationAgentHarness(
   });
   /** The ProjectWorkspace of each project id, as the namespace holds them. */
   const workspaces = new Map<string, Partial<BuilderWorkspaceApi>>();
-  const startAgent = async (name: string) => {
-    const ctx = durableObjectState(name);
+  const startAgent = async (name: string, ctx = durableObjectState(name)) => {
     // SAFETY: the agent and the Agents SDK read only the members `durableObjectState` implements.
     const agent = new HarnessConversationAgent(ctx as never, env);
+    agent.faux = options.faux ?? null;
     // SAFETY: the ProjectWorkspace is the agent's one collaborator outside this process. It is replaced
     // before any call reaches it, with a fake of every member the exercised path calls.
     const ownWorkspace = fakeWorkspace(options.newWorkspace?.() ?? options.workspace);
@@ -272,7 +374,7 @@ export async function conversationAgentHarness(
     Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
     // SAFETY: as above, for the account's repositories: the real client, over a fake Artifacts.
     Reflect.set(agent, 'repositories', () => new ProjectRepositories(artifacts, { fetch: artifacts.fetch }));
-    await agent.onStart({ userId: OWNER_ID });
+    await agent.lifecycle.start({ userId: OWNER_ID });
     // Known once the agent knows its chat: the workspace the namespace gives that project, shared by every
     // agent working on it.
     // eslint-disable-next-line dot-notation
@@ -359,17 +461,17 @@ export async function conversationAgentHarness(
       return proposal;
     },
     cloudflareExecution: (executionId: string) => executions.get(executionId),
-    /** A turn is running, as `onChatMessage` records it before any model work. */
+    /** A turn is running, as `sendMessage` records it before any model work. */
     beginTurn: () =>
       agent.setState({ ...agent.state, activeTurn: { id: 'turn-1', requestId: 'request-1', status: 'accepted' } }),
-    /** The running turn's response settled: the AI Chat base class calls the agent's end-of-turn hook. */
-    endTurn: (status: ChatResponseResult['status'] = 'completed') =>
-      agent.respond({
-        message: { id: 'assistant-1', role: 'assistant', parts: [] },
-        requestId: 'request-1',
-        continuation: false,
-        status,
-      }),
+    /** The running turn's run settled: the agent's watch of it ends the turn. */
+    endTurn: (status: 'completed' | 'aborted' | 'error' = 'completed') => agent.respond(status),
+    /**
+     * The object was evicted and starts again on the storage it kept: a new instance of the agent, which reopens pi.
+     */
+    restart: async () => (await startAgent(AGENT_NAME, ctx)).agent,
+    /** The chat as the browser shows it. */
+    messages: async () => (await agent.getTranscriptSnapshot({ agentName: AGENT_NAME, subchatIndex: 0 })).messages,
   };
 }
 
@@ -387,4 +489,49 @@ export async function eventually(condition: () => boolean, timeoutMs = 3_000): P
 /** Let pending microtasks and short timers run, to show that something did not happen. */
 export function settle(ms = 50): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const NO_USAGE = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+/** A model response that ran one command, and the command's result, as pi-durable keeps them. */
+export function commandEntries(toolCallId: string, command: string, output: JsonObject): EntryDraft[] {
+  return [
+    {
+      kind: 'pi.assistant',
+      model: [
+        {
+          role: 'assistant',
+          api: 'openai-completions',
+          provider: 'cloudflare-workers-ai',
+          model: 'test-model',
+          content: [{ type: 'toolCall', id: toolCallId, name: 'exec', arguments: { command } }],
+          usage: NO_USAGE,
+          stopReason: 'toolUse',
+          timestamp: 1,
+        },
+      ],
+    },
+    {
+      kind: 'pi.tool-result',
+      model: [
+        {
+          role: 'toolResult',
+          toolCallId,
+          toolName: 'exec',
+          content: [{ type: 'text', text: JSON.stringify(output) }],
+          details: output,
+          isError: true,
+          timestamp: 2,
+        },
+      ],
+      data: { diagnostics: [] },
+    },
+  ];
 }

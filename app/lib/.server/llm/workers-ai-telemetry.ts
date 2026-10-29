@@ -1,17 +1,4 @@
-import type { PromptCharacterCounts } from 'cloudchef-agent/context-message-metrics';
-import type { Usage } from '@earendil-works/pi-ai';
-import type { BuilderTurnReport } from './builder-turn-limits';
-
-interface FinishTelemetryOptions {
-  usage: Usage;
-  finishReason: string;
-  firstUserMessage: boolean;
-  contextReduced: boolean;
-  estimatedContextTokens?: number;
-  promptCharacterCounts: PromptCharacterCounts;
-  providerModel: string;
-  startedAt: number;
-}
+import type { AssistantMessage, Usage } from '@earendil-works/pi-ai';
 
 /** One finished model turn's token counts, as reported to an organization's admins. */
 export type ModelTurnUsage = { inputTokens: number; outputTokens: number; cachedTokens: number };
@@ -26,23 +13,19 @@ export function turnUsage(usage: Usage): ModelTurnUsage {
   };
 }
 
-/** Logs a finished model turn and returns its token counts. */
-export function recordWorkersAiFinish(options: FinishTelemetryOptions): ModelTurnUsage {
-  const tokens = turnUsage(options.usage);
+/** Logs one model response, content-free, and returns its token counts: whether the provider read it from its cache. */
+export function recordModelResponse(message: AssistantMessage): ModelTurnUsage {
+  const tokens = turnUsage(message.usage);
   console.info({
     event: 'workers_ai_finished',
-    firstUserMessage: options.firstUserMessage,
-    model: options.providerModel,
-    finishReason: options.finishReason,
+    model: message.model,
+    finishReason: message.stopReason,
     usage: {
       inputTokens: tokens.inputTokens,
       outputTokens: tokens.outputTokens,
-      totalTokens: normalizeUsage(options.usage.totalTokens),
+      totalTokens: normalizeUsage(message.usage.totalTokens),
     },
-    contextReduced: options.contextReduced,
-    estimatedContextTokens: options.estimatedContextTokens,
-    promptCharacterCounts: options.promptCharacterCounts,
-    durationMs: Date.now() - options.startedAt,
+    durationMs: message.durationMs,
     promptCache: {
       attempted: true,
       status: tokens.cachedTokens > 0 ? 'hit' : 'miss',
@@ -55,36 +38,6 @@ export function recordWorkersAiFinish(options: FinishTelemetryOptions): ModelTur
 export function recordPiStage(stage: string, modelId: string, status?: number): void {
   const entry = { event: 'cloudchef_pi_stage', stage, modelId };
   console.info(status === undefined ? entry : { ...entry, status });
-}
-
-export function recordPiTurnReport(modelId: string, report: BuilderTurnReport): void {
-  console.info({ event: 'cloudchef_pi_turn_budget', modelId, ...report });
-}
-
-export function recordFirstWorkersAiResponse(startedAt: number): void {
-  console.info({
-    event: 'workers_ai_first_response',
-    timeToFirstResponseMs: Date.now() - startedAt,
-    platform: 'Cloudflare AI',
-  });
-}
-
-/** First visible text or tool activity — the moment the watchdog treats the model as alive. */
-export function recordFirstMeaningfulWorkersAiProgress(startedAt: number): void {
-  console.info({
-    event: 'workers_ai_first_meaningful_progress',
-    timeToFirstMeaningfulProgressMs: Date.now() - startedAt,
-    platform: 'Cloudflare AI',
-  });
-}
-
-/** First workspace-mutating tool execution of the turn. Content-free: only the tool name and timing. */
-export function recordFirstBuilderMutation(startedAt: number, toolName: string): void {
-  console.info({
-    event: 'builder_first_mutation',
-    toolName,
-    timeToFirstMutationMs: Date.now() - startedAt,
-  });
 }
 
 function normalizeUsage(usage: number | undefined): number {

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { CheckIcon, CircleIcon, Cross2Icon, FileIcon, MagnifyingGlassIcon, Pencil1Icon } from '@radix-ui/react-icons';
+import { CheckIcon, CircleIcon, Cross2Icon, FileIcon, Pencil1Icon } from '@radix-ui/react-icons';
 import { Spinner } from '@ui/Spinner';
 import { isToolActivityStatusActive, type ToolActivityStatus } from '~/lib/common/types';
 import { classNames } from '~/utils/classNames';
@@ -24,7 +24,6 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['publish_preview', 'Preview stopped'],
   ['publish', 'Publishing stopped'],
   ['commit', 'Saving stopped'],
-  ['history', 'History search stopped'],
 ]);
 
 /** A team project's publish that was not sent, or whose build failed or hit a conflict. */
@@ -115,8 +114,6 @@ export function toolTitle(
         invocation.toolName === 'publish' ? 'Publishing' : 'Making a preview',
         <Pencil1Icon className="text-content-secondary" />,
       );
-    case 'history':
-      return historyTitle(invocation, status);
     default:
       return invocation.toolName;
   }
@@ -146,19 +143,6 @@ function publishTitle(publish: LinkedPublishView): ReactNode {
 }
 
 const editedPathSchema = z.looseObject({ path: z.string() });
-const historyInputSchema = z.looseObject({ op: z.string(), query: z.string().optional() });
-
-function historyTitle(invocation: CloudChefToolInvocation, status: ToolActivityStatus): ReactNode {
-  const input = historyInputSchema.safeParse(invocation.input).data;
-  const running = status === 'running';
-  const title =
-    input?.op === 'search' && input.query
-      ? `${running ? 'Searching' : 'Searched'} the conversation for ${compactToolLabel(input.query)}`
-      : input?.op === 'read'
-        ? `${running ? 'Reading' : 'Read'} an earlier message`
-        : `${running ? 'Searching' : 'Searched'} the conversation`;
-  return titleRow(title, <MagnifyingGlassIcon className="text-content-secondary" />);
-}
 
 function icon(content: ReactNode, color: string): ReactNode {
   return <div className={classNames('text-base', color)}>{content}</div>;

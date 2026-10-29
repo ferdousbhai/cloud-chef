@@ -42,35 +42,47 @@ function isolateRootWorkerRoutes(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [
-    isolateRootWorkerRoutes(),
-    tanstackStart({
-      srcDirectory: 'app',
-      router: {
-        routesDirectory: 'routes',
-        generatedRouteTree: 'routeTree.gen.ts',
-        quoteStyle: 'single',
-        semicolons: true,
-      },
-    }),
-    cloudflareTest(async () => ({
-      // The pool reads only Wrangler config files, so it runs against a Wrangler-format copy of cloudflare.config.ts.
-      wrangler: { configPath: await writeDerivedWranglerConfig() },
-      miniflare: {
-        bindings: {
-          // Production secrets are never needed by local integration tests.
-          ...testSecrets,
-          CLOUDFLARE_OAUTH_CLIENT_ID: 'test-oauth-client',
-          TEST_MIGRATIONS: await readD1Migrations(fromRoot('./migrations')),
-          COMMIT_SHA: 'workerd-test-sha',
+  test: {
+    projects: [
+      {
+        plugins: [
+          isolateRootWorkerRoutes(),
+          tanstackStart({
+            srcDirectory: 'app',
+            router: {
+              routesDirectory: 'routes',
+              generatedRouteTree: 'routeTree.gen.ts',
+              quoteStyle: 'single',
+              semicolons: true,
+            },
+          }),
+          cloudflareTest(async () => ({
+            // The pool reads only Wrangler config files, so it runs against a Wrangler-format copy of cloudflare.config.ts.
+            wrangler: { configPath: await writeDerivedWranglerConfig() },
+            miniflare: {
+              bindings: {
+                // Production secrets are never needed by local integration tests.
+                ...testSecrets,
+                CLOUDFLARE_OAUTH_CLIENT_ID: 'test-oauth-client',
+                TEST_MIGRATIONS: await readD1Migrations(fromRoot('./migrations')),
+                COMMIT_SHA: 'workerd-test-sha',
+              },
+            },
+          })),
+        ],
+        resolve: { tsconfigPaths: true },
+        test: {
+          name: 'control-plane',
+          include: ['tests/workerd/**/*.integration.ts'],
+          exclude: ['tests/workerd/pi/**'],
         },
       },
-    })),
-  ],
-  resolve: {
-    tsconfigPaths: true,
-  },
-  test: {
-    include: ['tests/workerd/**/*.integration.ts'],
+      {
+        // The builder's pi-durable setup in a Durable Object of its own, on real Durable Object SQLite.
+        plugins: [cloudflareTest({ wrangler: { configPath: fromRoot('./tests/workerd/pi/wrangler.jsonc') } })],
+        resolve: { tsconfigPaths: true },
+        test: { name: 'pi-harness', include: ['tests/workerd/pi/**/*.integration.ts'] },
+      },
+    ],
   },
 });

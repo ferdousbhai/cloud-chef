@@ -1,0 +1,10 @@
+{
+  // A Durable Object hosting the builder's pi-durable setup on real Durable Object SQLite, for
+  // tests/workerd/pi/harness.integration.ts only.
+  "name": "cloudchef-pi-harness-test",
+  "main": "./worker.ts",
+  "compatibility_date": "2026-07-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": { "bindings": [{ "name": "BUILDER", "class_name": "BuilderPiTestObject" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BuilderPiTestObject"] }],
+}

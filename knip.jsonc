@@ -16,6 +16,8 @@
         "tests/workerd/**/*.integration.ts",
         "tests/conversation-agent/**/*.integration.ts",
         "tests/workerd/server-dependencies.stub.ts",
+        // The Worker of the pi-durable workerd test, read by its wrangler.jsonc.
+        "tests/workerd/pi/worker.ts",
         // Child processes invoked by the canonical generated-artifact command.
         "make-bootstrap-snapshot.js",
         "scripts/build-user-workspace-runtime.mjs",

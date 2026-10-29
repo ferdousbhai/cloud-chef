@@ -1,13 +1,14 @@
-import { useAgentChat } from '@cloudflare/ai-chat/react';
 import { z } from 'zod';
 import { useAgent } from 'agents/react';
 import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ConversationAgent, ConversationAgentState, BuilderSteeringInput } from '~/agents/conversation-agent';
+import { applyChatFrame, chatFrameSchema } from 'cloudchef-agent/chat-frame';
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
+import type { BuilderModelId } from '~/lib/workers-ai-model';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 import { captureMessage } from '~/lib/telemetry.client';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
-import type { UIMessage } from 'ai';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { recordChatFailure, resetChatRetryState } from './chat-retry';
 import { subchatIndexStore } from '~/lib/stores/subchats';
@@ -18,12 +19,7 @@ import { refreshWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import { executeDataOperation } from '~/lib/cloudflare/client';
 import { api } from '~/lib/cloudflare/data-api';
 import { description as descriptionStore } from '~/lib/stores/description';
-import {
-  transcriptCheckpointsEqual,
-  stripTranscriptBaseMetadata,
-  TRANSCRIPT_BASE_METADATA_KEY,
-  type TranscriptIdentity,
-} from 'cloudchef-agent/transcript';
+import type { TranscriptIdentity } from 'cloudchef-agent/transcript';
 import { BuilderWorkspaceSyncController } from '~/lib/stores/builder-workspace-sync.client';
 import type { BuilderWorkspaceAgent } from '~/lib/stores/builder-workspace-collection.client';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
@@ -31,7 +27,6 @@ import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import { projectRevertStore } from '~/lib/stores/project-actions.client';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationsQueryKey } from '~/lib/cloudflare/data-hooks';
-import { settleBuilderStop } from './builder-stop';
 import {
   refreshUserRuntimeSession,
   requireUserRuntimeEndpoint,
@@ -39,22 +34,18 @@ import {
   runtimeSessionNeedsAction,
 } from '~/lib/cloudflare/runtime-session';
 import { builderModelRequestFields, builderModelStore } from '~/lib/stores/builder-model.client';
-import { builderModelIdSchema } from '~/lib/workers-ai-model';
-import { loadAuthoritativeTranscriptSnapshot, reconcileMessagesForSend } from './chat-send-reconciliation';
 import { CONVERSATION_AGENT_QUERY_CACHE_TTL_MS, loadConversationAgentCapability } from './conversation-agent-auth';
 import type { CloudflareExecutionDecisionHandler } from 'cloudchef-agent/cloudflare-api';
 
 const logger = createScopedLogger('ConversationAgentChat');
 
-/** Streamed `data-tool-progress` parts arrive as untyped JSON on the agent socket. */
-const toolProgressPartSchema = z.object({
-  toolCallId: z.string(),
-  toolName: z.string(),
-  result: z.unknown(),
-});
-
 const AGENT_SEND_READY_TIMEOUT_MS = 10_000;
 const AGENT_CANCEL_SETTLE_TIMEOUT_MS = 5 * 60 * 1000;
+/**
+ * How long a send waits for the agent to start the turn: it waits first for a workspace upgrade (up to three
+ * minutes) and for a new workspace to be seeded, which may take as long as preparing it.
+ */
+const AGENT_SEND_TIMEOUT_MS = 35 * 60 * 1000;
 
 /** What restoring a version answers: which files it changed, none when they already matched. */
 const revertResultSchema = z.object({ changedPaths: z.array(z.string()) });
@@ -145,6 +136,10 @@ export function useConversationAgentChat(args: {
   const runtimeOrigin = runtimeEndpoint.origin;
   // Set while the workspace is being upgraded and the person's message waits to start.
   const [upgradeWaiting, setUpgradeWaiting] = useState(false);
+  /** Handles the chat frames the agent sends; set each render, so the socket listener reads the newest one. */
+  const receiveFrameRef = useRef<(event: MessageEvent, presentationId: string) => void>(() => undefined);
+  /** The presentation a socket's frames belong to: one connected for an earlier presentation is not listened to. */
+  const framePresentationId = args.presentationId;
   const conversationAgent = useAgent<ConversationAgent, ConversationAgentState>({
     agent: 'ConversationAgent',
     name: transcript.agentName,
@@ -155,6 +150,8 @@ export function useConversationAgentChat(args: {
     // A finite query TTL replaces the live socket when it expires. Refresh the
     // short-lived capability only when the SDK reconnects or this identity changes.
     cacheTtl: CONVERSATION_AGENT_QUERY_CACHE_TTL_MS,
+    // The chat itself: the agent sends the whole chat when the socket connects, then what changed.
+    onMessage: (event: MessageEvent) => receiveFrameRef.current(event, framePresentationId),
     onStateUpdate: (state) => {
       if (activePresentationRef.current !== args.presentationId) {
         return;
@@ -196,103 +193,93 @@ export function useConversationAgentChat(args: {
   // presentationId is the key, not an input: changing presentation must hand out a fresh gate.
   // oxlint-disable-next-line react/exhaustive-deps -- deliberate re-key
   const workspaceGateRef = useMemo(() => ({ current: createAsyncGate() }), [args.presentationId]);
-  const chat = useAgentChat<ConversationAgentState, UIMessage>({
-    agent: conversationAgent,
-    getInitialMessages: null,
-    messages: asUiMessages(args.initialMessages),
-    syncMessagesToServer: false,
-    throttle: 100,
-    prepareSendMessagesRequest: ({ body }) => {
-      return {
-        body: {
-          ...body,
-          // The model, and the effort the person chose for it; none at all means the provider's default.
-          ...builderModelRequestFields(builderModelIdSchema.safeParse(body?.modelId).data ?? builderModelStore.get()),
-          chatInitialId: args.chatInitialId,
-          subchatIndex: subchatIndexStore.get() ?? 0,
-          transcript,
-        },
-      };
-    },
-    onData: (part) => {
-      if (activePresentationRef.current !== args.presentationId || part.type !== 'data-tool-progress') {
-        return;
-      }
-      const progress = toolProgressPartSchema.safeParse(part.data);
-      if (progress.success && 'result' in progress.data) {
-        toolProgressStore.record(progress.data);
-      }
-    },
-    onError: (error: Error) => {
-      if (activePresentationRef.current !== args.presentationId) {
-        return;
-      }
-      captureMessage('Failed to process chat request', { level: 'error' });
-      logger.error('Chat request failed', error);
-      // A failure that arrived with nothing to say gives the user nothing to act on, so it is the
-      // one that gets backed off; a provider that named its reason is reported and retried at will.
-      recordChatFailure(error.message.trim().length === 0);
-      toolActivityStore.abortActive();
-      toolProgressStore.clear();
-      if (error.message.includes(WORKERS_PAID_REQUIRED_MARKER)) {
-        showWorkersPaidRequiredToast();
-      }
-      void refreshProjectMetadata(
-        args.chatInitialId,
-        args.accountId,
-        () => activePresentationRef.current === args.presentationId,
-      );
-    },
-    onFinish: ({ finishReason, message }) => {
-      if (activePresentationRef.current !== args.presentationId) {
-        return;
-      }
-      toolProgressStore.clear();
-      // Record final tool outputs before stopping any provider-ended incomplete
-      // calls; sampled message processing may not have observed the last chunk yet.
-      toolActivityStore.finishTurn(message);
-      if (finishReason === 'stop') {
-        resetChatRetryState();
-      }
-      void workspaceControllerRef.current?.pull().catch((workspaceError) => {
-        logger.error('Failed to refresh the durable workspace presentation after a builder response', workspaceError);
-      });
-      void refreshProjectMetadata(
-        args.chatInitialId,
-        args.accountId,
-        () => activePresentationRef.current === args.presentationId,
-      );
-    },
-  });
-  const setMessagesRef = useRef(chat.setMessages);
-  const messagesRef = useRef<CloudChefMessage[]>(chat.messages);
-  const chatTerminalStateRef = useRef({ status: chat.status, isRecovering: chat.isRecovering });
-  const builderTranscriptRef = useRef(conversationAgent.state?.transcript);
-  const stopBarrierRef = useRef<Promise<void>>(Promise.resolve());
+  const [messages, setMessages] = useState<CloudChefMessage[]>(args.initialMessages);
+  const [busy, setBusy] = useState(false);
+  /** A message is on its way to the agent, which has not started its turn yet. */
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<Error | null>(null);
+  const messagesRef = useRef<CloudChefMessage[]>(messages);
+  const busyRef = useRef(false);
   const initialMessagesRef = useRef(args.initialMessages);
-  useLayoutEffect(() => {
-    setMessagesRef.current = chat.setMessages;
-    messagesRef.current = chat.messages;
-    chatTerminalStateRef.current = { status: chat.status, isRecovering: chat.isRecovering };
-    builderTranscriptRef.current = conversationAgent.state?.transcript;
-    initialMessagesRef.current = args.initialMessages;
-  });
-
-  useLayoutEffect(() => {
-    if (chat.isStreaming || chat.isRecovering) {
-      toolActivityStore.resumeTurn(chat.messages.at(-1));
+  const stopBarrierRef = useRef<Promise<void>>(Promise.resolve());
+  const finishRun = (finished: readonly CloudChefMessage[]) => {
+    toolProgressStore.clear();
+    // Record final tool outputs before stopping any provider-ended incomplete calls.
+    const last = finished.at(-1);
+    if (last?.role === 'assistant') {
+      toolActivityStore.finishTurn(last);
     }
-  }, [chat.isStreaming, chat.isRecovering, chat.messages]);
-
-  const readAuthoritativeTranscript = useCallback(() => {
-    // `useAgent` only types `call` for the callables whose results are JSON-serializable, and a
-    // transcript message may carry a `Date`. Go through the untyped RPC handle and parse the result.
-    const agentRpc: BuilderWorkspaceAgent = conversationAgent;
-    return loadAuthoritativeTranscriptSnapshot({
-      expectedIdentity: transcript,
-      read: () => agentRpc.call('getTranscriptSnapshot', [transcript], { timeout: AGENT_SEND_READY_TIMEOUT_MS }),
+    if (!conversationAgent.state?.turnError) {
+      resetChatRetryState();
+    }
+    void workspaceControllerRef.current?.pull().catch((workspaceError) => {
+      logger.error('Failed to refresh the durable workspace presentation after a builder response', workspaceError);
     });
-  }, [conversationAgent, transcript]);
+    void refreshProjectMetadata(
+      args.chatInitialId,
+      args.accountId,
+      () => activePresentationRef.current === args.presentationId,
+    );
+  };
+  const receiveFrame = (event: MessageEvent, presentationId: string) => {
+    const text = z.string().safeParse(event.data).data;
+    if (presentationId !== args.presentationId || activePresentationRef.current !== args.presentationId || !text) {
+      return;
+    }
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      return;
+    }
+    const frame = chatFrameSchema.safeParse(data);
+    if (!frame.success) {
+      return;
+    }
+    const next = applyChatFrame(messagesRef.current, frame.data);
+    messagesRef.current = next;
+    setMessages(next);
+    for (const progress of frame.data.progress) {
+      toolProgressStore.record(progress);
+    }
+    const wasBusy = busyRef.current;
+    busyRef.current = frame.data.busy;
+    setBusy(frame.data.busy);
+    if (frame.data.busy) {
+      setSending(false);
+      toolActivityStore.resumeTurn(next.at(-1));
+    } else if (wasBusy) {
+      finishRun(next);
+    }
+  };
+  useLayoutEffect(() => {
+    messagesRef.current = messages;
+    initialMessagesRef.current = args.initialMessages;
+    receiveFrameRef.current = receiveFrame;
+  });
+  const turnError = conversationAgent.state?.turnError ?? null;
+  const error = useMemo(() => sendError ?? (turnError ? new Error(turnError) : undefined), [sendError, turnError]);
+  useEffect(() => {
+    if (!turnError || activePresentationRef.current !== args.presentationId) {
+      return;
+    }
+    captureMessage('Failed to process chat request', { level: 'error' });
+    recordChatFailure(turnError.trim().length === 0);
+    toolActivityStore.abortActive();
+    toolProgressStore.clear();
+    if (turnError.includes(WORKERS_PAID_REQUIRED_MARKER)) {
+      showWorkersPaidRequiredToast();
+    }
+  }, [turnError, args.presentationId]);
+  const status: 'submitted' | 'streaming' | 'ready' | 'error' = sending
+    ? 'submitted'
+    : busy
+      ? messages.at(-1)?.role === 'assistant'
+        ? 'streaming'
+        : 'submitted'
+      : error
+        ? 'error'
+        : 'ready';
 
   // The gate holder is a per-presentation mutable cell made during render (above), not a value React tracks:
   // a send started before this effect runs must wait on the new presentation's gate, so it is written here.
@@ -430,10 +417,15 @@ export function useConversationAgentChat(args: {
     [args.presentationId, workspaceGateRef],
   );
 
+  /**
+   * Sends the person's message: the agent records the turn and hands it to pi-durable, then streams the run back as
+   * chat frames. Resolves once the agent has started the turn; a refusal (no access, a model the account doesn't
+   * allow) rejects with the agent's own words.
+   */
   const sendMessage = useCallback(
     async (
-      message: NonNullable<Parameters<typeof chat.sendMessage>[0]>,
-      options?: Parameters<typeof chat.sendMessage>[1],
+      message: { text: string },
+      options?: { body?: { turnContext?: ChatTurnContext; modelId?: BuilderModelId } },
       onRequestStart?: () => void,
     ) => {
       const workspaceGate = workspaceGateRef.current;
@@ -449,29 +441,42 @@ export function useConversationAgentChat(args: {
         throw error;
       }
       assertCurrentPresentation(workspaceGate);
-      const snapshot = await readAuthoritativeTranscript();
-      assertCurrentPresentation(workspaceGate);
-      const localMessages = messagesRef.current;
-      const reconciledMessages = await reconcileMessagesForSend({
-        snapshot,
-        localMessages,
-      });
-      assertCurrentPresentation(workspaceGate);
-      if (reconciledMessages !== localMessages) {
-        setMessagesRef.current(asUiMessages(reconciledMessages));
-      }
+      setSendError(null);
+      setSending(true);
       try {
-        const request = chat.sendMessage(
-          { ...message, metadata: { [TRANSCRIPT_BASE_METADATA_KEY]: snapshot.checkpoint } },
-          options,
+        const request = conversationAgent.call(
+          'sendMessage',
+          [
+            {
+              text: message.text,
+              turnContext: options?.body?.turnContext,
+              // The model, and the effort the person chose for it; none at all means the provider's default.
+              ...builderModelRequestFields(options?.body?.modelId ?? builderModelStore.get()),
+              transcript,
+              requestId: crypto.randomUUID(),
+            },
+          ],
+          { timeout: AGENT_SEND_TIMEOUT_MS },
         );
         onRequestStart?.();
-        return await request;
+        await request;
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        setSendError(failure);
+        captureMessage('Failed to process chat request', { level: 'error' });
+        logger.error('Chat request failed', failure);
+        // A failure that arrived with nothing to say gives the user nothing to act on, so it is the one that gets
+        // backed off; a refusal that named its reason is reported and retried at will.
+        recordChatFailure(failure.message.trim().length === 0);
+        if (failure.message.includes(WORKERS_PAID_REQUIRED_MARKER)) {
+          showWorkersPaidRequiredToast();
+        }
+        throw failure;
       } finally {
-        setMessagesRef.current((messages) => messages.map(stripTranscriptBaseMetadata));
+        setSending(false);
       }
     },
-    [assertCurrentPresentation, conversationAgent, chat, readAuthoritativeTranscript, workspaceGateRef],
+    [assertCurrentPresentation, conversationAgent, transcript, workspaceGateRef],
   );
 
   const deployValidatedRevision = useCallback(async () => {
@@ -519,24 +524,17 @@ export function useConversationAgentChat(args: {
   // from the result. Only a decision seen arriving here does that, once.
   const filedApprovalsRef = useRef(new Set<string>());
   useEffect(() => {
-    const decided = decidedTeamApprovals(chat.messages, filedApprovalsRef.current);
-    if (decided.length === 0 || chat.status !== 'ready' || chat.isRecovering) {
+    const decided = decidedTeamApprovals(messages, filedApprovalsRef.current);
+    if (decided.length === 0 || status !== 'ready') {
       return;
     }
     for (const approvalId of decided) {
       filedApprovalsRef.current.delete(approvalId);
     }
     sendMessage({
-      id: `team-approval-decided-${crypto.randomUUID()}`,
-      role: 'user',
-      parts: [
-        {
-          type: 'text',
-          text: 'A team admin decided the Cloudflare change I asked for; its result is in that command. Continue from it.',
-        },
-      ],
+      text: 'A team admin decided the Cloudflare change I asked for; its result is in that command. Continue from it.',
     }).catch((error: Error) => logger.warn('Unable to continue after a team admin decided', error));
-  }, [chat.messages, chat.status, chat.isRecovering, sendMessage]);
+  }, [messages, status, sendMessage]);
 
   const steerMessage = useCallback(
     async (input: BuilderSteeringInput) => {
@@ -551,23 +549,19 @@ export function useConversationAgentChat(args: {
   );
 
   const stop = useCallback(() => {
-    void chat.stop();
     toolActivityStore.abortActive();
     toolProgressStore.clear();
-    const cancellation = settleBuilderStop({
-      cancel: () => conversationAgent.call('cancelActiveTurn', [], { timeout: AGENT_CANCEL_SETTLE_TIMEOUT_MS }),
-      reconcileMessages: (messages) => setMessagesRef.current(asUiMessages(messages)),
-      refreshWorkspace: async () => {
-        await workspaceControllerRef.current?.pull();
-      },
-    })
+    // The agent aborts the run; what it did stays in the chat, which the agent's frames bring up to date.
+    const cancellation = conversationAgent
+      .call('cancelActiveTurn', [], { timeout: AGENT_CANCEL_SETTLE_TIMEOUT_MS })
+      .then(() => workspaceControllerRef.current?.pull())
       .then(() => undefined)
       .catch((error) => {
-        logger.error('Failed to durably cancel and reconcile the active builder turn', error);
+        logger.error('Failed to stop the active builder turn', error);
         captureMessage('Failed to process chat request', { level: 'error' });
       });
     stopBarrierRef.current = cancellation;
-  }, [conversationAgent, chat]);
+  }, [conversationAgent]);
 
   useEffect(() => {
     if (previousSubchatIndexRef.current === currentSubchatIndex) {
@@ -576,53 +570,20 @@ export function useConversationAgentChat(args: {
     previousSubchatIndexRef.current = currentSubchatIndex;
     toolActivityStore.abortActive();
     toolProgressStore.clear();
-    setMessagesRef.current(asUiMessages(initialMessagesRef.current));
+    messagesRef.current = initialMessagesRef.current;
+    setMessages(initialMessagesRef.current);
   }, [currentSubchatIndex]);
 
-  useEffect(() => {
-    const durableCheckpoint = conversationAgent.state?.transcript;
-    if (durableCheckpoint === undefined || (chat.status !== 'ready' && chat.status !== 'error') || chat.isRecovering) {
-      return undefined;
-    }
-    let disposed = false;
-    const isCurrentPresentation = () => !disposed && activePresentationRef.current === args.presentationId;
-    void readAuthoritativeTranscript()
-      .then(async (snapshot) => {
-        const terminal = chatTerminalStateRef.current;
-        if (
-          !isCurrentPresentation() ||
-          (terminal.status !== 'ready' && terminal.status !== 'error') ||
-          terminal.isRecovering ||
-          !transcriptCheckpointsEqual(builderTranscriptRef.current ?? null, snapshot.checkpoint)
-        ) {
-          return;
-        }
-        const localMessages = messagesRef.current;
-        const reconciledMessages = await reconcileMessagesForSend({ snapshot, localMessages });
-        if (isCurrentPresentation() && reconciledMessages !== localMessages) {
-          setMessagesRef.current(asUiMessages(reconciledMessages));
-        }
-      })
-      .catch((error) => logger.warn('Unable to reconcile the durable builder transcript', error));
-    return () => {
-      disposed = true;
-    };
-  }, [
-    args.presentationId,
-    conversationAgent.state?.transcript,
-    chat.isRecovering,
-    chat.status,
-    readAuthoritativeTranscript,
-  ]);
-
   return {
-    ...chat,
+    messages,
+    error,
+    status,
+    isRecovering: false,
     upgradeWaiting,
     stop,
     sendMessage,
     steerMessage,
-    messages: chat.messages satisfies CloudChefMessage[],
-    streamStatus: chat.isRecovering ? ('submitted' as const) : chat.isStreaming ? ('streaming' as const) : chat.status,
+    streamStatus: status,
     validationStage: conversationAgent.state?.validationProgress?.stage ?? null,
     deployment: conversationAgent.state?.deployment ?? null,
     publication: conversationAgent.state?.publication ?? null,
@@ -655,13 +616,6 @@ function createAsyncGate(): AsyncGate {
     resolve = complete;
   });
   return { promise, resolve, error: null, started: false };
-}
-
-function asUiMessages(messages: CloudChefMessage[]): UIMessage[] {
-  // SAFETY: `CloudChefMessage` is the AI SDK `UIMessage` shape with a deliberately open part union
-  // (see `cloudchef-agent/ai-compat`). Every message reaching this bridge came out of the AI SDK
-  // chat store, or out of the durable transcript the agent persisted from that same store.
-  return messages as UIMessage[];
 }
 
 async function refreshProjectMetadata(
@@ -703,7 +657,7 @@ const decidedChangeSchema = z.object({ kind: z.literal('cloudflare_request_final
  * Notes each change `messages` show waiting for a team's admins in `filed`, and answers those noted earlier that
  * now show a result.
  */
-function decidedTeamApprovals(messages: readonly UIMessage[], filed: Set<string>): string[] {
+function decidedTeamApprovals(messages: readonly CloudChefMessage[], filed: Set<string>): string[] {
   const decided: string[] = [];
   for (const part of messages.flatMap((message) => message.parts)) {
     for (const change of commandChangesSchema.safeParse(part).data?.output.cloudflareChanges ?? []) {

@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceTranscriptCheckpoint,
-  stripTranscriptBaseMetadata,
   transcriptAgentName,
   transcriptChatInitialId,
-  transcriptCheckpointMatchesMessages,
   transcriptCheckpointsEqual,
   transcriptIdentitiesEqual,
 } from './transcript.js';
@@ -17,16 +15,10 @@ describe('transcript identity', () => {
     expect(transcriptChatInitialId(transcriptAgentName('chat', 12))).toBe('chat');
   });
 
-  it('compares every identity field and removes only transport metadata', () => {
+  it('compares every identity field', () => {
     const identity = { agentName: 'chat', subchatIndex: 2 };
     expect(transcriptIdentitiesEqual(identity, { ...identity })).toBe(true);
     expect(transcriptIdentitiesEqual(identity, { ...identity, subchatIndex: 3 })).toBe(false);
-    expect(
-      stripTranscriptBaseMetadata({
-        id: 'message',
-        metadata: { cloudchefTranscriptBase: identity, retained: true },
-      }),
-    ).toEqual({ id: 'message', metadata: { retained: true } });
   });
 });
 
@@ -60,10 +52,5 @@ describe('transcript checkpoints', () => {
     expect(recovered.revision).toBe(initial.revision + 1);
     expect(replayed).toBe(recovered);
     expect(transcriptCheckpointsEqual(recovered, replayed)).toBe(true);
-    await expect(
-      transcriptCheckpointMatchesMessages(initial, [
-        { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Changed' }] },
-      ]),
-    ).resolves.toBe(false);
   });
 });

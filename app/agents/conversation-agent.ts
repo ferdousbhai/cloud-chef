@@ -1,29 +1,35 @@
 import {
-  AIChatAgent,
-  type ChatRecoveryContext,
-  type ChatRecoveryExhaustedContext,
-  type ChatRecoveryOptions,
-  type ChatResponseResult,
-  type OnChatMessageOptions,
-} from '@cloudflare/ai-chat';
-import { callable, type Connection, type FiberRecoveryContext, type FiberRecoveryResult } from 'agents';
-import { conversationCompactionKey } from '~/lib/compaction';
+  Agent,
+  callable,
+  type Connection,
+  type ConnectionContext,
+  type FiberRecoveryContext,
+  type FiberRecoveryResult,
+} from 'agents';
+import { PiHarness, ROOT_SESSION, type PiHarnessContext, type PiOperationResult } from 'agents/harness/pi';
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import { copyJson } from '@earendil-works/chord';
+import { createModels, type Models } from '@earendil-works/pi-ai/models';
+import type { AssistantMessage, Message } from '@earendil-works/pi-ai';
+import {
+  createRegistry,
+  Harness,
+  ProviderDoc,
+  type Conversation,
+  type EntryRecord,
+  type ModelRef,
+  type UserInput,
+} from '@earendil-works/pi-durable';
 import { abortableSleep } from '~/lib/abortable-sleep';
-import { piAgentRunner } from '~/lib/.server/llm/pi-agent-runner';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import {
   completeBuilderTurn,
   createBuilderTurn,
-  createRecoveryTurn,
-  exhaustedBuilderTurnResult,
   type BuilderTurnState,
   type BuilderTurnStatus,
 } from './builder-turn-state';
-import { DurableObjectContextCompactionRepository } from '~/lib/.server/llm/context-compaction-store';
-import { compactContext } from '~/lib/.server/llm/context-compaction';
 import { chatTurnContextSchema, type ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
-import { createUIMessageStreamResponse, type UIMessage } from 'ai';
 import {
   buildCheckpointForBuilder,
   deployValidatedRevisionForBuilder,
@@ -54,21 +60,14 @@ import {
   setHeuristicProjectDescriptionIfMissing,
   setHeuristicConversationDescriptionIfMissing,
 } from '~/lib/cloudflare/data/workspace-service.server';
-import { messageText, replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { getToolInvocation, replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import {
-  transcriptCheckpointSchema,
-  transcriptCheckpointsEqual,
-  transcriptMessagesEqual,
-  stripTranscriptBaseMetadata,
   advanceTranscriptCheckpoint,
-  TRANSCRIPT_BASE_METADATA_KEY,
   transcriptChatInitialId,
   type TranscriptCheckpoint,
   type TranscriptIdentity,
 } from 'cloudchef-agent/transcript';
-import { createWorkersAiSessionAffinity } from '~/lib/.server/llm/workers-ai-prompt-cache';
 import {
-  boundBuilderMessageForPersistence,
   loadBuilderTranscriptBinding,
   loadConversationScope,
   recordAppAdoption,
@@ -148,10 +147,34 @@ import {
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { bytesToBase64 } from '~/lib/hex-digest';
-import { BUILDER_TURN_WALL_CLOCK_MS } from '~/lib/.server/llm/builder-turn-limits';
+import {
+  BUILDER_TURN_INACTIVITY_MS,
+  BUILDER_TURN_WALL_CLOCK_MS,
+  BuilderTurnLimitError,
+} from '~/lib/.server/llm/builder-turn-limits';
+import { createBuilderTools } from '~/lib/.server/llm/builder-tools';
+import { createWorkersAiTools } from '~/lib/.server/llm/workers-ai-tools';
+import { builderModels } from '~/lib/.server/llm/builder-models';
+import { getPiModel, type ModelHandle, type WorkersAiAccountCredentials } from '~/lib/.server/llm/pi-ai-models';
+import { createBuilderSkillContext } from '~/lib/.server/llm/builder-skills';
+import { systemPrompt } from 'cloudchef-agent/prompts/system';
+import {
+  contextTokens,
+  handoffOpening,
+  handoffThresholdTokens,
+  hasWorkToHandOff,
+  isOverflow,
+  writeHandoffNote,
+} from '~/lib/.server/llm/handoff';
+import { withTurnContext } from '~/lib/.server/llm/turn-context';
+import { providerFailureText } from '~/lib/.server/llm/provider-failure-text';
+import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
+import { BUILDER_SETTINGS, BuilderChatStream, builderExtension } from './builder-pi';
+import { CHAT_ENTRY, toolOutputEntryData, userEntryData } from './builder-chat-view';
+import { dropLegacyChatTables, readLegacyMessages } from './legacy-chat';
+import type { BuilderModel, BuilderModelId, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
-import { PiSteeringQueue } from '~/lib/.server/llm/pi-steering';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
@@ -197,7 +220,7 @@ import {
   resolveUserWorkspaceCloudflareAccessToken,
 } from '~/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
-import { turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
+import { recordModelResponse, turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
 import { requireBuilderModel, requireBuilderReasoningLevel } from '~/lib/.server/llm/workers-ai-model-catalog';
 
@@ -216,7 +239,6 @@ function deploymentToolCallId(workspaceRevision: number, revision: string): stri
   return `deploy-command:${workspaceRevision}:${revision}`;
 }
 
-const CONTEXT_COMPACTION_FIBER = 'background:context_compaction';
 const DEPLOYMENT_FIBER = 'background:builder_deployment';
 const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
 /**
@@ -245,7 +267,6 @@ const TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS = 4_000;
  * of seconds each, so this is a heartbeat against one indexed row, not a poll for a result.
  */
 const PUBLICATION_ACTIVITY_INTERVAL_MS = 2_000;
-const CHAT_CANCELLATION_SETTLE_TIMEOUT_MS = 4.5 * 60 * 1000;
 /**
  * How long a turn waits for a workspace upgrade to finish before it gives up with a message to send
  * again. An upgrade's window lapses five minutes after its last renewal, but one that keeps renewing it
@@ -296,9 +317,6 @@ type RunningPublication = { automatic: boolean; controller: AbortController; set
 /** Owner identifiers reach this Durable Object over RPC, so they are re-checked at every entry point. */
 const transcriptOwnerIdSchema = z.string().min(1).max(512);
 
-/** Context compaction fibers carry only the message they were asked to compact through. */
-const contextCompactionJobSchema = z.object({ throughMessageId: z.string().min(1) });
-
 const cloudflareExecutionDecisionSchema = z.object({ executionId: z.string().uuid() }).strict();
 
 const workspaceCloudflareChangeSchema = z.object({
@@ -339,13 +357,40 @@ const cloudflareExecutionFiberSchema = z
   .strict();
 type CloudflareExecutionFiberJob = z.infer<typeof cloudflareExecutionFiberSchema>;
 
-/** A message may carry the transcript checkpoint its sender was working from. */
-const transcriptBaseMetadataSchema = z.object({
-  [TRANSCRIPT_BASE_METADATA_KEY]: transcriptCheckpointSchema.nullable(),
-});
-
 /** Steering text arrives over the agent connection while a turn is already running. */
-const steeringRequestSchema = z.object({ text: z.string() });
+const steeringRequestSchema = z.object({ text: z.string(), turnContext: chatTurnContextSchema.optional() });
+
+/** A message the person sends: its text, the turn's workspace context, and the model and effort they chose. */
+const builderMessageInputSchema = z.object({
+  text: z.string(),
+  turnContext: chatTurnContextSchema.optional(),
+  requestId: z.string().max(512).optional(),
+  modelId: z.unknown(),
+  reasoningLevel: z.unknown().optional(),
+  transcript: z.unknown(),
+});
+export type BuilderMessageInput = {
+  text: string;
+  turnContext?: ChatTurnContext;
+  requestId?: string;
+  modelId: BuilderModelId;
+  reasoningLevel?: BuilderReasoningLevel;
+  transcript: TranscriptIdentity;
+};
+
+/** The model a turn chose, as the agent keeps it to resume the turn's run after a restart. */
+export type BuilderTurnModel = {
+  modelId: BuilderModelId;
+  reasoningLevel: BuilderReasoningLevel | undefined;
+  contentLogging: boolean;
+  gatewayKeyRevision: string | undefined;
+};
+
+/** How often a running turn checks its overall time limit and whether it has gone quiet. */
+const TURN_LIMIT_CHECK_MS = 15_000;
+
+/** No model at all, for the moments no turn has chosen one: a request then fails `no_model`. */
+const NO_MODELS: Models = createModels();
 
 const titleGenerationJobSchema = z.object({
   chatInitialId: z.string().min(1),
@@ -364,7 +409,10 @@ export type ConversationAgentState = {
     updatedAt: string;
   } | null;
   lastCompletedTurn?: BuilderTurnState | null;
-  transcript?: TranscriptCheckpoint | null;
+  /** The model the running turn chose, kept so a restarted agent resumes the run with it. */
+  turnModel?: BuilderTurnModel | null;
+  /** Why the last turn failed, in words for the person; cleared when the next one starts. */
+  turnError?: string | null;
   validationProgress?: {
     toolCallId: string;
     stage: BuilderValidationStage;
@@ -397,7 +445,6 @@ export type ConversationAgentState = {
    * a few minutes. The browser shows that the workspace is upgrading.
    */
   upgradeWaiting?: boolean;
-  contextCompactionRequestedTurnId?: string | null;
   cloudflareExecutions?: CloudflareExecutionPublicState[];
   /** The team project this workspace works on, once it's prepared; null for a CloudChef app. */
   linkedProject?: BuilderLinkedProjectSummary | null;
@@ -451,7 +498,7 @@ export type BuilderSteeringInput = {
 /** The person the request is from, who owns the chat. */
 type ConversationAgentProps = { userId: string };
 
-export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, ConversationAgentProps> {
+export class ConversationAgent extends Agent<Env, ConversationAgentState, ConversationAgentProps> {
   static override options = {
     sendIdentityOnConnect: false,
   };
@@ -460,7 +507,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     activeTurn: null,
     generatedSubchatTitle: null,
     lastCompletedTurn: null,
-    transcript: null,
+    turnModel: null,
+    turnError: null,
     validationProgress: null,
     deployment: null,
     productionRevision: null,
@@ -470,28 +518,34 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     failedPublicationRevision: null,
     publication: null,
     upgradeWaiting: false,
-    contextCompactionRequestedTurnId: null,
     cloudflareExecutions: [],
     linkedProject: null,
     linkedSite: null,
     conversationClosed: false,
   };
 
-  override chatRecovery = {
-    terminalMessage: 'The builder was interrupted. Please send your message again.',
-    onExhausted: (context: ChatRecoveryExhaustedContext) => {
-      const activeTurn = this.state.activeTurn;
-      if (!activeTurn) {
-        return;
-      }
-      const result = exhaustedBuilderTurnResult(activeTurn, context);
-      if (result) {
-        this.finishTurn(activeTurn, result);
-      }
+  /** The extensions pi runs with; one registry per object, as pi keeps a Harness subscribed to it. */
+  private readonly registry = createRegistry();
+  /** pi-durable on this object's SQLite: the transcript, runs, tool calls and their recovery, woken by Lifecycle. */
+  protected readonly piHarness = new PiHarness({ harness: (context) => this.openPi(context) });
+  /** The model the current turn runs with, as pi-ai `Models`, and the handle its handoff note is written with. */
+  protected turnModels: { handle: ModelHandle; models: Models; ref: ModelRef } | null = null;
+  /** Stops the turn being started, while it waits for an upgrade or the workspace. */
+  private startingTurnAbort: AbortController | null = null;
+  /** The turns this instance waits for the end of. */
+  private readonly turnWatches = new Set<string>();
+  /** When the conversation last committed anything: the turn's inactivity watch reads it. */
+  private lastChatActivity = Date.now();
+  /** The chat as the browser shows it, sent to every connected browser as it changes. */
+  private readonly chat = new BuilderChatStream({
+    harness: () => this.piHarness.pi(),
+    conversation: () => this.piHarness.conversation(ROOT_SESSION),
+    events: () => this.piHarness.session(ROOT_SESSION).events(),
+    send: (frame) => this.broadcast(frame),
+    onActivity: () => {
+      this.lastChatActivity = Date.now();
     },
-  };
-
-  private readonly contextCompaction = new DurableObjectContextCompactionRepository(this);
+  });
   private readonly identityRepository: ConversationAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
   /** Changes each running command filed for the team's admins, in order, until that command's output takes them. */
@@ -501,7 +555,6 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   private readonly workspace: BuilderWorkspaceApi;
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
-  private activeSteering: { turnId: string; queue: PiSteeringQueue } | null = null;
   private readonly publisher = builderPublisher;
   /** The account's project repositories (Artifacts); the ConversationAgent harness replaces it with a fake. */
   private readonly repositories = (): ProjectRepositories => new ProjectRepositories(this.env.ARTIFACTS);
@@ -541,6 +594,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       db: env.DB,
       agentName: () => this.name,
     });
+    this.lifecycle.use(this.piHarness);
   }
 
   /**
@@ -573,6 +627,11 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       // The turn that waited stopped with the instance before it started.
       this.setState({ ...this.state, upgradeWaiting: false });
     }
+    if (this.userId) {
+      await this.convertLegacyChat();
+      await this.chat.start();
+      this.resumeTurn();
+    }
     // A publication a turn asked for may not have reached production before this instance stopped. Once a
     // newer conversation took the project over, it is that one's to finish.
     if (this.state.publicationPending && this.userId && !this.state.conversationClosed) {
@@ -589,6 +648,40 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     } else {
       super.onError(args[0]);
     }
+  }
+
+  /**
+   * A chat from before pi-durable: its messages move once into the transcript, shown only, and the conversation
+   * goes on in a fresh context (`legacy-chat.ts`).
+   */
+  private async convertLegacyChat(): Promise<void> {
+    const legacy = readLegacyMessages(this.ctx.storage.sql);
+    if (legacy.length > 0) {
+      const conversation = await this.piHarness.conversation(ROOT_SESSION);
+      const first = await conversation.entries({ order: 'ascending' }, 1, undefined, BACKGROUND_CONTEXT);
+      if (first.items[0]?.kind !== CHAT_ENTRY.legacy) {
+        await conversation.commit(async (tx) => {
+          for (const message of legacy) {
+            await tx.appendEntry(conversation.id, { kind: CHAT_ENTRY.legacy, data: { message } });
+          }
+        }, BACKGROUND_CONTEXT);
+      }
+    }
+    dropLegacyChatTables(this.ctx.storage.sql);
+  }
+
+  /** A turn this instance recorded before it stopped: wait for its run again, or end it if it never reached pi. */
+  private resumeTurn(): void {
+    const turn = this.state.activeTurn;
+    if (!turn) {
+      return;
+    }
+    if (turn.operationId) {
+      this.watchTurn(turn.id);
+      return;
+    }
+    this.setState({ ...this.state, turnError: 'The builder was interrupted. Please send your message again.' });
+    this.ctx.waitUntil(this.endTurn(turn, 'error').catch(() => logger.warn('Unable to end the interrupted turn')));
   }
 
   /**
@@ -639,34 +732,6 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       throw new Response('Agent not found.', { status: 404 });
     }
     this.userId = ownerId;
-  }
-
-  override async onChatRecovery(ctx: ChatRecoveryContext): Promise<ChatRecoveryOptions> {
-    await this.requireDurableIdentity('chat_recovery', ctx.incidentId);
-    if (this.state.transcript) {
-      await this.advanceTranscriptCheckpoint(this.state.transcript);
-    }
-    const lastTurn = this.state.lastCompletedTurn;
-    if (
-      !this.state.activeTurn &&
-      lastTurn?.status === 'aborted' &&
-      (lastTurn.requestId === ctx.requestId || lastTurn.requestId === ctx.recoveryRootRequestId)
-    ) {
-      return { persist: true, continue: false };
-    }
-    const nextTurn = createRecoveryTurn(ctx, this.state.activeTurn);
-    this.setState({
-      ...this.state,
-      activeTurn: nextTurn,
-    });
-    logger.warn('Recovering interrupted CloudChef chat turn', {
-      incidentId: nextTurn.recovery?.incidentId,
-      recoveryKind: ctx.recoveryKind,
-      attempt: ctx.attempt,
-      hasPartialOutput: ctx.partialText.length > 0,
-    });
-
-    return {};
   }
 
   override async onFiberRecovered(ctx: FiberRecoveryContext): Promise<void | FiberRecoveryResult> {
@@ -732,64 +797,60 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         error: 'The approved Cloudflare execution was interrupted and will not be replayed.',
       };
     }
-    if (ctx.name !== CONTEXT_COMPACTION_FIBER) {
-      return super.onFiberRecovered(ctx);
-    }
-    const compaction = contextCompactionJobSchema.safeParse(ctx.metadata);
-    if (!compaction.success || !this.userId) {
-      return { status: 'error', error: 'missing context compaction recovery data' };
-    }
-    await this.runContextCompaction(compaction.data.throughMessageId);
-    return { status: 'completed' };
+    return super.onFiberRecovered(ctx);
   }
 
-  override async onChatMessage(
-    _onFinish?: Parameters<AIChatAgent['onChatMessage']>[0],
-    options?: OnChatMessageOptions,
-  ) {
+  /**
+   * The person sent a message. Refused before anything is stopped or recorded when it can't start; otherwise
+   * recorded as the active turn and handed to pi-durable, which runs it. Resolves once pi has saved it: the chat
+   * shows the run as it goes, from the agent's chat stream. A message sent while a turn runs joins it instead.
+   */
+  @callable()
+  async sendMessage(input: BuilderMessageInput): Promise<{ accepted: true }> {
     const durableIdentity = await this.requireDurableIdentity('chat_message');
-    const body = options?.body ?? {};
-    const messages = this.messages;
+    const parsed = builderMessageInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new Response('Invalid message', { status: 400 });
+    }
+    const text = parsed.data.text.trim();
+    if (!text || text.length > MAX_USER_MESSAGE_CHARACTERS) {
+      throw new Response('Invalid message', { status: 400 });
+    }
+    if (this.state.activeTurn) {
+      await this.steerActiveTurn({ text, turnContext: parsed.data.turnContext });
+      return { accepted: true };
+    }
     // A conversation a newer one took over is kept to read: only the newest one changes the project. So is an app
     // a team adopted as one of its projects.
     await this.learnAdoption();
     await this.refuseIfClosed();
     const { chatInitialId, subchatIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
-      body,
+      parsed.data,
       durableIdentity.transcript,
     );
-    const accountCredentials = await getUserWorkersAiCredentials(this.env, durableIdentity.userId);
-    const { model, gatewayKeyRevision } = await requireBuilderModel(accountCredentials.binding, modelId, () =>
-      readAccountModelSettings(this.env),
+    const { accountCredentials, model, gatewayKeyRevision, chosenReasoningLevel } = await this.chooseModel(
+      durableIdentity.userId,
+      modelId,
+      reasoningLevel,
     );
-    const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
     // The model reads what became of any change this conversation filed for the team's admins.
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
-    // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
-    const requestedTurnContext = parseTurnContext(body.turnContext);
     const siteNote = this.linkedSiteNote();
-    // From the stop until the turn is recorded active, no automatic publication may start: this turn's
-    // end publishes.
+    // From the stop until the turn is recorded active, no automatic publication may start: this turn's end publishes.
     this.startingTurns += 1;
     let turn: BuilderTurnState;
     let started = false;
     try {
-      if (!options?.continuation) {
-        // The person is talking to the builder again: the publication of the last turn must not hold the
-        // workspace this turn edits. It publishes again, with this turn's changes, when this turn ends.
-        await this.stopAutomaticPublications();
-        await markWorkspaceStarted(this.env.DB, {
-          sessionId: durableIdentity.userId,
-          chatId: chatInitialId,
-          agentName: transcript.agentName,
-        });
-      }
-      await this.advanceTranscriptCheckpoint(transcript);
-      turn = createBuilderTurn(options?.requestId);
-      this.setState({
-        ...this.state,
-        activeTurn: turn,
+      // The person is talking to the builder again: the publication of the last turn must not hold the workspace
+      // this turn edits. It publishes again, with this turn's changes, when this turn ends.
+      await this.stopAutomaticPublications();
+      await markWorkspaceStarted(this.env.DB, {
+        sessionId: durableIdentity.userId,
+        chatId: chatInitialId,
+        agentName: transcript.agentName,
       });
+      turn = createBuilderTurn(parsed.data.requestId);
+      this.setState({ ...this.state, activeTurn: turn, turnError: null });
       started = true;
     } finally {
       this.startingTurns -= 1;
@@ -803,123 +864,108 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       // Said once: a later turn that pushed nothing to main has nothing held to be told about.
       this.setState({ ...this.state, heldPublication: null });
     }
-    const turnContext = withNotes(requestedTurnContext, [
+    const turnContext = withNotes(parsed.data.turnContext, [
       publicationFailure &&
         `CloudChef publication status: ${publicationFailure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`,
       await siteNote,
     ]);
-    const userMessages = messages.filter((message: { role?: string }) => message.role === 'user');
-    const firstUserMessage = !options?.continuation && userMessages.length === 1;
-    const latestPrompt = !options?.continuation ? userMessages.at(-1) : undefined;
-    const latestPromptText = latestPrompt ? messageText(latestPrompt) : '';
-    const shouldGenerateTitle = shouldGenerateConversationTitle(latestPromptText, userMessages.length);
-    console.info({
-      event: 'builder_chat_turn_started',
-      continuation: options?.continuation === true,
-      firstUserMessage,
-    });
-    const steering = new PiSteeringQueue();
-    this.activeSteering = { turnId: turn.id, queue: steering };
-    const settleSteering = () => {
-      if (this.activeSteering?.turnId === turn.id) {
-        this.activeSteering = null;
-      }
-    };
-
+    const shown = await this.chat.messages();
+    const userMessages = shown.filter((message) => message.role === 'user').length + 1;
+    console.info({ event: 'builder_chat_turn_started', firstUserMessage: userMessages === 1 });
+    const starting = new AbortController();
+    this.startingTurnAbort = starting;
     try {
-      // Before any model work: a Worker upgrade that found this workspace idle a moment ago lands first.
-      // A Stop calls the wait off, and an upgrade that keeps its window open too long fails the turn.
+      // Before any model work: a Worker upgrade that found this workspace idle a moment ago lands first. An upgrade
+      // that keeps its window open too long fails the turn.
+      // A Stop calls the wait off.
       await this.runtimeActivity
         .admit({
-          signal: options?.abortSignal,
+          signal: starting.signal,
           maxWaitMs: TURN_UPGRADE_WAIT_MS,
           onWaiting: (waiting) => this.setUpgradeWaiting(waiting),
         })
         .catch((error: Error) => {
           throw error instanceof RuntimeUpgradeWaitExceededError ? new Response(error.message, { status: 503 }) : error;
         });
-      // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this
-      // turn and stopped it, or closed this one before this read.
+      // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this turn and
+      // stopped it, or closed this one before this read.
       await this.refuseIfClosed();
       const { contentLogging } = await this.requireModelAccess();
       // The browser prepares the workspace before it sends, but nothing else seeds a new one.
       await this.initializeWorkspace(durableIdentity.transcript);
       await this.nameGitRepository(chatInitialId);
-      const linkedProject = await this.linkedProjectSummary();
-      if (shouldGenerateTitle) {
+      if (shouldGenerateConversationTitle(text, userMessages)) {
         await this.scheduleTitleGeneration(
           {
             chatInitialId,
-            firstPrompt: firstUserMessage,
-            prompt: latestPromptText.slice(0, TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS),
-            promptGeneration: userMessages.length,
+            firstPrompt: userMessages === 1,
+            prompt: text.slice(0, TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS),
+            promptGeneration: userMessages,
             subchatIndex,
           },
           accountCredentials,
           workersAiGatewayLogging(contentLogging),
         );
       }
-      const stream = await piAgentRunner({
-        abortSignal: options?.abortSignal,
-        firstUserMessage,
-        turnContext,
-        accountCredentials,
-        sessionAffinity: await createWorkersAiSessionAffinity(transcript, modelId),
-        // When the person allows logging, the turn's requests are found in the account's AI Gateway logs
-        // by chat (its URL id) and member; otherwise they are neither logged nor labelled.
-        gatewayLogging: workersAiGatewayLogging(contentLogging, {
-          chat: chatInitialId,
-          user: durableIdentity.userId,
-          agent: transcript.agentName,
-        }),
-        gatewayKeyRevision,
-        workspace: this.workspace,
-        linkedProject,
-        onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
-        pushResult: (toolCallId) => this.gitPushResult(toolCallId),
-        cloudflareChanges: async (toolCallId) => this.settleCommandCloudflareChanges(toolCallId),
-        runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
-        steering,
-        onSettled: () => {
-          settleSteering();
-        },
-        onModelUsage: (usage) => this.reportModelUsage(usage),
-        compaction: {
-          current: this.contextCompaction.getCompaction(),
-          save: (compaction) => this.contextCompaction.saveCompaction(compaction),
-          schedule: async () => {
-            const throughMessageId = messages.at(-1)?.id;
-            if (throughMessageId) {
-              await this.scheduleContextCompaction(throughMessageId, messages.length);
-            }
-          },
-          requestDurableCompaction: () => {
-            if (this.state.activeTurn?.id === turn.id && this.state.contextCompactionRequestedTurnId !== turn.id) {
-              this.setState({
-                ...this.state,
-                contextCompactionRequestedTurnId: turn.id,
-              });
-            }
-          },
-        },
-        messages,
-        model,
+      const turnModel: BuilderTurnModel = {
+        modelId,
         reasoningLevel: chosenReasoningLevel,
+        contentLogging,
+        gatewayKeyRevision,
+      };
+      this.useModel(turnModel, accountCredentials, model);
+      this.setState({ ...this.state, turnModel });
+      const conversation = await this.piHarness.conversation(ROOT_SESSION);
+      const current = this.requireTurnModels();
+      await conversation.configure(
+        { model: current.ref, thinkingLevel: chosenReasoningLevel ?? 'off' },
+        BACKGROUND_CONTEXT,
+      );
+      const content = withTurnContext(text, turnContext);
+      // A conversation already near the limit starts the turn from a handoff note, so the turn has room to work.
+      await this.handOffIfNeeded('turn_start', Math.ceil(content.length / 4));
+      const receipt = await this.piHarness.submit(content, {
+        operationId: `turn:${turn.id}`,
+        entry: { kind: CHAT_ENTRY.user, data: userEntryData(text) },
       });
-      return createUIMessageStreamResponse({ stream });
+      starting.signal.throwIfAborted();
+      this.updateTurn(turn.id, { operationId: receipt.operationId });
+      this.watchTurn(turn.id);
     } catch (error) {
-      steering.close();
-      settleSteering();
-      // A Stop has already finished it as cancelled, which its recovery must still see, and publishes
-      // what this turn stopped.
-      if (this.state.activeTurn?.id === turn.id) {
-        this.finishTurn(turn, {
-          status: 'error',
-        });
+      if (this.isActiveTurn(turn.id)) {
+        this.finishTurn(turn, { status: 'error' });
         this.publishAfterInterruptedTurn();
       }
       throw error;
+    } finally {
+      if (this.startingTurnAbort === starting) {
+        this.startingTurnAbort = null;
+      }
     }
+    return { accepted: true };
+  }
+
+  /** The model the person chose, as the account allows it, with the effort they chose for it. */
+  protected async chooseModel(
+    userId: string,
+    modelId: BuilderModelId,
+    reasoningLevel: BuilderReasoningLevel | undefined,
+  ): Promise<{
+    accountCredentials: WorkersAiAccountCredentials;
+    model: BuilderModel;
+    gatewayKeyRevision: string | undefined;
+    chosenReasoningLevel: BuilderReasoningLevel | undefined;
+  }> {
+    const accountCredentials = await getUserWorkersAiCredentials(this.env, userId);
+    const { model, gatewayKeyRevision } = await requireBuilderModel(accountCredentials.binding, modelId, () =>
+      readAccountModelSettings(this.env),
+    );
+    return {
+      accountCredentials,
+      model,
+      gatewayKeyRevision,
+      chosenReasoningLevel: requireBuilderReasoningLevel(model, reasoningLevel),
+    };
   }
 
   private setUpgradeWaiting(waiting: boolean): void {
@@ -928,89 +974,327 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     }
   }
 
-  private async scheduleContextCompaction(throughMessageId: string, revision: number): Promise<void> {
-    if (await this.hasPendingContextCompaction()) {
-      return;
+  /** Opens pi-durable over this object's SQLite, with the builder's tools, system prompt and model. */
+  private async openPi({ storage, context, onWake }: PiHarnessContext): Promise<Harness> {
+    // A run a restart cut off resumes with the model its turn chose; a new turn sets its own.
+    if (this.state.activeTurn && this.state.turnModel && !this.turnModels) {
+      await this.restoreTurnModel(this.state.turnModel).catch(() =>
+        logger.warn('Unable to restore the model of the interrupted turn'),
+      );
     }
-    await this.startFiber(
-      CONTEXT_COMPACTION_FIBER,
-      async () => {
-        this.runContextCompaction(throughMessageId);
-      },
+    this.registry.install(
+      builderExtension({
+        tools: createBuilderTools(
+          createWorkersAiTools(
+            this.workspace,
+            {
+              onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
+              pushResult: (toolCallId) => this.gitPushResult(toolCallId),
+              cloudflareChanges: async (toolCallId) => this.settleCommandCloudflareChanges(toolCallId),
+              runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
+            },
+            { read: async (path) => (await this.skillContext()).reader.read(path) },
+          ),
+        ),
+        systemPrompt: async () => {
+          const linkedProject = await this.linkedProjectSummary();
+          return systemPrompt((await this.skillContext()).prompt, linkedProject);
+        },
+        afterResponse: (message) => this.reportModelUsage(recordModelResponse(message)),
+        afterTools: async () => {
+          if (await this.handOffIfNeeded('step', 0)) {
+            const turn = this.state.activeTurn;
+            if (turn) {
+              this.updateTurn(turn.id, { continueAfterHandoff: true });
+            }
+          }
+        },
+      }),
+    );
+    return Harness.open(
+      storage,
       {
-        idempotencyKey: conversationCompactionKey({
-          scope: this.name,
-          throughId: throughMessageId,
-          revision,
-        }),
-        metadata: { throughMessageId },
+        models: () => this.turnModels?.models ?? NO_MODELS,
+        registry: this.registry,
+        settings: BUILDER_SETTINGS,
+        identity: { attribution: null },
+        onWake,
+        onReport: (_error, info) => logger.warn('pi-durable reported a failure', { type: info.type }),
       },
+      context,
     );
   }
 
-  private runContextCompaction(throughMessageId: string): void {
-    const throughIndex = this.messages.findIndex((message) => message.id === throughMessageId);
-    if (throughIndex < 0) {
+  private async skillContext() {
+    return createBuilderSkillContext({ linkedProject: (await this.linkedProjectSummary()) !== undefined });
+  }
+
+  protected useModel(turnModel: BuilderTurnModel, credentials: WorkersAiAccountCredentials, model: BuilderModel): void {
+    const transcript = this.transcriptBinding;
+    const handle = getPiModel(credentials, turnModel.modelId, {
+      model,
+      // When the person allows logging, the turn's requests are found in the account's AI Gateway logs by chat (its
+      // URL id) and member; otherwise they are neither logged nor labelled.
+      gatewayLogging: workersAiGatewayLogging(
+        turnModel.contentLogging,
+        transcript && this.userId
+          ? { chat: transcript.chatInitialId, user: this.userId, agent: transcript.agentName }
+          : undefined,
+      ),
+      gatewayKeyRevision: turnModel.gatewayKeyRevision,
+    });
+    this.turnModels = { handle, ...builderModels(handle) };
+  }
+
+  /** The model a turn chose, again after a restart, so pi can go on with the run it cut off. */
+  protected async restoreTurnModel(turnModel: BuilderTurnModel): Promise<void> {
+    const userId = this.userId ?? this.identityRepository.get()?.userId;
+    if (!userId) {
       return;
     }
-    const next = compactContext({
-      messages: this.messages.slice(0, throughIndex + 1),
-      current: this.contextCompaction.getCompaction(),
+    const credentials = await getUserWorkersAiCredentials(this.env, userId);
+    const { model } = await requireBuilderModel(credentials.binding, turnModel.modelId, () =>
+      readAccountModelSettings(this.env),
+    );
+    this.useModel(turnModel, credentials, model);
+  }
+
+  private requireTurnModels(): NonNullable<ConversationAgent['turnModels']> {
+    if (!this.turnModels) {
+      throw new Error('The turn has no model.');
+    }
+    return this.turnModels;
+  }
+
+  /**
+   * Near the model's context limit, the model writes a handoff note and the conversation is reset to it: the work
+   * goes on in a fresh context that starts from the system prompt, the note and the person's latest request. By
+   * pi-durable's own accounting: the newest response's reported usage and what came after it, against the model's
+   * window. `extraTokens` is what is about to be sent. Whether it handed off.
+   */
+  private async handOffIfNeeded(at: 'turn_start' | 'step', extraTokens: number): Promise<boolean> {
+    const handle = this.turnModels?.handle;
+    if (!handle) {
+      return false;
+    }
+    const conversation = await this.piHarness.conversation(ROOT_SESSION);
+    const { messages } = await conversation.context(BACKGROUND_CONTEXT);
+    if (
+      !hasWorkToHandOff(messages) ||
+      contextTokens(messages) + extraTokens < handoffThresholdTokens(handle.model.contextWindow, at)
+    ) {
+      return false;
+    }
+    await this.handOff(conversation, messages, handle);
+    return true;
+  }
+
+  private async handOff(conversation: Conversation, messages: readonly Message[], handle: ModelHandle): Promise<void> {
+    const harness = await this.piHarness.pi();
+    const provider = await harness.snapshot(ProviderDoc, conversation.id, BACKGROUND_CONTEXT);
+    const agent = await conversation.agent(BACKGROUND_CONTEXT);
+    const note = await writeHandoffNote({
+      handle,
+      messages,
+      budgetTokens: handoffThresholdTokens(handle.model.contextWindow, 'step'),
+      reasoning: agent.thinkingLevel,
+      // The conversation's own provider session, so the note is written from the cached prefix.
+      sessionId: provider?.sessionId ?? `${this.name}:handoff`,
+      onUsage: (usage) => this.reportModelUsage(turnUsage(usage)),
     });
-    if (next) {
-      this.contextCompaction.saveCompaction(next);
+    // Shown in the chat where the conversation went on from it; the reset is what the model sees.
+    await conversation.submit(
+      { type: 'write', entry: { kind: CHAT_ENTRY.handoff, data: { note } } },
+      BACKGROUND_CONTEXT,
+    );
+    await conversation.reset(handoffOpening(note), BACKGROUND_CONTEXT);
+    console.info({ event: 'builder_handoff', noteCharacters: note.length });
+  }
+
+  private isActiveTurn(turnId: string): boolean {
+    return this.state.activeTurn?.id === turnId;
+  }
+
+  private updateTurn(turnId: string, change: Partial<BuilderTurnState>): void {
+    const turn = this.state.activeTurn;
+    if (turn?.id === turnId) {
+      this.setState({ ...this.state, activeTurn: { ...turn, ...change } });
     }
   }
 
-  private async hasPendingContextCompaction(): Promise<boolean> {
-    const fibers = await this.listFibers({
-      name: CONTEXT_COMPACTION_FIBER,
-      status: ['pending', 'running', 'interrupted'],
-      limit: 1,
-    });
-    return fibers.length > 0;
-  }
-
-  protected override async onChatResponse(result: ChatResponseResult) {
-    if (this.state.transcript) {
-      await this.advanceTranscriptCheckpoint(this.state.transcript);
-    }
-    const currentTurn = this.state.activeTurn;
-    if (!currentTurn) {
+  /**
+   * Waits for the active turn's run to settle, in the background and keeping the object alive, then ends the turn.
+   * A handoff that ended the run sends the person's latest request again; a context overflow hands off and does so
+   * once. A restarted agent calls this again for the turn it recorded.
+   */
+  private watchTurn(turnId: string): void {
+    if (this.turnWatches.has(turnId)) {
       return;
     }
+    const watch = this.runtimeActivity
+      .run(() => this.keepAliveWhile(() => this.followTurn(turnId)))
+      .catch(() => {
+        logger.warn('Unable to follow the turn to its end');
+        const turn = this.state.activeTurn;
+        if (turn?.id === turnId) {
+          this.setState({ ...this.state, turnError: 'The builder was interrupted. Please send your message again.' });
+          return this.endTurn(turn, 'error');
+        }
+      })
+      .finally(() => this.turnWatches.delete(turnId));
+    this.turnWatches.add(turnId);
+    this.ctx.waitUntil(watch);
+  }
 
-    const status: BuilderTurnStatus =
-      result.status === 'completed' ? 'completed' : result.status === 'aborted' ? 'aborted' : 'error';
-    const compactAfterTurn = this.state.contextCompactionRequestedTurnId === currentTurn.id;
-    this.finishTurn(currentTurn, {
-      requestId: result.requestId,
-      status,
-    });
-    if (compactAfterTurn) {
-      this.setState({ ...this.state, contextCompactionRequestedTurnId: null });
+  private async followTurn(turnId: string): Promise<void> {
+    const limits = new AbortController();
+    const turnStart = this.state.activeTurn?.startedAt ?? Date.now();
+    // pi-durable bounds each model request; the host keeps only a turn's overall limit, and a watch on a run that
+    // shows no progress at all between its tool calls.
+    const timer = setInterval(() => {
+      const reason =
+        Date.now() - turnStart > BUILDER_TURN_WALL_CLOCK_MS
+          ? 'wall_clock'
+          : Date.now() - this.lastChatActivity > BUILDER_TURN_INACTIVITY_MS && !this.chat.toolRunning()
+            ? 'inactivity'
+            : null;
+      if (reason && !limits.signal.aborted) {
+        limits.abort(new BuilderTurnLimitError(reason));
+      }
+    }, TURN_LIMIT_CHECK_MS);
+    try {
+      for (;;) {
+        const turn = this.state.activeTurn;
+        if (turn?.id !== turnId || !turn.operationId) {
+          return;
+        }
+        const result = await this.waitForOperation(turn.operationId, limits.signal);
+        const current = this.state.activeTurn;
+        if (current?.id !== turnId) {
+          // A Stop ended it already.
+          return;
+        }
+        if (result === 'limit') {
+          const reason = limits.signal.reason;
+          this.setState({
+            ...this.state,
+            turnError: reason instanceof Error ? reason.message : 'The builder stopped.',
+          });
+          await this.piHarness.abort();
+          await this.endTurn(current, 'error');
+          return;
+        }
+        if (current.continueAfterHandoff) {
+          await this.continueAfterHandoff(current);
+          continue;
+        }
+        if (result.status === 'unanswered' && result.reason === 'model_error' && !current.overflowHandedOff) {
+          if (await this.handOffAfterOverflow()) {
+            this.updateTurn(turnId, { overflowHandedOff: true });
+            await this.continueAfterHandoff({ ...current, overflowHandedOff: true });
+            continue;
+          }
+        }
+        const status: BuilderTurnStatus =
+          result.status === 'done' ? 'completed' : result.reason === 'aborted' ? 'aborted' : 'error';
+        if (status === 'error') {
+          this.setState({ ...this.state, turnError: await this.runFailureText(result.reason) });
+        }
+        await this.endTurn(current, status);
+        return;
+      }
+    } finally {
+      clearInterval(timer);
     }
-    // A rollover requested before an abort/error still belongs to the persisted transcript.
-    if (compactAfterTurn && this.userId) {
-      const throughMessageId = this.messages.at(-1)?.id;
-      if (throughMessageId) {
-        try {
-          await this.scheduleContextCompaction(throughMessageId, this.messages.length);
-        } catch {
-          logger.warn('Unable to queue post-turn context rollover');
+  }
+
+  private async waitForOperation(operationId: string, signal: AbortSignal): Promise<PiOperationResult | 'limit'> {
+    try {
+      return await this.piHarness.wait(operationId, { signal });
+    } catch (error) {
+      if (signal.aborted) {
+        return 'limit';
+      }
+      throw error;
+    }
+  }
+
+  /** The person's latest request, sent again after a handoff, as the model saw it the first time. */
+  private async continueAfterHandoff(turn: BuilderTurnState): Promise<void> {
+    const request = await this.latestRequest();
+    this.updateTurn(turn.id, { continueAfterHandoff: false });
+    if (!request) {
+      return;
+    }
+    const receipt = await this.piHarness.submit(request, {
+      operationId: `continue:${turn.id}:${crypto.randomUUID()}`,
+      entry: { kind: CHAT_ENTRY.continued },
+    });
+    this.updateTurn(turn.id, { operationId: receipt.operationId });
+  }
+
+  private async latestRequest(): Promise<UserInput | null> {
+    const conversation = await this.piHarness.conversation(ROOT_SESSION);
+    let cursor: Parameters<Conversation['entries']>[2];
+    do {
+      const page = await conversation.entries({}, 50, cursor, BACKGROUND_CONTEXT);
+      for (const entry of page.items) {
+        if (entry.kind === CHAT_ENTRY.user) {
+          const message = entry.model?.find((item) => item.role === 'user');
+          return message?.role === 'user' ? message.content : null;
         }
       }
+      cursor = page.next;
+    } while (cursor !== undefined);
+    return null;
+  }
+
+  /** The provider said the context was too long: hand off from what fits, so the request is sent again once. */
+  private async handOffAfterOverflow(): Promise<boolean> {
+    const handle = this.turnModels?.handle;
+    if (!handle) {
+      return false;
     }
+    const conversation = await this.piHarness.conversation(ROOT_SESSION);
+    const view = await conversation.context(BACKGROUND_CONTEXT);
+    const failed = lastResponse(view.entries);
+    if (!failed || !isOverflow(failed, handle.model.contextWindow) || !hasWorkToHandOff(view.messages)) {
+      return false;
+    }
+    const { messages } = view;
+    await this.handOff(conversation, messages, handle);
+    return true;
+  }
+
+  /** What the chat says about a run that failed: the provider's own words where it gave some. */
+  private async runFailureText(reason: string | undefined): Promise<string> {
+    if (reason !== 'model_error') {
+      return reason === 'no_model'
+        ? 'No model was available for this turn. Choose one and send again.'
+        : 'The turn failed.';
+    }
+    const conversation = await this.piHarness.conversation(ROOT_SESSION);
+    const { entries } = await conversation.context(BACKGROUND_CONTEXT);
+    const errorText = lastResponse(entries)?.errorMessage ?? '';
+    return isWorkersAiFreeAllocationError(new Error(errorText))
+      ? workersPaidRequiredMessage()
+      : providerFailureText(errorText);
+  }
+
+  /** The turn's run settled: record how, and publish what it pushed. */
+  protected async endTurn(turn: BuilderTurnState, status: BuilderTurnStatus): Promise<void> {
+    this.finishTurn(turn, { status });
     const validatedSnapshot = await this.refreshDeploymentReadiness();
     // A turn that pushed a CloudChef app's main, or one before it whose publication never reached production,
-    // publishes it however the turn ended: the deployment builds the exact revision (unless the model
-    // already validated it) and publishes it to production. A team project previews and deploys through
-    // Workers Builds, when the agent pushes or publishes to it.
+    // publishes it however the turn ended: the deployment builds the exact revision (unless the model already
+    // validated it) and publishes it to production. A team project previews and deploys through Workers Builds,
+    // when the agent pushes or publishes to it.
     if (this.state.publicationPending) {
       await this.publishLatestRevision(validatedSnapshot);
     }
   }
 
+  /** A message the person sent while the turn runs: it joins the running work after the current round of tool calls. */
   @callable()
   async steerActiveTurn(input: BuilderSteeringInput): Promise<{ accepted: true }> {
     await this.requireDurableIdentity('steer_active_turn');
@@ -1022,32 +1306,15 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!text || text.length > MAX_USER_MESSAGE_CHARACTERS) {
       throw new Response('Invalid steering message', { status: 400 });
     }
-    const active = this.activeSteering;
-    if (!active || this.state.activeTurn?.id !== active.turnId) {
+    if (!this.state.activeTurn) {
       throw new Response('The builder is not currently running.', { status: 409 });
     }
     await this.refuseIfClosed();
-
-    const message: UIMessage = {
-      id: `steering-${crypto.randomUUID()}`,
-      role: 'user',
-      parts: [{ type: 'text', text }],
-    };
-    const reservation = active.queue.reserve(message, parseTurnContext(input.turnContext));
-    if (!reservation) {
-      throw new Response('The builder turn has already finished.', { status: 409 });
-    }
-    try {
-      await this.persistMessages([...this.messages, message]);
-      if (this.state.transcript) {
-        await this.advanceTranscriptCheckpoint(this.state.transcript);
-      }
-      reservation.commit();
-      return { accepted: true };
-    } catch (error) {
-      reservation.reject(error);
-      throw error;
-    }
+    await this.piHarness.submit(withTurnContext(text, steering.data.turnContext), {
+      whenBusy: 'steer',
+      entry: { kind: CHAT_ENTRY.user, data: userEntryData(text) },
+    });
+    return { accepted: true };
   }
 
   @callable()
@@ -1110,37 +1377,40 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     return { execution: publicExecutionState(record) };
   }
 
+  /**
+   * The person pressed Stop: the running validation is cancelled and pi-durable aborts the run (queued messages are
+   * withdrawn, running tool calls are aborted), resolving once nothing more runs. What the run did stays in the chat.
+   */
   @callable()
-  // The `agents` `call()` client surface only admits JSON-serializable returns, and a transcript
-  // message may carry a `Date`. The caller re-parses this payload in `settleBuilderStop`.
-  async cancelActiveTurn(): Promise<unknown> {
-    const deadline = Date.now() + CHAT_CANCELLATION_SETTLE_TIMEOUT_MS;
+  async cancelActiveTurn(): Promise<{ stopped: boolean }> {
     const activeTurn = this.state.activeTurn;
     const validationCancellation = this.workspace.cancelActiveValidation();
-    this.abortAllRequests(new DOMException('Cancelled by the project owner', 'AbortError'));
+    // A turn still starting stops where it is.
+    this.startingTurnAbort?.abort(new DOMException('Cancelled by the project owner', 'AbortError'));
     if (activeTurn) {
-      this.finishTurn(activeTurn, {
-        status: 'aborted',
-      });
+      this.finishTurn(activeTurn, { status: 'aborted' });
     }
+    await this.piHarness.abort();
     await validationCancellation;
-    const remainingSettleTime = Math.max(0, deadline - Date.now());
-    const settled = await this.waitUntilStable({
-      timeout: remainingSettleTime,
-      pendingInteraction: () => false,
-    });
-    if (!settled) {
-      throw new Error('The cancelled builder turn did not settle before the cancellation timeout.');
-    }
     if (activeTurn) {
       // Its end found no turn to finish, so nothing redid the publication it stopped.
       this.publishAfterInterruptedTurn();
     }
-    const checkpoint = this.state.transcript ? await this.advanceTranscriptCheckpoint(this.state.transcript) : null;
-    return {
-      checkpoint,
-      messages: this.messages,
-    };
+    return { stopped: activeTurn !== null };
+  }
+
+  /** The whole chat, as the browser shows it; sent to each browser that connects, and again on request. */
+  @callable()
+  async getChatFrame(): Promise<string> {
+    await this.requireDurableIdentity('chat_frame');
+    return this.chat.snapshotFrame();
+  }
+
+  override async onConnect(connection: Connection, ctx: ConnectionContext): Promise<void> {
+    await super.onConnect(connection, ctx);
+    if (this.transcriptBinding) {
+      connection.send(await this.chat.snapshotFrame());
+    }
   }
 
   /**
@@ -1171,17 +1441,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!this.state.conversationClosed) {
       this.setState({ ...this.state, conversationClosed: true });
     }
-    if (this.state.activeTurn) {
-      await this.cancelActiveTurn();
-    } else {
-      const settled = await this.waitUntilStable({
-        timeout: CHAT_CANCELLATION_SETTLE_TIMEOUT_MS,
-        pendingInteraction: () => false,
-      });
-      if (!settled) {
-        throw new Error('The earlier conversation did not settle in time.');
-      }
-    }
+    // The running turn stops, and pi-durable resolves the abort once nothing more runs.
+    await this.cancelActiveTurn();
     await this.stopAutomaticPublications();
     // A publish whose commit was already on its way runs to the end whatever the Stop, and so does a save
     // that found this conversation current: reported saved, it must be in the workspace before the newer
@@ -1554,13 +1815,19 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     return this.state.deployment ?? { status: 'deploying', ...snapshot };
   }
 
+  /**
+   * The chat as the browser shows it, with a checkpoint of it: its message count as its revision, which a subchat
+   * records as where it branched off.
+   */
   @callable()
   async getTranscriptSnapshot(identityValue: TranscriptIdentity): Promise<BuilderTranscriptSnapshot> {
-    const checkpoint = await this.getTranscriptCheckpoint(identityValue);
-    return {
-      checkpoint,
-      messages: this.messages,
-    };
+    const identity = requireBuilderTranscriptIdentity(identityValue, this.transcriptBinding);
+    const messages = await this.chat.messages();
+    if (messages.length === 0) {
+      return { checkpoint: null, messages };
+    }
+    const checkpoint = await advanceTranscriptCheckpoint(null, identity, messages);
+    return { checkpoint: { ...checkpoint, revision: messages.length }, messages };
   }
 
   /**
@@ -1574,34 +1841,6 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   ): ReturnType<ConversationAgent['getTranscriptSnapshot']> {
     await this.initializeIdentity({ userId: ownerId });
     return this.getTranscriptSnapshot(identityValue);
-  }
-
-  private async getTranscriptCheckpoint(identityValue: TranscriptIdentity): Promise<TranscriptCheckpoint | null> {
-    const identity = requireBuilderTranscriptIdentity(identityValue, this.transcriptBinding);
-    if (this.messages.length > 0) {
-      return this.advanceTranscriptCheckpoint(identity);
-    }
-    return this.state.transcript ?? null;
-  }
-
-  protected override sanitizeMessageForPersistence(message: UIMessage): UIMessage {
-    const sanitized = stripTranscriptBaseMetadata(message);
-    if (sanitized === message) {
-      // No transcript checkpoint rode along with this message, so there is nothing to reconcile.
-      return boundBuilderMessageForPersistence(message);
-    }
-    const existing = this.messages.find((candidate) => candidate.id === message.id);
-    if (existing && transcriptMessagesEqual(existing, message)) {
-      return boundBuilderMessageForPersistence(sanitized);
-    }
-    const parsed = transcriptBaseMetadataSchema.safeParse(message.metadata);
-    if (
-      !parsed.success ||
-      !transcriptCheckpointsEqual(this.state.transcript ?? null, parsed.data[TRANSCRIPT_BASE_METADATA_KEY])
-    ) {
-      throw new Error('This transcript changed in another session. Reload the latest messages before sending.');
-    }
-    return boundBuilderMessageForPersistence(sanitized);
   }
 
   private async initializeIdentity(props: ConversationAgentProps): Promise<void> {
@@ -1691,17 +1930,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     throw new Response(status === 401 ? 'Agent authentication is required.' : 'Agent not found.', { status });
   }
 
-  private async advanceTranscriptCheckpoint(identity: TranscriptIdentity): Promise<TranscriptCheckpoint> {
-    const previous = this.state.transcript;
-    const checkpoint = await advanceTranscriptCheckpoint(previous ?? null, identity, this.messages);
-    if (checkpoint === previous) {
-      return previous;
-    }
-    this.setState({ ...this.state, transcript: checkpoint });
-    return checkpoint;
-  }
-
-  private async scheduleTitleGeneration(
+  protected async scheduleTitleGeneration(
     job: TitleGenerationJob,
     accountCredentials: Awaited<ReturnType<typeof getUserWorkersAiCredentials>>,
     gatewayLogging: WorkersAiGatewayLogging,
@@ -2059,22 +2288,38 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (this.state.activeTurn) {
       return false;
     }
-    const messages = withLinkedBuildResult(this.messages, watch.toolCallId, output, options);
+    const messages = withLinkedBuildResult(await this.chat.messages(), watch.toolCallId, output, options);
     if (!messages) {
       return false;
     }
-    await this.persistReplacedToolOutput(messages);
+    await this.replaceToolOutput(watch.toolCallId, messages);
     return true;
   }
 
-  /** Persists the transcript after one finished tool call's output was replaced, and its checkpoint with it. */
-  private async persistReplacedToolOutput(messages: CloudChefMessage[]): Promise<void> {
-    // SAFETY: these are the agent's existing AI SDK messages with only one terminal tool part changed: its
-    // JSON-serializable output replaced, or a stopped call's error replaced by its real output.
-    await this.persistMessages(messages as UIMessage[]);
-    if (this.state.transcript) {
-      await this.advanceTranscriptCheckpoint(this.state.transcript);
+  /**
+   * A finished call's output changed after it ended (a team build's result, an admin's decision): kept beside the
+   * transcript as a display-only entry the chat shows in its place. The model saw the output as it was; it reads the
+   * new one in that command's output when it next looks.
+   */
+  private async replaceToolOutput(toolCallId: string, messages: readonly CloudChefMessage[]): Promise<void> {
+    const part = messages
+      .flatMap((message) => message.parts)
+      .map(getToolInvocation)
+      .find((invocation) => invocation?.toolCallId === toolCallId && invocation.state === 'output-available');
+    if (!part) {
+      return;
     }
+    const conversation = await this.piHarness.conversation(ROOT_SESSION);
+    await conversation.submit(
+      {
+        type: 'write',
+        entry: {
+          kind: CHAT_ENTRY.toolOutput,
+          data: toolOutputEntryData(toolCallId, copyJson(part.output ?? null, { omitUndefinedProperties: true })),
+        },
+      },
+      BACKGROUND_CONTEXT,
+    );
   }
 
   /**
@@ -2108,7 +2353,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
    * they let its model requests be logged with their content in the account's AI Gateway (when that
    * can't be learned, they aren't).
    */
-  private async requireModelAccess(): Promise<{ contentLogging: boolean }> {
+  protected async requireModelAccess(): Promise<{ contentLogging: boolean }> {
     const access = await modelRequestAccess(this.env);
     if (!access.allowed) {
       throw new Response("You no longer have access to this team's account.", { status: 403 });
@@ -2278,7 +2523,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!ownerId) {
       return;
     }
-    const waiting = this.messages.flatMap((message) =>
+    const waiting = (await this.chat.messages()).flatMap((message) =>
       message.parts.flatMap((part) => {
         const changes = commandOutputPartSchema.safeParse(part).data?.output.cloudflareChanges ?? [];
         return changes.flatMap((change) => {
@@ -2329,7 +2574,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       status: final,
       outcome: outcome ?? { status: 'denied', summary: 'No team admin decided before the request expired.' },
     };
-    const messages = replaceToolCallPart(this.messages, toolCallId, (part, invocation) => {
+    const messages = replaceToolCallPart(await this.chat.messages(), toolCallId, (part, invocation) => {
       if (invocation.toolName !== 'exec' || invocation.state !== 'output-available' || !isRecord(invocation.output)) {
         return null;
       }
@@ -2343,7 +2588,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       return { ...part, output: { ...invocation.output, cloudflareChanges: changes.with(at, decision) } };
     });
     if (messages) {
-      await this.persistReplacedToolOutput(messages);
+      await this.replaceToolOutput(toolCallId, messages);
     }
     return true;
   }
@@ -3234,17 +3479,6 @@ function withNotes(
   return { version: 1, content: content.slice(0, MAX_EPHEMERAL_CONTEXT_CHARACTERS) };
 }
 
-function parseTurnContext(value: unknown): ChatTurnContext | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const result = chatTurnContextSchema.safeParse(value);
-  if (!result.success) {
-    throw new Response('Invalid turn context', { status: 400 });
-  }
-  return result.data;
-}
-
 /**
  * Whether a seed failed with words for the person, shown with Try again rather than retried behind a
  * reconnect: the control plane refused (no access, an import GitHub refused) or said GitHub can't be reached,
@@ -3252,6 +3486,17 @@ function parseTurnContext(value: unknown): ChatTurnContext | undefined {
  * without such words (the network, a crash in the workspace) is thrown on, and the browser reconnects; a
  * repeated import of a large project behind ten silent reconnects would only take longer to say the same.
  */
+/** The newest model response in the context's entries, a failed one included (the model's own view leaves it out). */
+function lastResponse(entries: readonly EntryRecord[]): AssistantMessage | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const message = entries[index]?.kind === 'pi.assistant' ? entries[index]?.model?.[0] : undefined;
+    if (message?.role === 'assistant') {
+      return message;
+    }
+  }
+  return undefined;
+}
+
 function isSeedRefusal(error: Error): boolean {
   return (
     error instanceof ProjectRefusalError ||

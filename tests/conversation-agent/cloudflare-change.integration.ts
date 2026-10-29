@@ -1,9 +1,10 @@
+import { copyJson } from '@earendil-works/chord';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CloudflareApiRequest } from 'cloudchef-agent/cloudflare-api';
 import type { CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import type { CloudflareChangeAnswer } from '~/lib/.server/cloudflare/cloudflare-api-proxy';
-import { AGENT_NAME, conversationAgentHarness, type ConversationAgentHarness } from './harness';
+import { AGENT_NAME, commandEntries, conversationAgentHarness, type ConversationAgentHarness } from './harness';
 
 /**
  * A change `cf` asks for from a command the agent runs: the runtime's CloudflareApiProxy hands it to the agent,
@@ -244,28 +245,18 @@ describe("a team member's changes in the team's account", () => {
       expiresAt: Date.now() + 60_000,
       note: 'Filed.',
     });
-    await harness.agent.persistMessages([
-      {
-        id: 'assistant-1',
-        role: 'assistant',
-        parts: [
-          {
-            type: 'dynamic-tool',
-            toolName: 'exec',
-            toolCallId: COMMAND,
-            state: 'output-available',
-            input: { command: 'cf workers scripts delete old && cf workers scripts delete older' },
-            output: {
-              command: 'cf workers scripts delete old && cf workers scripts delete older',
-              exitCode: 1,
-              stdout: '',
-              stderr: 'Not changed yet',
-              cloudflareChanges: [filed('approval-1', DELETE_SCRIPT), filed('approval-2', older)],
-            },
-          },
-        ],
-      },
-    ]);
+    const command = 'cf workers scripts delete old && cf workers scripts delete older';
+    await harness.agent.appendEntries(
+      commandEntries(COMMAND, command, {
+        command,
+        exitCode: 1,
+        stdout: '',
+        stderr: 'Not changed yet',
+        cloudflareChanges: [filed('approval-1', DELETE_SCRIPT), filed('approval-2', older)].map((change) =>
+          copyJson(change),
+        ),
+      }),
+    );
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
       String(input).endsWith('/runtime-projects/approvals/outcome')
         ? Response.json({
@@ -285,7 +276,7 @@ describe("a team member's changes in the team's account", () => {
 
     const output = z
       .object({ output: z.object({ cloudflareChanges: z.array(z.looseObject({ kind: z.string() })) }) })
-      .parse(harness.agent.messages[0]?.parts[0]);
+      .parse((await harness.messages())[0]?.parts[0]);
     expect(output.output.cloudflareChanges).toEqual([
       expect.objectContaining({ kind: 'cloudflare_request_filed', approvalId: 'approval-1' }),
       expect.objectContaining({

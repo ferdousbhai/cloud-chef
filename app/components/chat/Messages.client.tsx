@@ -1,6 +1,6 @@
 import { forwardRef, type ForwardedRef } from 'react';
 import { classNames } from '~/utils/classNames';
-import { RunNarrative } from './RunNarrative';
+import { hasRunNarrative, RunNarrative } from './RunNarrative';
 import { UserMessage } from './UserMessage';
 import { authClient } from '~/lib/auth-client';
 import { ChatBubbleIcon, PersonIcon } from '@radix-ui/react-icons';
@@ -24,7 +24,7 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(function Messa
         messages.map((message) => {
           const { role } = message;
           const isUserMessage = role === 'user';
-          if (!isUserMessage && !message.parts.some((part) => part.type === 'text' && part.text?.trim())) {
+          if (!isUserMessage && !hasRunNarrative(message.parts)) {
             return null;
           }
 
