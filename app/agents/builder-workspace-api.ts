@@ -78,6 +78,8 @@ export type WorkspaceCommandRequest = {
   /** Forwarded from the Computer exec options; the runtime accepts only `container-shell`. */
   backend?: string;
   operationKey?: string;
+  /** The agent whose tool call runs the command: a change `cf` asks for meanwhile is approved in its chat. */
+  agentName?: string;
 };
 
 export type WorkspaceCommandResult = {
@@ -179,34 +181,16 @@ export type BuilderWorkspaceDirectoryEntry = {
 };
 
 /**
- * Read-only discovery over the workspace VFS. These carry no operation key: the workspace serves
- * them outside the exclusive operation lane and without waking the Container, so they are never
- * journalled as tool operations and never need reattaching.
+ * A read-only search over the workspace VFS. It carries no operation key: the workspace serves it
+ * outside the exclusive operation lane and without waking the Container, so it is never journalled
+ * as a tool operation and never needs reattaching.
  */
-export type WorkspaceListingRequest = {
-  /** Absolute project directory, or one file; the project root when omitted. */
-  path?: string;
-  recursive?: boolean;
-  limit?: number;
-};
-
 export type WorkspaceSearchRequest = {
   /** Literal, single-line text. Never a regular expression and never a shell argument. */
   pattern: string;
   path?: string;
   ignoreCase?: boolean;
   limit?: number;
-};
-
-type BuilderWorkspaceProjectEntry = { path: string; type: 'file' | 'dir' };
-
-export type BuilderWorkspaceListing = {
-  path: string;
-  recursive: boolean;
-  entries: BuilderWorkspaceProjectEntry[];
-  entryCount: number;
-  truncated: boolean;
-  revision: number;
 };
 
 type BuilderWorkspaceSearchMatch = { path: string; line: number; text: string };
@@ -297,7 +281,6 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   readWorkspaceFile(path: unknown): Promise<BuilderWorkspaceBinaryFile>;
   streamWorkspaceFile(path: string): Promise<ReadableStream<Uint8Array>>;
   readDirectory(path: string): Promise<BuilderWorkspaceDirectoryEntry[]>;
-  listProjectEntries(value: WorkspaceListingRequest): Promise<BuilderWorkspaceListing>;
   searchProjectFiles(value: WorkspaceSearchRequest): Promise<BuilderWorkspaceSearchResult>;
   makeDirectory(path: string): Promise<void>;
   warmContainer(): Promise<void>;
@@ -353,7 +336,6 @@ export interface BuilderWorkspaceApi {
   readText(path: string, abortSignal?: AbortSignal): Promise<BuilderWorkspaceTextFile>;
   readFile(path: string): Promise<BuilderWorkspaceBinaryFile>;
   listFiles(): BuilderWorkspaceFileMetadata[];
-  listProjectEntries(request: WorkspaceListingRequest, abortSignal?: AbortSignal): Promise<BuilderWorkspaceListing>;
   searchProjectFiles(request: WorkspaceSearchRequest, abortSignal?: AbortSignal): Promise<BuilderWorkspaceSearchResult>;
   checkpoint(): Promise<BuilderWorkspaceCheckpoint>;
   executeCommand(

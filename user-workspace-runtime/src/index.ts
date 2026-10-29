@@ -144,13 +144,7 @@ import {
   projectContentDigestInput,
 } from './workspace-content-digest';
 import { parallelStagesTimeoutMs, parallelValidationStagesCommand } from './validation-stages';
-import {
-  enumerateProjectEntries,
-  requireProjectListingOptions,
-  requireProjectSearchOptions,
-  scanProjectFiles,
-  type DiscoveryScope,
-} from './workspace-discovery';
+import { requireProjectSearchOptions, scanProjectFiles, type DiscoveryScope } from './workspace-discovery';
 import {
   canonicalAbsolutePath,
   projectPath,
@@ -180,7 +174,9 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
+export { CloudflareApiProxy } from './cloudflare-api-proxy';
 import { handleCommandLineAppGit, handleCommandLineGit } from './git-proxy';
+import type { WorkspaceAgentCommand } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';
 import type { ProjectBuilder } from './project-builder';
 
@@ -369,6 +365,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   readonly #confirmedCommandCancellations = new Set<string>();
   readonly #activeCommandKills = new Map<string, () => Promise<void>>();
   readonly #activeCommandStreams = new Set<string>();
+  /** The agent commands running in the container, by operation, so a change `cf` asks for is approved in its place. */
+  readonly #agentCommands = new Map<string, WorkspaceAgentCommand>();
   readonly #activeCommandSettlements = new Map<string, Promise<unknown>>();
   readonly #pendingCommandCancellations = new Set<string>();
   #containerKeepAliveOperations = 0;
@@ -1125,19 +1123,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   /**
-   * Discovery served from Computer's SQLite VFS alone: no container, no shell process, no
+   * A literal search served from Computer's SQLite VFS alone: no container, no shell process, no
    * filesystem sync barrier, and never the exclusive stateful operation lane. `stableProjectRead`
-   * is the read seam mutating operations do not share, so a listing or a search answers before
-   * the container is warm and stays available while a build command holds the lane.
+   * is the read seam mutating operations do not share, so it answers before the container is warm
+   * and stays available while a build command holds the lane.
    */
-  async listProjectEntries(value: unknown) {
-    const request = record(value);
-    const options = requireProjectListingOptions(request);
-    const scope = this.discoveryScope(request.path);
-    const snapshot = await this.stableProjectRead((workspace) => enumerateProjectEntries(workspace.fs, scope, options));
-    return { ...snapshot.value, revision: snapshot.revision };
-  }
-
   async searchProjectFiles(value: unknown) {
     const request = record(value);
     const options = requireProjectSearchOptions(request);
@@ -1238,6 +1228,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     let cancelled = false;
     const resume = this.resumesInterruptedExecution(request.toolCallId);
     this.#activeCommandStreams.add(request.operationKey);
+    if (request.agentCommand) {
+      this.#agentCommands.set(request.operationKey, request.agentCommand);
+    }
     return new ReadableStream<Uint8Array>({
       start: (controller) => {
         const settlement = this.withStatefulOperation(
@@ -1306,6 +1299,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           )
           .finally(() => {
             this.#activeCommandStreams.delete(request.operationKey);
+            this.#agentCommands.delete(request.operationKey);
           });
       },
       cancel: async () => {
@@ -1432,13 +1426,24 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       typeof input.operationKey === 'string'
         ? requireString(input.operationKey, 'operationKey', 512)
         : `exec:${await sha256Hex(JSON.stringify([command, cwd, backend]))}`;
+    const toolCallId = toolCallIdFromOperationKey(operationKey);
+    const agentName = input.agentName === undefined ? undefined : requireString(input.agentName, 'agentName', 1_024);
     return {
       command,
       cwd,
       backend,
       operationKey,
-      toolCallId: toolCallIdFromOperationKey(operationKey),
+      toolCallId,
+      agentCommand: agentName && toolCallId ? { agentName, toolCallId } : undefined,
     };
+  }
+
+  /**
+   * The agent command running in the container now, if one is: a change `cf` asks for while it runs is the
+   * change that command makes, approved in its place in that agent's chat. Commands run one at a time.
+   */
+  runningAgentCommand(): WorkspaceAgentCommand | null {
+    return [...this.#agentCommands.values()].at(-1) ?? null;
   }
 
   private recordPendingCommand(

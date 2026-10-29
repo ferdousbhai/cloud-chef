@@ -9,8 +9,8 @@ import { readFileLines, replaceText } from 'cloudchef-agent/file-edit';
 import {
   isWorkspaceReadOnlyToolName,
   MODEL_TOOL_INPUT_SCHEMAS,
-  WORKSPACE_TOOL_NAMES,
-  type WorkspaceToolName,
+  MODEL_TOOL_NAMES,
+  type ModelToolName,
 } from 'cloudchef-agent/model-tool-inputs';
 import { parseDependencyCommand } from 'cloudchef-agent/tools/dependency-command';
 import { rejectedWorkspaceCommand } from 'cloudchef-agent/workspace-boundary';
@@ -20,7 +20,8 @@ import type { BuilderValidationStage } from '~/lib/common/builder-validation-pro
 import type { Tool } from 'cloudchef-agent/tool';
 import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
 import { sha256Hex } from '~/lib/hex-digest';
-import type { CloudflareApiModelToolContext } from './cloudflare-api-model-tools';
+import type { CloudflareRequestFiled } from 'cloudchef-agent/cloudflare-api';
+import { VALIDATE_COMMAND } from 'cloudchef-agent/constants';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
 /** What a builder turn lends its workspace tools: validation progress, and keeping the turn alive while one runs. */
@@ -31,48 +32,29 @@ export type BuilderOperationContext = {
    * in the background, like a publish's), or nothing when it pushed nothing the chat shows.
    */
   pushResult?: (toolCallId: string) => Promise<CloudChefToolResult | undefined>;
+  /**
+   * Settles a Cloudflare change the finished command asked for: one still waiting for approval is withdrawn,
+   * and one filed for a team's admins is given for the command's output, where their decision later lands.
+   */
+  cloudflareChange?: (toolCallId: string) => Promise<CloudflareRequestFiled | undefined>;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
 type TurnStatefulToolCoordinator = <T>(toolName: string, operation: () => Promise<T>) => Promise<T>;
 
-const CLOUDFLARE_REQUEST_TOOL_DESCRIPTION =
-  'Send one Cloudflare API request for the connected account; the account is fixed by the server, and a URL naming ' +
-  'another account is rejected. It takes the JSON `cf <command> --dry-run` prints in the workspace, unchanged ' +
-  '(`cf cli search "<task>"` finds a command and `cf schema <command>` describes it): cf has no credential in the ' +
-  'workspace, so only this tool sends requests. GET runs immediately; any other method is stored for the ' +
-  "person's approval and ends the turn until they decide. A team member's changes go to the team's admins instead, " +
-  'and a member reads nothing.';
-
 export function createWorkersAiTools(
   workspace: BuilderWorkspaceApi,
   operationContext: BuilderOperationContext,
   skillReader: BuilderSkillReader,
-  cloudflareApi?: CloudflareApiModelToolContext,
-  /** Whether the workspace is one of a team's projects, which has checks of its own. */
-  linked = false,
 ): CloudChefToolSet {
   const coordinateStatefulTool = createTurnStatefulToolCoordinator(operationContext.runWithKeepAlive);
   const tools: CloudChefToolSet = {
     read: fileReadTool(workspace, skillReader),
-    ls: projectListingTool(workspace),
-    grep: projectSearchTool(workspace),
     write: abortAwareWriteTool(workspace),
     edit: fileEditTool(workspace),
     exec: streamingExecTool(workspace, operationContext),
-    validate: canonicalValidationTool(linked),
   };
-
-  if (cloudflareApi) {
-    tools.cloudflare_request = {
-      description: CLOUDFLARE_REQUEST_TOOL_DESCRIPTION,
-      inputSchema: MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request,
-      execute: async (input, options) =>
-        cloudflareApi.request(MODEL_TOOL_INPUT_SCHEMAS.cloudflare_request.parse(input), options),
-    };
-  }
-
-  for (const toolName of WORKSPACE_TOOL_NAMES) {
+  for (const toolName of MODEL_TOOL_NAMES) {
     tools[toolName] = computerWorkspaceTool(
       toolName,
       tools[toolName],
@@ -110,48 +92,6 @@ function fileReadTool(workspace: BuilderWorkspaceApi, skillReader: BuilderSkillR
       });
     },
   };
-}
-
-function projectListingTool(workspace: BuilderWorkspaceApi): Tool {
-  return {
-    description:
-      'List project files and directories from the durable workspace index, without starting the container. Omit path for the project root; set recursive for the whole tree beneath a directory. A recursive walk shows node_modules and build output as directories but does not descend into them; listing one of those directories directly shows inside it. Output is bounded: truncated is true when entries were left out.',
-    inputSchema: MODEL_TOOL_INPUT_SCHEMAS.ls,
-    execute: async (input, options) => {
-      const parsed = MODEL_TOOL_INPUT_SCHEMAS.ls.parse(input);
-      rejectSkillNamespacePath(parsed.path);
-      options.abortSignal?.throwIfAborted();
-      return workspace.listProjectEntries(parsed, options.abortSignal);
-    },
-  };
-}
-
-function projectSearchTool(workspace: BuilderWorkspaceApi): Tool {
-  return {
-    description:
-      'Find lines containing literal text across project files, from the durable workspace index and without starting the container. pattern is matched as plain single-line text: it is not a regular expression and not a glob. Each match returns its file path, 1-based line number, and the matching line. A search does not descend into node_modules or build output unless path names one of them. Output is bounded: truncated is true when matches were left out.',
-    inputSchema: MODEL_TOOL_INPUT_SCHEMAS.grep,
-    execute: async (input, options) => {
-      const parsed = MODEL_TOOL_INPUT_SCHEMAS.grep.parse(input);
-      rejectSkillNamespacePath(parsed.path);
-      options.abortSignal?.throwIfAborted();
-      return workspace.searchProjectFiles(parsed, options.abortSignal);
-    },
-  };
-}
-
-/**
- * `/__skills__/` is a read-only control-plane overlay that never enters the project VFS. Deciding
- * that here, before the workspace sees the path, is the same order `read` uses: the namespace
- * cannot be shadowed by a project file, and it cannot appear in a listing of the project because
- * the workspace is never asked about it.
- */
-function rejectSkillNamespacePath(path: string | undefined): void {
-  if (path !== undefined && isBuilderSkillPath(path)) {
-    throw new Error(
-      `${path} is a bundled skill reference, not part of the project workspace. Use read to open it or list its directory.`,
-    );
-  }
 }
 
 function abortAwareWriteTool(workspace: BuilderWorkspaceApi): Tool {
@@ -202,38 +142,16 @@ type ExecToolReport = {
   error?: string;
   /** What the command pushed to the project's repository, and its build: the chat shows it as a publish. */
   push?: CloudChefToolResult;
+  /** A change to the team's Cloudflare account the command filed for its admins, then what they decided. */
+  cloudflareChange?: CloudflareRequestFiled;
 };
 
-/**
- * The cost is stated because it is what makes the VFS discovery tools worth choosing: every
- * `ls`/`find`/`grep` through exec is a container round trip, or a cold start, for an answer the
- * Durable Object already holds.
- */
 const EXEC_TOOL_DESCRIPTION =
-  'Run a shell command in the project workspace using its Cloudflare Container. Starting the ' +
-  'container and syncing its filesystem costs far more than a workspace read, which ls and grep ' +
-  'answer from storage.\n\n' +
+  'Run a shell command in the project workspace using its Cloudflare Container. ' +
+  `\`${VALIDATE_COMMAND}\`, run as a command of its own, installs dependencies and runs the project's full ` +
+  'checks and production build, reporting each failure; a passing run of the current version is reused when ' +
+  'it publishes.\n\n' +
   COMPUTER_EXEC_APPLICATION_POLICY;
-
-/**
- * The one canonical validation entry point. Deployment recognizes exactly this
- * validation, so a dedicated tool keeps the model from approximating it with separate typecheck,
- * lint, and build commands that leave the revision green but unrecognized.
- *
- * Only the model-facing schema and description live here: the composed Computer tool runs the
- * validation itself, through the workspace coordinator.
- */
-function canonicalValidationTool(linked: boolean): Tool {
-  return {
-    description: linked
-      ? "Install dependencies and run the repository's own checks (its typecheck, lint, test, and build scripts, " +
-        'whichever it has), reporting each failure.'
-      : 'Install dependencies and run the full project validation: typecheck, lint, stack verification, and the ' +
-        'production build, reporting each failure. It is the same build deployment uses, so a ' +
-        'passing run of the current revision is reused when it publishes.',
-    inputSchema: MODEL_TOOL_INPUT_SCHEMAS.validate,
-  };
-}
 
 function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOperationContext): Tool {
   return {
@@ -242,12 +160,19 @@ function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOpera
     execute: async (input, options) => {
       const parsed = MODEL_TOOL_INPUT_SCHEMAS.exec.parse(input);
       options.abortSignal?.throwIfAborted();
-      const result = await workspace.executeCommand({
-        command: parsed.command,
-        cwd: parsed.cwd,
-        onUpdate: options.onUpdate,
-        abortSignal: options.abortSignal,
-      });
+      let result: Awaited<ReturnType<BuilderWorkspaceApi['executeCommand']>>;
+      try {
+        result = await workspace.executeCommand({
+          command: parsed.command,
+          cwd: parsed.cwd,
+          onUpdate: options.onUpdate,
+          abortSignal: options.abortSignal,
+        });
+      } catch (error) {
+        // A command that stopped leaves no change of its own waiting: nothing would read its answer.
+        await context.cloudflareChange?.(options.toolCallId).catch(() => undefined);
+        throw error;
+      }
       // A stop mid-run rejects the command above; a result here is a command that ran to completion.
       const report: ExecToolReport = {
         command: parsed.command,
@@ -261,6 +186,10 @@ function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOpera
       const push = await context.pushResult?.(options.toolCallId);
       if (push) {
         report.push = push;
+      }
+      const cloudflareChange = await context.cloudflareChange?.(options.toolCallId);
+      if (cloudflareChange) {
+        report.cloudflareChange = cloudflareChange;
       }
       return report;
     },
@@ -297,7 +226,7 @@ function fileEditTool(workspace: BuilderWorkspaceApi): Tool {
 }
 
 function computerWorkspaceTool(
-  toolName: WorkspaceToolName,
+  toolName: ModelToolName,
   definition: Tool,
   workspace: BuilderWorkspaceApi,
   context: BuilderOperationContext,
@@ -310,12 +239,11 @@ function computerWorkspaceTool(
       return coordinateStatefulTool(toolName, async () => {
         options.abortSignal?.throwIfAborted();
 
-        if (toolName === 'validate') {
-          const validation = await validateWorkspace(workspace, context, options.toolCallId, options.abortSignal);
-          return { validation };
-        }
-
         if (toolName === 'exec' && isExecInput(input)) {
+          if (input.command.trim() === VALIDATE_COMMAND) {
+            const validation = await validateWorkspace(workspace, context, options.toolCallId, options.abortSignal);
+            return { command: input.command, validation };
+          }
           const rejection = rejectedWorkspaceCommand(input.command);
           if (rejection) {
             return { command: input.command, error: rejection };

@@ -9,6 +9,7 @@ import {
   CF_CLI_VERSION,
   CF_CLI_WRAPPER,
   cfCliLauncherScript,
+  cloudchefCommandScript,
   COMPUTERD_BINARY,
   COMPUTERD_INSTALLATION_CURRENT,
   COMPUTERD_ROOT,
@@ -24,6 +25,10 @@ import {
   strictSubshellCommand,
 } from './container-toolchain';
 import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
+import {
+  CLOUDFLARE_API_PROXY_BASE_URL,
+  CLOUDFLARE_API_PROXY_TOKEN,
+} from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 
 describe('container toolchain bootstrap', () => {
   it('installs the pinned pnpm version and the credential-free cf launcher in one stage', () => {
@@ -36,7 +41,45 @@ describe('container toolchain bootstrap', () => {
     expect(command).toContain('--ignore-scripts');
     expect(command).toContain('--registry=https://registry.npmjs.org/');
     expect(command).toContain(`> '${CF_CLI_WRAPPER}'`);
-    expect(command).not.toMatch(/CLOUDFLARE_API_TOKEN|Bearer/);
+    expect(command).toContain("> '/usr/local/bin/cloudchef'");
+    // The only token in the container is the proxy's stand-in: never a credential.
+    expect(command).not.toMatch(/Bearer/);
+    const tokens = command.match(/CLOUDFLARE_API_TOKEN=[^\n]*/g) ?? [];
+    expect(tokens).toHaveLength(1);
+    expect(tokens[0]).toContain(CLOUDFLARE_API_PROXY_TOKEN);
+  });
+
+  it('points cf at the proxy that holds the account’s authorization, with only a stand-in token', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cf-launcher-'));
+    const launcher = join(directory, 'cf');
+    const root = join(directory, 'root');
+    mkdirSync(join(root, CF_CLI_VERSION, 'node_modules', '.bin'), { recursive: true });
+    writeFileSync(
+      join(root, CF_CLI_VERSION, 'node_modules', '.bin', 'cf'),
+      '#!/bin/sh\necho "$CLOUDFLARE_API_BASE_URL|$CLOUDFLARE_API_TOKEN"\n',
+      { mode: 0o755 },
+    );
+    writeFileSync(
+      launcher,
+      cfCliLauncherScript('acc')
+        .replaceAll('/opt/cloudchef/cf', root)
+        .replaceAll('/home/project', join(directory, 'p')),
+      { mode: 0o755 },
+    );
+
+    const run = spawnSync(launcher, ['workers', 'list'], { encoding: 'utf8', env: { PATH: process.env.PATH } });
+    expect(run.stdout).toBe(`${CLOUDFLARE_API_PROXY_BASE_URL}|${CLOUDFLARE_API_PROXY_TOKEN}\n`);
+    expect(CLOUDFLARE_API_PROXY_BASE_URL).toBe('http://cloudflare-api.internal/client/v4');
+  });
+
+  it('says how `cloudchef validate` runs when it is reached as a program', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-command-'));
+    const command = join(directory, 'cloudchef');
+    writeFileSync(command, cloudchefCommandScript(), { mode: 0o755 });
+
+    const run = spawnSync(command, ['validate'], { encoding: 'utf8' });
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('as a command of its own, exactly as written');
   });
 
   it('runs the pinned cf, preferring the project copy, with the connected account', () => {

@@ -5,6 +5,11 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { makePartId } from 'cloudchef-agent/partId';
+import type {
+  CloudflareExecutionPublicState,
+  CloudflareRequestFiled,
+  CloudflareRequestFinalResult,
+} from 'cloudchef-agent/cloudflare-api';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { ToolCall } from './ToolCall';
 
@@ -27,150 +32,125 @@ describe('ToolCall', () => {
     document.body.replaceChildren();
   });
 
-  it('renders an exact Cloudflare proposal and wires its durable approval decision', async () => {
-    const invocation: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'cloudflare-request-1',
-      toolName: 'cloudflare_request',
-      input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-      output: {
-        kind: 'cloudflare_request_proposal',
-        status: 'awaiting_approval',
-        executionId: 'execution-1',
-        toolCallId: 'cloudflare-request-1',
-        accountId: 'account-1',
-        request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-        proposalSha256: 'a'.repeat(64),
-        riskNote: 'This may delete an externally visible resource.',
-        expiresAt: Date.now() + 60_000,
-      },
-    };
-    const decide = vi.fn(async () => ({
-      execution: {
-        executionId: 'execution-1',
-        toolCallId: 'cloudflare-request-1',
-        accountId: 'account-1',
-        proposalSha256: 'a'.repeat(64),
-        status: 'succeeded' as const,
-        createdAt: Date.now(),
-        decidedAt: Date.now(),
-        startedAt: Date.now(),
-        completedAt: Date.now(),
-        expiresAt: Date.now() + 60_000,
-        outcome: { status: 'success' as const, summary: 'done' },
-      },
-      resumeTurn: true,
-    }));
+  const deleteZone = { method: 'DELETE' as const, url: 'https://api.cloudflare.com/client/v4/zones/zone-1' };
+  const execution = (
+    overrides: Partial<CloudflareExecutionPublicState> & Pick<CloudflareExecutionPublicState, 'status'>,
+  ): CloudflareExecutionPublicState => ({
+    executionId: 'execution-1',
+    toolCallId: 'exec-1',
+    accountId: 'account-1',
+    proposalSha256: 'a'.repeat(64),
+    createdAt: Date.now(),
+    decidedAt: null,
+    startedAt: null,
+    completedAt: null,
+    expiresAt: Date.now() + 60_000,
+    outcome: null,
+    request: deleteZone,
+    riskNote: 'This may delete an externally visible resource.',
+    ...overrides,
+  });
+  /** What a finished command reports, with a change it filed for a team's admins, or what they decided. */
+  type CommandReport = {
+    command: string;
+    exitCode: number;
+    stdout: string;
+    stderr: string;
+    cloudflareChange?:
+      | CloudflareRequestFiled
+      | (Omit<CloudflareRequestFinalResult, 'outcome'> & {
+          outcome: { status: 'denied'; summary: string };
+        });
+  };
+  const command = (toolCallId: string, output?: CommandReport): CloudChefToolInvocation =>
+    output === undefined
+      ? {
+          type: 'dynamic-tool',
+          state: 'input-available',
+          toolCallId,
+          toolName: 'exec',
+          input: { command: 'cf zones delete zone-1' },
+        }
+      : {
+          type: 'dynamic-tool',
+          state: 'output-available',
+          toolCallId,
+          toolName: 'exec',
+          input: { command: 'cf zones delete zone-1' },
+          output,
+        };
+
+  it('shows the exact change a running command waits on, and wires its approval', async () => {
+    const decide = vi.fn(async () => ({ execution: execution({ status: 'succeeded' }) }));
+    toolActivityStore.activities.set({});
 
     await act(async () =>
       root.render(
         <ToolCall
           partId={makePartId('message-1', 0)}
-          invocation={invocation}
-          cloudflareExecutions={[
-            {
-              executionId: 'execution-1',
-              toolCallId: 'cloudflare-request-1',
-              accountId: 'account-1',
-              proposalSha256: 'a'.repeat(64),
-              status: 'awaiting_approval',
-              createdAt: Date.now(),
-              decidedAt: null,
-              startedAt: null,
-              completedAt: null,
-              expiresAt: Date.now() + 60_000,
-              outcome: null,
-            },
-          ]}
+          invocation={command('exec-1')}
+          cloudflareExecutions={[execution({ status: 'awaiting_approval' })]}
           onCloudflareExecutionDecision={decide}
         />,
       ),
     );
-    await act(async () => container.querySelector('button')?.click());
 
     expect(container.textContent).toContain('DELETE https://api.cloudflare.com/client/v4/zones/zone-1');
     expect(container.textContent).toContain('Digest: aaaaaaaaaaaa');
     expect(container.textContent).toContain('Account: account-1');
+    expect(container.textContent).toContain('This may delete an externally visible resource.');
     const approve = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Approve'));
     await act(async () => approve?.click());
 
     expect(decide).toHaveBeenCalledWith('execution-1', 'approve');
   });
 
-  it('renders an indeterminate Cloudflare execution as terminal reconciliation guidance', async () => {
-    const invocation: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'cloudflare-request-2',
-      toolName: 'cloudflare_request',
-      input: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-      output: {
-        kind: 'cloudflare_request_proposal',
-        status: 'awaiting_approval',
-        executionId: 'execution-2',
-        toolCallId: 'cloudflare-request-2',
-        accountId: 'account-1',
-        request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
-        proposalSha256: 'b'.repeat(64),
-        riskNote: 'risk',
-        expiresAt: Date.now() + 60_000,
-      },
-    };
+  it('shows an indeterminate change as something to check, with nothing left to approve', async () => {
     await act(async () =>
       root.render(
         <ToolCall
           partId={makePartId('message-2', 0)}
-          invocation={invocation}
+          invocation={command('exec-1', { command: 'cf zones delete zone-1', exitCode: 1, stdout: '', stderr: '' })}
           cloudflareExecutions={[
-            {
-              executionId: 'execution-2',
-              toolCallId: 'cloudflare-request-2',
-              accountId: 'account-1',
-              proposalSha256: 'b'.repeat(64),
+            execution({
               status: 'indeterminate',
-              createdAt: Date.now(),
-              decidedAt: Date.now(),
-              startedAt: Date.now(),
-              completedAt: Date.now(),
-              expiresAt: Date.now() + 60_000,
               outcome: { status: 'indeterminate', summary: 'Interrupted; not replayed.' },
-            },
+            }),
           ]}
         />,
       ),
     );
     await act(async () => container.querySelector('button')?.click());
 
-    expect(container.textContent).toContain('Outcome indeterminate');
+    expect(container.textContent).toContain('It’s not known whether Cloudflare made the change');
     expect(container.textContent).toContain('Interrupted; not replayed.');
     expect([...container.querySelectorAll('button')].some((button) => button.textContent?.includes('Approve'))).toBe(
       false,
     );
   });
+
   it("shows a team member's change as waiting for a team admin, with no buttons, then what came of it", async () => {
-    const request = { method: 'POST', url: 'https://api.cloudflare.com/client/v4/accounts/a/workers/domains' };
-    const invocation = (output: CloudChefToolInvocation['output']): CloudChefToolInvocation => ({
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'cloudflare-request-3',
-      toolName: 'cloudflare_request',
-      input: request,
-      output,
-    });
+    const request = {
+      method: 'POST' as const,
+      url: 'https://api.cloudflare.com/client/v4/accounts/a/workers/domains',
+    };
+    const ran = { command: 'cf workers domains create', exitCode: 1, stdout: '', stderr: 'Not changed yet' };
     await act(async () =>
       root.render(
         <ToolCall
           partId={makePartId('message-3', 0)}
-          invocation={invocation({
-            kind: 'cloudflare_request_filed',
-            status: 'awaiting_team_admin',
-            approvalId: 'approval-1',
-            accountId: 'a',
-            request,
-            riskNote: 'One of the team’s admins approves or rejects it.',
-            expiresAt: Date.now() + 60_000,
-            note: 'Filed.',
+          invocation={command('exec-3', {
+            ...ran,
+            cloudflareChange: {
+              kind: 'cloudflare_request_filed',
+              status: 'awaiting_team_admin',
+              approvalId: 'approval-1',
+              accountId: 'a',
+              request,
+              riskNote: 'One of the team’s admins approves or rejects it.',
+              expiresAt: Date.now() + 60_000,
+              note: 'Filed.',
+            },
           })}
           onCloudflareExecutionDecision={vi.fn()}
         />,
@@ -188,13 +168,16 @@ describe('ToolCall', () => {
       root.render(
         <ToolCall
           partId={makePartId('message-3', 0)}
-          invocation={invocation({
-            kind: 'cloudflare_request_final_result',
-            executionId: 'approval-1',
-            accountId: 'a',
-            proposalSha256: 'c'.repeat(64),
-            status: 'rejected',
-            outcome: { status: 'denied', summary: 'A team admin rejected this change.' },
+          invocation={command('exec-3', {
+            ...ran,
+            cloudflareChange: {
+              kind: 'cloudflare_request_final_result',
+              executionId: 'approval-1',
+              accountId: 'a',
+              proposalSha256: 'c'.repeat(64),
+              status: 'rejected',
+              outcome: { status: 'denied', summary: 'A team admin rejected this change.' },
+            },
           })}
         />,
       ),
@@ -222,8 +205,8 @@ describe('ToolCall', () => {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'validate-1',
-      toolName: 'validate',
-      input: {},
+      toolName: 'exec',
+      input: { command: 'cloudchef validate' },
       output: {
         validation: {
           version: 1,
@@ -255,9 +238,9 @@ describe('ToolCall', () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-available',
-      toolCallId: 'validate-2',
-      toolName: 'validate',
-      input: {},
+      toolCallId: 'history-2',
+      toolName: 'history',
+      input: { op: 'search', query: 'pricing' },
     };
     const partId = makePartId('message-7', 0);
     toolActivityStore.record(partId, invocation);
@@ -273,7 +256,7 @@ describe('ToolCall', () => {
 
     expect(container.textContent).not.toContain('Working…');
     expect(container.textContent).toContain('Stopped before this tool returned a result.');
-    expect(container.textContent).toContain('Checks stopped');
+    expect(container.textContent).toContain('History search stopped');
   });
   it('titles a publish by what happened to it, and links what the build reported instead of dumping it', async () => {
     const failed: CloudChefToolInvocation = {
@@ -422,8 +405,8 @@ describe('ToolCall', () => {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'validate-3',
-      toolName: 'validate',
-      input: {},
+      toolName: 'exec',
+      input: { command: 'cloudchef validate' },
       output: { validation: { version: 1, ok: false, summary: 'Lint failed.' } },
     };
     await act(async () => root.render(<ToolCall partId={makePartId('message-15', 0)} invocation={invocation} />));
@@ -432,58 +415,7 @@ describe('ToolCall', () => {
     expect(container.querySelector('.text-bolt-elements-icon-success')).toBeNull();
   });
 
-  it('shows listings, searches, and history as readable rows, not JSON', async () => {
-    const listing: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'ls-1',
-      toolName: 'ls',
-      input: { path: '/home/project/src' },
-      output: {
-        path: '/home/project/src',
-        recursive: false,
-        entries: [
-          { path: '/home/project/src/routes', type: 'dir' },
-          { path: '/home/project/src/main.tsx', type: 'file' },
-        ],
-        entryCount: 2,
-        truncated: false,
-        revision: 3,
-      },
-    };
-    await act(async () =>
-      root.render(<ToolCall partId={makePartId('message-16', 0)} invocation={listing} key={listing.toolCallId} />),
-    );
-    await act(async () => container.querySelector('button')?.click());
-    // A fresh card per invocation (key), and the expanded body may load lazily: wait for it.
-    await vi.waitFor(() => expect(container.textContent).toContain('src/routes/'));
-    expect(container.textContent).toContain('src/main.tsx');
-    expect(container.textContent).not.toContain('"entries"');
-
-    const search: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'grep-1',
-      toolName: 'grep',
-      input: { pattern: 'hero' },
-      output: {
-        pattern: 'hero',
-        path: '/home/project',
-        matches: [{ path: '/home/project/src/main.tsx', line: 12, text: '  const hero = 1;' }],
-        matchCount: 1,
-        filesScanned: 4,
-        filesSkipped: 0,
-        truncated: false,
-        revision: 3,
-      },
-    };
-    await act(async () =>
-      root.render(<ToolCall partId={makePartId('message-17', 0)} invocation={search} key={search.toolCallId} />),
-    );
-    await act(async () => container.querySelector('button')?.click());
-    await vi.waitFor(() => expect(container.textContent).toContain('src/main.tsx:12'));
-    expect(container.textContent).not.toContain('"matches"');
-
+  it('shows a history search as readable rows, not JSON', async () => {
     const history: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',

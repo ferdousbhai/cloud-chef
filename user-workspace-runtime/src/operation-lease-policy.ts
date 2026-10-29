@@ -21,15 +21,15 @@ export const OPERATION_LEASE_MS = {
 export type StatefulOperationKind = keyof typeof OPERATION_LEASE_MS;
 
 /**
- * The model tools that can occupy each lane. A lane is reachable from more than
- * one tool because the exec tool dispatches full-validation and dependency
- * commands to their own lanes, and because write and edit share one write lane.
+ * The model tools that can occupy each lane. The exec tool reaches more than one
+ * lane because it dispatches full-validation (`cloudchef validate`) and dependency
+ * commands to their own lanes, and write and edit share one write lane.
  */
 export const OPERATION_LANE_TOOLS = {
   write: ['write', 'edit'],
   exec: ['exec'],
   install: ['exec'],
-  validate: ['exec', 'validate'],
+  validate: ['exec'],
 } as const satisfies Partial<Record<StatefulOperationKind, readonly ModelToolName[]>>;
 
 type ToolGovernedOperationKind = keyof typeof OPERATION_LANE_TOOLS;

@@ -34,40 +34,6 @@ export const cloudflareApiRequestDisplaySchema = z.looseObject({
 });
 export type CloudflareApiRequestDisplay = z.infer<typeof cloudflareApiRequestDisplaySchema>;
 
-const queryValueSchema = z.union([z.string(), z.number(), z.boolean()]);
-
-/**
- * Models often re-serialize the dry-run's JSON body into a string. Sent as-is it would be encoded
- * twice and Cloudflare would reject it, so a string holding a JSON object or array is parsed back.
- */
-const dryRunBodySchema = z.unknown().transform((body) => {
-  if (body !== String(body)) {
-    return body;
-  }
-  try {
-    const parsed = z
-      .union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
-      .safeParse(JSON.parse(String(body)));
-    return parsed.success ? parsed.data : body;
-  } catch {
-    return body;
-  }
-});
-
-/**
- * The model-facing input: exactly what `cf <command> --dry-run` prints. The model discovers the
- * operation with the `cf` CLI in the credential-free workspace and passes its output through
- * unchanged; the runtime Worker alone holds the credential that sends it.
- */
-export const cloudflareApiRequestInputSchema = cloudflareApiRequestSchema.extend({
-  body: dryRunBodySchema.optional(),
-  command: z.string().max(512).optional(),
-  pathParams: z.record(z.string(), z.unknown()).optional(),
-  query: z.record(z.string(), z.union([queryValueSchema, z.array(queryValueSchema)])).optional(),
-  bodyKind: z.string().max(64).optional(),
-});
-export type CloudflareApiRequestInput = z.infer<typeof cloudflareApiRequestInputSchema>;
-
 export class CloudflareApiRequestRejectedError extends Error {
   constructor(message: string) {
     super(message);
@@ -80,10 +46,7 @@ export class CloudflareApiRequestRejectedError extends Error {
  * and an `/accounts/{id}` path must name the account CloudChef is connected to; every other account
  * is rejected before a credential is resolved.
  */
-export function normalizeCloudflareApiRequest(
-  request: CloudflareApiRequestInput,
-  accountId: string,
-): CloudflareApiRequest {
+export function normalizeCloudflareApiRequest(request: CloudflareApiRequest, accountId: string): CloudflareApiRequest {
   let url: URL;
   try {
     url = new URL(request.url);
@@ -105,16 +68,6 @@ export function normalizeCloudflareApiRequest(
   if (segments[0] === 'accounts' && segments[1] !== undefined && segments[1] !== '' && segments[1] !== accountId) {
     throw new CloudflareApiRequestRejectedError(
       'The request names another Cloudflare account. CloudChef only acts on the connected account.',
-    );
-  }
-  for (const [name, value] of Object.entries(request.query ?? {})) {
-    for (const item of Array.isArray(value) ? value : [value]) {
-      url.searchParams.append(name, String(item));
-    }
-  }
-  if (request.bodyKind !== undefined && request.bodyKind !== 'none' && request.bodyKind !== 'json') {
-    throw new CloudflareApiRequestRejectedError(
-      `A ${request.bodyKind} request body cannot be sent; only JSON is supported.`,
     );
   }
   if (request.body !== undefined && request.method === 'GET') {
@@ -148,9 +101,13 @@ export type CloudflareExecutionSafeOutcome = {
   sensitiveContentWithheld?: boolean;
 };
 
-/** Browser-safe projection of a durable approval record. It never contains credentials or raw responses. */
+/**
+ * Browser-safe projection of a durable approval record: the exact request to approve and what became of it. It
+ * never contains credentials.
+ */
 export type CloudflareExecutionPublicState = {
   executionId: string;
+  /** The agent command that asked for the change, in whose place in the chat it is approved. */
   toolCallId: string;
   accountId: string;
   proposalSha256: string;
@@ -161,33 +118,21 @@ export type CloudflareExecutionPublicState = {
   completedAt: number | null;
   expiresAt: number;
   outcome: CloudflareExecutionSafeOutcome | null;
+  request: CloudflareApiRequest;
+  riskNote: string;
 };
 
-export type CloudflareExecutionDecisionResult = {
-  execution: CloudflareExecutionPublicState;
-  resumeTurn: boolean;
-};
+export type CloudflareExecutionDecisionResult = { execution: CloudflareExecutionPublicState };
 
 export type CloudflareExecutionDecisionHandler = (
   executionId: string,
   decision: 'approve' | 'reject',
 ) => Promise<CloudflareExecutionDecisionResult>;
 
-export type CloudflareRequestProposal = {
-  kind: 'cloudflare_request_proposal';
-  status: 'awaiting_approval';
-  executionId: string;
-  toolCallId: string;
-  accountId: string;
-  request: CloudflareApiRequest;
-  proposalSha256: string;
-  riskNote: string;
-  expiresAt: number;
-};
-
 /**
  * A team member's change, filed for the team's admins: one of them approves or rejects it on the Approvals page,
- * and CloudChef itself sends it. The result replaces this output once it is decided.
+ * and CloudChef itself sends it. The command that asked keeps it in its output, and its result replaces it there
+ * once it is decided.
  */
 export type CloudflareRequestFiled = {
   kind: 'cloudflare_request_filed';
@@ -198,16 +143,6 @@ export type CloudflareRequestFiled = {
   riskNote: string;
   expiresAt: number;
   note: string;
-};
-
-export type CloudflareRequestImmediateResult = {
-  kind: 'cloudflare_request_result';
-  status: 'success' | 'failure' | 'insufficient_scope';
-  accountId: string;
-  content?: string;
-  requestId: string | null;
-  httpStatus: number | null;
-  truncated: boolean;
 };
 
 export type CloudflareRequestFinalResult = {

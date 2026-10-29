@@ -509,30 +509,14 @@ export function useConversationAgentChat(args: {
     async (executionId, decision) => {
       const method = decision === 'approve' ? 'approveCloudflareExecution' : 'rejectCloudflareExecution';
       await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      const result = await conversationAgent.call(method, [{ executionId }], { timeout: 2 * 60_000 });
-      if (result.resumeTurn) {
-        const status = result.execution.status;
-        await sendMessage({
-          id: `cloudflare-execution-decision-${crypto.randomUUID()}`,
-          role: 'user',
-          parts: [
-            {
-              type: 'text',
-              text:
-                decision === 'approve'
-                  ? `I approved Cloudflare execution ${executionId}. Its durable result status is ${status}. Continue from that result; reconcile before retrying if it is indeterminate.`
-                  : `I rejected Cloudflare execution ${executionId}. Continue without performing that proposed change.`,
-            },
-          ],
-        });
-      }
-      return result;
+      // The command that asked for the change is still waiting for this decision, and carries on with its result.
+      return conversationAgent.call(method, [{ executionId }], { timeout: 2 * 60_000 });
     },
-    [conversationAgent, sendMessage],
+    [conversationAgent],
   );
 
   // A change filed for the team's admins: once one of them decides it while this chat is open, the agent carries on
-  // from the result, as after the person's own approval. Only a decision seen arriving here does that, once.
+  // from the result. Only a decision seen arriving here does that, once.
   const filedApprovalsRef = useRef(new Set<string>());
   useEffect(() => {
     const decided = decidedTeamApprovals(chat.messages, filedApprovalsRef.current);
@@ -548,7 +532,7 @@ export function useConversationAgentChat(args: {
       parts: [
         {
           type: 'text',
-          text: 'A team admin decided the Cloudflare change I asked for; its result is in that step. Continue from it.',
+          text: 'A team admin decided the Cloudflare change I asked for; its result is in that command. Continue from it.',
         },
       ],
     }).catch((error: Error) => logger.warn('Unable to continue after a team admin decided', error));
@@ -710,11 +694,16 @@ async function refreshProjectMetadata(
   }
 }
 
+/** A command whose change waits for the team's admins, then the same command once they decided. */
 const filedOutputSchema = z.object({
-  output: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
+  output: z.object({
+    cloudflareChange: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
+  }),
 });
 const decidedOutputSchema = z.object({
-  output: z.object({ kind: z.literal('cloudflare_request_final_result'), executionId: z.string() }),
+  output: z.object({
+    cloudflareChange: z.object({ kind: z.literal('cloudflare_request_final_result'), executionId: z.string() }),
+  }),
 });
 
 /**
@@ -726,12 +715,12 @@ function decidedTeamApprovals(messages: readonly UIMessage[], filed: Set<string>
   for (const part of messages.flatMap((message) => message.parts)) {
     const waiting = filedOutputSchema.safeParse(part);
     if (waiting.success) {
-      filed.add(waiting.data.output.approvalId);
+      filed.add(waiting.data.output.cloudflareChange.approvalId);
       continue;
     }
     const result = decidedOutputSchema.safeParse(part);
-    if (result.success && filed.has(result.data.output.executionId)) {
-      decided.push(result.data.output.executionId);
+    if (result.success && filed.has(result.data.output.cloudflareChange.executionId)) {
+      decided.push(result.data.output.cloudflareChange.executionId);
     }
   }
   return decided;

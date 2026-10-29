@@ -119,8 +119,8 @@ the runtime's identity in headers beside its secret and checks both before readi
 secret may make 600 calls a minute (`RUNTIME_RATE_LIMITER`). In an organization's account the runtime also asks the
 control plane (`/api/cloudflare/runtime-access`) before each model turn, since the model runs on the organization's
 Workers AI without a token from the broker; in a shared account (`CLOUDCHEF_SHARED_ACCOUNT`) the same answer decides,
-each time it is admitted, whether the agent's direct `cloudflare_request` tool is offered, which only the
-organization's active admins get, so a demoted admin loses it at once.
+each time it is asked, whether `cf` in the workspace reads the account directly, which only the
+organization's active admins may, so a demoted admin loses it at once.
 The same answer carries the person's own AI Gateway content-logging choice (`user.ai_gateway_content_logging`,
 set in Settings), which the runtime asks for before every builder turn and title in any
 account: model requests always go through the account's default gateway, logged (and labelled with chat and
@@ -167,7 +167,7 @@ same answer carries the account's default model (`cloudflare_connections.default
 admins; everyone can still switch, and a saved choice the account no longer offers falls back to it.
 
 An organization's authorization reaches every workspace in its account, which is why only its admins get the
-direct `cloudflare_request` tool in a shared account (above). A member's changes go through the deployment pipeline
+account's direct reads through `cf` in a shared account (above). A member's changes go through the deployment pipeline
 or Workers Builds, which touch only their own resources.
 
 An organization keeps at least one active admin. Erasing a member's account never revokes the organization's
@@ -302,26 +302,25 @@ Reconciliation is deterministic:
 stores files directly in the Durable Object's SQLite VFS. Its container backend projects the same files into the
 Container through FUSE and reconciles changes back to the VFS.
 
-The model receives seven workspace primitives (`cloudchef-agent/model-tool-inputs.ts`,
-`app/lib/.server/llm/workers-ai-tools.ts`), split by what they cost. `read`, `ls`, and `grep` are answered from the
-Durable Object's SQLite VFS alone — no container, no sync barrier, and never the exclusive workspace operation lane, so
-discovery answers before the container is warm and stays available while a build command holds the lane. `write`,
-`edit`, `exec`, and `validate` change the project or run in its Container under that lane. All seven are CloudChef's
-own: `read` returns a file's text from a line offset, `edit` replaces exact text that occurs once (or every occurrence
-when asked), `write` honours the turn's abort signal, `exec` streams its output and runs what it is asked except a
-command that touches CloudChef's platform processes and state or asks `cf` for a credential
-(`cloudchef-agent/workspace-boundary.ts`), and `validate` runs the project's full validation. `@cloudflare/computer/tools` contributes only
-types.
+The model has four tools (`cloudchef-agent/model-tool-inputs.ts`, `app/lib/.server/llm/workers-ai-tools.ts`):
+`read`, `write`, `edit` and `exec`, plus `history` over the conversation itself (`context-window-tools.ts`). `read`
+is answered from the Durable Object's SQLite VFS alone — no container, no sync barrier, and never the exclusive
+workspace operation lane, so it answers before the container is warm and stays available while a build command holds
+the lane. `write`, `edit` and `exec` change the project or run in its Container under that lane. All four are
+CloudChef's own: `read` returns a file's text from a line offset, `edit` replaces exact text that occurs once (or every
+occurrence when asked), `write` honours the turn's abort signal, and `exec` streams its output and runs what it is
+asked except a command that touches CloudChef's platform processes and state or asks `cf` for a credential
+(`cloudchef-agent/workspace-boundary.ts`). `exec` answers two commands itself rather than in the shell: `pnpm add`
+and `pnpm install --lockfile-only` resolve npm registry packages in a staging copy, and `cloudchef validate`, run as a
+command of its own, runs the project's full validation, the one a publish reuses for the same revision (the container's
+own `cloudchef` program only says so when it is reached any other way). Listing and searching files are ordinary
+commands (`ls`, `find`, `grep`, `rg`). `@cloudflare/computer/tools` contributes only types.
 
-`ls` enumerates a directory or the tree beneath it and `grep` returns path, 1-based line, and matching line for a
-literal pattern. Line numbers come from the same splitter `read` uses, so a search hit names the line a read
-prints. `grep` matches literal single-line text and never compiles the model's pattern into a
-regular expression or a shell command: an untrusted pattern must not be able to backtrack the Durable Object into a
-stall or inject into the container. Both tools are bounded in the spirit of Computer's reviewed read and exec limits —
-`user-workspace-runtime/src/workspace-discovery.ts` names every ceiling and the failure it prevents — and both report
-`truncated` so the model narrows the path or the pattern instead of paging blindly. A recursive walk shows
-`node_modules` and build output but does not descend into them, unless one of them is the requested path; that is how
-the model still reads the framework version the project installed.
+What a command may do beyond the container is decided where it leaves it, by the per-host proxies the
+ProjectWorkspace intercepts for its container (`interceptWorkspaceOutbound`, `user-workspace-runtime/src/computer-sandbox.ts`),
+not by tools of their own: `git.internal` for the project's repository (below, under Project Repositories) and
+`cloudflare-api.internal` for Cloudflare's API (below). The container holds no credential for either.
+
 Reference guidance is mostly retrieved rather than mirrored. Cloudflare's documentation is searched live with
 `cf docs search` in the workspace, which needs no login and returns ranked pages; a page is read as markdown with
 `curl -H 'Accept: text/markdown'`.
@@ -333,21 +332,30 @@ by `pnpm run skills:sync` (optionally `-- <commit>`; never edited by hand), so t
 rather than a hand-written copy. They are exposed
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
 added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
-artifact, project files cannot shadow it, and it never appears in `ls` or `grep`, which are asked only about the
-project. The system prompt (`cloudchef-agent/prompts/system.ts`) describes only the environment — the workspace and
+artifact, project files cannot shadow it, and it is not in the container, so no command sees it. The system prompt (`cloudchef-agent/prompts/system.ts`) describes only the environment — the workspace and
 its tools, the kind of project (a CloudChef app, or a team's GitHub project, whose catalog omits project-stack), and
 how changes are published — and leaves to the model what it can decide itself; concrete product and API guidance
 comes from retrieval, while code and deployment boundaries remain enforced by project validation. A documentation search that fails returns a failed tool result the model can
 act on, rather than ending the turn.
 
-Cloudflare account work goes through Cloudflare's `cf` CLI and one Worker-side tool. The container's `cf` launcher
-installs the pinned CLI on first use; the model finds an operation with `cf cli search`, checks it with `cf schema`,
-and prints the exact request with `--dry-run`. The container holds no Cloudflare credential, so `cf` only plans. The
-model passes the dry-run JSON to `cloudflare_request`, which the runtime Worker validates (the public v4 API only, and
-only the connected account) and sends with a fresh access token from the credential broker. GET requests run
-immediately. Every other method is stored as a durable, expiring proposal bound to the account, connection, transcript,
-and exact request digest; it pauses the turn until the owner approves or rejects it, and an interrupted approved
-request is marked indeterminate rather than replayed.
+Cloudflare account work goes through Cloudflare's `cf` CLI in the container. Its launcher installs the pinned CLI on
+first use and points it at `http://cloudflare-api.internal/client/v4` (`CLOUDFLARE_API_BASE_URL`) with a stand-in
+token; the runtime's CloudflareApiProxy (`user-workspace-runtime/src/cloudflare-api-proxy.ts`, its rules in
+`app/lib/.server/cloudflare/cloudflare-api-proxy.ts`) answers that address. It rebuilds each request as a canonical
+one (the public v4 API only, and only the connected account; a change's body JSON and at most 60 KiB) and never
+forwards the container's headers. A read (GET) is sent at once with a fresh access token from the credential broker,
+in the person's own account or, in a team's, only for its active admins; Cloudflare's answer passes back with no
+headers but its type and ray id. Any other method is a change: the proxy asks the ProjectWorkspace which agent
+command is running (the workspace notes each agent's `exec` by its tool call while it runs), and a change asked for
+with none running (from the terminal, say) is refused. The agent records it as a durable, expiring proposal bound to
+the account, connection, transcript, that command's tool call and the exact request digest, after CloudChef's domain
+review, and the chat shows it in that command's card with Approve and Reject; one change waits per command. The proxy
+holds `cf`'s request and asks the agent every 1.5 s until the proposal is settled, then answers with Cloudflare's own
+answer to the approved request (content that looks like a credential withheld), or why nothing was sent. The approval
+expires after 15 minutes, inside `exec`'s own deadline; a command that ends first withdraws its change, so a late
+approval can never send it; an interrupted approved request is marked indeterminate rather than replayed. A team
+member's change is filed for the team's admins instead (`runtime-projects/approvals/file`) and `cf` is answered at
+once that it was sent to them; the command's output keeps the filed change, and the admins' decision replaces it there.
 
 Model tools and editor reads use the same workspace API. Browser saves use
 compare-and-swap against the numeric revision the browser loaded; a conflict refreshes from the user runtime and never

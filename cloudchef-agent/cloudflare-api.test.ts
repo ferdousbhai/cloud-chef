@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cloudflareApiRequestInputSchema,
   cloudflareApiRequestIsRead,
   CloudflareApiRequestRejectedError,
   normalizeCloudflareApiRequest,
@@ -45,53 +44,6 @@ describe('normalizeCloudflareApiRequest', () => {
     expect(() => normalizeCloudflareApiRequest({ method: 'GET', url }, 'account-1')).toThrow(
       CloudflareApiRequestRejectedError,
     );
-  });
-
-  it('accepts cf --dry-run output unchanged and folds its query into the URL', () => {
-    expect(
-      normalizeCloudflareApiRequest(
-        {
-          command: 'cf d1 list',
-          method: 'GET',
-          url: `${accountUrl}/d1/database`,
-          pathParams: {},
-          query: { name: 'foo', per_page: 5 },
-          bodyKind: 'none',
-        },
-        'account-1',
-      ),
-    ).toEqual({ method: 'GET', url: `${accountUrl}/d1/database?name=foo&per_page=5` });
-    expect(
-      normalizeCloudflareApiRequest(
-        {
-          command: 'cf d1 query',
-          method: 'POST',
-          url: `${accountUrl}/d1/database/db-1/query`,
-          pathParams: { 'database-id': 'db-1' },
-          bodyKind: 'json',
-          body: { sql: 'select 1' },
-        },
-        'account-1',
-      ),
-    ).toEqual({ method: 'POST', url: `${accountUrl}/d1/database/db-1/query`, body: { sql: 'select 1' } });
-  });
-
-  it('parses a body the model passed as a JSON string, but keeps a plain string', () => {
-    const url = `${accountUrl}/storage/kv/namespaces`;
-    expect(
-      cloudflareApiRequestInputSchema.parse({ method: 'POST', url, body: '{"title": "cloudchef-approval-test"}' }),
-    ).toEqual({ method: 'POST', url, body: { title: 'cloudchef-approval-test' } });
-    expect(cloudflareApiRequestInputSchema.parse({ method: 'PUT', url, body: 'plain value' })).toEqual({
-      method: 'PUT',
-      url,
-      body: 'plain value',
-    });
-  });
-
-  it('rejects a non-JSON body kind', () => {
-    expect(() =>
-      normalizeCloudflareApiRequest({ method: 'PUT', url: accountUrl, bodyKind: 'multipart' }, 'account-1'),
-    ).toThrow(CloudflareApiRequestRejectedError);
   });
 
   it('rejects a GET body and an oversized body', () => {

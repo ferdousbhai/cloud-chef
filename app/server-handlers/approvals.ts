@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  cloudflareApiRequestInputSchema,
+  cloudflareApiRequestSchema,
   cloudflareApiRequestIsRead,
   normalizeCloudflareApiRequest,
   TEAM_APPROVAL_TTL_MS,
@@ -208,7 +208,7 @@ export async function runtimeFileApprovalAction(args: { request: Request; env: E
   } catch {
     return json({ error: 'The request is not valid JSON.' }, 400);
   }
-  const input = cloudflareApiRequestInputSchema.safeParse(parsed);
+  const input = cloudflareApiRequestSchema.safeParse(parsed);
   if (!input.success) {
     return json({ error: 'The request is not a Cloudflare API request.' }, 400);
   }

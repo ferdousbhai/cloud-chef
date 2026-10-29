@@ -376,12 +376,12 @@ describe('minimal Workers AI tool surface', () => {
       NO_SKILLS,
     );
 
-    await executeTool(tools.validate, {});
+    await executeTool(tools.exec, { command: 'cloudchef validate' });
 
     expect(stages).toEqual(['computer validation', 'installing', 'typecheck', 'build', null]);
   });
 
-  it('runs the canonical validation through the dedicated validate tool', async () => {
+  it('runs the canonical validation when exec is asked for exactly `cloudchef validate`', async () => {
     const workspace = workspaceStub();
     const stages: Array<BuilderValidationStage | null> = [];
     const tools = createWorkersAiTools(
@@ -390,13 +390,59 @@ describe('minimal Workers AI tool surface', () => {
       NO_SKILLS,
     );
 
-    const result = await executeTool(tools.validate, {});
+    const result = await executeTool(tools.exec, { command: '  cloudchef validate\n' });
 
-    expect(result).toEqual({ validation: validationResult() });
+    expect(result).toEqual({ command: '  cloudchef validate\n', validation: validationResult() });
     expect(workspace.validate).toHaveBeenCalledWith(
       expect.objectContaining({ toolCallId: 'tool-call:validation', input: {} }),
     );
+    expect(workspace.executeCommand).not.toHaveBeenCalled();
     expect(stages).toEqual(['computer validation', null]);
+  });
+
+  it('runs `cloudchef validate` inside a longer command line as an ordinary command', async () => {
+    const workspace = workspaceStub();
+    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
+
+    await executeTool(tools.exec, { command: 'cloudchef validate && git push' });
+
+    expect(workspace.validate).not.toHaveBeenCalled();
+    expect(workspace.executeCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'cloudchef validate && git push' }),
+    );
+  });
+
+  it("settles a finished command's Cloudflare change and keeps one filed for a team's admins in its output", async () => {
+    const workspace = workspaceStub();
+    const filed = {
+      kind: 'cloudflare_request_filed' as const,
+      status: 'awaiting_team_admin' as const,
+      approvalId: 'approval-1',
+      accountId: 'account-1',
+      request: {
+        method: 'POST' as const,
+        url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/domains',
+      },
+      riskNote: 'risk',
+      expiresAt: 1,
+      note: 'Filed.',
+    };
+    const cloudflareChange = vi.fn(async () => filed);
+    const tools = createWorkersAiTools(workspace, { ...operationContext(), cloudflareChange }, NO_SKILLS);
+
+    await expect(executeTool(tools.exec, { command: 'cf workers domains create' })).resolves.toMatchObject({
+      cloudflareChange: filed,
+    });
+    expect(cloudflareChange).toHaveBeenCalledWith('tool-call');
+  });
+
+  it('offers the model exactly read, write, edit and exec', () => {
+    expect(Object.keys(createWorkersAiTools(workspaceStub(), operationContext(), NO_SKILLS))).toEqual([
+      'read',
+      'write',
+      'edit',
+      'exec',
+    ]);
   });
 
   it('serializes stateful work and keeps read-only work outside the queue', async () => {
@@ -415,11 +461,9 @@ describe('minimal Workers AI tool surface', () => {
       events.push('write-end');
     });
     const edit = coordinate('edit', async () => events.push('edit'));
-    // Every VFS-served tool resolves while the write still holds the queue; a discovery call that
-    // waited here would have re-acquired the container latency it exists to skip.
+    // A VFS-served read resolves while the write still holds the queue; a read that waited here would
+    // have re-acquired the container latency it exists to skip.
     await expect(coordinate('read', async () => 'contents')).resolves.toBe('contents');
-    await expect(coordinate('ls', async () => 'entries')).resolves.toBe('entries');
-    await expect(coordinate('grep', async () => 'matches')).resolves.toBe('matches');
 
     await Promise.resolve();
     expect(events).toEqual(['write-start']);
@@ -427,42 +471,6 @@ describe('minimal Workers AI tool surface', () => {
     await Promise.all([write, edit]);
     expect(events).toEqual(['write-start', 'write-end', 'edit']);
     expect(keepAliveCalls).toBe(2);
-  });
-
-  it('serves discovery from the workspace index, outside the container and the tool journal', async () => {
-    const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
-
-    await expect(executeTool(tools.ls, { path: '/home/project/src', recursive: true })).resolves.toMatchObject({
-      path: '/home/project/src',
-      recursive: true,
-    });
-    await expect(executeTool(tools.grep, { pattern: 'createRouter', ignoreCase: true })).resolves.toMatchObject({
-      pattern: 'createRouter',
-    });
-
-    expect(workspace.listProjectEntries).toHaveBeenCalledWith(
-      { path: '/home/project/src', recursive: true },
-      undefined,
-    );
-    expect(workspace.searchProjectFiles).toHaveBeenCalledWith({ pattern: 'createRouter', ignoreCase: true }, undefined);
-    expect(workspace.executeToolOnce).not.toHaveBeenCalled();
-    expect(workspace.executeCommand).not.toHaveBeenCalled();
-    expect(workspace.computer.runtime?.exec).not.toHaveBeenCalled();
-  });
-
-  it('keeps the read-only skill overlay out of project discovery', async () => {
-    const workspace = workspaceStub();
-    const tools = createWorkersAiTools(workspace, operationContext(), NO_SKILLS);
-
-    await expect(executeTool(tools.ls, { path: '/__skills__/react-start' })).resolves.toMatchObject({
-      error: expect.stringContaining('not part of the project workspace'),
-    });
-    await expect(executeTool(tools.grep, { pattern: 'design', path: '//__skills__//cf-cli' })).resolves.toMatchObject({
-      error: expect.stringContaining('not part of the project workspace'),
-    });
-    expect(workspace.listProjectEntries).not.toHaveBeenCalled();
-    expect(workspace.searchProjectFiles).not.toHaveBeenCalled();
   });
 });
 
@@ -549,24 +557,6 @@ function workspaceStub(
       });
       return handle.result();
     }),
-    listProjectEntries: vi.fn(async (request: { path?: string; recursive?: boolean }) => ({
-      path: request.path ?? '/home/project',
-      recursive: request.recursive ?? false,
-      entries: [],
-      entryCount: 0,
-      truncated: false,
-      revision: revision(),
-    })),
-    searchProjectFiles: vi.fn(async (request: { pattern: string; path?: string }) => ({
-      pattern: request.pattern,
-      path: request.path ?? '/home/project',
-      matches: [],
-      matchCount: 0,
-      filesScanned: 0,
-      filesSkipped: 0,
-      truncated: false,
-      revision: revision(),
-    })),
     executeToolOnce: vi.fn(async (_toolCallId, _toolName, _input, execute) => execute()),
     installDependencies: vi.fn(async () => {
       localRevision += 1;
