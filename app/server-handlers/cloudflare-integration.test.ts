@@ -508,6 +508,43 @@ describe('Cloudflare-only authentication', () => {
     expect(response.headers.get('location')).toBe('https://cloudchef.build/');
   });
 
+  it('starts preparing the workspace as soon as the connection is saved', async () => {
+    const database = oauthDatabase();
+    const start = await startCloudflareConnectionAction({
+      request: new Request('https://cloudchef.build/api/cloudflare/connection/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://cloudchef.build' },
+        body: '{}',
+      }),
+      env: database.env,
+      orchestrator: fakeOrchestrator(),
+    });
+    const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
+    const connection = activeConnection();
+    mocks.activateConnection.mockImplementation(async () => {
+      mocks.findConnection.mockResolvedValue(connection);
+    });
+    const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
+
+    const response = await completeCloudflareConnectionAction({
+      request: new Request(`https://cloudchef.build/connect/return?state=${database.state!.id}&code=code-1`, {
+        headers: { cookie: stateCookie },
+      }),
+      env: database.env,
+      orchestrator: fakeOrchestrator(),
+      provision,
+    });
+
+    expect(response.status).toBe(303);
+    expect(provision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        connectionId: connection.id,
+        connectionGeneration: connection.generation,
+      }),
+    );
+  });
+
   it('completes OAuth, activates the selected account, and creates the app session', async () => {
     const database = oauthDatabase();
     const start = await startCloudflareConnectionAction({

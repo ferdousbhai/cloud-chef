@@ -409,6 +409,7 @@ export async function completeCloudflareConnectionAction(args: {
   request: Request;
   env: Env;
   orchestrator?: Pick<CloudflareOAuthOrchestrator, 'completeConnection'>;
+  provision?: typeof startUserWorkspaceRuntimeProvisioning;
 }): Promise<Response> {
   let returnTo: string | null = null;
   try {
@@ -575,6 +576,12 @@ export async function completeCloudflareConnectionAction(args: {
       .bind(owner.kind === 'user' ? owner.userId : owner.orgId, sessionId)
       .run();
     await settleOAuthState(args.env.DB, state, 'completed', userId);
+    await prepareWorkspaceAfterConnecting(
+      args.env,
+      userId,
+      owner,
+      args.provision ?? startUserWorkspaceRuntimeProvisioning,
+    );
     const headers = new Headers({
       Location: new URL(
         safeReturnTo(oauthState.return_to, new URL(args.request.url).origin),
@@ -605,6 +612,45 @@ export async function completeCloudflareConnectionAction(args: {
 }
 
 /** The active admin of the team `orgId` who is connecting it; refuses anyone else. */
+/**
+ * Starts preparing the connecting person's workspace as soon as the connection is saved, in the background, so
+ * its first start (installing the container's tools and saving them as its snapshot, a few minutes) is done
+ * before they open a project. Opening one later finds the same Workflow. A failure here is only logged: the
+ * first session request starts or reports it as before.
+ */
+async function prepareWorkspaceAfterConnecting(
+  env: Env,
+  userId: string,
+  owner: CloudflareConnectionOwner,
+  provision: typeof startUserWorkspaceRuntimeProvisioning,
+): Promise<void> {
+  try {
+    const connection = await findCloudflareConnectionForOwner(env.DB, owner);
+    if (!connection || missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
+      return;
+    }
+    if (isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection)) {
+      return;
+    }
+    const started = await provision({
+      env,
+      userId,
+      connectionId: connection.id,
+      connectionGeneration: connection.generation,
+      isReady: async () =>
+        isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection),
+    });
+    if (started.status === 'error') {
+      console.warn({ event: 'workspace_preparation_after_connect_unavailable', errorCode: started.errorCode });
+    }
+  } catch (error) {
+    console.warn({
+      event: 'workspace_preparation_after_connect_failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
 async function requireTeamAdmin(db: D1Database, orgId: string, linkingUserId: string | null): Promise<string> {
   const membership = linkingUserId ? await findMembership(db, orgId, linkingUserId) : null;
   if (!linkingUserId || !isActiveAdmin(membership)) {
