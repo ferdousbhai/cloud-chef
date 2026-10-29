@@ -2,6 +2,7 @@ import { createClientOnlyFn } from '@tanstack/react-start';
 import { ClientOnly } from '@tanstack/react-router';
 import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { BrandLink } from '~/components/BrandLink';
+import { holdEarlyPrompt, PROMPT_TEXTAREA_CLASS } from '~/components/chat/early-prompt';
 import { HomeHeroCopy } from '~/components/HomeHeroCopy';
 import { Loading } from '~/components/Loading';
 
@@ -96,17 +97,43 @@ function HeaderLoadingFallback() {
   );
 }
 
+/**
+ * The home as it first paints: the same shell, heading and prompt box as `HomeIntro`, box for box, so nothing
+ * moves when the real editor replaces it. The box takes typing at once and hands it to the real editor.
+ */
 function HomepageLoadingFallback() {
   return (
-    <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8 lg:py-5">
+    <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="loading-intro">
-        <HomeHeroCopy headingId="loading-intro" />
-        <div
-          className="cloudchef-message-input--home mt-7 flex min-h-16 items-center px-5 text-sm text-content-secondary"
-          role="status"
-          aria-live="polite"
-        >
-          Loading the prompt editor…
+        <div className="cloudchef-home-hero">
+          <div className="min-w-0">
+            <HomeHeroCopy headingId="loading-intro" />
+            <div className="cloudchef-home-composer-stack">
+              <div className="cloudchef-message-input--home relative z-20 mx-auto w-full max-w-none">
+                <div className="cloudchef-message-input__surface rounded-lg bg-bolt-elements-background-depth-1 p-2 shadow-panel">
+                  <div className="cloudchef-message-input__editor relative border border-bolt-elements-borderColor">
+                    <div className="relative overflow-y-hidden" style={{ minHeight: 44, maxHeight: 160 }}>
+                      <textarea
+                        ref={holdEarlyPrompt}
+                        rows={1}
+                        className={PROMPT_TEXTAREA_CLASS}
+                        style={{ minHeight: 44 }}
+                        placeholder="Describe your app…"
+                        aria-label="Message to CloudChef"
+                        translate="no"
+                        data-gramm="false"
+                      />
+                    </div>
+                    <div className="cloudchef-message-input__toolbar flex items-center px-2 pb-2">
+                      <span className="sr-only" role="status">
+                        Loading the prompt editor…
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </div>

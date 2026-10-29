@@ -37,6 +37,9 @@ html.light {
   text-transform: uppercase;
 }
 
+/* One layout for every state of the home — loading, signed out, signed in with projects below, and a project's
+   own empty chat: the copy at the top, and whatever arrives later (the projects, a sign-in link) grows below it,
+   so nothing above ever moves while the page loads. */
 .cloudchef-home-shell {
   position: relative;
   /* Not `min-height: 100%`: this sits in a flex column beside the header and the footer, so a
@@ -44,8 +47,9 @@ html.light {
      combined height no matter how short the copy was. `grow` already gives it the leftover space. */
   min-height: 0;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   overflow-x: hidden;
+  overflow-y: auto;
   isolation: isolate;
   background-color: var(--cloudchef-home-bg);
   color: var(--cloudchef-home-ink);
@@ -54,16 +58,6 @@ html.light {
 .cloudchef-home-copy {
   width: 100%;
   max-width: 760px;
-  margin: auto;
-}
-
-/* The signed-in home: the prompt at the top, the person's projects below it. */
-.cloudchef-home-shell--projects {
-  align-items: stretch;
-  overflow-y: auto;
-}
-
-.cloudchef-home-shell--projects .cloudchef-home-copy {
   margin: 4vh auto 0;
 }
 
@@ -86,6 +80,20 @@ html.light {
 .cloudchef-home-composer-stack {
   max-width: 760px;
   margin-top: 12px;
+}
+
+/* A team member limited to team projects gets a line where the prompt box would be, starting where its top was. */
+.cloudchef-home-composer-stack[role='status'] > .app-page-lede {
+  margin-top: 0;
+}
+
+/* The toolbar keeps the send button's height before the model chip arrives, so the box never changes size. */
+.cloudchef-message-input__toolbar {
+  min-height: 40px;
+}
+
+.cloudchef-message-input--home .cloudchef-message-input__toolbar {
+  min-height: 44px;
 }
 
 /* Keep the prompt surface separate from its lightweight connection footnote. */
