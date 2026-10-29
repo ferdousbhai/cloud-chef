@@ -10,7 +10,9 @@ import {
   gitHubRepositoryName,
   importReturnURL,
   listGitHubRepositories,
+  startGitHubAccountReuse,
   startGitHubAppInstall,
+  type GitHubAccountToReuse,
   type GitHubRepository,
 } from '~/lib/github-app.client';
 import { messageOf, postJson, RequestError } from '~/lib/json-request';
@@ -30,7 +32,8 @@ type Step =
 /**
  * Imports a GitHub repository, with its full history, as a project in the account the person is working in
  * (theirs, or the team's). A public repository imports from its address; a private one needs CloudChef's
- * GitHub App installed on its account first.
+ * GitHub App (CloudChef Import) installed on its account first, or, when the App is already on the person's own
+ * GitHub account from another of their accounts, GitHub's confirmation that it's them to connect it here too.
  */
 export function ImportFromGitHubDialog({
   orgId,
@@ -52,18 +55,23 @@ export function ImportFromGitHubDialog({
   // GitHub accounts the App is on whose repositories couldn't be listed just now.
   const [unreachable, setUnreachable] = useState<string[]>([]);
   const [listError, setListError] = useState<string | null>(null);
+  // The person's own GitHub account, which has the App, connected elsewhere (Personal, or a team) and not here.
+  const [reusable, setReusable] = useState<GitHubAccountToReuse[]>([]);
+  const [reusing, setReusing] = useState<number | null>(null);
   const repository = gitHubRepositoryName(address);
+  const reusableLogins = reusable.map((account) => account.accountLogin).join(', ');
 
   useEffect(() => {
     const controller = new AbortController();
     listGitHubRepositories(orgId, controller.signal)
-      .then(({ repositories, unreachable }) => {
+      .then(({ repositories, unreachable, reusable }) => {
         setInstalled(repositories);
         setUnreachable(unreachable);
+        setReusable(reusable);
       })
       .catch((cause: Error) => {
         if (!controller.signal.aborted) {
-          // Only "not connected yet" (409) means installing the App; anything else is GitHub failing just now.
+          // "Not available" (409) means installing the App; anything else is GitHub failing just now.
           if (!(cause instanceof RequestError && cause.status === 409)) {
             setListError(messageOf(cause, 'GitHub could not be reached just now. Try again in a moment.'));
           }
@@ -103,6 +111,17 @@ export function ImportFromGitHubDialog({
     } catch (cause) {
       setError(messageOf(cause, 'GitHub could not be reached. Try again.'));
       setInstalling(false);
+    }
+  };
+
+  // The App is on this GitHub account already: GitHub only confirms it's them, then it's connected here too.
+  const reuse = async (installationId: number) => {
+    setReusing(installationId);
+    try {
+      await startGitHubAccountReuse(orgId, installationId, importReturnURL(window.location.href));
+    } catch (cause) {
+      setError(messageOf(cause, 'GitHub could not be reached. Try again.'));
+      setReusing(null);
     }
   };
 
@@ -164,7 +183,7 @@ export function ImportFromGitHubDialog({
         ) : null}
         {installed !== null && installed.length > 0 ? (
           <label className="grid gap-1">
-            <span className="text-content-secondary">Or choose a repository the CloudChef GitHub App can read</span>
+            <span className="text-content-secondary">Or choose a repository CloudChef Import can read</span>
             <select
               value={installed.find((candidate) => candidate.fullName === repository)?.fullName ?? ''}
               onChange={(event) => setAddress(event.target.value ? `https://github.com/${event.target.value}` : '')}
@@ -195,21 +214,52 @@ export function ImportFromGitHubDialog({
           ) : (
             <div className="grid gap-2">
               <p>
-                Public repositories import from their address. For a private repository, install the CloudChef GitHub
-                App on the account that holds it and give it that repository; it can be installed on several accounts.
-                It only reads, and only for the import.
+                Public repositories import from their address. For a private repository, install CloudChef Import,
+                CloudChef&apos;s GitHub App, on the account that holds it and give it that repository; it can be
+                installed on several accounts. It only reads, and only for the import.
               </p>
-              <Button
-                className="justify-self-start"
-                size="xs"
-                variant="neutral"
-                loading={installing}
-                onClick={() => void install()}
-              >
-                {installed.length > 0 || unreachable.length > 0 || listError !== null
-                  ? 'Add GitHub accounts or repositories'
-                  : 'Install the CloudChef GitHub App'}
-              </Button>
+              {reusable.length > 0 ? (
+                <>
+                  <p>
+                    The App is already on your GitHub account ({reusableLogins}). CloudChef will ask GitHub to confirm
+                    it&apos;s you, then you can import from it here too.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {reusable.map((account) => (
+                      <Button
+                        key={account.installationId}
+                        size="xs"
+                        loading={reusing === account.installationId}
+                        disabled={installing || (reusing !== null && reusing !== account.installationId)}
+                        onClick={() => void reuse(account.installationId)}
+                      >
+                        {reusable.length > 1 ? `Use ${account.accountLogin} here` : 'Use my GitHub account here'}
+                      </Button>
+                    ))}
+                    <Button
+                      size="xs"
+                      variant="neutral"
+                      loading={installing}
+                      disabled={reusing !== null}
+                      onClick={() => void install()}
+                    >
+                      Add a different GitHub account
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <Button
+                  className="justify-self-start"
+                  size="xs"
+                  variant="neutral"
+                  loading={installing}
+                  onClick={() => void install()}
+                >
+                  {installed.length > 0 || unreachable.length > 0 || listError !== null
+                    ? 'Add GitHub accounts or repositories'
+                    : 'Install CloudChef Import on GitHub'}
+                </Button>
+              )}
             </div>
           )}
         </div>

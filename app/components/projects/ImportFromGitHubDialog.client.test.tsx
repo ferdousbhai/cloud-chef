@@ -4,13 +4,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectImportResult } from '~/lib/cloudflare/data-api';
-import type { GitHubRepository } from '~/lib/github-app.client';
+import type { GitHubAccountToReuse, GitHubRepository } from '~/lib/github-app.client';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 
 const RUNTIME = 'https://runtime.example.workers.dev';
 
 let installed: GitHubRepository[] | null;
+let reusable: GitHubAccountToReuse[];
 let imported: ProjectImportResult;
 const requests: { url: string; body: string | null }[] = [];
 
@@ -19,13 +20,15 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const url = String(input);
   requests.push({ url, body: init?.body ? String(init.body) : null });
   if (url.startsWith('/api/organizations/github/repositories')) {
-    return installed
-      ? Response.json({ repositories: installed })
-      : Response.json({ error: 'Connect GitHub first.' }, { status: 409 });
+    // Nothing connected here lists nothing, with the person's own GitHub account connected elsewhere.
+    return Response.json({ repositories: installed ?? [], reusable });
   }
   if (url === '/api/organizations/github/start') {
     // A fragment, which the test document can follow without leaving the page.
     return Response.json({ installUrl: '#github-install' });
+  }
+  if (url === '/api/organizations/github/reuse') {
+    return Response.json({ authorizeUrl: '#github-authorize' }, { status: 201 });
   }
   if (url === '/api/projects/project-1/workers-builds/switch') {
     return Response.json({
@@ -50,6 +53,7 @@ beforeEach(() => {
   resetUserRuntimeSession();
   requests.length = 0;
   installed = null;
+  reusable = [];
 });
 
 afterEach(async () => {
@@ -111,12 +115,30 @@ describe('ImportFromGitHubDialog', () => {
   it('offers to install the GitHub App for private repositories', async () => {
     await render('org-1');
 
-    await act(async () => buttonWithText('Install the CloudChef GitHub App')?.click());
+    expect(buttonWithText('Use my GitHub account here')).toBeUndefined();
+    await act(async () => buttonWithText('Install CloudChef Import on GitHub')?.click());
 
     expect(requests[0]?.url).toBe('/api/organizations/github/repositories?orgId=org-1');
     const start = requests.find(({ url }) => url === '/api/organizations/github/start');
     expect(JSON.parse(start?.body ?? 'null')).toMatchObject({ orgId: 'org-1' });
     expect(JSON.parse(start?.body ?? 'null').callbackURL).toContain('import=github');
+  });
+
+  it('uses the GitHub account the App is already on, through GitHub confirming who it is', async () => {
+    reusable = [{ installationId: 4242, accountLogin: 'ferdousbhai' }];
+    await render(null);
+
+    expect(document.body.textContent).toContain(
+      "The App is already on your GitHub account (ferdousbhai). CloudChef will ask GitHub to confirm it's you, then you can import from it here too.",
+    );
+    expect(buttonWithText('Install CloudChef Import on GitHub')).toBeUndefined();
+    await act(async () => buttonWithText('Use my GitHub account here')?.click());
+
+    await vi.waitFor(() => expect(window.location.hash).toBe('#github-authorize'));
+    const reuse = requests.find(({ url }) => url === '/api/organizations/github/reuse');
+    expect(JSON.parse(reuse?.body ?? 'null')).toMatchObject({ installationId: 4242 });
+    expect(JSON.parse(reuse?.body ?? 'null').callbackURL).toContain('import=github');
+    expect(requests.some(({ url }) => url === '/api/organizations/github/start')).toBe(false);
   });
 
   it('lists the repositories the installed App can read', async () => {

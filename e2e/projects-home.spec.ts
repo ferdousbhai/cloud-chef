@@ -13,6 +13,7 @@ import { collectBrowserDiagnostics } from './browser-diagnostics';
 const RUNTIME_ORIGIN = 'https://e2e-projects-fixture.workers.dev';
 const SITE_ORIGIN = 'https://e2e-booking-site.workers.dev';
 const dataRequestSchema = z.object({ path: z.string() });
+const reuseRequestSchema = z.object({ installationId: z.number() });
 
 const ownProjects: WorkspaceSummary[] = [
   {
@@ -481,3 +482,54 @@ test('offers an in-browser agent WebMCP tools that read projects, and fill in a 
   await page.screenshot({ path: testInfo.outputPath('webmcp-start-project.png') });
   await assertClean();
 });
+
+for (const theme of ['dark', 'light'] as const) {
+  test(`offers the person's own GitHub account, connected in another space, in the import dialog (${theme})`, async ({
+    page,
+  }, testInfo) => {
+    const assertClean = collectBrowserDiagnostics(page, testInfo);
+    // The page's own frame only: the project cards' sandboxed site previews have no storage.
+    await page.addInitScript((chosen) => {
+      if (window === window.top) {
+        localStorage.setItem('cloudchef_theme', chosen);
+      }
+    }, theme);
+    await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' });
+    // Nothing connected in Personal; the App is on the person's own GitHub account, connected from their team.
+    await page.route('**/api/organizations/github/repositories', (route) =>
+      route.fulfill({
+        json: { repositories: [], unreachable: [], reusable: [{ installationId: 4242, accountLogin: 'ferdousbhai' }] },
+      }),
+    );
+    const reused: number[] = [];
+    await page.route('**/api/organizations/github/reuse', (route) => {
+      reused.push(reuseRequestSchema.parse(route.request().postDataJSON()).installationId);
+      return route.fulfill({
+        status: 201,
+        json: { authorizeUrl: 'https://github.com/login/oauth/authorize?client_id=e2e&state=e2e-state' },
+      });
+    });
+    await page.route('https://github.com/login/oauth/authorize**', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Authorize</title><p>GitHub</p>' }),
+    );
+
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Add an existing project' }).click();
+    await page.getByRole('menuitem', { name: 'Import from GitHub' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Import from GitHub' });
+    await expect(
+      dialog.getByText(
+        "The App is already on your GitHub account (ferdousbhai). CloudChef will ask GitHub to confirm it's you, then you can import from it here too.",
+      ),
+    ).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /Install/ })).toHaveCount(0);
+    await expect(page.locator('html')).toHaveClass(theme);
+    await dialog.screenshot({ path: testInfo.outputPath(`import-github-reuse-${theme}.png`) });
+    await page.screenshot({ path: testInfo.outputPath(`import-github-reuse-${theme}-page.png`) });
+    await assertClean();
+
+    await dialog.getByRole('button', { name: 'Use my GitHub account here' }).click();
+    await expect(page).toHaveURL(/^https:\/\/github\.com\/login\/oauth\/authorize/);
+    expect(reused).toEqual([4242]);
+  });
+}
