@@ -327,7 +327,7 @@ const AuthenticatedChat = memo(
       (subchatIndex: number, title: string) => setLiveSubchatTitle({ subchatIndex, title }),
       [],
     );
-    const [chatStarted, setChatStarted] = useState(
+    const [chatStartedHere, setChatStarted] = useState(
       initialMessages.length > 0 || hasMultipleSubchats || pendingInitialMessage !== null,
     );
     const { showChat } = useStore(chatStore);
@@ -369,6 +369,9 @@ const AuthenticatedChat = memo(
       presentationId,
       transcript,
     });
+    // Also when the agent's chat reaches this page before its own transcript request does, or shows a run another tab
+    // started.
+    const chatStarted = chatStartedHere || messages.length > 0;
     const parsedMessages = useProcessedMessages(messages);
     // A turn refused for its model (one the account's admin no longer allows, or whose key was removed)
     // is followed by a fresh catalog, so the picker moves to a model the account offers and says so.

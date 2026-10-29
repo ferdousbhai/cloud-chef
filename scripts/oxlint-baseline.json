@@ -1,5 +1,5 @@
 {
-  "total": 761,
+  "total": 758,
   "counts": {
     "app/agents/builder-deployment-command.test.ts": {
       "anti-slop/no-module-mocking": 1,
@@ -337,10 +337,6 @@
       "anti-slop/no-runtime-typeof": 5,
       "anti-slop/no-unknown-parameters": 8,
       "anti-slop/no-unknown-returns": 1
-    },
-    "cloudchef-agent/context-message-metrics.ts": {
-      "anti-slop/no-runtime-typeof": 1,
-      "anti-slop/no-unknown-parameters": 2
     },
     "cloudchef-agent/tool-result.ts": {
       "anti-slop/no-runtime-typeof": 7,
