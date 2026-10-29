@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { CloudflareApiRequest } from 'cloudchef-agent/cloudflare-api';
+import {
+  CLOUDFLARE_CHANGE_WAITING_IN_CHAT,
+  CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS,
+  type CloudflareApiRequest,
+} from 'cloudchef-agent/cloudflare-api';
 import type { CloudflareApiOutcome } from '~/lib/.server/cloudflare/cloudflare-api-client';
 import type { CloudflareChangeAnswer } from '~/lib/.server/cloudflare/cloudflare-api-proxy';
 import { AGENT_NAME, conversationAgentHarness, type ConversationAgentHarness } from './harness';
 
 /**
  * A change `cf` asks for from a command the agent runs: the runtime's CloudflareApiProxy hands it to the agent,
- * which keeps it in that command's place in the chat until the person decides, while the proxy asks again.
+ * which keeps it in that command's place in the chat until the person decides, while the proxy asks again. Once the
+ * command no longer waits for it, it waits in the chat, and what the person decides reaches the command's output.
  */
 const DELETE_SCRIPT: CloudflareApiRequest = {
   method: 'DELETE',
@@ -32,6 +37,35 @@ function sentRequests(harness: ConversationAgentHarness, outcome: CloudflareApiO
     },
   }));
   return sent;
+}
+
+/** The exec tool once its command finished: the changes it ended without go in its output, in the transcript. */
+async function commandFinished(harness: ConversationAgentHarness) {
+  // eslint-disable-next-line dot-notation
+  const cloudflareChanges = harness.agent['settleCommandCloudflareChanges'](COMMAND, 'finished');
+  await harness.agent.persistMessages([
+    {
+      id: 'assistant-1',
+      role: 'assistant',
+      parts: [
+        {
+          type: 'dynamic-tool',
+          toolName: 'exec',
+          toolCallId: COMMAND,
+          state: 'output-available',
+          input: { command: 'cf workers scripts delete old' },
+          output: { command: 'cf workers scripts delete old', exitCode: 1, stdout: '', stderr: '', cloudflareChanges },
+        },
+      ],
+    },
+  ]);
+}
+
+/** The changes in the command's output, as the agent reads them. */
+function commandChanges(harness: ConversationAgentHarness) {
+  return z
+    .object({ output: z.object({ cloudflareChanges: z.array(z.looseObject({ kind: z.string() })) }) })
+    .parse(harness.agent.messages[0]?.parts[0]).output.cloudflareChanges;
 }
 
 beforeEach(() => {
@@ -102,7 +136,98 @@ describe("a change cf asks for in the person's own account", () => {
     expect(sent).toEqual([]);
   });
 
-  it('never sends a change whose command stopped asking, even when it is approved', async () => {
+  it('sends a change the person approves well into a long command, while cf still waits for it', async () => {
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
+    const sent = sentRequests(harness, {
+      status: 'success',
+      content: '{"success":true,"result":{"id":"kv-1"}}',
+      requestId: 'ray-1',
+      httpStatus: 200,
+      truncated: false,
+    });
+    const asked = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
+    const executionId = asked.kind === 'waiting' ? asked.executionId : '';
+
+    // The proxy asks every 1.5 s; twenty minutes pass, well past the old 15-minute expiry.
+    const start = Date.now();
+    vi.useFakeTimers({ toFake: ['Date'], now: start });
+    for (let minute = 1; minute <= 20; minute += 1) {
+      vi.setSystemTime(start + minute * 60_000);
+      await expect(
+        harness.agent.workspaceCloudflareChangeOutcome({ toolCallId: COMMAND, executionId }),
+      ).resolves.toEqual({ kind: 'waiting', executionId });
+    }
+    await expect(harness.agent.approveCloudflareExecution({ executionId })).resolves.toMatchObject({
+      execution: { status: 'succeeded', leftWaitingAt: null },
+    });
+
+    expect(sent).toEqual([DELETE_SCRIPT]);
+    await expect(harness.agent.workspaceCloudflareChangeOutcome({ toolCallId: COMMAND, executionId })).resolves.toEqual(
+      { kind: 'answer', status: 200, body: '{"success":true,"result":{"id":"kv-1"}}' },
+    );
+  });
+
+  it('tells cf the change waits in the chat once its command’s time is nearly up, and lets the command go on', async () => {
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
+    const asked = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
+    const executionId = asked.kind === 'waiting' ? asked.executionId : '';
+
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS });
+    const answer = await harness.agent.workspaceCloudflareChangeOutcome({ toolCallId: COMMAND, executionId });
+
+    expect(answer).toMatchObject({ kind: 'answer', status: 202 });
+    expect(errorMessage(answer)).toBe(CLOUDFLARE_CHANGE_WAITING_IN_CHAT);
+    expect(harness.cloudflareExecution(executionId)).toMatchObject({
+      status: 'awaiting_approval',
+      leftWaitingAt: expect.any(Number),
+    });
+  });
+
+  it('sends a change approved after its command ended exactly once, and tells the agent what Cloudflare said', async () => {
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
+    const sent = sentRequests(harness, {
+      status: 'success',
+      content: '{"success":true,"result":null}',
+      requestId: 'ray-1',
+      httpStatus: 200,
+      truncated: false,
+    });
+    const asked = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
+    const executionId = asked.kind === 'waiting' ? asked.executionId : '';
+    await commandFinished(harness);
+
+    // The change still waits in the chat, with no deadline, and `cf` was told it isn't made yet.
+    expect(harness.agent.state.cloudflareExecutions).toEqual([
+      expect.objectContaining({ executionId, status: 'awaiting_approval', leftWaitingAt: expect.any(Number) }),
+    ]);
+    expect(
+      errorMessage(await harness.agent.workspaceCloudflareChangeOutcome({ toolCallId: COMMAND, executionId })),
+    ).toBe(CLOUDFLARE_CHANGE_WAITING_IN_CHAT);
+    expect(commandChanges(harness)).toEqual([
+      expect.objectContaining({ kind: 'cloudflare_change_waiting_in_chat', executionId, request: DELETE_SCRIPT }),
+    ]);
+
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 3 * 60 * 60_000 });
+    await expect(harness.agent.approveCloudflareExecution({ executionId })).resolves.toMatchObject({
+      execution: { status: 'succeeded' },
+    });
+    await expect(harness.agent.approveCloudflareExecution({ executionId })).resolves.toMatchObject({
+      execution: { status: 'succeeded' },
+    });
+
+    expect(sent).toEqual([DELETE_SCRIPT]);
+    // What the agent reads at its next turn, in place of the waiting change.
+    expect(commandChanges(harness)).toEqual([
+      expect.objectContaining({
+        kind: 'cloudflare_request_final_result',
+        executionId,
+        status: 'succeeded',
+        outcome: expect.objectContaining({ status: 'success', content: '{"success":true,"result":null}' }),
+      }),
+    ]);
+  });
+
+  it('records a rejection after the command ended, sends nothing, and tells the agent', async () => {
     const harness = await conversationAgentHarness({ cloudflareIdentity: true });
     const sent = sentRequests(harness, {
       status: 'success',
@@ -113,25 +238,54 @@ describe("a change cf asks for in the person's own account", () => {
     });
     const asked = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
     const executionId = asked.kind === 'waiting' ? asked.executionId : '';
+    await commandFinished(harness);
 
-    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 60_000 });
-    await expect(harness.agent.approveCloudflareExecution({ executionId })).rejects.toMatchObject({ status: 409 });
+    await expect(harness.agent.rejectCloudflareExecution({ executionId })).resolves.toMatchObject({
+      execution: { status: 'rejected' },
+    });
 
     expect(sent).toEqual([]);
-    expect(harness.cloudflareExecution(executionId)?.status).toBe('expired');
+    expect(commandChanges(harness)).toEqual([
+      expect.objectContaining({
+        kind: 'cloudflare_request_final_result',
+        executionId,
+        status: 'rejected',
+        outcome: { status: 'denied', summary: 'The person rejected this change, so nothing was sent to Cloudflare.' },
+      }),
+    ]);
   });
 
-  it('withdraws the change of a command that ended while it waited', async () => {
+  it('sends a change whose proxy stopped asking when it is approved, and leaves its answer to the chat', async () => {
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
+    const sent = sentRequests(harness, {
+      status: 'success',
+      content: '{"success":true,"result":null}',
+      requestId: null,
+      httpStatus: 200,
+      truncated: false,
+    });
+    const asked = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
+    const executionId = asked.kind === 'waiting' ? asked.executionId : '';
+
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 60_000 });
+    await expect(harness.agent.approveCloudflareExecution({ executionId })).resolves.toMatchObject({
+      execution: { status: 'succeeded', leftWaitingAt: expect.any(Number) },
+    });
+
+    expect(sent).toEqual([DELETE_SCRIPT]);
+  });
+
+  it('withdraws the change cf still waited for when the person stops its command', async () => {
     const harness = await conversationAgentHarness({ cloudflareIdentity: true });
     const asked = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
     const executionId = asked.kind === 'waiting' ? asked.executionId : '';
 
-    // What the exec tool does once its command ends, however it ended.
+    // What the exec tool does when its command is stopped.
     // eslint-disable-next-line dot-notation
-    harness.agent['settleCommandCloudflareChanges'](COMMAND);
+    harness.agent['settleCommandCloudflareChanges'](COMMAND, 'stopped');
 
     const answer = await harness.agent.workspaceCloudflareChangeOutcome({ toolCallId: COMMAND, executionId });
-    expect(errorMessage(answer)).toContain('The command ended before anyone approved the change');
+    expect(errorMessage(answer)).toContain('The command was stopped before anyone approved the change');
     await expect(harness.agent.approveCloudflareExecution({ executionId })).rejects.toMatchObject({ status: 409 });
   });
 

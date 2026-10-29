@@ -1,8 +1,10 @@
 import {
+  CLOUDFLARE_CHANGE_WAITING_IN_CHAT,
   CloudflareApiRequestRejectedError,
   normalizeCloudflareApiRequest,
   type CloudflareApiRequest,
 } from 'cloudchef-agent/cloudflare-api';
+import { z } from 'zod';
 import { readBodyTextPrefix } from '~/lib/bounded-body';
 
 /**
@@ -28,6 +30,18 @@ function apiMethod(method: string): CloudflareApiRequest['method'] | null {
 const MAX_CHANGE_BODY_BYTES = 60 * 1024;
 /** How often a change waiting for the person is asked about again. */
 const CLOUDFLARE_CHANGE_POLL_MS = 1_500;
+/**
+ * `cf` gives up on a request whose answer has not begun within 60 s, with no setting to change it and no retry: its
+ * API client sends each request with `timeoutInSeconds ?? 60`, built without a timeout and with `maxRetries: 0`, and
+ * the timer is cleared once the response's headers arrive, while the body is read with no timer at all. A change
+ * still waiting for the person after this long is answered at once with 200, and the answer follows in the body.
+ */
+export const CLOUDFLARE_CHANGE_HEADERS_AFTER_MS = 30_000;
+/**
+ * Node's fetch, which `cf` uses, ends a response body that sends nothing for 300 s. While a change waits, a space is
+ * sent this often, which `JSON.parse` skips before the answer.
+ */
+const CLOUDFLARE_CHANGE_KEEPALIVE_MS = 20_000;
 
 /** The agent's command running in the container: a change is approved in that command's place in the chat. */
 export type WorkspaceAgentCommand = { agentName: string; toolCallId: string };
@@ -63,8 +77,8 @@ export type CloudflareApiProxyDependencies = {
   command(): Promise<WorkspaceAgentCommand | null>;
   propose(command: WorkspaceAgentCommand, request: CloudflareApiRequest): Promise<CloudflareChangeAnswer>;
   outcome(command: WorkspaceAgentCommand, executionId: string): Promise<CloudflareChangeAnswer>;
-  /** The command stopped while its change waited: nothing is sent. */
-  withdraw(command: WorkspaceAgentCommand, executionId: string): Promise<void>;
+  /** `cf` stopped while its change waited: the change waits in the chat instead, and is sent if approved there. */
+  leaveInChat(command: WorkspaceAgentCommand, executionId: string): Promise<void>;
   /** A team member's change typed in the terminal, filed for the team's admins as the agent's are. */
   fileForTeamAdmins(request: CloudflareApiRequest): Promise<CloudflareChangeAnswer>;
   /** Notes a change typed in the terminal and sent at once, so what changed the account can be traced. */
@@ -137,7 +151,88 @@ export async function handleCloudflareApiProxyRequest(
       ? sendTerminalChange(canonical, request.signal, deps)
       : answerFor(await deps.fileForTeamAdmins(canonical));
   }
-  return answerFor(await waitForDecision(command, canonical, request.signal, deps));
+  // `cf` may stop waiting before the request's own signal says so: once the answer has begun, it is the body being
+  // cancelled that says `cf` is gone, and either one leaves the change waiting in the chat.
+  const stop = new AbortController();
+  const stopWaiting = () => stop.abort();
+  if (request.signal.aborted) {
+    stop.abort();
+  }
+  request.signal.addEventListener('abort', stopWaiting, { once: true });
+  const decision = waitForDecision(command, canonical, stop.signal, deps).finally(() =>
+    request.signal.removeEventListener('abort', stopWaiting),
+  );
+  return answerWhenDecided(decision, stop);
+}
+
+/**
+ * The answer to a change held for the person. Decided within `CLOUDFLARE_CHANGE_HEADERS_AFTER_MS`, it is sent as it
+ * is; otherwise `cf` is answered with 200 before it gives up, a space is sent now and then to keep the answer going,
+ * and the decision follows in the body, as Cloudflare's own JSON, which `cf` reads for success or error, so the same
+ * `cf` command gets what Cloudflare said however long the person took.
+ */
+async function answerWhenDecided(decision: Promise<CloudflareChangeAnswer>, stop: AbortController): Promise<Response> {
+  let headersTimer: ReturnType<typeof setTimeout> | undefined;
+  const begin = new Promise<null>((resolve) => {
+    headersTimer = setTimeout(() => resolve(null), CLOUDFLARE_CHANGE_HEADERS_AFTER_MS);
+  });
+  const early = await Promise.race([decision, begin]).finally(() => clearTimeout(headersTimer));
+  if (early) {
+    return answerFor(early);
+  }
+  const encoder = new TextEncoder();
+  let keepalive: ReturnType<typeof setInterval> | undefined;
+  let open = true;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const finish = (text: string) => {
+        clearInterval(keepalive);
+        if (open) {
+          open = false;
+          controller.enqueue(encoder.encode(text));
+          controller.close();
+        }
+      };
+      controller.enqueue(encoder.encode(' '));
+      keepalive = setInterval(() => controller.enqueue(encoder.encode(' ')), CLOUDFLARE_CHANGE_KEEPALIVE_MS);
+      decision.then(
+        (answer) => finish(answerBodyAfterSuccessStatus(answer)),
+        () => finish(cloudflareApiErrorBody(UNSETTLED)),
+      );
+    },
+    cancel() {
+      open = false;
+      clearInterval(keepalive);
+      stop.abort();
+    },
+  });
+  return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
+const cloudflareFailureSchema = z.object({ success: z.literal(false) });
+
+/**
+ * An answer sent after a 200 has already gone out, so its body must say whether the change failed: Cloudflare's
+ * failures already do (`success: false`), and any other failing answer is put in that shape.
+ */
+function answerBodyAfterSuccessStatus(answer: CloudflareChangeAnswer): string {
+  if (answer.kind !== 'answer') {
+    return cloudflareApiErrorBody(UNSETTLED);
+  }
+  if (answer.status >= 200 && answer.status < 300) {
+    return answer.body;
+  }
+  return isCloudflareFailure(answer.body)
+    ? answer.body
+    : cloudflareApiErrorBody(`Cloudflare answered with status ${answer.status}: ${answer.body}`);
+}
+
+function isCloudflareFailure(text: string): boolean {
+  try {
+    return cloudflareFailureSchema.safeParse(JSON.parse(text)).success;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -154,7 +249,8 @@ async function waitForDecision(
   while (answer.kind !== 'answer') {
     if (signal.aborted) {
       if (answer.kind === 'waiting') {
-        await deps.withdraw(command, answer.executionId);
+        await deps.leaveInChat(command, answer.executionId);
+        return refused(499, CLOUDFLARE_CHANGE_WAITING_IN_CHAT);
       }
       return refused(499, 'The command stopped before the change was approved, so nothing was sent.');
     }
@@ -192,9 +288,11 @@ function refused(status: number, message: string): CloudflareChangeAnswer {
   return { kind: 'answer', status, body: cloudflareApiErrorBody(message) };
 }
 
+const UNSETTLED = 'The change was not settled, so nothing was sent.';
+
 function answerFor(answer: CloudflareChangeAnswer): Response {
   if (answer.kind !== 'answer') {
-    return cloudflareApiError(502, 'The change was not settled, so nothing was sent.');
+    return cloudflareApiError(502, UNSETTLED);
   }
   return new Response(answer.body, { status: answer.status, headers: { 'content-type': 'application/json' } });
 }

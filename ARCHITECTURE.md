@@ -367,9 +367,17 @@ changes: each waits in the same card in turn, one at a time (`cf` sends them one
 while an earlier one of the same command still waits or is being sent is queued, and the proxy asks again until its
 turn, provided the command still runs). The proxy holds `cf`'s request and asks the agent every 1.5 s until the
 proposal is settled, then answers with Cloudflare's own answer to the approved request (content that looks like a
-credential withheld), or why nothing was sent. The approval expires after 15 minutes, inside `exec`'s own deadline; a
-command that ends first withdraws whatever change of it still waits, so a late approval can never send it; an
-interrupted approved request is marked indeterminate rather than replayed. A team member's change is filed for the
+credential withheld), or why nothing was sent. `cf` gives up on a request whose response headers haven't arrived
+within 60 s (its API client's fixed `timeoutInSeconds ?? 60`, with `maxRetries: 0` and no setting for either), so a
+change still undecided after 30 s is answered with 200 at once and its answer follows in the body, after a space every
+20 s that keeps Node's fetch from ending a silent body (its `bodyTimeout` is 300 s); a failure sent that way is in
+Cloudflare's `success: false` shape, which `cf` reports as an error whatever the status. A change waits inside its
+command for up to 34 minutes, just under `exec`'s 35-minute deadline. One still undecided then, or whose command ended
+or whose `cf` stopped first, is left waiting in the chat (`left_waiting_at`) with no deadline: `cf` is answered "Not
+changed yet: waiting for your approval in the chat", the command goes on, and the command's output lists it
+(`cloudflare_change_waiting_in_chat`); approving it there sends it once, and the decision with Cloudflare's answer
+replaces it in that output, which the agent reads at its next turn. A command the person stopped withdraws the change
+its `cf` still waited for. An interrupted approved request is marked indeterminate rather than replayed. A team member's change is filed for the
 team's admins instead (`runtime-projects/approvals/file`, `source` 'agent') and `cf` is answered at once that it was
 sent to them; the command's output keeps each filed change (`cloudflareChanges`), and the admins' decision replaces
 it there. Each change of a command is filed under its own `change_number`: the first keeps the command's tool call id

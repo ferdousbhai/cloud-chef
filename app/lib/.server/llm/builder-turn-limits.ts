@@ -37,8 +37,8 @@ export const BUILDER_TOOL_DEADLINES_MS = {
   read: 2 * 60_000,
   write: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
   edit: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
-  // Also the longest a Cloudflare change `cf` asked for can wait for the person's approval inside the command;
-  // the approval itself expires sooner.
+  // Also the longest a Cloudflare change `cf` asked for can wait for the person's approval inside the command:
+  // `CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS` ends that wait just before, and the change then waits in the chat.
   exec: BUILDER_MUTATION_TOOL_TIMEOUT_MS,
 } as const satisfies Record<ModelToolName, number>;
 
