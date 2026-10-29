@@ -103,7 +103,7 @@ import type {
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
 } from '@cloudchef/user-workspace-runtime/protocol';
-import { builderTemplateSeedId, loadBuilderTemplate } from './builder-template';
+import { commitBuilderTemplate } from './builder-template';
 import { seedBuilderWorkspace, WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
 import {
   isExcludedProjectPath,
@@ -1869,28 +1869,24 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       const repo = await ensureProjectRepository(this.env, identity, repositories, project);
       return seedLinkedWorkspace(this.workspace, repositories, { orgProjectId, name: project.name, repo });
     }
-    // A fork starts from its own repository, which the fork made before the chat existed.
+    // A fork starts from its own repository, which the fork made before the chat existed; a new app's starts
+    // with the template as its first commit, so the workspace and git in its container begin from that commit.
     const repositories = this.repositories();
     const own = nativeProjectRepo(binding.chatInitialId);
-    if (await repositories.head(own)) {
-      const { commit, files } = await repositories.readFilesAt(
-        own,
-        MAIN_BRANCH,
-        (path) => !isExcludedProjectPath(path),
-      );
-      return seedBuilderWorkspace(
-        this.workspace,
-        `repository_${commit.hash}`,
-        files.map((file): BuilderWorkspaceFileInput => ({
-          path: `${WORK_DIR}/${file.path}`,
-          content: bytesToBase64(file.bytes),
-          encoding: 'base64',
-          mode: workspaceFileMode(file.mode),
-        })),
-      );
+    if (!(await repositories.head(own))) {
+      await commitBuilderTemplate(repositories, own, await commitAuthor(this.env));
     }
-    const template = await loadBuilderTemplate();
-    return seedBuilderWorkspace(this.workspace, builderTemplateSeedId(), template);
+    const { commit, files } = await repositories.readFilesAt(own, MAIN_BRANCH, (path) => !isExcludedProjectPath(path));
+    return seedBuilderWorkspace(
+      this.workspace,
+      `repository_${commit.hash}`,
+      files.map((file): BuilderWorkspaceFileInput => ({
+        path: `${WORK_DIR}/${file.path}`,
+        content: bytesToBase64(file.bytes),
+        encoding: 'base64',
+        mode: workspaceFileMode(file.mode),
+      })),
+    );
   }
 
   /**

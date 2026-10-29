@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceSeedStartResult } from '@cloudchef/user-workspace-runtime/protocol';
-import { conversationAgentHarness, settle } from './harness';
+import { conversationAgentHarness, eventually, settle } from './harness';
 
 /**
  * A new workspace is seeded outside the agent's startup, which Cloudflare cuts off after 30 seconds while a
@@ -132,6 +132,7 @@ describe("a new workspace's seed", () => {
 
     const first = harness.agent.prepareWorkspace();
     const second = harness.agent.prepareWorkspace();
+    await eventually(() => beginSeed.mock.calls.length > 0);
     await settle();
     expect(beginSeed).toHaveBeenCalledOnce();
 
