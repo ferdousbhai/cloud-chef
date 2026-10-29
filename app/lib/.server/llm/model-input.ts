@@ -123,11 +123,23 @@ function assembleModelInput(
   const estimatedTokens = estimateTextTokens(
     JSON.stringify({
       instructions: args.systemPrompt,
-      // A replayed message's timestamp and usage bookkeeping never reach the provider.
-      messages: messages.map(({ role, content }) => ({ role, content })),
+      // A replayed message's timestamp and usage bookkeeping never reach the provider, and a thinking
+      // block's signature is not counted as input.
+      messages: messages.map(withoutThinkingSignatures).map(({ role, content }) => ({ role, content })),
       tools: args.tools.map(({ name, description, parameters }) => ({ name, description, parameters })),
       toolChoice: 'auto',
     }),
   );
   return { messages, estimatedTokens };
+}
+
+/** A replayed message as its input is counted: a thinking block by its text, without its signature. */
+function withoutThinkingSignatures(message: Message): Message {
+  if (message.role !== 'assistant') {
+    return message;
+  }
+  const content = message.content.map((block) =>
+    block.type === 'thinking' ? { type: block.type, thinking: block.redacted ? '' : block.thinking } : block,
+  );
+  return { ...message, content };
 }

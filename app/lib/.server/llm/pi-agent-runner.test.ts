@@ -7,6 +7,7 @@ import { CLOUDFLARE_WORKERS_AI_MODEL, DEFAULT_WORKERS_AI_MODEL, type BuilderMode
 type UIMessageChunk = PiStreamChunk;
 type RunnerEvent =
   | RunnerTurnStartEvent
+  | RunnerMessageStartEvent
   | RunnerMessageUpdateEvent
   | RunnerToolExecutionStartEvent
   | RunnerToolExecutionEndEvent
@@ -17,10 +18,32 @@ interface RunnerTurnStartEvent {
   type: 'turn_start';
 }
 
+/** A streamed assistant message as far as the runner reads it: which model wrote it, and its blocks. */
+interface RunnerAssistantMessage {
+  role: 'assistant';
+  timestamp: number;
+  provider: string;
+  api: string;
+  model: string;
+  content: ReadonlyArray<Record<string, string | boolean | Record<string, string>>>;
+}
+
+interface RunnerMessageStartEvent {
+  type: 'message_start';
+  message: RunnerAssistantMessage;
+}
+
 interface RunnerMessageUpdateEvent {
   type: 'message_update';
   message: { timestamp: number };
-  assistantMessageEvent: { type: string; contentIndex: number; delta?: string };
+  assistantMessageEvent: {
+    type: string;
+    contentIndex: number;
+    delta?: string;
+    content?: string;
+    partial?: RunnerAssistantMessage;
+    toolCall?: RunnerAssistantMessage['content'][number];
+  };
 }
 
 interface RunnerToolExecutionStartEvent {
@@ -68,7 +91,7 @@ const mocks = vi.hoisted(() => ({
     estimatedTokens: 1,
   })),
   getPiModel: vi.fn(() => ({
-    model: { id: 'test-workers-ai', contextWindow: 128_000, maxTokens: 1_000 },
+    model: { id: 'test-workers-ai', api: 'openai-completions', contextWindow: 128_000, maxTokens: 1_000 },
     stream: vi.fn(),
   })),
   recordFinish: vi.fn(),
@@ -339,6 +362,115 @@ describe('piAgentRunner', () => {
         { type: 'text-delta', id: 'pi-123-1', delta: 'Done' },
       ]),
     );
+  });
+
+  it("records Claude's signed and redacted thinking, and each response's tool calls, for the transcript", async () => {
+    mocks.getPiModel.mockReturnValueOnce({
+      model: { id: 'claude-opus-5-5', api: 'anthropic-messages', contextWindow: 1_000_000, maxTokens: 128_000 },
+      stream: vi.fn(),
+    });
+    const model = { provider: 'cloudflare-ai-gateway', api: 'anthropic-messages', model: 'claude-opus-5-5' };
+    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
+      // One response: a signed thinking block, a redacted one, then a tool call.
+      const first: RunnerAssistantMessage = {
+        ...model,
+        role: 'assistant',
+        timestamp: 1,
+        content: [
+          { type: 'thinking', thinking: 'Look first.', thinkingSignature: 'sig-1' },
+          { type: 'thinking', thinking: '[Reasoning redacted]', thinkingSignature: 'opaque', redacted: true },
+          { type: 'toolCall', id: 'toolu_a', name: 'read_file', arguments: { path: '/a' } },
+        ],
+      };
+      await emit({ type: 'message_start', message: first });
+      for (const contentIndex of [0, 1]) {
+        await emit({
+          type: 'message_update',
+          message: first,
+          assistantMessageEvent: { type: 'thinking_start', contentIndex, partial: first },
+        });
+        await emit({
+          type: 'message_update',
+          message: first,
+          assistantMessageEvent: { type: 'thinking_end', contentIndex, content: '', partial: first },
+        });
+      }
+      await emit({
+        type: 'message_update',
+        message: first,
+        assistantMessageEvent: { type: 'toolcall_end', contentIndex: 2, toolCall: first.content[2], partial: first },
+      });
+      // The next response, after the tool's result: its own thinking, cut off before its signature.
+      const second: RunnerAssistantMessage = {
+        ...model,
+        role: 'assistant',
+        timestamp: 2,
+        content: [{ type: 'thinking', thinking: 'Hm' }],
+      };
+      await emit({ type: 'message_start', message: second });
+      await emit({
+        type: 'message_update',
+        message: second,
+        assistantMessageEvent: { type: 'thinking_end', contentIndex: 0, content: 'Hm', partial: second },
+      });
+    });
+
+    const chunks = await collectChunks(await createAgentStream());
+    const step = (chunk: UIMessageChunk | undefined) =>
+      chunk && 'providerMetadata' in chunk ? chunk.providerMetadata?.cloudchef?.step : undefined;
+    const reasoning = chunks.filter((chunk) => chunk.type === 'reasoning-start' || chunk.type === 'reasoning-end');
+    const toolInput = chunks.find((chunk) => chunk.type === 'tool-input-available');
+
+    expect(reasoning).toEqual([
+      { type: 'reasoning-start', id: 'pi-1-0' },
+      {
+        type: 'reasoning-end',
+        id: 'pi-1-0',
+        providerMetadata: { anthropic: { signature: 'sig-1' }, cloudchef: { step: step(toolInput), ...model } },
+      },
+      // A redacted block says so from its start, so it never shows.
+      {
+        type: 'reasoning-start',
+        id: 'pi-1-1',
+        providerMetadata: { anthropic: { redactedData: 'opaque' }, cloudchef: { step: step(toolInput), ...model } },
+      },
+      {
+        type: 'reasoning-end',
+        id: 'pi-1-1',
+        providerMetadata: { anthropic: { redactedData: 'opaque' }, cloudchef: { step: step(toolInput), ...model } },
+      },
+      // Unsigned thinking has nothing to send back, so it records nothing.
+      { type: 'reasoning-start', id: 'pi-2-0' },
+      { type: 'reasoning-end', id: 'pi-2-0' },
+    ]);
+    expect(toolInput).toMatchObject({
+      toolCallId: 'toolu_a',
+      providerMetadata: { cloudchef: { step: expect.any(String) } },
+    });
+  });
+
+  it('records no thinking metadata for a model that is not Claude', async () => {
+    mocks.piRun.mockImplementation(async (_ctx: AgentContext, _cfg: StopAwareLoopConfig, emit: RunnerEventSink) => {
+      const message: RunnerAssistantMessage = {
+        role: 'assistant',
+        timestamp: 1,
+        provider: 'cloudflare-workers-ai',
+        api: 'openai-completions',
+        model: 'test-workers-ai',
+        content: [{ type: 'thinking', thinking: 'x', thinkingSignature: 'encrypted' }],
+      };
+      await emit({ type: 'message_start', message });
+      await emit({
+        type: 'message_update',
+        message,
+        assistantMessageEvent: { type: 'thinking_end', contentIndex: 0, content: 'x', partial: message },
+      });
+      await emit({ type: 'tool_execution_start', toolCallId: 'call_a', toolName: 'read_file', args: {} });
+    });
+
+    const chunks = await collectChunks(await createAgentStream());
+
+    expect(chunks.some((chunk) => 'providerMetadata' in chunk)).toBe(false);
   });
 
   it('lets the model carry on after a tool deadline, as with any failed tool', async () => {

@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { z } from 'zod';
 import { getToolInvocation, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
+import { isRedactedReasoningPart } from 'cloudchef-agent/signed-thinking';
 import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type {
   CloudflareExecutionDecisionHandler,
@@ -46,7 +47,9 @@ export function ActivityPanel({
   const activity = messages.filter(
     (message) =>
       message.role === 'assistant' &&
-      message.parts.some((part) => part.type === 'reasoning' || getToolInvocation(part)),
+      message.parts.some(
+        (part) => (part.type === 'reasoning' && !isRedactedReasoningPart(part)) || getToolInvocation(part),
+      ),
   );
   return (
     <aside className={styles.ActivityPanel} aria-label="Agent activity" data-compact={compact}>
