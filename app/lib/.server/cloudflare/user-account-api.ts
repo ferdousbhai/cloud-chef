@@ -652,15 +652,18 @@ export class UserCloudflareAccountApi {
   }
 
   /**
-   * Remove one person's workspace: its container application, then its Worker (with the Durable
-   * Objects that hold their chats and project files), then its database. Each step is skipped when
-   * already gone, so a retry after a partial failure finishes the job.
+   * Remove one person's workspace: its two container applications (the workspace's, named for the Worker, and the
+   * project builder's, `<worker>-builder`), then its Worker (with the Durable Objects that hold their chats and
+   * project files), then its database. Each step is skipped when already gone, so a retry after a partial failure
+   * finishes the job.
    */
   async deleteWorkspaceRuntime(names: { workerName: string; databaseName: string }): Promise<void> {
     const applications = await this.callContainer<unknown>('/applications', { method: 'GET' });
-    const application = existingContainerApplication(applications, names.workerName);
-    if (application) {
-      await this.deleteOptional(`/containers/applications/${encodeURIComponent(application.id)}`);
+    for (const applicationName of [names.workerName, `${names.workerName}-builder`]) {
+      const application = existingContainerApplication(applications, applicationName);
+      if (application) {
+        await this.deleteOptional(`/containers/applications/${encodeURIComponent(application.id)}`);
+      }
     }
     await this.deleteManagedWorker(names.workerName);
     await this.deleteD1Database(names.databaseName);

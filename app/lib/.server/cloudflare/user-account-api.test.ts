@@ -1328,6 +1328,109 @@ describe('UserCloudflareAccountApi', () => {
       await expect(ensure(request)).rejects.toThrow('invalid workspace container application');
       expect(request).toHaveBeenCalledOnce();
     });
+
+    describe('deleting a workspace runtime', () => {
+      const BUILDER_NAMESPACE = 'fedcba9876543210fedcba9876543210';
+      const ACCOUNT = 'https://api.cloudflare.com/client/v4/accounts/user-account';
+      const D1_ID = '12345678-1234-1234-1234-123456789abc';
+      const application = (name: string, id: string) => ({
+        id,
+        name,
+        scheduling_policy: 'durable_object',
+        durable_objects: { namespace_id: id },
+      });
+      const remove = (request: typeof fetch) =>
+        accountApi('user-account', 'user-token', request).deleteWorkspaceRuntime({
+          workerName: 'cloudchef-workspace-user',
+          databaseName: 'cloudchef-workspace-user',
+        });
+      const calls = (request: ReturnType<typeof vi.fn<typeof fetch>>) =>
+        request.mock.calls.map(([url, init]) => [init?.method, String(url)]);
+
+      test('deletes the workspace and project builder applications, then the Worker and the database', async () => {
+        const request = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(
+            Response.json([
+              application('cloudchef-workspace-user', NAMESPACE),
+              application('cloudchef-workspace-user-builder', BUILDER_NAMESPACE),
+              application('cloudchef-workspace-other-builder', 'a'.repeat(32)),
+            ]),
+          )
+          .mockResolvedValueOnce(new Response(null, { status: 204 }))
+          .mockResolvedValueOnce(new Response(null, { status: 204 }))
+          .mockResolvedValueOnce(new Response(null, { status: 204 }))
+          .mockResolvedValueOnce(
+            Response.json({ success: true, result: [{ uuid: D1_ID, name: 'cloudchef-workspace-user' }] }),
+          )
+          .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+        await expect(remove(request)).resolves.toBeUndefined();
+
+        expect(calls(request)).toEqual([
+          ['GET', APPLICATIONS],
+          ['DELETE', `${APPLICATIONS}/${NAMESPACE}`],
+          ['DELETE', `${APPLICATIONS}/${BUILDER_NAMESPACE}`],
+          ['DELETE', `${ACCOUNT}/workers/scripts/cloudchef-workspace-user?force=true`],
+          ['GET', `${ACCOUNT}/d1/database?name=cloudchef-workspace-user`],
+          ['DELETE', `${ACCOUNT}/d1/database/${D1_ID}`],
+        ]);
+      });
+
+      test('counts a builder application that is not there, or already gone, as deleted', async () => {
+        for (const listing of [
+          [application('cloudchef-workspace-user', NAMESPACE)],
+          [
+            application('cloudchef-workspace-user', NAMESPACE),
+            application('cloudchef-workspace-user-builder', BUILDER_NAMESPACE),
+          ],
+        ]) {
+          const request = vi
+            .fn<typeof fetch>()
+            .mockResolvedValueOnce(Response.json(listing))
+            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+          if (listing.length > 1) {
+            // Listed, but Cloudflare finished deleting it in between.
+            request.mockResolvedValueOnce(new Response(null, { status: 404 }));
+          }
+          request
+            .mockResolvedValueOnce(new Response(null, { status: 404 }))
+            .mockResolvedValueOnce(Response.json({ success: true, result: [] }));
+
+          await expect(remove(request)).resolves.toBeUndefined();
+
+          expect(calls(request).map(([method]) => method)).toEqual(
+            listing.length > 1 ? ['GET', 'DELETE', 'DELETE', 'DELETE', 'GET'] : ['GET', 'DELETE', 'DELETE', 'GET'],
+          );
+        }
+      });
+
+      test('stops with Cloudflare’s error when the builder application cannot be deleted', async () => {
+        const request = vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(
+            Response.json([
+              application('cloudchef-workspace-user', NAMESPACE),
+              application('cloudchef-workspace-user-builder', BUILDER_NAMESPACE),
+            ]),
+          )
+          .mockResolvedValueOnce(new Response(null, { status: 204 }))
+          .mockResolvedValueOnce(
+            Response.json(
+              { success: false, errors: [{ code: 1000, message: 'application is busy' }] },
+              { status: 409 },
+            ),
+          );
+
+        await expect(remove(request)).rejects.toThrow(CloudflareAccountApiError);
+        // The Worker and database stay, so a retry finds the builder application and finishes the job.
+        expect(calls(request)).toEqual([
+          ['GET', APPLICATIONS],
+          ['DELETE', `${APPLICATIONS}/${NAMESPACE}`],
+          ['DELETE', `${APPLICATIONS}/${BUILDER_NAMESPACE}`],
+        ]);
+      });
+    });
   });
 
   test('resolves a named KV namespace through the same paged account listing', async () => {
