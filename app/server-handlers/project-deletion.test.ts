@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
+import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import type { ProjectDeletionApi } from '~/lib/.server/cloudflare/project-deletion';
 import type { WorkerBinding } from '~/lib/.server/cloudflare/user-account-api';
@@ -9,6 +12,7 @@ import {
   projectDeletionPreviewAction,
   runtimeDeletableProjectAction,
   type DeleteProjectRepository,
+  type RemoveProjectWorkspaces,
 } from './project-deletion';
 
 const SITE = '44444444-4444-4444-8444-444444444444';
@@ -93,7 +97,9 @@ function account(options: { failOn?: string } = {}) {
   return { api, calls };
 }
 
-async function world(options: { failOn?: string; builtBy?: 'workers_builds'; scopes?: string[] } = {}) {
+async function world(
+  options: { failOn?: string; builtBy?: 'workers_builds'; scopes?: string[]; throughRuntimes?: boolean } = {},
+) {
   const team = await teamFixture();
   team.database.exec(`
     INSERT INTO org_projects (
@@ -115,6 +121,9 @@ async function world(options: { failOn?: string; builtBy?: 'workers_builds'; sco
     calls.push(`repository ${project.repo}`);
     repositories.push(project.repo ?? '');
   };
+  const removeWorkspaces: RemoveProjectWorkspaces = async ({ project }) => {
+    calls.push(`workspaces ${project.id}`);
+  };
   const openAccount = async () => api;
   const preview = (cookie: string) =>
     projectDeletionPreviewAction({
@@ -128,6 +137,7 @@ async function world(options: { failOn?: string; builtBy?: 'workers_builds'; sco
       env: team.env,
       openAccount,
       deleteRepository,
+      removeWorkspaces: options.throughRuntimes ? undefined : removeWorkspaces,
     });
   const exists = () => team.database.prepare('SELECT id FROM org_projects WHERE id = ?').get(SITE) !== undefined;
   return { ...team, calls, repositories, preview, remove, exists };
@@ -190,6 +200,7 @@ describe('deleting a project', () => {
       'vectorize shop-search',
       'hyperdrive hd-1',
       'repository t-storefront',
+      `workspaces ${SITE}`,
     ]);
     expect(exists()).toBe(false);
   });
@@ -244,6 +255,79 @@ describe('deleting a project', () => {
       expect(exists()).toBe(true);
     },
   );
+
+  describe('every member’s workspace of it', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Ada's and Sara's runtimes in the team's account, Sara's of the connection before it was reconnected. */
+    async function withRuntimes(answer: (url: string) => Response) {
+      const team = await world({ throughRuntimes: true });
+      const runtime = team.database.prepare(
+        `INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
+           runtime_version, image_digest, protocol_version, status, created_at, updated_at)
+         VALUES (?, 'team-connection', ?, ?, ?, ?, ?, ?, 'ready', 1, 1)`,
+      );
+      const current = [USER_WORKSPACE_RUNTIME_SHA256, USER_WORKSPACE_IMAGE, USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION];
+      runtime.run(team.admin.userId, 2, 'ada-runtime', 'https://ada.runtime.test', ...current);
+      runtime.run(team.sara.userId, 2, 'sara-runtime', 'https://sara.runtime.test', ...current);
+      const asked: { url: string; body: unknown }[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          asked.push({ url: String(input), body: JSON.parse(String(init?.body ?? 'null')) });
+          return answer(String(input));
+        }),
+      );
+      return { ...team, asked };
+    }
+
+    it('asks each member’s runtime to remove theirs before the record goes', async () => {
+      const { admin, remove, asked, exists } = await withRuntimes(() => new Response(null, { status: 204 }));
+
+      expect((await remove(admin.cookie, 'Storefront')).status).toBe(200);
+
+      expect(asked.map((call) => call.url).sort()).toEqual([
+        'https://ada.runtime.test/v1/projects/remove-workspace',
+        'https://sara.runtime.test/v1/projects/remove-workspace',
+      ]);
+      expect(asked.every((call) => z.object({ orgProjectId: z.literal(SITE) }).safeParse(call.body).success)).toBe(
+        true,
+      );
+      expect(exists()).toBe(false);
+    });
+
+    it('skips a runtime CloudChef can’t reach any more', async () => {
+      const { admin, sara, database, remove, asked, exists } = await withRuntimes(
+        () => new Response(null, { status: 204 }),
+      );
+      database
+        .prepare('UPDATE user_computer_runtimes SET connection_generation = 1 WHERE user_id = ?')
+        .run(sara.userId);
+
+      expect((await remove(admin.cookie, 'Storefront')).status).toBe(200);
+
+      expect(asked.map((call) => call.url)).toEqual(['https://ada.runtime.test/v1/projects/remove-workspace']);
+      expect(exists()).toBe(false);
+    });
+
+    it('stops when a ready runtime refuses, and keeps the record so deleting again finishes it', async () => {
+      const { admin, remove, exists } = await withRuntimes((url) =>
+        url.startsWith('https://sara.')
+          ? Response.json({ error: 'The project’s workspace could not be removed. Try again.' }, { status: 500 })
+          : new Response(null, { status: 204 }),
+      );
+
+      const answer = await remove(admin.cookie, 'Storefront');
+
+      expect(answer.status).toBe(502);
+      expect(z.object({ error: z.string() }).parse(await answer.json()).error).toBe(
+        'Everyone’s workspaces of it couldn’t be deleted: The project’s workspace could not be removed. Try again.',
+      );
+      expect(exists()).toBe(true);
+    });
+  });
 
   it('is refused to a team member who doesn’t manage it, in the browser and from their runtime', async () => {
     const { sara, admin, preview, remove, calls, exists, runtime, env } = await world();

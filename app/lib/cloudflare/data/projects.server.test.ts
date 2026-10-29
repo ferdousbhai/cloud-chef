@@ -14,6 +14,7 @@ import {
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
   userRuntimeDeleteProjectRepositoryAction,
+  userRuntimeRemoveProjectWorkspaceAction,
   userRuntimeRewriteMainAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
@@ -607,6 +608,42 @@ describe('deleting a project’s repository', () => {
     expect((await ask()).status).toBe(204);
     expect(artifacts.repos.has('t-storefront')).toBe(false);
     expect((await ask()).status).toBe(204);
+  });
+});
+
+describe('removing a deleted team project’s workspace', () => {
+  it('removes only this person’s workspace of that project, with its agents queued for deletion, and again is done', async () => {
+    const { database, env } = await setup();
+    database.exec(`
+      INSERT INTO workspaces (id, creator_id, initial_id, timestamp, has_messages, org_project_id) VALUES
+        ('linked-1', '${OWNER}', 'linked-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}'),
+        ('linked-2', 'someone-else', 'their-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}');
+      INSERT INTO conversations (workspace_id, conversation_index, agent_name, transition_token, created_at, updated_at)
+        VALUES ('linked-1', 0, 'linked-agent', 'token-2', 1, 1);
+    `);
+    const remove = (body: unknown) =>
+      userRuntimeRemoveProjectWorkspaceAction({
+        request: new Request('https://runtime.test/v1/projects/remove-workspace', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+        env,
+        userId: OWNER,
+      });
+    const deleted = () => database.prepare('SELECT id, is_deleted FROM workspaces ORDER BY id').all();
+
+    expect((await remove({ orgProjectId: 'not-a-project' })).status).toBe(400);
+    expect((await remove({ orgProjectId: TEAM_PROJECT })).status).toBe(204);
+
+    expect(deleted()).toEqual([
+      { id: 'chat-1', is_deleted: 0 },
+      { id: 'linked-1', is_deleted: 1 },
+      { id: 'linked-2', is_deleted: 0 },
+    ]);
+    expect(database.prepare('SELECT workspace_id FROM agent_gc_candidates').all()).toEqual([
+      { workspace_id: 'linked-1' },
+    ]);
+    expect((await remove({ orgProjectId: TEAM_PROJECT })).status).toBe(204);
   });
 });
 

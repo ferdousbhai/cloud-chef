@@ -131,13 +131,14 @@ export async function planProjectDeletion(
 
 /**
  * Deletes what `plan` lists, in order: its builds triggers (so nothing builds it again), its Workers (so nothing
- * serves or writes any more), then their resources, then the repository. A step already done counts as done, so
+ * serves or writes any more), then their resources, then the repository, then every member's workspace of it. A step already done counts as done, so
  * deleting again after a failure picks up where it stopped. Answers what was deleted, and the step that failed with why, or null.
  */
 export async function deleteProjectResources(
   api: ProjectDeletionApi,
   plan: ProjectDeletionPlan,
   deleteRepository: (repo: string) => Promise<void>,
+  removeWorkspaces: () => Promise<void>,
 ): Promise<{ deleted: string[]; failed: { step: string; reason: string } | null }> {
   const steps: { label: string; run: () => Promise<void> }[] = [
     ...(plan.buildTriggers.length > 0
@@ -155,6 +156,7 @@ export async function deleteProjectResources(
     ...plan.workers.map((name) => ({ label: `Worker ${name}`, run: () => api.deleteManagedWorker(name) })),
     ...plan.resources.map((resource) => ({ label: resourceLabel(resource), run: () => deleteResource(api, resource) })),
     ...(plan.repository ? [{ label: 'Code and its history', run: () => deleteRepository(plan.repository ?? '') }] : []),
+    { label: 'Everyone’s workspaces of it', run: removeWorkspaces },
   ];
   const deleted: string[] = [];
   for (const step of steps) {
