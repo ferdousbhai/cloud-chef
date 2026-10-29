@@ -93,6 +93,14 @@ without its container image or schedule), which every sweep restarts. First-time
 runtimes that are already ready. A busy row a Durable Object never cleared stops counting after the turn wall clock
 plus 30 minutes.
 
+A release can upgrade one person's runtime first. `WORKSPACE_RUNTIME_UPGRADE_CANARY` in `cloudflare.config.ts` is
+empty, which upgrades everyone, or a comma-separated list of CloudChef user ids, which upgrades only theirs: neither a
+session request nor the sweep starts the upgrade of anyone else's runtime, which keeps serving as a deferred one does
+(`user-workspace-runtime-rollout.ts`). A first workspace is always prepared on the current release. The variable is
+changed by a release, never in the dashboard. A runtime also records the workspace image it runs, so a new image pin
+makes every runtime outdated as a new runtime build does, and a release that pins no published image prepares and
+upgrades nothing (`user-workspace-image.ts`), and does not deploy.
+
 Because a deferred runtime keeps serving the current browser and control plane until it is idle, a release whose
 browser or control-plane calls that runtime cannot serve bumps the protocol version, and user-workspace D1
 migrations, applied before the deferred redeploy, must be additive.
@@ -356,9 +364,9 @@ browser has no second SQLite or OPFS copy of chats, transcripts, or workspace fi
 
 The user workspace is a separate workspace package, `@cloudchef/user-workspace-runtime`. Its `./protocol` export is
 the only shared source for sync limits, request/result types, and readiness contracts. The runtime owns
-the `ProjectWorkspace` implementation; `computer-sandbox.ts` contains the Cloudflare Computer/Sandbox adapter and
-container-process lifecycle. Browser, control-plane, and Agent code import the protocol instead of reaching into that
-implementation.
+the `ProjectWorkspace` implementation; `computer-sandbox.ts` contains the Cloudflare Computer/Sandbox adapter on the
+Container API, and `container-process.ts` the lifecycle of the runtime's own container processes. Browser,
+control-plane, and Agent code import the protocol instead of reaching into that implementation.
 
 Tool-call arguments stream to the browser as the model produces them. `exec` additionally streams bounded transient
 stdout/stderr updates while retaining only a bounded final tail for the model; completion still waits for the Container's
@@ -499,26 +507,70 @@ verification consume that same data rather than maintaining separate security ov
 
 ## Cloudflare Computer Dependency
 
-CloudChef intentionally pins `@cloudflare/computer` to `0.2.1`. Cloudflare labels this release preview-only, describes
-its API as unstable, and says it is not suitable for production use. The repository therefore treats every upgrade as
-an architecture review. `cloudchef-agent/cloudflare-computer.test.ts` pins the declared and installed version (with
-no release-age exemption), canaries both hunks of the local patch (`patches/@cloudflare__computer@0.2.1.patch`)
-against the published bundle so a reflowed upstream region fails rather than silently unpatching, pins the file-tool
-limits, and pins the error shapes that cross Workers RPC (pending-sync and operation-lane conflict). The limits are
-enforced by CloudChef's own tools: 10,000 lines or 1 MiB per read and 2 MiB per write or edit (the Durable Object
-SQLite value limit); separately, the runtime keeps a 256 KiB tail of each exec output stream for the model
-(`user-workspace-runtime/src/index.ts`). These gates detect drift; they cannot turn a preview dependency into a
-stable production contract.
+CloudChef pins `@cloudflare/computer` to `0.8.0` and `@cloudflare/sandbox` to `1.0.3`, exactly. Computer calls its
+filesystem and tools stable, and its container backends, the sync protocol and computerd experimental; CloudChef depends
+on all three, so every upgrade is an architecture review. `cloudchef-agent/cloudflare-computer.test.ts` pins the
+declared and installed version (with no release-age exemption), canaries both hunks of the local patch
+(`patches/@cloudflare__computer@0.8.0.patch`: 0.8.0 still probes 100 blob hashes per statement and still issues raw
+`SAVEPOINT` for a nested transaction, which a Durable Object refuses) against the published bundle so a reflowed
+upstream region fails rather than silently unpatching, pins the file-tool limits, and pins the error shapes that cross
+Workers RPC (pending-sync and operation-lane conflict). The limits are enforced by CloudChef's own tools: 10,000 lines
+or 1 MiB per read and 2 MiB per write or edit (the Durable Object SQLite value limit); separately, the runtime keeps a
+256 KiB tail of each exec output stream for the model (`user-workspace-runtime/src/index.ts`). The Workspace runs
+with `output: false`: Computer's own 2,000-line, 64 KiB cut would save every long output as a file inside the durable
+VFS.
 
-Computer 0.6 and Sandbox 1.0 are one migration, not two version bumps, so both stay pinned until it is done. Computer
-0.3 removed the durable post-command sync retry contract the workspace's correctness rests on (`SyncRetryScheduler`,
-`retryPendingSync`, and its `lost` and `exhausted` outcomes): a pending pull is now only reported, and retrying it, and
-refusing to pull from a container that did not run the command, become CloudChef's code. Computer 0.4 also deprecated the
-platform-scheduled container backend CloudChef uses for `ContainerBackend`, which starts the container from the
-Durable Object through `ctx.container.images`. Sandbox 1.0 removes the `Sandbox` class and its process API for the same
-Durable Object scheduling policy, and moving a container application to it cannot be rolled back. Both patch hunks are
-still needed in Computer 0.6.0: it still probes 100 blob hashes per statement and still issues raw `SAVEPOINT` for a
-nested transaction.
+Computer 0.3 removed the durable post-command sync retry contract the workspace's correctness rests on, so it is
+CloudChef's code (`user-workspace-runtime/src/workspace-sync-retry.ts`): one intent per backend in the Durable Object's
+SQLite (the table predates the move, so intents written under 0.2 carry over), naming the container runtime that ran
+the command; backoff from 1 second doubling to 60, five attempts, then exhaustion and recovery through a fresh
+connection. Every retry checks the runtime before and after its pull, because Computer reconnects a dropped backend
+inside a pull: a pull from any other runtime is `lost`, which fails the command instead of reporting changes that never
+reached the VFS as saved. A non-streamed command uses Computer's own post-command pull, which refuses another runtime
+and reports itself pending; a streamed one cannot report it, so the runtime confirms it with a pull of its own.
+`Workspace.pull()` and `push()` are async iterables of blocks since 0.3, drained to completion.
+
+Sandbox 1.0 removed the `Sandbox` class, its process API, its scheduler and its terminal, leaving file operations
+(`Files`, served by the image's `sandbox-shim`). `ProjectWorkspace` and `ProjectBuilder` are plain Durable Objects on
+the Container API (`computer-sandbox.ts`, `project-builder.ts`): the runtime's own commands run beside computerd
+through `ctx.container.exec`, under GNU `timeout` as process-group leaders (`container-process.ts`), with only the
+environment the runtime passes (`CONTAINER_COMMAND_ENV`; exec inherits nothing but `PATH`); scheduled callbacks are rows
+in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the idle window is
+`ctx.container.setInactivityTimeout` (10 minutes, an hour while a deployment holds its artifact, 15 minutes for the
+builder); and the person's terminal is a tmux client on a pseudo-terminal (`workspace-terminal.ts`), bridged to the
+browser's WebSocket, which reattaches to the container's one shell session. The bridge also speaks enough of Sandbox
+0.x's terminal frames that a page loaded before an upgrade keeps working, and the page reads both.
+
+computerd passes its commands only `PATH`, `HOME`, `TMPDIR`, `TZ`, `LANG`, `TERM`, `LC_*`, and `COMPUTER_VAR_`-prefixed
+variables (unprefixed), so the command environment is passed that way, and `RPC_CLIENT_SECRET`, a random secret per
+workspace Computer keeps in that Durable Object's storage and adds only to the container's start environment, never
+reaches a command; CloudChef never reads, stores, or logs it.
+
+### The container scheduling policy
+
+Computer has two container backends. `ContainerBackend` needs the `durable_object` scheduling policy, under which the
+Durable Object starts its own container from an image the Worker upload names (`ctx.container.images`).
+`LegacyContainerBackend` (deprecated, still shipped in 0.8.0) serves a platform-scheduled application
+(`scheduling_policy: "default"`), whose image and instance size the application itself carries. CloudChef runs the
+legacy backend on purpose: every runtime's container applications are platform-scheduled, Cloudflare makes the policy
+of an application immutable, and the only way across is to delete each application and create a new one for the same
+Durable Object namespace. That is irreversible per account: there is no rollback (a Worker from before it cannot
+start containers for the class, even after a rollback), deleting the application ends its containers and any command
+still running in them, and the `durable_object` policy pulls only from the account's own registry
+(`registry.cloudflare.com/<account>/…`), never Docker Hub. The upgrade to Computer 0.8 and Sandbox 1.0 therefore
+changes nothing about the applications but their image, and stays reversible: rolling back is redeploying the previous
+release and upgrading the runtimes again.
+
+Moving to `ContainerBackend` is a separate, explicit owner decision, to be taken only when the legacy backend is about
+to be removed upstream or something needs the new policy. It would need, together: the image copied into each
+account's registry by provisioning; the Worker upload naming it under `containers[].images`; each application deleted
+and recreated with `scheduling_policy: "durable_object"` (no `image`, `instance_type` or `max_instances`) inside the
+upgrade window, refusing any application CloudChef did not create for exactly that name and namespace;
+`computer-sandbox.ts` switched to `ContainerBackend`/`WorkspaceContainerAPI` with the image name and instance size; and
+the builder's `start()` naming the image. Nothing a user keeps lives only in a container (project files, the change
+index, the tool journal, validation receipts and pending-sync intents are in the Durable Object's SQLite), except a
+command whose post-command pull has not landed, which is why the switch would run only inside the upgrade window.
+Until then nothing in this repository creates, changes or deletes an application with the `durable_object` policy.
 
 ## Model Context and Prefix Caching
 

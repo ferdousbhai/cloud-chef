@@ -108,6 +108,52 @@ one deterministic step. Do not edit generated files directly: the route trees, W
 `.cloudflare/wrangler.json` (the Wrangler-format copy of `cloudflare.config.ts` that `@cloudflare/vitest-plugin` and
 local D1 migrations read).
 
+## User Workspace Image
+
+Every workspace container, and every project builder's, runs CloudChef's own image, built from
+`user-workspace-image/Dockerfile`: computerd as the entrypoint, sandbox-shim for `@cloudflare/sandbox`'s file
+operations, Node at `.nvmrc`'s version, pnpm and the credential-free `cf` at the generated projects' pins, git, FUSE and
+tmux, every base pinned by digest. Each runtime's container applications are platform-scheduled
+(`scheduling_policy: "default"`) and name the image by the digest in `user-workspace-image/workspace-image.lock.json`;
+it is published to a public registry every account's application can pull from (Docker Hub, as the Cloudflare Sandbox
+image was). Until the lock pins a published image, provisioning prepares nothing, the upgrade sweep starts nothing, and
+the Workers Builds deploy refuses the release (`verify:workspace-image`, its first step).
+
+Publishing is the owner's, from a machine with Docker and buildx, logged in to the lock's registry
+(`docker login`); nothing in CI or a deploy publishes:
+
+```bash
+pnpm run workspace-image:check       # the Dockerfile's pins match package.json, .nvmrc and the template
+pnpm run workspace-image:publish     # build for linux/amd64, push, write the tag and digest into the lock
+git add user-workspace-image/workspace-image.lock.json
+```
+
+`node scripts/publish-user-workspace-image.mjs --repository docker.io/<namespace>/<name>` pushes somewhere other than
+the lock's repository (create it public first). The tag names the Computer and Sandbox versions and a digest of the
+build context, so a push never overwrites an earlier tag, and pushing changes no live runtime: a runtime runs the new
+image only once a release committing its pin is deployed and that runtime is upgraded. Bumping `@cloudflare/computer`
+or `@cloudflare/sandbox` means bumping the matching base in the Dockerfile (computerd and sandbox-shim speak those
+packages' protocols), republishing, and committing the lock; `scripts/check-runtime-artifacts.mjs` reports a drifted
+base.
+
+## Upgrading Workspace Runtimes
+
+A release that changes the runtime build or the image pin makes every runtime outdated. Each is upgraded by the same
+gated provisioning Workflow, started by its person's next session request or by the 15-minute sweep, and only in its
+upgrade window, so a running turn is never cut off (ARCHITECTURE.md, Runtime Upgrades). To try such a release on one
+runtime first:
+
+1. Find the canary's CloudChef user id (`pnpm run ops:session -- <their email> --json` includes it with their runtime).
+2. Release with that id in `WORKSPACE_RUNTIME_UPGRADE_CANARY` (`cloudflare.config.ts`; comma-separated for several).
+   Only their runtime is upgraded; everyone else's keeps serving as it is.
+3. Use the workspace: open a chat, run commands, open the terminal, publish. `pnpm run ops` shows which runtimes are
+   current; `pnpm run ops:session` reconstructs a session.
+4. Release again with the variable empty. The next sweeps upgrade the rest, at most ten Workflows per sweep, each in its
+   own upgrade window; `pnpm run ops` shows them catching up.
+
+To back out, release the previous runtime and image pin (with the variable naming nobody else, or empty); the canary's
+runtime is upgraded back the same way. Neither step changes a container application's scheduling policy.
+
 ## Deployment
 
 The `cloudchef` Worker is connected to `ferdousbhai/cloud-chef` in Workers Builds. `workers-builds.production.json` is
