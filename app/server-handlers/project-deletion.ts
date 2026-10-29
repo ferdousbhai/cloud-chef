@@ -7,6 +7,7 @@ import {
   planProjectDeletion,
   type ProjectDeletionApi,
 } from '~/lib/.server/cloudflare/project-deletion';
+import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { readJsonRequest } from '~/lib/.server/request-guards';
@@ -35,20 +36,25 @@ export type DeleteProjectRepository = (args: {
 const previewSchema = z.strictObject({ projectId: z.string().uuid() });
 const deleteSchema = z.strictObject({ projectId: z.string().uuid(), confirm: z.string().max(200) });
 
-const WORKERS_BUILDS_WRITE_SCOPE = 'workers-ci.write';
-
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 
-/** The project, if this person manages it, and what deleting it would remove from its account now. */
+/**
+ * The project, if this person manages it, and what deleting it would remove from its account now. A connection
+ * authorized before CloudChef asked for a permission deleting uses (its builds, queues, search indexes, database
+ * connections) is asked to reauthorize first.
+ */
 async function readPlan(env: Env, userId: string, projectId: string, openAccount: OpenDeletionAccountApi) {
   const project = await requireManagedProject(env.DB, userId, projectId);
   const connection = await findActiveCloudflareConnection(env.DB, project.connectionId);
   if (!connection) {
     throw new OrganizationError('Connect the Cloudflare account first.', 409);
   }
+  if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
+    return cloudflareReauthorizationRequired();
+  }
   const api = await openAccount(env, connection);
   const plan = await planProjectDeletion(api, project, await projectWorkerNames(env.DB, project.id));
-  return { project, connection, api, plan };
+  return { project, api, plan };
 }
 
 function accountUnreadable(error: CloudflareAccountApiError): Response {
@@ -71,7 +77,11 @@ export function projectDeletionPreviewAction({
       return body.response;
     }
     try {
-      const { project, plan } = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      const read = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      if (read instanceof Response) {
+        return read;
+      }
+      const { project, plan } = read;
       return Response.json({ name: project.name, ...plan }, { headers: NO_STORE });
     } catch (error) {
       if (error instanceof CloudflareAccountApiError) {
@@ -105,13 +115,13 @@ export function deleteProjectAction({
       return body.response;
     }
     try {
-      const { project, connection, api, plan } = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      const read = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      if (read instanceof Response) {
+        return read;
+      }
+      const { project, api, plan } = read;
       if (body.data.confirm !== project.name) {
         return Response.json({ error: `Type ${project.name} to confirm.` }, { status: 400 });
-      }
-      // Removing its builds takes a permission connections authorized before it was asked for don't hold yet.
-      if (plan.buildTriggers.length > 0 && !connection.grantedOAuthScopes.includes(WORKERS_BUILDS_WRITE_SCOPE)) {
-        return cloudflareReauthorizationRequired();
       }
       const result = await deleteProjectResources(api, plan, () =>
         deleteRepository({ request, env, userId: session.user.id, project }),

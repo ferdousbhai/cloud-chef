@@ -170,7 +170,13 @@ function resourceLabel(resource: ProjectDeletionPreview['resources'][number]): s
         ? 'File storage'
         : resource.kind === 'keys'
           ? 'Key-value store'
-          : 'Resource';
+          : resource.kind === 'queue'
+            ? 'Queue'
+            : resource.kind === 'vectors'
+              ? 'Search index'
+              : resource.kind === 'connection'
+                ? 'Database connection'
+                : 'Resource';
   return `${kind} ${resource.name}`;
 }
 

@@ -16,6 +16,11 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'd1.write',
   'workers-r2.write',
   'workers-kv-storage.write',
+  // Deleting a project also deletes the queues, Vectorize indexes and Hyperdrive configs only its Workers use, as it
+  // does their D1 databases, KV namespaces and R2 buckets.
+  'queues.write',
+  'vectorize.write',
+  'query-cache.write',
   'ai.read',
   // Linking an account's own Anthropic key to its AI Gateway (BYOK), from Settings: the gateway's
   // provider keys, and the Secrets Store secrets they are kept in.

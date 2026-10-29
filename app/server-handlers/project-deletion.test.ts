@@ -24,10 +24,21 @@ function account(options: { failOn?: string } = {}) {
         { kind: 'r2', bucket: 'shop-files' },
         { kind: 'r2', bucket: 'shared-files' },
         { kind: 'kv', id: 'kv-1' },
-        { kind: 'other', type: 'queue', name: 'orders' },
+        { kind: 'queue', name: 'orders' },
+        { kind: 'queue', name: 'events' },
+        { kind: 'queue', name: 'jobs' },
+        { kind: 'vectorize', name: 'shop-search' },
+        { kind: 'hyperdrive', id: 'hd-1' },
+        { kind: 'other', type: 'pipelines', name: 'clicks' },
       ],
     ],
-    ['other-site', [{ kind: 'r2', bucket: 'shared-files' }]],
+    [
+      'other-site',
+      [
+        { kind: 'r2', bucket: 'shared-files' },
+        { kind: 'queue', name: 'events' },
+      ],
+    ],
     ['cloudchef-workspace-1', [{ kind: 'd1', id: 'db-runtime' }]],
   ]);
   const record = (call: string) => {
@@ -67,6 +78,17 @@ function account(options: { failOn?: string } = {}) {
       record(`r2 ${name}`);
       return true;
     },
+    listQueues: async () => [
+      { id: 'queue-orders', name: 'orders', workers: ['storefront'] },
+      { id: 'queue-events', name: 'events', workers: ['storefront', 'other-site'] },
+      // Read by another Worker, which doesn't bind it.
+      { id: 'queue-jobs', name: 'jobs', workers: ['storefront', 'worker-of-jobs'] },
+    ],
+    deleteQueueById: async (id) => record(`queue ${id}`),
+    vectorizeIndexExists: async (name) => name === 'shop-search',
+    deleteVectorizeIndex: async (name) => record(`vectorize ${name}`),
+    hyperdriveConfigName: async (id) => (id === 'hd-1' ? 'shop-postgres' : null),
+    deleteHyperdriveConfig: async (id) => record(`hyperdrive ${id}`),
   };
   return { api, calls };
 }
@@ -130,10 +152,20 @@ describe('deleting a project', () => {
       'database shop-data',
       'storage shop-files',
       'keys shop-cache',
+      'queue orders',
+      'vectors shop-search',
+      'connection shop-postgres',
     ]);
     expect(plan.kept).toEqual([
       { kind: 'storage', id: 'shared-files', name: 'shared-files', reason: 'another Worker uses it' },
-      { kind: 'other', id: 'orders', name: 'orders (queue)', reason: 'CloudChef doesn’t delete this kind of resource' },
+      { kind: 'queue', id: 'queue-events', name: 'events', reason: 'another Worker uses it' },
+      { kind: 'queue', id: 'queue-jobs', name: 'jobs', reason: 'another Worker uses it' },
+      {
+        kind: 'other',
+        id: 'clicks',
+        name: 'clicks (pipelines)',
+        reason: 'CloudChef doesn’t delete this kind of resource',
+      },
     ]);
     expect(plan.repository).toBe('t-storefront');
     // Reading what it would delete deletes nothing.
@@ -149,7 +181,16 @@ describe('deleting a project', () => {
     const answer = await remove(admin.cookie, 'Storefront');
 
     expect(answer.status).toBe(200);
-    expect(calls).toEqual(['worker storefront', 'd1 db-1', 'r2 shop-files', 'kv kv-1', 'repository t-storefront']);
+    expect(calls).toEqual([
+      'worker storefront',
+      'd1 db-1',
+      'r2 shop-files',
+      'kv kv-1',
+      'queue queue-orders',
+      'vectorize shop-search',
+      'hyperdrive hd-1',
+      'repository t-storefront',
+    ]);
     expect(exists()).toBe(false);
   });
 
@@ -184,19 +225,25 @@ describe('deleting a project', () => {
     expect(exists()).toBe(false);
   });
 
-  it('asks a connection authorized before it could remove builds to reauthorize, and deletes nothing', async () => {
-    const { admin, remove, calls, exists } = await world({
-      builtBy: 'workers_builds',
-      scopes: CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'workers-ci.write'),
-    });
+  it.each(['workers-ci.write', 'queues.write', 'vectorize.write', 'query-cache.write'])(
+    'asks a connection authorized before CloudChef asked for %s to reauthorize, and reads or deletes nothing',
+    async (scope) => {
+      const { admin, preview, remove, calls, exists } = await world({
+        builtBy: 'workers_builds',
+        scopes: CORE_CLOUDFLARE_OAUTH_SCOPES.filter((granted) => granted !== scope),
+      });
+      const code = z.object({ code: z.string() });
 
-    const answer = await remove(admin.cookie, 'Storefront');
-
-    expect(answer.status).toBe(409);
-    expect(z.object({ code: z.string() }).parse(await answer.json()).code).toBe('cloudflare_reauthorization_required');
-    expect(calls).toEqual([]);
-    expect(exists()).toBe(true);
-  });
+      const previewed = await preview(admin.cookie);
+      expect(previewed.status).toBe(409);
+      expect(code.parse(await previewed.json()).code).toBe('cloudflare_reauthorization_required');
+      const answer = await remove(admin.cookie, 'Storefront');
+      expect(answer.status).toBe(409);
+      expect(code.parse(await answer.json()).code).toBe('cloudflare_reauthorization_required');
+      expect(calls).toEqual([]);
+      expect(exists()).toBe(true);
+    },
+  );
 
   it('is refused to a team member who doesn’t manage it, in the browser and from their runtime', async () => {
     const { sara, admin, preview, remove, calls, exists, runtime, env } = await world();
