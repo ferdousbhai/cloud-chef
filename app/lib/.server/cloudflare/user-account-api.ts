@@ -260,14 +260,28 @@ const workerBindingSchema = z.looseObject({
 const workerSettingsSchema = z.looseObject({ bindings: z.array(workerBindingSchema).nullish() });
 
 /**
- * A resource a Worker binds: a D1 database or KV namespace by id, an R2 bucket by name, or one of the other
- * account resources a binding can name (a queue, a Vectorize index, a Hyperdrive config), by its type and name.
+ * A resource a Worker binds: a D1 database, KV namespace or Hyperdrive config by id, an R2 bucket, queue or
+ * Vectorize index by name, or another account resource a binding can name, by its type and name.
  */
 export type WorkerBinding =
   | { kind: 'd1'; id: string }
   | { kind: 'kv'; id: string }
   | { kind: 'r2'; bucket: string }
+  | { kind: 'queue'; name: string }
+  | { kind: 'vectorize'; name: string }
+  | { kind: 'hyperdrive'; id: string }
   | { kind: 'other'; type: string; name: string };
+
+/** A queue of the account, with the Workers that send to it and that read from it. */
+export type AccountQueue = { id: string; name: string; workers: string[] };
+
+const queueSchema = z.looseObject({
+  queue_id: z.string(),
+  queue_name: z.string(),
+  consumers: z.array(z.looseObject({ script: z.string().nullish(), script_name: z.string().nullish() })).nullish(),
+  producers: z.array(z.looseObject({ script: z.string().nullish(), script_name: z.string().nullish() })).nullish(),
+});
+const QUEUE_LIST_PAGE_SIZE = 100;
 
 const repoConnectionSchema = z.looseObject({
   repo_id: z.string().nullish(),
@@ -1481,8 +1495,16 @@ export class UserCloudflareAccountApi {
       if (binding.type === 'r2_bucket' && binding.bucket_name) {
         return [{ kind: 'r2', bucket: binding.bucket_name }];
       }
-      const named =
-        binding.queue_name ?? binding.index_name ?? (binding.type === 'hyperdrive' ? binding.id : undefined);
+      if (binding.type === 'queue' && binding.queue_name) {
+        return [{ kind: 'queue', name: binding.queue_name }];
+      }
+      if (binding.type === 'vectorize' && binding.index_name) {
+        return [{ kind: 'vectorize', name: binding.index_name }];
+      }
+      if (binding.type === 'hyperdrive' && binding.id) {
+        return [{ kind: 'hyperdrive', id: binding.id }];
+      }
+      const named = binding.queue_name ?? binding.index_name;
       return named ? [{ kind: 'other', type: binding.type, name: named }] : [];
     });
   }
@@ -1503,6 +1525,58 @@ export class UserCloudflareAccountApi {
       method: 'GET',
     });
     return kvNamespaceSchema.safeParse(namespace).data?.title ?? null;
+  }
+
+  /** The account's queues, each with the Workers that send to it or read from it. */
+  async listQueues(): Promise<AccountQueue[]> {
+    const listed = await this.listAllPages('/queues', 'Cloudflare returned invalid queues.', QUEUE_LIST_PAGE_SIZE);
+    return listed.map((value) => {
+      const queue = queueSchema.safeParse(value);
+      if (!queue.success) {
+        throw new CloudflareAccountApiError('Cloudflare returned invalid queues.');
+      }
+      const workers = [...(queue.data.producers ?? []), ...(queue.data.consumers ?? [])].flatMap((worker) => {
+        const name = worker.script ?? worker.script_name;
+        return name ? [name] : [];
+      });
+      return { id: queue.data.queue_id, name: queue.data.queue_name, workers: [...new Set(workers)] };
+    });
+  }
+
+  /** Delete a queue, with the messages it holds. Already gone is done. */
+  async deleteQueueById(queueId: string): Promise<void> {
+    requireProviderResourceId(queueId);
+    await this.deleteOptional(`/queues/${encodeURIComponent(queueId)}`);
+  }
+
+  /** Whether the account has a Vectorize index by this name. */
+  async vectorizeIndexExists(indexName: string): Promise<boolean> {
+    requireProviderResourceId(indexName);
+    const index = await this.callOptional<unknown>(`/vectorize/v2/indexes/${encodeURIComponent(indexName)}`, {
+      method: 'GET',
+    });
+    return index !== null;
+  }
+
+  /** Delete a Vectorize index, with the vectors it holds. Already gone is done. */
+  async deleteVectorizeIndex(indexName: string): Promise<void> {
+    requireProviderResourceId(indexName);
+    await this.deleteOptional(`/vectorize/v2/indexes/${encodeURIComponent(indexName)}`);
+  }
+
+  /** A Hyperdrive config's name by its id, or null when the account has none with that id. */
+  async hyperdriveConfigName(configId: string): Promise<string | null> {
+    requireProviderResourceId(configId);
+    const config = await this.callOptional<unknown>(`/hyperdrive/configs/${encodeURIComponent(configId)}`, {
+      method: 'GET',
+    });
+    return z.looseObject({ name: z.string() }).safeParse(config).data?.name ?? null;
+  }
+
+  /** Delete a Hyperdrive config; the database it connects to is the owner's own, and stays. Already gone is done. */
+  async deleteHyperdriveConfig(configId: string): Promise<void> {
+    requireProviderResourceId(configId);
+    await this.deleteOptional(`/hyperdrive/configs/${encodeURIComponent(configId)}`);
   }
 
   /** The latest Workers Builds build of each of up to 20 Workers, by tag; Workers never built are left out. */
@@ -1549,6 +1623,15 @@ export class UserCloudflareAccountApi {
       throw new CloudflareAccountApiError('Workers Builds returned invalid triggers.');
     }
     return listed.data.map(workersBuildTrigger);
+  }
+
+  /**
+   * Remove a Workers Builds trigger, so pushes to its repository build nothing more. Deleting a Worker isn't
+   * documented to remove its triggers, so a project's are removed before its Worker. Already gone is done.
+   */
+  async deleteWorkersBuildTrigger(triggerId: string): Promise<void> {
+    requireProviderResourceId(triggerId);
+    await this.deleteOptional(`/builds/triggers/${encodeURIComponent(triggerId)}`);
   }
 
   /**

@@ -80,6 +80,15 @@ const WORKSPACE_ELIGIBILITY_UNKNOWN_MESSAGE =
   'CloudChef could not reach Cloudflare to confirm that this account can run Containers, so it did not start creating your workspace. Nothing changed in your Cloudflare account. Try again in a moment.';
 const CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE =
   'CloudChef needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.';
+
+/** The answer to a request a connection can't make until its person approves CloudChef's newer Cloudflare permissions. */
+export function cloudflareReauthorizationRequired(): Response {
+  return Response.json(
+    { code: 'cloudflare_reauthorization_required', error: CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE },
+    { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
+  );
+}
+
 const startPayloadSchema = z.object({
   callbackURL: z.string().url().max(2_048).optional(),
   /** Set when an admin connects their organization's Cloudflare account rather than their own. */
@@ -179,13 +188,7 @@ export async function cloudflareRuntimeSessionAction({
     return Response.json({ error: 'Runtime authorization is unavailable.' }, { status: 503 });
   }
   if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
-    return Response.json(
-      {
-        code: 'cloudflare_reauthorization_required',
-        error: CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE,
-      },
-      { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
-    );
+    return cloudflareReauthorizationRequired();
   }
   const found = await findUserWorkspaceRuntime(env.DB, session.user.id, connection.id);
   const usable = usableWorkspaceRuntime(found, connection);

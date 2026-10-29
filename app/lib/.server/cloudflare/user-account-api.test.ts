@@ -54,6 +54,8 @@ describe('UserCloudflareAccountApi', () => {
                 { type: 'kv_namespace', name: 'CACHE', namespace_id: 'kv-1' },
                 { type: 'r2_bucket', name: 'FILES', bucket_name: 'shop-files' },
                 { type: 'queue', name: 'ORDERS', queue_name: 'orders' },
+                { type: 'vectorize', name: 'SEARCH', index_name: 'shop-search' },
+                { type: 'hyperdrive', name: 'PG', id: 'hd-1' },
                 { type: 'plain_text', name: 'MODE', text: 'live' },
                 { type: 'durable_object_namespace', name: 'ROOM', class_name: 'Room' },
               ],
@@ -67,9 +69,29 @@ describe('UserCloudflareAccountApi', () => {
       { kind: 'd1', id: 'db-1' },
       { kind: 'kv', id: 'kv-1' },
       { kind: 'r2', bucket: 'shop-files' },
-      { kind: 'other', type: 'queue', name: 'orders' },
+      { kind: 'queue', name: 'orders' },
+      { kind: 'vectorize', name: 'shop-search' },
+      { kind: 'hyperdrive', id: 'hd-1' },
     ]);
     expect(await api.workerBindings('gone')).toBeNull();
+  });
+
+  test('lists queues with the Workers that send to and read from them, across pages', async () => {
+    const pages = [
+      [{ queue_id: 'q-1', queue_name: 'orders', producers: [{ script: 'shop' }], consumers: [{ script: 'worker' }] }],
+      [{ queue_id: 'q-2', queue_name: 'events', producers: [{ script: 'shop' }, { script: 'shop' }] }],
+    ];
+    const request = vi.fn<typeof fetch>(async (input) => {
+      const page = Number(new URL(String(input)).searchParams.get('page'));
+      return Response.json({ success: true, result: pages[page - 1], result_info: { total_pages: 2 } });
+    });
+    const api = accountApi('account-1', 'user-token', request);
+
+    expect(await api.listQueues()).toEqual([
+      { id: 'q-1', name: 'orders', workers: ['shop', 'worker'] },
+      { id: 'q-2', name: 'events', workers: ['shop'] },
+    ]);
+    expect(String(request.mock.calls[0]?.[0])).toContain('/accounts/account-1/queues?page=1&per_page=100');
   });
 
   test("reads a Worker's custom domains and its workers.dev address, only when served there, in one request", async () => {

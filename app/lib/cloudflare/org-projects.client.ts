@@ -148,13 +148,14 @@ export async function copyProject(projectId: string, name?: string): Promise<z.i
 }
 
 const deletionResourceSchema = z.object({
-  kind: z.enum(['database', 'storage', 'keys', 'other']),
+  kind: z.enum(['database', 'storage', 'keys', 'queue', 'vectors', 'connection', 'other']),
   id: z.string(),
   name: z.string(),
 });
 const deletionPreviewSchema = z.object({
   sites: z.array(z.string()),
   workers: z.array(z.string()),
+  buildTriggers: z.array(z.string()),
   resources: z.array(deletionResourceSchema),
   kept: z.array(deletionResourceSchema.extend({ reason: z.string() })),
   repository: z.string().nullable(),

@@ -62,6 +62,7 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
     return Response.json({
       sites: ['https://storefront.example.com'],
       workers: ['storefront'],
+      buildTriggers: [],
       resources: [{ kind: 'database', id: 'db-1', name: 'shop-data' }],
       kept: [{ kind: 'storage', id: 'shared-files', name: 'shared-files', reason: 'another Worker uses it' }],
       repository: 'r',

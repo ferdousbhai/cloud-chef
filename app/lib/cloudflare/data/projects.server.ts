@@ -25,6 +25,7 @@ import {
 } from '~/lib/.server/cloudflare/project-repository';
 import type { DataOperationResult, ProjectCommit, ProjectGitAddress } from '~/lib/cloudflare/data-api';
 import { ensureInitialWorkspace, findWorkspace, openLinkedWorkspace } from './workspace-repository.server';
+import { removeWorkspace } from './workspace-service.server';
 import { extractZip, ZipReadError } from '~/lib/.server/cloudflare/zip-extract';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
 import {
@@ -565,6 +566,38 @@ export async function userRuntimeDeleteProjectRepositoryAction(
       return Response.json({ error: error.message }, { status: 403 });
     }
     return internalErrorResponse(error, 'The project’s code could not be deleted. Try again.');
+  }
+}
+
+const removeProjectWorkspaceSchema = z.strictObject({ orgProjectId: z.string().uuid() });
+
+/**
+ * `POST /v1/projects/remove-workspace`: removes this person's workspace of a team project, as deleting it from their
+ * projects does: its conversations' agents and its files go after the grace period. CloudChef asks every member's
+ * runtime for this when the project is deleted, so nobody is left with a workspace of a project that no longer
+ * exists. None left is done.
+ */
+export async function userRuntimeRemoveProjectWorkspaceAction(args: {
+  request: Request;
+  env: Env;
+  userId: string;
+}): Promise<Response> {
+  const parsed = removeProjectWorkspaceSchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the project.' }, { status: 400 });
+  }
+  try {
+    const { results } = await args.env.DB.prepare(
+      `SELECT initial_id FROM workspaces WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0`,
+    )
+      .bind(args.userId, parsed.data.orgProjectId)
+      .all<{ initial_id: string }>();
+    for (const workspace of results) {
+      await removeWorkspace(args.env.DB, { sessionId: args.userId, id: workspace.initial_id });
+    }
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return internalErrorResponse(error, 'The project’s workspace could not be removed. Try again.');
   }
 }
 

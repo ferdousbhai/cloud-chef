@@ -49,8 +49,29 @@ function cloudflareAs(subject: string): Pick<CloudflareOAuthOrchestrator, 'start
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+/**
+ * Runs `work` with fake timers, firing each timer it sets as soon as it is set: a refused refresh waits 2 s for a
+ * concurrent one to land, which here passes at once and the same way every run. Real I/O (crypto, D1) still
+ * completes between turns of the event loop, which `setImmediate` (left real) yields to.
+ */
+async function withTimersAtOnce<T>(work: () => Promise<T>): Promise<{ result: T; waitedMs: number }> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const started = Date.now();
+  let done = false;
+  const pending = work().finally(() => {
+    done = true;
+  });
+  while (!done) {
+    await new Promise((resolve) => setImmediate(resolve));
+    await vi.runOnlyPendingTimersAsync();
+  }
+  const result = await pending;
+  return { result, waitedMs: Date.now() - started };
+}
 
 async function setup() {
   const { database, db } = controlPlaneDatabase();
@@ -412,8 +433,12 @@ describe("one Cloudflare account shared by a person's own space and their team",
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-kim', kim.id);
     const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
 
-    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'));
+    const { result: response, waitedMs } = await withTimersAtOnce(() =>
+      connect(env, kimCookie, reauthorizedAs('cf-kim')),
+    );
     expect(connectMessage(response)).toBeNull();
+    // The refused refresh waited its settle for a concurrent refresh, on the fake clock.
+    expect(waitedMs).toBeGreaterThanOrEqual(2_000);
 
     const own = await findCloudflareConnectionForUser(db, user.id);
     const kims = await findCloudflareConnectionForUser(db, kim.id);

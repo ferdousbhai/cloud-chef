@@ -1,6 +1,6 @@
 import type { Project } from '~/lib/cloudflare/data/org-projects.server';
 import { isCloudChefResourceName } from './deploy-api-policy';
-import type { UserCloudflareAccountApi, WorkerBinding } from './user-account-api';
+import type { AccountQueue, UserCloudflareAccountApi, WorkerBinding } from './user-account-api';
 import { findProjectWorker } from './workers-builds';
 
 /** What deleting a project uses of the account API. */
@@ -8,6 +8,8 @@ export type ProjectDeletionApi = Pick<
   UserCloudflareAccountApi,
   | 'listWorkerScripts'
   | 'latestWorkersBuilds'
+  | 'listWorkersBuildTriggers'
+  | 'deleteWorkersBuildTrigger'
   | 'workerBindings'
   | 'd1DatabaseName'
   | 'kvNamespaceTitle'
@@ -15,14 +17,21 @@ export type ProjectDeletionApi = Pick<
   | 'deleteD1DatabaseById'
   | 'deleteKvNamespaceById'
   | 'deleteR2Bucket'
+  | 'listQueues'
+  | 'deleteQueueById'
+  | 'vectorizeIndexExists'
+  | 'deleteVectorizeIndex'
+  | 'hyperdriveConfigName'
+  | 'deleteHyperdriveConfig'
 >;
 
 /** A resource a project's Workers bind that deleting it removes, or keeps (`reason`). */
 type DeletionResource = {
-  kind: 'database' | 'storage' | 'keys' | 'other';
-  /** The D1 database or KV namespace id, the R2 bucket name, or the other resource's name. */
+  /** A D1 database, R2 bucket, KV namespace, queue, Vectorize index, Hyperdrive config, or another kind. */
+  kind: 'database' | 'storage' | 'keys' | 'queue' | 'vectors' | 'connection' | 'other';
+  /** The database's, namespace's, queue's or config's id, the bucket's or index's name, or the other one's name. */
   id: string;
-  /** How people know it: the database's name, the namespace's title, the bucket's name. */
+  /** How people know it: the database's, queue's or config's name, the namespace's title, the bucket's name. */
   name: string;
 };
 
@@ -32,6 +41,11 @@ type ProjectDeletionPlan = {
   sites: string[];
   /** The Workers its site runs on; each goes with its versions, previews and Durable Objects. */
   workers: string[];
+  /**
+   * The Workers Builds triggers that build it from its repository, removed before its Worker: deleting a Worker isn't
+   * documented to remove them. Empty for a project CloudChef publishes itself.
+   */
+  buildTriggers: string[];
   resources: DeletionResource[];
   kept: (DeletionResource & { reason: string })[];
   /** Its Artifacts repository, or null when it never had one. */
@@ -45,9 +59,10 @@ const R2_EMPTYING_PASSES = 5;
 
 /**
  * What deleting `project` removes. Its Workers: the ones CloudChef published it to (`workerNames`), or the one
- * Workers Builds builds it into. Then every D1 database, KV namespace and R2 bucket those Workers bind that no
- * other Worker in the account binds; one another Worker binds, or one of CloudChef's own, is kept. Other kinds of
- * resource a binding can name (a queue, an index) are kept too: CloudChef doesn't delete them.
+ * Workers Builds builds it into, with the triggers that build it. Then every D1 database, KV namespace, R2 bucket,
+ * queue, Vectorize index and Hyperdrive config those Workers bind that no other Worker in the account binds (or, for
+ * a queue, sends to or reads from); one another Worker uses, or one of CloudChef's own, is kept. Other kinds of
+ * resource a binding can name are kept too: CloudChef doesn't delete them.
  */
 export async function planProjectDeletion(
   api: ProjectDeletionApi,
@@ -57,10 +72,11 @@ export async function planProjectDeletion(
   >,
   workerNames: readonly string[],
 ): Promise<ProjectDeletionPlan> {
+  const built = project.deploysWith === 'cloudchef' ? null : await findProjectWorker(api, project);
   const named =
     project.deploysWith === 'cloudchef'
       ? [...workerNames, ...(project.deployWorkerName ? [project.deployWorkerName] : [])]
-      : [(await findProjectWorker(api, project))?.name].filter((name) => name !== undefined);
+      : [built?.name].filter((name) => name !== undefined);
   const workers: string[] = [];
   const bound = new Map<string, WorkerBinding>();
   for (const name of new Set(named)) {
@@ -74,10 +90,12 @@ export async function planProjectDeletion(
     }
   }
   const usedElsewhere = bound.size === 0 ? new Set<string>() : await bindingsOfOtherWorkers(api, workers);
+  let queues: Promise<AccountQueue[]> | null = null;
+  const listQueues = () => (queues ??= api.listQueues());
   const resources: DeletionResource[] = [];
   const kept: ProjectDeletionPlan['kept'] = [];
   for (const [key, binding] of bound) {
-    const resource = await describe(api, binding);
+    const resource = await describe(api, binding, listQueues);
     if (resource === null) {
       continue;
     }
@@ -85,29 +103,60 @@ export async function planProjectDeletion(
       kept.push({ ...resource, reason: 'CloudChef doesn’t delete this kind of resource' });
     } else if (isCloudChefResourceName(resource.name)) {
       kept.push({ ...resource, reason: 'CloudChef uses it' });
-    } else if (usedElsewhere.has(key)) {
+    } else if (
+      usedElsewhere.has(key) ||
+      (binding.kind === 'queue' &&
+        (await listQueues()).some(
+          (queue) => queue.name === binding.name && queue.workers.some((worker) => !workers.includes(worker)),
+        ))
+    ) {
       kept.push({ ...resource, reason: 'another Worker uses it' });
     } else {
       resources.push(resource);
     }
   }
-  return { sites: project.siteUrl ? [project.siteUrl] : [], workers, resources, kept, repository: project.repo };
+  const buildTriggers =
+    built && workers.includes(built.name)
+      ? (await api.listWorkersBuildTriggers(built.tag)).map((trigger) => trigger.id)
+      : [];
+  return {
+    sites: project.siteUrl ? [project.siteUrl] : [],
+    workers,
+    buildTriggers,
+    resources,
+    kept,
+    repository: project.repo,
+  };
 }
 
 /**
- * Deletes what `plan` lists, in order: the Workers first (so nothing serves or writes any more), then their
- * resources, then the repository. A step already done counts as done, so deleting again after a failure picks
- * up where it stopped. Answers what was deleted, and the step that failed with why, or null.
+ * Deletes what `plan` lists, in order: its builds triggers (so nothing builds it again), its Workers (so nothing
+ * serves or writes any more), then their resources, then the repository, then every member's workspace of it. A step already done counts as done, so
+ * deleting again after a failure picks up where it stopped. Answers what was deleted, and the step that failed with why, or null.
  */
 export async function deleteProjectResources(
   api: ProjectDeletionApi,
   plan: ProjectDeletionPlan,
   deleteRepository: (repo: string) => Promise<void>,
+  removeWorkspaces: () => Promise<void>,
 ): Promise<{ deleted: string[]; failed: { step: string; reason: string } | null }> {
   const steps: { label: string; run: () => Promise<void> }[] = [
+    ...(plan.buildTriggers.length > 0
+      ? [
+          {
+            label: `Automatic builds of ${plan.workers.join(', ')}`,
+            run: async () => {
+              for (const trigger of plan.buildTriggers) {
+                await api.deleteWorkersBuildTrigger(trigger);
+              }
+            },
+          },
+        ]
+      : []),
     ...plan.workers.map((name) => ({ label: `Worker ${name}`, run: () => api.deleteManagedWorker(name) })),
     ...plan.resources.map((resource) => ({ label: resourceLabel(resource), run: () => deleteResource(api, resource) })),
     ...(plan.repository ? [{ label: 'Code and its history', run: () => deleteRepository(plan.repository ?? '') }] : []),
+    { label: 'Everyone’s workspaces of it', run: removeWorkspaces },
   ];
   const deleted: string[] = [];
   for (const step of steps) {
@@ -130,7 +179,13 @@ function resourceLabel(resource: DeletionResource): string {
         ? 'File storage'
         : resource.kind === 'keys'
           ? 'Key-value store'
-          : 'Resource';
+          : resource.kind === 'queue'
+            ? 'Queue'
+            : resource.kind === 'vectors'
+              ? 'Search index'
+              : resource.kind === 'connection'
+                ? 'Database connection'
+                : 'Resource';
   return `${kind} ${resource.name}`;
 }
 
@@ -139,6 +194,12 @@ async function deleteResource(api: ProjectDeletionApi, resource: DeletionResourc
     await api.deleteD1DatabaseById(resource.id);
   } else if (resource.kind === 'keys') {
     await api.deleteKvNamespaceById(resource.id);
+  } else if (resource.kind === 'queue') {
+    await api.deleteQueueById(resource.id);
+  } else if (resource.kind === 'vectors') {
+    await api.deleteVectorizeIndex(resource.id);
+  } else if (resource.kind === 'connection') {
+    await api.deleteHyperdriveConfig(resource.id);
   } else if (resource.kind === 'storage') {
     // A bucket is emptied a batch of objects at a time before it can go.
     for (let pass = 0; pass < R2_EMPTYING_PASSES; pass += 1) {
@@ -171,6 +232,9 @@ function bindingKey(binding: WorkerBinding): string {
   if (binding.kind === 'r2') {
     return `r2:${binding.bucket}`;
   }
+  if (binding.kind === 'queue' || binding.kind === 'vectorize') {
+    return `${binding.kind}:${binding.name}`;
+  }
   if (binding.kind === 'other') {
     return `${binding.type}:${binding.name}`;
   }
@@ -178,7 +242,11 @@ function bindingKey(binding: WorkerBinding): string {
 }
 
 /** The resource a binding names, or null when it no longer exists. */
-async function describe(api: ProjectDeletionApi, binding: WorkerBinding): Promise<DeletionResource | null> {
+async function describe(
+  api: ProjectDeletionApi,
+  binding: WorkerBinding,
+  listQueues: () => Promise<AccountQueue[]>,
+): Promise<DeletionResource | null> {
   if (binding.kind === 'd1') {
     const name = await api.d1DatabaseName(binding.id);
     return name === null ? null : { kind: 'database', id: binding.id, name };
@@ -189,6 +257,19 @@ async function describe(api: ProjectDeletionApi, binding: WorkerBinding): Promis
   }
   if (binding.kind === 'r2') {
     return { kind: 'storage', id: binding.bucket, name: binding.bucket };
+  }
+  if (binding.kind === 'queue') {
+    const queue = (await listQueues()).find((listed) => listed.name === binding.name);
+    return queue ? { kind: 'queue', id: queue.id, name: queue.name } : null;
+  }
+  if (binding.kind === 'vectorize') {
+    return (await api.vectorizeIndexExists(binding.name))
+      ? { kind: 'vectors', id: binding.name, name: binding.name }
+      : null;
+  }
+  if (binding.kind === 'hyperdrive') {
+    const name = await api.hyperdriveConfigName(binding.id);
+    return name === null ? null : { kind: 'connection', id: binding.id, name };
   }
   return { kind: 'other', id: binding.name, name: `${binding.name} (${binding.type})` };
 }

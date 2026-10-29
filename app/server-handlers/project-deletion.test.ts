@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
+import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
+import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import type { ProjectDeletionApi } from '~/lib/.server/cloudflare/project-deletion';
 import type { WorkerBinding } from '~/lib/.server/cloudflare/user-account-api';
 import { ORG, teamFixture } from '~/test/project-fixture';
@@ -8,6 +12,7 @@ import {
   projectDeletionPreviewAction,
   runtimeDeletableProjectAction,
   type DeleteProjectRepository,
+  type RemoveProjectWorkspaces,
 } from './project-deletion';
 
 const SITE = '44444444-4444-4444-8444-444444444444';
@@ -23,10 +28,21 @@ function account(options: { failOn?: string } = {}) {
         { kind: 'r2', bucket: 'shop-files' },
         { kind: 'r2', bucket: 'shared-files' },
         { kind: 'kv', id: 'kv-1' },
-        { kind: 'other', type: 'queue', name: 'orders' },
+        { kind: 'queue', name: 'orders' },
+        { kind: 'queue', name: 'events' },
+        { kind: 'queue', name: 'jobs' },
+        { kind: 'vectorize', name: 'shop-search' },
+        { kind: 'hyperdrive', id: 'hd-1' },
+        { kind: 'other', type: 'pipelines', name: 'clicks' },
       ],
     ],
-    ['other-site', [{ kind: 'r2', bucket: 'shared-files' }]],
+    [
+      'other-site',
+      [
+        { kind: 'r2', bucket: 'shared-files' },
+        { kind: 'queue', name: 'events' },
+      ],
+    ],
     ['cloudchef-workspace-1', [{ kind: 'd1', id: 'db-runtime' }]],
   ]);
   const record = (call: string) => {
@@ -42,6 +58,20 @@ function account(options: { failOn?: string } = {}) {
       { tag: 'c'.repeat(32), name: 'cloudchef-workspace-1' },
     ],
     latestWorkersBuilds: async () => new Map(),
+    listWorkersBuildTriggers: async (tag) =>
+      tag === 'a'.repeat(32)
+        ? ['trigger-main', 'trigger-previews'].map((id) => ({
+            id,
+            name: null,
+            buildCommand: null,
+            deployCommand: null,
+            rootDirectory: null,
+            branchIncludes: [],
+            branchExcludes: [],
+            repository: null,
+          }))
+        : [],
+    deleteWorkersBuildTrigger: async (id) => record(`trigger ${id}`),
     workerBindings: async (name) => bindings.get(name) ?? null,
     d1DatabaseName: async (id) => (id === 'db-1' ? 'shop-data' : null),
     kvNamespaceTitle: async (id) => (id === 'kv-1' ? 'shop-cache' : null),
@@ -52,24 +82,47 @@ function account(options: { failOn?: string } = {}) {
       record(`r2 ${name}`);
       return true;
     },
+    listQueues: async () => [
+      { id: 'queue-orders', name: 'orders', workers: ['storefront'] },
+      { id: 'queue-events', name: 'events', workers: ['storefront', 'other-site'] },
+      // Read by another Worker, which doesn't bind it.
+      { id: 'queue-jobs', name: 'jobs', workers: ['storefront', 'worker-of-jobs'] },
+    ],
+    deleteQueueById: async (id) => record(`queue ${id}`),
+    vectorizeIndexExists: async (name) => name === 'shop-search',
+    deleteVectorizeIndex: async (name) => record(`vectorize ${name}`),
+    hyperdriveConfigName: async (id) => (id === 'hd-1' ? 'shop-postgres' : null),
+    deleteHyperdriveConfig: async (id) => record(`hyperdrive ${id}`),
   };
   return { api, calls };
 }
 
-async function world(options: { failOn?: string } = {}) {
+async function world(
+  options: { failOn?: string; builtBy?: 'workers_builds'; scopes?: string[]; throughRuntimes?: boolean } = {},
+) {
   const team = await teamFixture();
   team.database.exec(`
-    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with, created_at)
-      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip', 'cloudchef', 1);
+    INSERT INTO org_projects (
+      id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with, workers_builds_script_tag,
+      created_at
+    )
+      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip',
+        '${options.builtBy ?? 'cloudchef'}', ${options.builtBy ? `'${'a'.repeat(32)}'` : 'NULL'}, 1);
     INSERT INTO project_deployments (id, project_id, kind, branch, commit_sha, state, worker_name, created_at, updated_at)
       VALUES ('d1', '${SITE}', 'production', 'main', '${'a'.repeat(40)}', 'succeeded', 'storefront', 1, 1),
              ('d2', '${SITE}', 'preview', 'idea', '${'b'.repeat(40)}', 'succeeded', 'storefront', 2, 2);
   `);
+  team.database
+    .prepare('UPDATE cloudflare_authorizations SET granted_oauth_scopes_json = ? WHERE account_id = ?')
+    .run(JSON.stringify(options.scopes ?? [...CORE_CLOUDFLARE_OAUTH_SCOPES]), 'account-team');
   const { api, calls } = account(options);
   const repositories: string[] = [];
   const deleteRepository: DeleteProjectRepository = async ({ project }) => {
     calls.push(`repository ${project.repo}`);
     repositories.push(project.repo ?? '');
+  };
+  const removeWorkspaces: RemoveProjectWorkspaces = async ({ project }) => {
+    calls.push(`workspaces ${project.id}`);
   };
   const openAccount = async () => api;
   const preview = (cookie: string) =>
@@ -84,6 +137,7 @@ async function world(options: { failOn?: string } = {}) {
       env: team.env,
       openAccount,
       deleteRepository,
+      removeWorkspaces: options.throughRuntimes ? undefined : removeWorkspaces,
     });
   const exists = () => team.database.prepare('SELECT id FROM org_projects WHERE id = ?').get(SITE) !== undefined;
   return { ...team, calls, repositories, preview, remove, exists };
@@ -91,6 +145,7 @@ async function world(options: { failOn?: string } = {}) {
 
 const planSchema = z.object({
   workers: z.array(z.string()),
+  buildTriggers: z.array(z.string()),
   resources: z.array(z.object({ kind: z.string(), name: z.string() })),
   kept: z.array(z.object({ kind: z.string(), id: z.string(), name: z.string(), reason: z.string() })),
   repository: z.string().nullable(),
@@ -107,10 +162,20 @@ describe('deleting a project', () => {
       'database shop-data',
       'storage shop-files',
       'keys shop-cache',
+      'queue orders',
+      'vectors shop-search',
+      'connection shop-postgres',
     ]);
     expect(plan.kept).toEqual([
       { kind: 'storage', id: 'shared-files', name: 'shared-files', reason: 'another Worker uses it' },
-      { kind: 'other', id: 'orders', name: 'orders (queue)', reason: 'CloudChef doesn’t delete this kind of resource' },
+      { kind: 'queue', id: 'queue-events', name: 'events', reason: 'another Worker uses it' },
+      { kind: 'queue', id: 'queue-jobs', name: 'jobs', reason: 'another Worker uses it' },
+      {
+        kind: 'other',
+        id: 'clicks',
+        name: 'clicks (pipelines)',
+        reason: 'CloudChef doesn’t delete this kind of resource',
+      },
     ]);
     expect(plan.repository).toBe('t-storefront');
     // Reading what it would delete deletes nothing.
@@ -126,7 +191,17 @@ describe('deleting a project', () => {
     const answer = await remove(admin.cookie, 'Storefront');
 
     expect(answer.status).toBe(200);
-    expect(calls).toEqual(['worker storefront', 'd1 db-1', 'r2 shop-files', 'kv kv-1', 'repository t-storefront']);
+    expect(calls).toEqual([
+      'worker storefront',
+      'd1 db-1',
+      'r2 shop-files',
+      'kv kv-1',
+      'queue queue-orders',
+      'vectorize shop-search',
+      'hyperdrive hd-1',
+      'repository t-storefront',
+      `workspaces ${SITE}`,
+    ]);
     expect(exists()).toBe(false);
   });
 
@@ -142,6 +217,116 @@ describe('deleting a project', () => {
     });
     expect(calls).not.toContain('repository t-storefront');
     expect(exists()).toBe(true);
+  });
+
+  it('removes the triggers Workers Builds builds it with before its Worker', async () => {
+    const { admin, preview, remove, calls, exists } = await world({ builtBy: 'workers_builds' });
+
+    const plan = planSchema.parse(await (await preview(admin.cookie)).json());
+    expect(plan.workers).toEqual(['storefront']);
+    expect(plan.buildTriggers).toEqual(['trigger-main', 'trigger-previews']);
+
+    const answer = await remove(admin.cookie, 'Storefront');
+
+    expect(answer.status).toBe(200);
+    expect(calls.slice(0, 3)).toEqual(['trigger trigger-main', 'trigger trigger-previews', 'worker storefront']);
+    expect(z.object({ deleted: z.array(z.string()) }).parse(await answer.json()).deleted[0]).toBe(
+      'Automatic builds of storefront',
+    );
+    expect(exists()).toBe(false);
+  });
+
+  it.each(['workers-ci.write', 'queues.write', 'vectorize.write', 'query-cache.write'])(
+    'asks a connection authorized before CloudChef asked for %s to reauthorize, and reads or deletes nothing',
+    async (scope) => {
+      const { admin, preview, remove, calls, exists } = await world({
+        builtBy: 'workers_builds',
+        scopes: CORE_CLOUDFLARE_OAUTH_SCOPES.filter((granted) => granted !== scope),
+      });
+      const code = z.object({ code: z.string() });
+
+      const previewed = await preview(admin.cookie);
+      expect(previewed.status).toBe(409);
+      expect(code.parse(await previewed.json()).code).toBe('cloudflare_reauthorization_required');
+      const answer = await remove(admin.cookie, 'Storefront');
+      expect(answer.status).toBe(409);
+      expect(code.parse(await answer.json()).code).toBe('cloudflare_reauthorization_required');
+      expect(calls).toEqual([]);
+      expect(exists()).toBe(true);
+    },
+  );
+
+  describe('every member’s workspace of it', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    /** Ada's and Sara's runtimes in the team's account, Sara's of the connection before it was reconnected. */
+    async function withRuntimes(answer: (url: string) => Response) {
+      const team = await world({ throughRuntimes: true });
+      const runtime = team.database.prepare(
+        `INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
+           runtime_version, image_digest, protocol_version, status, created_at, updated_at)
+         VALUES (?, 'team-connection', ?, ?, ?, ?, ?, ?, 'ready', 1, 1)`,
+      );
+      const current = [USER_WORKSPACE_RUNTIME_SHA256, USER_WORKSPACE_IMAGE, USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION];
+      runtime.run(team.admin.userId, 2, 'ada-runtime', 'https://ada.runtime.test', ...current);
+      runtime.run(team.sara.userId, 2, 'sara-runtime', 'https://sara.runtime.test', ...current);
+      const asked: { url: string; body: unknown }[] = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          asked.push({ url: String(input), body: JSON.parse(String(init?.body ?? 'null')) });
+          return answer(String(input));
+        }),
+      );
+      return { ...team, asked };
+    }
+
+    it('asks each member’s runtime to remove theirs before the record goes', async () => {
+      const { admin, remove, asked, exists } = await withRuntimes(() => new Response(null, { status: 204 }));
+
+      expect((await remove(admin.cookie, 'Storefront')).status).toBe(200);
+
+      expect(asked.map((call) => call.url).sort()).toEqual([
+        'https://ada.runtime.test/v1/projects/remove-workspace',
+        'https://sara.runtime.test/v1/projects/remove-workspace',
+      ]);
+      expect(asked.every((call) => z.object({ orgProjectId: z.literal(SITE) }).safeParse(call.body).success)).toBe(
+        true,
+      );
+      expect(exists()).toBe(false);
+    });
+
+    it('skips a runtime CloudChef can’t reach any more', async () => {
+      const { admin, sara, database, remove, asked, exists } = await withRuntimes(
+        () => new Response(null, { status: 204 }),
+      );
+      database
+        .prepare('UPDATE user_computer_runtimes SET connection_generation = 1 WHERE user_id = ?')
+        .run(sara.userId);
+
+      expect((await remove(admin.cookie, 'Storefront')).status).toBe(200);
+
+      expect(asked.map((call) => call.url)).toEqual(['https://ada.runtime.test/v1/projects/remove-workspace']);
+      expect(exists()).toBe(false);
+    });
+
+    it('stops when a ready runtime refuses, and keeps the record so deleting again finishes it', async () => {
+      const { admin, remove, exists } = await withRuntimes((url) =>
+        url.startsWith('https://sara.')
+          ? Response.json({ error: 'The project’s workspace could not be removed. Try again.' }, { status: 500 })
+          : new Response(null, { status: 204 }),
+      );
+
+      const answer = await remove(admin.cookie, 'Storefront');
+
+      expect(answer.status).toBe(502);
+      expect(z.object({ error: z.string() }).parse(await answer.json()).error).toBe(
+        'Everyone’s workspaces of it couldn’t be deleted: The project’s workspace could not be removed. Try again.',
+      );
+      expect(exists()).toBe(true);
+    });
   });
 
   it('is refused to a team member who doesn’t manage it, in the browser and from their runtime', async () => {

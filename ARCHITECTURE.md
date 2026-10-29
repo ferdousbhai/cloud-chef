@@ -216,7 +216,10 @@ deploys `main` (the only production branch Artifacts supports) and builds other 
 control plane reads what it reports with the connection's own authorization (`workers-ci.read`), never handing
 a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
 repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
-its builds are switched) and remembered (`workers_builds_script_tag`); `/runtime-projects/status` matches a
+its builds are switched) and remembered (`workers_builds_script_tag`). The one change CloudChef makes to a
+project's builds is removing its triggers when the project is deleted, before its Worker (`workers-ci.write`):
+Cloudflare doesn't document that deleting a Worker removes them, and keeps `cf builds workers delete` apart from
+the Worker's own deletion. A connection authorized before that scope is asked to reauthorize. `/runtime-projects/status` matches a
 commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, which each
 turn's context names so the agent knows where the live site is (it reads it with `curl`, like any address). Workers Builds' API names no Artifacts provider for a repository
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
@@ -707,7 +710,12 @@ A release from before this one cannot start containers under `durable_object`: i
 an image and `scheduling_policy: "default"`, which Cloudflare is expected to refuse, the policy being immutable.
 Rolling back a moved runtime is therefore two things: deploy the earlier release, and delete the runtime's two
 `durable_object` applications (`cf containers applications delete <id>`, an application's id being its namespace's under
-this policy, as Wrangler expects) while the runtime is idle. The earlier release's provisioning, whose
+this policy, as Wrangler expects) while the runtime is idle. `scripts/rollback-workspace-containers.mjs`
+(`pnpm run rollback:workspace-containers`) does the second: it lists the runtimes from the control plane's D1, prints
+each one's `<worker>` and `<worker>-builder` applications on `durable_object` (a dry run, by default), and with
+`--apply` deletes them one runtime at a time, each only while its own D1 shows nothing running, just ended, or holding
+an upgrade window, the same test that grants the window; one whose activity can't be read waits for `--force`
+(DEVELOPMENT.md). The earlier release's provisioning, whose
 container step is retried with backoff and whose failed-after-redeploy upgrades every sweep restarts, then finds no
 application and creates the platform-scheduled one with its own image. Workspace files are in the Durable Objects and
 survive both directions; the base snapshot row stays in D1, unused, until a release with its key runs again.

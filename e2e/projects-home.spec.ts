@@ -347,6 +347,7 @@ test('deletes a project only after listing what goes with it and having its name
       json: {
         sites: [`${SITE_ORIGIN}/`],
         workers: ['booking-site'],
+        buildTriggers: ['trigger-main'],
         resources: [
           { kind: 'database', id: 'db-1', name: 'booking-data' },
           { kind: 'storage', id: 'booking-photos', name: 'booking-photos' },
@@ -370,6 +371,7 @@ test('deletes a project only after listing what goes with it and having its name
   const dialog = page.getByRole('dialog', { name: 'Delete Booking site?' });
   await expect(dialog).toContainText('can’t be undone');
   await expect(dialog).toContainText('Database booking-data');
+  await expect(dialog).toContainText('Its automatic builds from its code');
   await expect(dialog).toContainText('File storage shared-logos: another Worker uses it');
   const confirm = dialog.getByRole('button', { name: 'Delete' });
   await expect(confirm).toBeDisabled();

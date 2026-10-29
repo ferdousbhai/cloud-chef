@@ -7,12 +7,14 @@ import {
   planProjectDeletion,
   type ProjectDeletionApi,
 } from '~/lib/.server/cloudflare/project-deletion';
+import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { readJsonRequest } from '~/lib/.server/request-guards';
 import { deleteProjectRecord, requireManagedProject, type Project } from '~/lib/cloudflare/data/org-projects.server';
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { projectWorkerNames } from '~/lib/cloudflare/data/project-deployments.server';
+import { cloudflareReauthorizationRequired } from './cloudflare-integration';
 import { runtimeFor } from './command-line';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { json } from './runtime-projects';
@@ -22,6 +24,12 @@ type OpenDeletionAccountApi = (
   env: Env,
   connection: Pick<CloudflareConnection, 'accountId' | 'credentialHandle'>,
 ) => Promise<ProjectDeletionApi>;
+
+/**
+ * Removes every workspace of a project from the runtimes of the people who work in its account, so none is left
+ * that can't open a project that no longer exists.
+ */
+export type RemoveProjectWorkspaces = (args: { request: Request; env: Env; project: Project }) => Promise<void>;
 
 /** Deletes a project's repository in its account: through the deleting person's runtime, which holds Artifacts. */
 export type DeleteProjectRepository = (args: {
@@ -36,12 +44,19 @@ const deleteSchema = z.strictObject({ projectId: z.string().uuid(), confirm: z.s
 
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 
-/** The project, if this person manages it, and what deleting it would remove from its account now. */
+/**
+ * The project, if this person manages it, and what deleting it would remove from its account now. A connection
+ * authorized before CloudChef asked for a permission deleting uses (its builds, queues, search indexes, database
+ * connections) is asked to reauthorize first.
+ */
 async function readPlan(env: Env, userId: string, projectId: string, openAccount: OpenDeletionAccountApi) {
   const project = await requireManagedProject(env.DB, userId, projectId);
   const connection = await findActiveCloudflareConnection(env.DB, project.connectionId);
   if (!connection) {
     throw new OrganizationError('Connect the Cloudflare account first.', 409);
+  }
+  if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
+    return cloudflareReauthorizationRequired();
   }
   const api = await openAccount(env, connection);
   const plan = await planProjectDeletion(api, project, await projectWorkerNames(env.DB, project.id));
@@ -68,7 +83,11 @@ export function projectDeletionPreviewAction({
       return body.response;
     }
     try {
-      const { project, plan } = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      const read = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      if (read instanceof Response) {
+        return read;
+      }
+      const { project, plan } = read;
       return Response.json({ name: project.name, ...plan }, { headers: NO_STORE });
     } catch (error) {
       if (error instanceof CloudflareAccountApiError) {
@@ -81,8 +100,8 @@ export function projectDeletionPreviewAction({
 
 /**
  * `POST /api/projects/delete`: deletes a project for good, with `confirm` its exact name. What it removes is read
- * again here, never taken from the browser. Its Workers go first, then the databases and storage only they used,
- * then its code, then CloudChef's record; a step that fails stops it there and the record stays, so deleting again
+ * again here, never taken from the browser. Its builds triggers and Workers go first, then the databases and storage only they used,
+ * then its code, then every member's workspace of it, then CloudChef's record; a step that fails stops it there and the record stays, so deleting again
  * finishes the job.
  */
 export function deleteProjectAction({
@@ -90,11 +109,13 @@ export function deleteProjectAction({
   env,
   openAccount = openConnectionAccountApi,
   deleteRepository = deleteRepositoryThroughRuntime,
+  removeWorkspaces = removeWorkspacesThroughRuntimes,
 }: {
   request: Request;
   env: Env;
   openAccount?: OpenDeletionAccountApi;
   deleteRepository?: DeleteProjectRepository;
+  removeWorkspaces?: RemoveProjectWorkspaces;
 }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, deleteSchema, 'Choose a project.');
@@ -102,12 +123,19 @@ export function deleteProjectAction({
       return body.response;
     }
     try {
-      const { project, api, plan } = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      const read = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      if (read instanceof Response) {
+        return read;
+      }
+      const { project, api, plan } = read;
       if (body.data.confirm !== project.name) {
         return Response.json({ error: `Type ${project.name} to confirm.` }, { status: 400 });
       }
-      const result = await deleteProjectResources(api, plan, () =>
-        deleteRepository({ request, env, userId: session.user.id, project }),
+      const result = await deleteProjectResources(
+        api,
+        plan,
+        () => deleteRepository({ request, env, userId: session.user.id, project }),
+        () => removeWorkspaces({ request, env, project }),
       );
       if (result.failed) {
         return Response.json(
@@ -149,6 +177,39 @@ const deleteRepositoryThroughRuntime: DeleteProjectRepository = async ({ request
     throw new Error(refusal.data?.error ?? 'Try again.');
   }
   await answer.body?.cancel();
+};
+
+/**
+ * Asks the runtime of each person with one in the project's account to remove their workspace of it. Someone who
+ * may no longer use the account, or whose runtime isn't ready, can't open the project from it either, so is
+ * skipped; a runtime that is ready and refuses stops the deletion, which deleting again finishes.
+ */
+const removeWorkspacesThroughRuntimes: RemoveProjectWorkspaces = async ({ request, env, project }) => {
+  const { results } = await env.DB.prepare(
+    `SELECT user_id FROM user_computer_runtimes WHERE connection_id = ? AND status = 'ready' ORDER BY user_id`,
+  )
+    .bind(project.connectionId)
+    .all<{ user_id: string }>();
+  for (const { user_id: userId } of results) {
+    const runtime = await runtimeFor(request, env, userId, project.connectionId);
+    if ('refusal' in runtime) {
+      continue;
+    }
+    const answer = await fetch(new URL('/v1/projects/remove-workspace', runtime.endpoint), {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${runtime.token}`,
+        origin: publicOrigin(request),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ orgProjectId: project.id }),
+    });
+    if (!answer.ok) {
+      const refusal = z.object({ error: z.string() }).safeParse(await answer.json().catch(() => null));
+      throw new Error(refusal.data?.error ?? 'A workspace couldn’t be reached. Try again.');
+    }
+    await answer.body?.cancel();
+  }
 };
 
 const deletableSchema = z.object({ orgProjectId: z.string().uuid() }).strict();
