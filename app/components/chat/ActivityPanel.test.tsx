@@ -4,7 +4,6 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage, CloudChefPart } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess } from 'cloudchef-agent/tool-result';
-import { redactedThinkingMetadata, signedThinkingMetadata } from 'cloudchef-agent/signed-thinking';
 import { ActivityPanel } from './ActivityPanel';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { revealActivity } from '~/lib/stores/activity-reveal';
@@ -81,8 +80,7 @@ it('keeps current reasoning visible and older steps in a separate disclosure', a
   expect(container.querySelector('details')?.textContent).not.toContain('Thinking');
 });
 
-it("shows Claude's readable thinking but never a redacted block, which is kept only for the model", async () => {
-  const model = { provider: 'cloudflare-ai-gateway', api: 'anthropic-messages', model: 'claude-opus-5-5' };
+it("shows the model's thinking once it ends as a thought", async () => {
   const thought: CloudChefMessage = {
     ...message,
     parts: [
@@ -91,20 +89,12 @@ it("shows Claude's readable thinking but never a redacted block, which is kept o
         type: 'reasoning',
         text: 'Checking the app',
         state: 'done',
-        providerMetadata: signedThinkingMetadata('s1', model, 'sig'),
-      },
-      {
-        type: 'reasoning',
-        text: '',
-        state: 'streaming',
-        providerMetadata: redactedThinkingMetadata('s1', model, 'opaque'),
       },
     ],
   };
   await act(async () => root.render(<ActivityPanel messages={[thought]} isStreaming compact={false} />));
   expect(container.textContent).toContain('Thought');
   expect(container.textContent).not.toContain('Thinking');
-  expect(container.textContent).not.toContain('opaque');
 });
 
 // The browser streams the call as `dynamic-tool`; the agent's saved transcript types it by its tool.

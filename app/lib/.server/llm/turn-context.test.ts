@@ -1,25 +1,18 @@
 import { describe, expect, test } from 'vitest';
-import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { chatTurnContextSchema } from 'cloudchef-agent/turn-context';
-import { injectTurnContext } from './turn-context';
+import { withTurnContext } from './turn-context';
 
-describe('injectTurnContext', () => {
-  test('prepends context to the latest user message without changing the transcript', () => {
-    const messages: CloudChefMessage[] = [
-      { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Build it' }] },
-      { id: 'assistant-1', role: 'assistant', parts: [{ type: 'text', text: 'Working' }] },
-    ];
+describe('withTurnContext', () => {
+  test('puts the workspace context ahead of the text, marked as data', () => {
+    const content = withTurnContext('Build it', { version: 1, content: 'src/index.ts' });
 
-    const result = injectTurnContext(messages, {
-      version: 1,
-      content: 'src/index.ts',
-    });
+    expect(content).toContain('<cloudchef_ephemeral_context>\nsrc/index.ts\n</cloudchef_ephemeral_context>');
+    expect(content.endsWith('\n\nBuild it')).toBe(true);
+  });
 
-    expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0]).toMatchObject({ type: 'text', text: expect.stringContaining('src/index.ts') });
-    expect(result[1]).toBe(messages[1]);
-    expect(messages[0].parts).toEqual([{ type: 'text', text: 'Build it' }]);
+  test('sends the text alone without context', () => {
+    expect(withTurnContext('Build it', undefined)).toBe('Build it');
   });
 
   test('rejects an oversized client context payload', () => {

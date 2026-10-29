@@ -1,8 +1,6 @@
 import { z } from 'zod';
-import { isRecord } from './utils/isRecord.js';
 
 export const TRANSCRIPT_HISTORY_FORMAT_VERSION = 2 as const;
-export const TRANSCRIPT_BASE_METADATA_KEY = 'cloudchefTranscriptBase' as const;
 
 export const transcriptIdentitySchema = z.object({
   agentName: z.string().min(1).max(512),
@@ -73,33 +71,6 @@ export async function advanceTranscriptCheckpoint(
     digest,
     messageCount: messages.length,
     revision: sameIdentity ? previous.revision + 1 : 1,
-  };
-}
-
-export async function transcriptCheckpointMatchesMessages(
-  checkpoint: TranscriptCheckpoint | null,
-  messages: TranscriptMessage[],
-): Promise<boolean> {
-  if (checkpoint === null) {
-    return messages.length === 0;
-  }
-  return (
-    checkpoint.messageCount === messages.length && checkpoint.digest === (await digestTranscriptMessages(messages))
-  );
-}
-
-export function transcriptMessagesEqual(left: TranscriptMessage, right: TranscriptMessage): boolean {
-  return JSON.stringify(canonicalTranscriptMessage(left)) === JSON.stringify(canonicalTranscriptMessage(right));
-}
-
-export function stripTranscriptBaseMetadata<T extends { metadata?: unknown }>(message: T): T {
-  if (!isRecord(message.metadata) || !Object.hasOwn(message.metadata, TRANSCRIPT_BASE_METADATA_KEY)) {
-    return message;
-  }
-  const { [TRANSCRIPT_BASE_METADATA_KEY]: _checkpoint, ...metadata } = message.metadata;
-  return {
-    ...message,
-    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   };
 }
 

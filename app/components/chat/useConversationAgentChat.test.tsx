@@ -5,37 +5,22 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 
-type ChatCallbacks = {
-  onData: (part: { type: string; data?: unknown }) => void;
-  onError: (error: Error) => void;
-  onFinish: (result: { finishReason: string; message: CloudChefMessage }) => void;
-};
+/** What the hook passes `useAgent`: the socket's message handler is how chat frames arrive. */
+type AgentOptions = { onMessage?: (event: MessageEvent) => void };
 
 const mocks = vi.hoisted(() => {
-  const controller = { dispose: vi.fn(), pull: vi.fn() };
-  const chat = {
-    messages: [] as CloudChefMessage[],
-    status: 'ready' as const,
-    isRecovering: false,
-    isStreaming: false,
-    setMessages: vi.fn(),
-    sendMessage: vi.fn(),
-    stop: vi.fn(),
-  };
+  const controller = { dispose: vi.fn(), pull: vi.fn(async () => undefined) };
   const workbench = {
     connectSite: vi.fn(() => vi.fn()),
   };
   return {
-    agent: { state: {} as { transcript?: unknown }, call: vi.fn() },
-    chat,
-    chatCallbacks: [] as ChatCallbacks[],
+    agent: { state: {} as { turnError?: string | null }, call: vi.fn() },
+    agentOptions: [] as AgentOptions[],
     executeDataOperation: vi.fn(),
     finishToolTurn: vi.fn(),
     resumeToolTurn: vi.fn(),
-    loadSnapshot: vi.fn(async (args: { read: () => Promise<unknown> }) => args.read()),
     recordChatFailure: vi.fn(),
     recordToolProgress: vi.fn(),
-    reconcileMessages: vi.fn(async (args: { localMessages: CloudChefMessage[] }) => args.localMessages),
     resetChatRetryState: vi.fn(),
     abortToolActivity: vi.fn(),
     clearToolProgress: vi.fn(),
@@ -52,13 +37,12 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock('@cloudflare/ai-chat/react', () => ({
-  useAgentChat: (callbacks: ChatCallbacks) => {
-    mocks.chatCallbacks.push(callbacks);
-    return mocks.chat;
+vi.mock('agents/react', () => ({
+  useAgent: (options: AgentOptions) => {
+    mocks.agentOptions.push(options);
+    return mocks.agent;
   },
 }));
-vi.mock('agents/react', () => ({ useAgent: () => mocks.agent }));
 vi.mock('@nanostores/react', () => ({ useStore: (store: { get: () => unknown }) => store.get() }));
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
@@ -103,10 +87,6 @@ vi.mock('./chat-retry', () => ({
   recordChatFailure: mocks.recordChatFailure,
   resetChatRetryState: mocks.resetChatRetryState,
 }));
-vi.mock('./chat-send-reconciliation', () => ({
-  loadAuthoritativeTranscriptSnapshot: mocks.loadSnapshot,
-  reconcileMessagesForSend: mocks.reconcileMessages,
-}));
 
 // Pins a browser timeout to the runtime's derived container connect ceiling; the runtime is
 // outside the ~/ alias, and the dependency direction (runtime imports app) forbids exporting
@@ -129,21 +109,12 @@ beforeEach(() => {
   mocks.initializeWorkspace.mockClear();
   mocks.controller.dispose.mockClear();
   mocks.controller.pull.mockClear();
-  mocks.chat.messages = [];
-  mocks.chat.isStreaming = false;
-  mocks.chat.isRecovering = false;
   mocks.resumeToolTurn.mockClear();
-  mocks.chat.sendMessage.mockClear();
-  mocks.chat.setMessages.mockClear();
-  mocks.chatCallbacks.length = 0;
+  mocks.agentOptions.length = 0;
   mocks.executeDataOperation.mockReset();
   mocks.finishToolTurn.mockClear();
-  mocks.loadSnapshot.mockReset();
-  mocks.loadSnapshot.mockImplementation(async (args: { read: () => Promise<unknown> }) => args.read());
   mocks.recordChatFailure.mockClear();
   mocks.recordToolProgress.mockClear();
-  mocks.reconcileMessages.mockReset();
-  mocks.reconcileMessages.mockImplementation(async (args: { localMessages: CloudChefMessage[] }) => args.localMessages);
   mocks.resetChatRetryState.mockClear();
   mocks.abortToolActivity.mockClear();
   mocks.clearToolProgress.mockClear();
@@ -165,20 +136,40 @@ afterEach(async () => {
 });
 
 describe('useConversationAgentChat workspace preparation', () => {
-  it('reattaches tool activity when the SDK restores an active response', async () => {
+  it('shows the chat the agent sends, and follows a run from its frames to its end', async () => {
     mocks.agent.call.mockResolvedValue({ initialized: true });
-    const message: CloudChefMessage = { id: 'restored', role: 'assistant', parts: [] };
-    mocks.chat.messages = [message];
-    mocks.chat.isStreaming = true;
+    const user: CloudChefMessage = { id: '1', role: 'user', parts: [{ type: 'text', text: 'Build it' }] };
+    const working: CloudChefMessage = {
+      id: '1-a',
+      role: 'assistant',
+      parts: [{ type: 'dynamic-tool', toolName: 'exec', toolCallId: 'call-1', state: 'input-available' }],
+    };
+    let current: ReturnType<typeof useConversationAgentChat> | undefined;
     const container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
     function Harness() {
-      useConversationAgentChat(chatArgs('restored-workspace'));
+      current = useConversationAgentChat(chatArgs('restored-workspace'));
       return null;
     }
     await act(async () => root?.render(<Harness />));
-    expect(mocks.resumeToolTurn).toHaveBeenCalledWith(message);
+
+    await act(async () =>
+      receive({ from: 0, keepParts: 0, messages: [user, working], busy: true, progress: [progress('call-1')] }),
+    );
+    expect(current?.messages).toEqual([user, working]);
+    expect(current?.streamStatus).toBe('streaming');
+    expect(mocks.resumeToolTurn).toHaveBeenCalledWith(working);
+    expect(mocks.recordToolProgress).toHaveBeenCalledWith(progress('call-1'));
+
+    const done = { type: 'text', text: 'Done.', state: 'done' };
+    await act(async () =>
+      receive({ from: 1, keepParts: 1, messages: [{ ...working, parts: [done] }], busy: false, progress: [] }),
+    );
+    expect(current?.messages[1]?.parts).toEqual([working.parts[0], done]);
+    expect(current?.streamStatus).toBe('ready');
+    expect(mocks.finishToolTurn).toHaveBeenCalledWith({ ...working, parts: [working.parts[0], done] });
+    expect(mocks.resetChatRetryState).toHaveBeenCalled();
   });
 
   it('gives prepareWorkspace at least the container connect ceiling instead of the SDK default', async () => {
@@ -328,9 +319,7 @@ describe('useConversationAgentChat workspace preparation', () => {
       expect(prepareWorkspaceCalls()).toHaveLength(1);
       expect(mocks.refreshRuntimeSession).not.toHaveBeenCalled();
       expect(mocks.initializeWorkspace).not.toHaveBeenCalled();
-      await expect(
-        currentChat!.sendMessage({ role: 'user', parts: [{ type: 'text', text: 'build it' }] }),
-      ).rejects.toThrow(failure);
+      await expect(currentChat!.sendMessage({ text: 'build it' })).rejects.toThrow(failure);
 
       await act(async () => currentChat!.retryWorkspacePresentation());
       await act(async () => {
@@ -420,7 +409,7 @@ describe('useConversationAgentChat workspace preparation', () => {
     await act(async () => root?.render(<Harness presentationId="workspace-old" />));
     await vi.waitFor(() => expect(prepareWorkspaceCalls()).toHaveLength(1));
 
-    const staleSend = currentChat!.sendMessage({ role: 'user', parts: [{ type: 'text', text: 'build it' }] }).then(
+    const staleSend = currentChat!.sendMessage({ text: 'build it' }).then(
       () => null,
       (error: unknown) => error,
     );
@@ -447,7 +436,7 @@ describe('useConversationAgentChat workspace preparation', () => {
 });
 
 describe('useConversationAgentChat stale presentation operations', () => {
-  it('ignores stream callbacks retained by a superseded presentation', async () => {
+  it('ignores chat frames once its presentation was superseded', async () => {
     mocks.agent.call.mockImplementation(async (method: string) => {
       if (method === 'prepareWorkspace') {
         return { initialized: true };
@@ -465,114 +454,86 @@ describe('useConversationAgentChat stale presentation operations', () => {
     root = createRoot(container);
     await act(async () => root?.render(<Harness presentationId="workspace-old" />));
     await vi.waitFor(() => expect(prepareWorkspaceCalls()).toHaveLength(1));
-    const staleCallbacks = mocks.chatCallbacks.at(-1)!;
+    const staleOptions = mocks.agentOptions.at(-1)!;
 
     await act(async () => root?.render(<Harness presentationId="workspace-new" />));
     await vi.waitFor(() => expect(prepareWorkspaceCalls()).toHaveLength(2));
     mocks.controller.pull.mockClear();
+    mocks.agentOptions.length = 0;
 
-    staleCallbacks.onData({
-      type: 'data-tool-progress',
-      data: { toolCallId: 'tool-1', toolName: 'write', result: 'done' },
-    });
-    staleCallbacks.onError(new Error('stale failure'));
-    staleCallbacks.onFinish({
-      finishReason: 'stop',
-      message: { id: 'assistant-1', role: 'assistant', parts: [] },
-    });
-    await Promise.resolve();
+    await act(async () =>
+      receive({ from: 0, keepParts: 0, messages: [], busy: true, progress: [progress('tool-1')] }, staleOptions),
+    );
 
     expect(mocks.recordToolProgress).not.toHaveBeenCalled();
-    expect(mocks.clearToolProgress).not.toHaveBeenCalled();
-    expect(mocks.abortToolActivity).not.toHaveBeenCalled();
+    expect(mocks.resumeToolTurn).not.toHaveBeenCalled();
     expect(mocks.finishToolTurn).not.toHaveBeenCalled();
-    expect(mocks.recordChatFailure).not.toHaveBeenCalled();
-    expect(mocks.resetChatRetryState).not.toHaveBeenCalled();
-    expect(mocks.showWorkersPaidRequiredToast).not.toHaveBeenCalled();
-    expect(mocks.executeDataOperation).not.toHaveBeenCalled();
     expect(mocks.controller.pull).not.toHaveBeenCalled();
   });
 
-  it('does not apply terminal transcript reconciliation after the presentation switches', async () => {
-    const checkpoint = {
-      agentName: 'agent-1',
-      subchatIndex: 0,
-      digest: 'a'.repeat(64),
-      messageCount: 1,
-      revision: 1,
-    };
-    const localMessages: CloudChefMessage[] = [
-      { id: 'local-1', role: 'user', parts: [{ type: 'text', text: 'local' }] },
-    ];
-    const durableMessages: CloudChefMessage[] = [
-      { id: 'durable-1', role: 'user', parts: [{ type: 'text', text: 'durable' }] },
-    ];
-    const reconciliation = deferred<CloudChefMessage[]>();
-    mocks.chat.messages = localMessages;
-    mocks.agent.state = { transcript: checkpoint };
-    mocks.reconcileMessages.mockImplementationOnce(async () => reconciliation.promise);
+  it('sends a message as one call to the agent, with the turn context, the model and the transcript', async () => {
     mocks.agent.call.mockImplementation(async (method: string) => {
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
-      if (method === 'getTranscriptSnapshot') {
-        return { checkpoint, messages: durableMessages };
+      if (method === 'sendMessage') {
+        return { accepted: true };
       }
       throw new Error(`Unexpected agent call: ${method}`);
     });
-
-    function Harness({ presentationId }: { presentationId: string }) {
-      useConversationAgentChat(chatArgs(presentationId));
+    let currentChat: ReturnType<typeof useConversationAgentChat> | undefined;
+    function Harness() {
+      currentChat = useConversationAgentChat(chatArgs('workspace-1'));
       return null;
     }
-
     const container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    await act(async () => root?.render(<Harness presentationId="workspace-old" />));
-    await vi.waitFor(() => expect(mocks.reconcileMessages).toHaveBeenCalledTimes(1));
+    await act(async () => root?.render(<Harness />));
+    await vi.waitFor(() => expect(prepareWorkspaceCalls()).toHaveLength(1));
+    const started = vi.fn();
 
-    mocks.agent.state = {};
-    await act(async () => root?.render(<Harness presentationId="workspace-new" />));
-    await act(async () => reconciliation.resolve(durableMessages));
+    await act(async () =>
+      currentChat!.sendMessage(
+        { text: 'build it' },
+        { body: { turnContext: { version: 1, content: 'src/app.ts' } } },
+        started,
+      ),
+    );
 
-    expect(mocks.chat.setMessages).not.toHaveBeenCalled();
+    const [, [input]] = mocks.agent.call.mock.calls.find(([method]) => method === 'sendMessage')!;
+    expect(input).toMatchObject({
+      text: 'build it',
+      turnContext: { version: 1, content: 'src/app.ts' },
+      transcript: { agentName: 'agent-1', subchatIndex: 0 },
+      modelId: expect.any(String),
+    });
+    expect(started).toHaveBeenCalledTimes(1);
   });
 
-  it('does not send after the presentation switches during transcript reconciliation', async () => {
-    const oldSnapshot = deferred<{ checkpoint: null; messages: CloudChefMessage[] }>();
+  it("shows a refused message's reason as the chat's error", async () => {
     mocks.agent.call.mockImplementation(async (method: string) => {
       if (method === 'prepareWorkspace') {
         return { initialized: true };
       }
-      if (method === 'getTranscriptSnapshot') {
-        return oldSnapshot.promise;
-      }
-      throw new Error(`Unexpected agent call: ${method}`);
+      throw new Error("This model isn't allowed in this account.");
     });
-
     let currentChat: ReturnType<typeof useConversationAgentChat> | undefined;
-    function Harness({ presentationId }: { presentationId: string }) {
-      currentChat = useConversationAgentChat(chatArgs(presentationId));
+    function Harness() {
+      currentChat = useConversationAgentChat(chatArgs('workspace-1'));
       return null;
     }
-
     const container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    await act(async () => root?.render(<Harness presentationId="workspace-old" />));
+    await act(async () => root?.render(<Harness />));
     await vi.waitFor(() => expect(prepareWorkspaceCalls()).toHaveLength(1));
 
-    const staleSend = settle(currentChat!.sendMessage({ role: 'user', parts: [{ type: 'text', text: 'build it' }] }));
-    await vi.waitFor(() => expect(transcriptSnapshotCalls()).toHaveLength(1));
+    await act(async () => settle(currentChat!.sendMessage({ text: 'build it' })));
 
-    await act(async () => root?.render(<Harness presentationId="workspace-new" />));
-    await act(async () => oldSnapshot.resolve({ checkpoint: null, messages: [] }));
-
-    await expect(staleSend).resolves.toEqual(
-      expect.objectContaining({ message: 'The durable workspace initialization was superseded.' }),
-    );
-    expect(mocks.chat.sendMessage).not.toHaveBeenCalled();
+    expect(currentChat?.error?.message).toBe("This model isn't allowed in this account.");
+    expect(currentChat?.streamStatus).toBe('error');
+    expect(mocks.recordChatFailure).toHaveBeenCalledWith(false);
   });
 
   it('does not steer after the presentation switches while the socket becomes ready', async () => {
@@ -634,8 +595,16 @@ function prepareWorkspaceCalls() {
   return mocks.agent.call.mock.calls.filter(([method]) => method === 'prepareWorkspace');
 }
 
-function transcriptSnapshotCalls() {
-  return mocks.agent.call.mock.calls.filter(([method]) => method === 'getTranscriptSnapshot');
+/** A chat frame from the agent, as its socket delivers it. */
+function receive(
+  frame: { from: number; keepParts: number; messages: CloudChefMessage[]; busy: boolean; progress: unknown[] },
+  options: AgentOptions | undefined = mocks.agentOptions.at(-1),
+) {
+  options?.onMessage?.(new MessageEvent('message', { data: JSON.stringify({ type: 'cloudchef_chat', ...frame }) }));
+}
+
+function progress(toolCallId: string) {
+  return { toolCallId, toolName: 'exec', result: { stdout: 'working' } };
 }
 
 function settle<T>(promise: Promise<T>) {

@@ -19,15 +19,6 @@ export const BUILDER_TURN_WALL_CLOCK_MS = 4 * 60 * 60_000;
 export const BUILDER_TURN_INACTIVITY_MS = 5 * 60_000;
 
 /**
- * A model that has streamed no text, reasoning, tool call, or tool execution
- * this soon after the request started is stalled: the benchmark model burned
- * eight silent minutes before ending with nothing. Streamed reasoning counts, so
- * a model that thinks at length is not cut off. Transport noise does not count;
- * the first meaningful event disarms this deadline for the rest of the turn.
- */
-export const BUILDER_TURN_FIRST_PROGRESS_MS = 60_000;
-
-/**
  * How long one tool call may run before it is stopped as hung. A stopped call is an ordinary
  * failed tool result: the model sees it and decides what to do next, and the turn goes on.
  */
@@ -68,36 +59,14 @@ export class BuilderToolUnsettledError extends Error {
 }
 
 /** The turn-level guards against a hung provider stream or workspace. None of them limits the model's work. */
-export type BuilderTurnLimitReason = 'wall_clock' | 'inactivity' | 'no_first_progress';
-
-export type BuilderTurnTerminalReason = BuilderTurnLimitReason | 'completed' | 'cancelled' | 'failed';
-
-/** Content-free turn accounting. Never carries prompt or generated code. */
-export type BuilderTurnReport = {
-  terminalReason: BuilderTurnTerminalReason;
-  stepCount: number;
-  toolCallCount: number;
-  elapsedMs: number;
-  /**
-   * Wall-clock time with at least one tool in flight — a union of the tool intervals, not their
-   * sum, because the Pi loop runs a batch concurrently. `elapsedMs - toolWallClockMs` is therefore
-   * the time the turn spent waiting on the model.
-   */
-  toolWallClockMs: number;
-  /** Per-tool totals. Summed, so a concurrent batch can exceed `toolWallClockMs`. */
-  toolMsByName: Record<string, number>;
-  /** Whether the turn ran a tool that can change the project (write, edit, or exec). */
-  changedProject: boolean;
-};
+export type BuilderTurnLimitReason = 'wall_clock' | 'inactivity';
 
 export class BuilderTurnLimitError extends Error {
   constructor(readonly reason: BuilderTurnLimitReason) {
     super(
-      reason === 'no_first_progress'
-        ? 'The model did not start responding within a minute. Retry, or pick a different model.'
-        : reason === 'inactivity'
-          ? 'The model stream stopped responding. Send a follow-up to continue.'
-          : 'This turn ran for its maximum time. Send a follow-up to continue.',
+      reason === 'inactivity'
+        ? 'The builder stopped making progress. Send a follow-up to continue.'
+        : 'This turn ran for its maximum time. Send a follow-up to continue.',
     );
     this.name = 'BuilderTurnLimitError';
   }

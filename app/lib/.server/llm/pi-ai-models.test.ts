@@ -4,9 +4,6 @@ import { normalizeContext, type Message } from '@earendil-works/pi-ai';
 import { z } from 'zod';
 import { CLOUDFLARE_PROJECT_TITLE_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
 import { gatewayKeyRejectedMessage, getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
-import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
-import { redactedThinkingMetadata, signedThinkingMetadata, toolStepMetadata } from 'cloudchef-agent/signed-thinking';
-import { transcriptToPiMessages } from './message-conversion';
 import { completeText } from './pi-ai-invoke';
 import type { ProviderRequestBody } from './provider-default-reasoning';
 import {
@@ -510,34 +507,47 @@ describe("a gateway provider's model", () => {
   });
 
   describe("Claude's thinking replayed from the transcript", () => {
-    const step = 'step-1';
-    // The model as Pi names it on the messages it streams, which is what the transcript records.
-    const claude = { provider: 'cloudflare-ai-gateway', api: 'anthropic-messages', model: 'claude-opus-5-5' };
-    /** A turn whose one model response thought (once readably, once redacted), said why, and read two files. */
-    const transcript: CloudChefMessage[] = [
-      { id: 'user-1', role: 'user', parts: [{ type: 'text', text: 'Build a todo app.' }] },
+    /**
+     * A turn whose one model response thought (once readably, once redacted), said why, and read two files, as
+     * pi-durable keeps it and sends it again: Claude's thinking with its signature, in the response that made the calls.
+     */
+    const transcript: Message[] = [
+      { role: 'user', content: 'Build a todo app.', timestamp: 1 },
       {
-        id: 'assistant-1',
         role: 'assistant',
-        parts: [
-          {
-            type: 'reasoning',
-            text: 'Read both files first.',
-            providerMetadata: signedThinkingMetadata(step, claude, 'sig-1'),
-          },
-          { type: 'reasoning', text: '', providerMetadata: redactedThinkingMetadata(step, claude, 'opaque-1') },
+        api: 'anthropic-messages',
+        provider: 'cloudflare-ai-gateway',
+        model: 'claude-opus-5-5',
+        content: [
+          { type: 'thinking', thinking: 'Read both files first.', thinkingSignature: 'sig-1' },
+          { type: 'thinking', thinking: '', thinkingSignature: 'opaque-1', redacted: true },
           { type: 'text', text: 'Reading the app.\n' },
           ...['a', 'b'].map((name) => ({
-            type: 'dynamic-tool',
-            toolName: 'read_file',
-            toolCallId: `toolu_${name}`,
-            state: 'output-available',
-            input: { path: `/${name}.ts` },
-            output: `${name} contents`,
-            callProviderMetadata: toolStepMetadata(step),
+            type: 'toolCall' as const,
+            id: `toolu_${name}`,
+            name: 'read_file',
+            arguments: { path: `/${name}.ts` },
           })),
         ],
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'toolUse',
+        timestamp: 2,
       },
+      ...['a', 'b'].map((name): Message => ({
+        role: 'toolResult',
+        toolCallId: `toolu_${name}`,
+        toolName: 'read_file',
+        content: [{ type: 'text', text: `${name} contents` }],
+        isError: false,
+        timestamp: 3,
+      })),
     ];
 
     /** The assistant and tool-result turns a request sent after the user's message. */
@@ -564,7 +574,7 @@ describe("a gateway provider's model", () => {
     it('sends them back unchanged, with their signature, in the turn of the tool calls they preceded', async () => {
       const { calls, credentials } = gatewayBinding(() => anthropicStream('Both read.'));
 
-      await streamOnce(credentials, opus, {}, { messages: transcriptToPiMessages(transcript) });
+      await streamOnce(credentials, opus, {}, { messages: transcript });
 
       expect(replayedTurns(calls[0])).toEqual([
         {
@@ -591,18 +601,8 @@ describe("a gateway provider's model", () => {
       const sonnet = gatewayBinding(() => anthropicStream('Both read.', 'claude-sonnet-4-6'));
       const gpt = gatewayBinding(() => chatCompletionsStream('Both read.', 'openai/gpt-5'));
 
-      await streamOnce(
-        sonnet.credentials,
-        'anthropic/claude-sonnet-4-6',
-        {},
-        { messages: transcriptToPiMessages(transcript) },
-      );
-      await streamOnce(
-        gpt.credentials,
-        'openrouter/openai/gpt-5',
-        {},
-        { messages: transcriptToPiMessages(transcript) },
-      );
+      await streamOnce(sonnet.credentials, 'anthropic/claude-sonnet-4-6', {}, { messages: transcript });
+      await streamOnce(gpt.credentials, 'openrouter/openai/gpt-5', {}, { messages: transcript });
 
       expect(replayedTurns(sonnet.calls[0])).toEqual(withoutThinking);
       for (const call of [sonnet.calls[0], gpt.calls[0]]) {
@@ -630,7 +630,7 @@ describe("a gateway provider's model", () => {
           : anthropicStream('Both read.'),
       );
 
-      const message = await streamOnce(credentials, opus, {}, { messages: transcriptToPiMessages(transcript) });
+      const message = await streamOnce(credentials, opus, {}, { messages: transcript });
 
       expect(message.stopReason).toBe('stop');
       expect(calls).toHaveLength(2);
@@ -643,7 +643,7 @@ describe("a gateway provider's model", () => {
       const other = gatewayBinding(refusal('max_tokens: too large'));
       const bare = gatewayBinding(refusal('Invalid `signature` in `thinking` block'));
 
-      await streamOnce(other.credentials, opus, {}, { messages: transcriptToPiMessages(transcript) });
+      await streamOnce(other.credentials, opus, {}, { messages: transcript });
       await streamOnce(bare.credentials, opus);
 
       expect(other.calls).toHaveLength(1);

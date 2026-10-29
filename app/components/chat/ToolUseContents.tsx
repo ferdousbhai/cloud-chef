@@ -78,9 +78,6 @@ export const ToolUseContents = memo(function ToolUseContents({
       </>
     );
   }
-  if (invocation.toolName === 'history' && invocation.state !== 'output-error') {
-    return <HistoryContents invocation={invocation} />;
-  }
   return <StructuredResultTool invocation={invocation} />;
 });
 
@@ -503,46 +500,4 @@ export function PublishLinks({ view }: { view: LinkedPublishView }) {
       ) : null}
     </div>
   );
-}
-
-const historySearchOutputSchema = z.looseObject({
-  totalMatches: z.number(),
-  entries: z.array(z.looseObject({ role: z.string(), excerpt: z.string() })),
-});
-const historyReadOutputSchema = z.looseObject({ role: z.string(), text: z.string() });
-
-const MAX_HISTORY_TEXT = 600;
-
-function HistoryContents({ invocation }: { invocation: CloudChefToolInvocation }) {
-  const search = historySearchOutputSchema.safeParse(invocation.output).data;
-  if (search) {
-    return (
-      <ToolResultFrame>
-        <div className="space-y-1 text-xs leading-5 text-content-secondary">
-          <div>
-            {search.totalMatches === 0
-              ? 'Nothing earlier in the conversation matched.'
-              : `${search.totalMatches} earlier message${search.totalMatches === 1 ? '' : 's'} matched.`}
-          </div>
-          {search.entries.slice(0, 5).map((entry, index) => (
-            <p key={index} className="line-clamp-2">
-              <span className="text-content-primary">{entry.role === 'user' ? 'You' : 'CloudChef'}:</span>{' '}
-              {entry.excerpt}
-            </p>
-          ))}
-        </div>
-      </ToolResultFrame>
-    );
-  }
-  const read = historyReadOutputSchema.safeParse(invocation.output).data;
-  if (read) {
-    return (
-      <ToolResultFrame>
-        <p className="whitespace-pre-wrap text-xs leading-5 text-content-secondary">
-          {read.text.length > MAX_HISTORY_TEXT ? `${read.text.slice(0, MAX_HISTORY_TEXT)}…` : read.text}
-        </p>
-      </ToolResultFrame>
-    );
-  }
-  return <ToolResultFrame>{toolResultSummary(invocation.output)}</ToolResultFrame>;
 }

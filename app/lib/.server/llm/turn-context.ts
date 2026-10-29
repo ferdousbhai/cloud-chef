@@ -1,4 +1,3 @@
-import type { CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 
 const TURN_CONTEXT_PREFIX =
@@ -6,25 +5,10 @@ const TURN_CONTEXT_PREFIX =
   '<cloudchef_ephemeral_context>\n';
 const TURN_CONTEXT_SUFFIX = '\n</cloudchef_ephemeral_context>';
 
-/** Add generated workspace data to a cloned model view, never the durable transcript. */
-export function injectTurnContext(
-  messages: CloudChefMessage[],
-  turnContext: ChatTurnContext | undefined,
-): CloudChefMessage[] {
-  if (!turnContext?.content) {
-    return messages;
-  }
-  const userIndex = messages.findLastIndex((message) => message.role === 'user');
-  if (userIndex < 0) {
-    return messages;
-  }
-  const userMessage = messages[userIndex];
-  const contextPart = {
-    type: 'text' as const,
-    text: `${TURN_CONTEXT_PREFIX}${turnContext.content}${TURN_CONTEXT_SUFFIX}`,
-  };
-  return messages.with(userIndex, {
-    ...userMessage,
-    parts: [contextPart, ...userMessage.parts],
-  });
+/**
+ * What the model is sent for a message: the turn's workspace context, then the person's text. Stored as the message's
+ * model content, so what the model saw is what the transcript keeps; the chat shows only the text.
+ */
+export function withTurnContext(text: string, turnContext: ChatTurnContext | undefined): string {
+  return turnContext?.content ? `${TURN_CONTEXT_PREFIX}${turnContext.content}${TURN_CONTEXT_SUFFIX}\n\n${text}` : text;
 }

@@ -1,14 +1,22 @@
-import type { ChatRecoveryContext, ChatRecoveryExhaustedContext } from '@cloudflare/ai-chat';
-
 const MAX_TURN_IDENTIFIER_LENGTH = 512;
 
-export type BuilderTurnStatus = 'accepted' | 'recovering' | 'completed' | 'error' | 'aborted';
+export type BuilderTurnStatus = 'accepted' | 'completed' | 'error' | 'aborted';
 
+/**
+ * A turn as the agent records it, from the person's message until the run it started settles: what it ends (its
+ * publication, its title), and which pi-durable operation it waits for, kept so a restarted agent waits for it again.
+ */
 export type BuilderTurnState = {
   id: string;
   requestId: string;
   status: BuilderTurnStatus;
-  recovery?: { incidentId: string };
+  /** The pi-durable operation the turn waits for: the person's message, or the request sent again after a handoff. */
+  operationId?: string;
+  /** A handoff ended the running work: the person's latest request is sent again in the fresh context. */
+  continueAfterHandoff?: boolean;
+  /** The turn already handed off once after the provider said its context was too long. */
+  overflowHandedOff?: boolean;
+  startedAt?: number;
 };
 
 export function createBuilderTurn(requestId: string | undefined): BuilderTurnState {
@@ -16,48 +24,14 @@ export function createBuilderTurn(requestId: string | undefined): BuilderTurnSta
     id: crypto.randomUUID(),
     requestId: boundedIdentifier(requestId, crypto.randomUUID()),
     status: 'accepted',
+    startedAt: Date.now(),
   };
 }
 
-export function createRecoveryTurn(context: ChatRecoveryContext, current?: BuilderTurnState | null): BuilderTurnState {
-  return {
-    id: current?.id ?? boundedIdentifier(context.recoveryRootRequestId, crypto.randomUUID()),
-    requestId: current?.requestId ?? boundedIdentifier(context.requestId, crypto.randomUUID()),
-    status: 'recovering',
-    recovery: { incidentId: boundedIdentifier(context.incidentId, 'unknown-incident') },
-  };
-}
-
-export function completeBuilderTurn(
-  turn: BuilderTurnState,
-  result: { status: BuilderTurnStatus; requestId?: string },
-): BuilderTurnState {
-  return {
-    ...turn,
-    requestId: boundedIdentifier(result.requestId, turn.requestId),
-    status: result.status,
-  };
-}
-
-export function exhaustedBuilderTurnResult(
-  turn: BuilderTurnState,
-  context: ChatRecoveryExhaustedContext,
-): { requestId: string; status: 'error' } | null {
-  const matchesIncident = turn.recovery?.incidentId === context.incidentId;
-  const matchesRequest = turn.requestId === context.requestId || turn.requestId === context.recoveryRootRequestId;
-  if (!matchesIncident && !matchesRequest) {
-    return null;
-  }
-  return {
-    requestId: context.requestId,
-    status: 'error',
-  };
-}
-
-function truncate(value: string, maxLength: number): string {
-  return value.length > maxLength ? value.slice(0, maxLength) : value;
+export function completeBuilderTurn(turn: BuilderTurnState, result: { status: BuilderTurnStatus }): BuilderTurnState {
+  return { ...turn, status: result.status, continueAfterHandoff: false };
 }
 
 function boundedIdentifier(value: string | undefined, fallback: string): string {
-  return value ? truncate(value, MAX_TURN_IDENTIFIER_LENGTH) : fallback;
+  return value ? value.slice(0, MAX_TURN_IDENTIFIER_LENGTH) : fallback;
 }

@@ -4,7 +4,7 @@ import { FileToolGroup, groupMessageParts } from './FileToolGroup';
 import { ReasoningPart } from './ReasoningPart';
 import { makePartId, type PartId } from 'cloudchef-agent/partId.js';
 import { getToolInvocation, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
-import { isRedactedReasoningPart } from 'cloudchef-agent/signed-thinking';
+import { handoffPartData } from 'cloudchef-agent/handoff';
 import { captureMessage } from '~/lib/telemetry.client';
 import type {
   CloudflareExecutionDecisionHandler,
@@ -93,11 +93,12 @@ function AssistantMessagePart({
   }
 
   if (part.type === 'reasoning') {
-    // Redacted thinking is kept only to send back to the model; there is nothing in it to read.
-    if (isRedactedReasoningPart(part)) {
-      return null;
-    }
     return <ReasoningPart part={part} isActive={isStreaming} revealKey={revealKey} />;
+  }
+
+  // A handoff note is shown in the chat beside the run's narrative (`RunNarrative`).
+  if (handoffPartData(part) !== null) {
+    return null;
   }
 
   return <UnknownAssistantMessagePart partId={partId} />;

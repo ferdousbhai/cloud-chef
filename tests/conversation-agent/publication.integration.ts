@@ -1,3 +1,4 @@
+import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AutomaticDeploymentRetry } from '~/agents/builder-publication-retry';
 import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
@@ -6,7 +7,6 @@ import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
   conversationAgentHarness,
-  CHAT_INITIAL_ID,
   eventually,
   settle,
   type ConversationAgentHarness,
@@ -81,24 +81,17 @@ async function finishChangingTurn(harness: ConversationAgentHarness, status: 'co
 }
 
 /** The person sends their next message: its turn takes the workspace and stays running. */
-async function sendNextMessage(
-  harness: ConversationAgentHarness,
-  options: { abortSignal?: AbortSignal; turnContext?: object } = {},
-) {
+async function sendNextMessage(harness: ConversationAgentHarness, options: { turnContext?: ChatTurnContext } = {}) {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
-  await Promise.resolve(
-    harness.agent.onChatMessage(undefined, {
+  await harness.agent
+    .sendMessage({
+      text: 'Next change',
       requestId: 'request-2',
-      abortSignal: options.abortSignal,
-      body: {
-        chatInitialId: CHAT_INITIAL_ID,
-        subchatIndex: 0,
-        transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
-        modelId: CLOUDFLARE_WORKERS_AI_MODEL,
-        turnContext: options.turnContext,
-      },
-    }),
-  ).catch(() => undefined);
+      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      modelId: CLOUDFLARE_WORKERS_AI_MODEL,
+      turnContext: options.turnContext,
+    })
+    .catch(() => undefined);
 }
 
 afterEach(() => {
@@ -616,7 +609,8 @@ describe('a turn that ends without its end-of-turn hook', () => {
     await finishChangingTurn(harness);
     await eventually(() => deployments.length === 1);
 
-    await sendNextMessage(harness, { turnContext: { version: 99 } });
+    // As the browser's call reaches it, unchecked: the agent parses what it is sent.
+    await sendNextMessage(harness, { turnContext: JSON.parse('{"version":99,"content":""}') });
 
     expect(harness.agent.state.activeTurn).toBeNull();
     expect(deployments[0]?.abortSignal?.aborted).toBe(false);
@@ -646,12 +640,11 @@ describe('a turn that ends without its end-of-turn hook', () => {
     await eventually(() => deployments.length === 1);
     // The new turn waits out an upgrade, and the person stops it there.
     harness.openUpgradeWindow();
-    const stop = new AbortController();
-    const turn = sendNextMessage(harness, { abortSignal: stop.signal });
+    const turn = sendNextMessage(harness);
     await eventually(() => harness.agent.state.upgradeWaiting === true);
     expect(deployments[0]?.abortSignal?.aborted).toBe(true);
 
-    stop.abort(new DOMException('Cancelled by the project owner', 'AbortError'));
+    await harness.agent.cancelActiveTurn();
     await turn;
     expect(harness.agent.state.activeTurn).toBeNull();
     harness.closeUpgradeWindow();

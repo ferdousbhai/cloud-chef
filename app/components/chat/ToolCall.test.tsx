@@ -280,9 +280,9 @@ describe('ToolCall', () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-available',
-      toolCallId: 'history-2',
-      toolName: 'history',
-      input: { op: 'search', query: 'pricing' },
+      toolCallId: 'commit-2',
+      toolName: 'commit',
+      input: { message: 'Add a pricing page' },
     };
     const partId = makePartId('message-7', 0);
     toolActivityStore.record(partId, invocation);
@@ -298,7 +298,7 @@ describe('ToolCall', () => {
 
     expect(container.textContent).not.toContain('Working…');
     expect(container.textContent).toContain('Stopped before this tool returned a result.');
-    expect(container.textContent).toContain('History search stopped');
+    expect(container.textContent).toContain('Saving stopped');
   });
   it('titles a publish by what happened to it, and links what the build reported instead of dumping it', async () => {
     const failed: CloudChefToolInvocation = {
@@ -455,27 +455,5 @@ describe('ToolCall', () => {
     expect(container.textContent).toContain('Checks failed');
     expect(container.textContent).not.toContain('Checked the project');
     expect(container.querySelector('.text-bolt-elements-icon-success')).toBeNull();
-  });
-
-  it('shows a history search as readable rows, not JSON', async () => {
-    const history: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'history-1',
-      toolName: 'history',
-      input: { op: 'search', query: 'pricing page' },
-      output: {
-        totalMatches: 1,
-        nextOffset: null,
-        entries: [{ id: 'live-1', role: 'user', excerpt: 'Add a pricing page' }],
-      },
-    };
-    await act(async () =>
-      root.render(<ToolCall partId={makePartId('message-18', 0)} invocation={history} key={history.toolCallId} />),
-    );
-    await act(async () => container.querySelector('button')?.click());
-    await vi.waitFor(() => expect(container.textContent).toContain('Searched the conversation for pricing page'));
-    expect(container.textContent).toContain('1 earlier message matched.');
-    expect(container.textContent).not.toContain('"totalMatches"');
   });
 });
