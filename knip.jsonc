@@ -27,6 +27,8 @@
       "project": ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,css}!", "!.cloudchef-runtime-security-*/**"],
       "ignore": [
         "template/**",
+        // Agents' git worktrees, each a whole other checkout.
+        ".claude/**",
         "app/test/cloudflare-workers-shim.ts",
         // Reached only through vitest.conversation-agent.config.ts's `cloudflare:email` alias.
         "tests/conversation-agent/cloudflare-email-shim.ts",

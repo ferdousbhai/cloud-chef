@@ -13,6 +13,9 @@ import {
 
 /** The template's Agent capability installs the latest Agents release, which the root also uses. */
 const packageRequire = createRequire(import.meta.url);
+// Where @cloudflare/ai-chat's entries sit in a generated app that installs it; CloudChef itself no longer does.
+const AI_CHAT_ENTRY = resolve('template/node_modules/@cloudflare/ai-chat/dist/index.js');
+const AI_CHAT_REACT_ENTRY = resolve('template/node_modules/@cloudflare/ai-chat/dist/react.js');
 
 describe('generated app production module security', () => {
   test.each([
@@ -216,7 +219,7 @@ describe('generated app production module security', () => {
   });
 
   test('rejects unreviewed imports of mutable Agent runtime package entries', () => {
-    for (const target of [packageRequire.resolve('agents'), packageRequire.resolve('@cloudflare/ai-chat')]) {
+    for (const target of [packageRequire.resolve('agents'), AI_CHAT_ENTRY]) {
       expect(
         findRuntimeModuleImportViolation(resolve('template/src/routes/index.tsx'), target, resolve('template')),
       ).toEqual(expect.objectContaining({ importer: 'project:src/routes/index.tsx' }));
@@ -236,13 +239,11 @@ describe('generated app production module security', () => {
     for (const clientEntry of [
       packageRequire.resolve('agents/react'),
       packageRequire.resolve('agents/client'),
-      packageRequire.resolve('@cloudflare/ai-chat/react'),
+      AI_CHAT_REACT_ENTRY,
     ]) {
       expect(findRuntimeModuleImportViolation(route, clientEntry, resolve('template'))).toBeNull();
     }
-    expect(
-      findRuntimeModuleImportViolation(packageRequire.resolve('@cloudflare/ai-chat'), agentsEntry, resolve('template')),
-    ).toBeNull();
+    expect(findRuntimeModuleImportViolation(AI_CHAT_ENTRY, agentsEntry, resolve('template'))).toBeNull();
     expect(
       findRuntimeModuleImportViolation(resolve('template/src/server.ts'), agentsEntry, resolve('template')),
     ).toBeNull();
