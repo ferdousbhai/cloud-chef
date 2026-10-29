@@ -1,25 +1,64 @@
 # CloudChef
 
-> CloudChef is where people build and manage their own web projects on Cloudflare by chatting with an AI agent, and share them through teams. Most people using it are not developers: they describe what they want, the agent writes and changes the code, and CloudChef publishes the site. Everything runs in the person's own Cloudflare account, which they connect once; CloudChef holds no customer workloads of its own.
+> CloudChef (https://cloudchef.build) is where people build and run their own web projects on Cloudflare by chatting with an AI agent, and share them through teams. Each project is a git repository, and everything it runs runs in the project owner's own Cloudflare account, which they connect once. AI agents on a person's computer work on CloudChef projects with the `cloudchef` command line, the way `gh` works with GitHub.
+
+Most people using CloudChef are not developers: they describe what they want in the chat, the agent in their workspace writes the code, and CloudChef publishes the site. When you act for one of them, use everyday words in what you tell them.
+
+## Command line and agent skill
+
+- [Install script](https://cloudchef.build/install.sh): `curl -fsSL https://cloudchef.build/install.sh | bash` installs `cloudchef` to `~/.local/bin` (it needs bash, curl and git) and installs its agent skill.
+- [Agent skill (SKILL.md)](https://cloudchef.build/cli/SKILL.md): how to work on CloudChef projects with `cloudchef` and git. Read it before working on a project; `cloudchef skill install` installs it to `~/.agents/skills/cloudchef` and links it for Claude Code.
+- [The `cloudchef` command](https://cloudchef.build/cli/cloudchef): one bash script. `cloudchef help` lists every command and `cloudchef help COMMAND` explains one.
+
+## Signing in
+
+- `cloudchef auth login` signs in with a one-time code: it prints the code and a link to [approve this computer](https://cloudchef.build/login/device), where the person, signed in to CloudChef in their browser, approves it. The token is saved in `~/.config/cloudchef/token` and git is set up to use it (`cloudchef auth setup-git`).
+- `cloudchef auth status` shows who is signed in; `cloudchef auth logout` removes the token.
+- Without a browser on the computer, the person makes a command-line token in [Settings](https://cloudchef.build/settings) and sets it as `CLOUDCHEF_TOKEN`.
+- Never print, log, commit or paste the token (`cloudchef auth token` prints it, for scripts that need it).
+
+## Projects are git repositories
+
+- A project is named `OWNER/NAME`, and its git address is `https://cloudchef.build/OWNER/NAME.git`. Plain `git clone`, `git pull` and `git push` work once `cloudchef auth login` has set up git.
+- `cloudchef repo list` lists the projects the person can use (`--public`: everyone's public projects); `cloudchef repo view OWNER/NAME` shows one; `cloudchef repo clone OWNER/NAME` clones one into `~/cloudflare/OWNER/NAME`.
+- `cloudchef repo create NAME --push`, inside a git repository, makes a new project from it with its whole history and publishes it.
+- `cloudchef repo fork OWNER/NAME` copies a project, with its history, into a new project of the person's own.
+- `cloudchef repo edit OWNER/NAME --visibility public|private` makes a project public (anyone signed in to CloudChef can read and copy it) or private. Ask the person first.
+- `cloudchef repo rewrite-main BRANCH` replaces `main` with a branch's history: the owner only, and only when they ask for it.
+- People have the view role (clone and pull) or the edit role (push too) on each project.
+
+## Publishing and previews
+
+- Pushing to `main` publishes the project to its live site in the owner's Cloudflare account. A push that would rewrite `main`'s history is refused.
+- Pushing any other branch builds a preview of that branch and leaves the live site alone.
+- `cloudchef run watch` waits for the publish of what was pushed: it exits 0 when it succeeded, printing `Live at` the site (for `main`) or `Preview at` the preview's address, and 1 when it failed.
+- `cloudchef run list` lists a project's publishes and previews; `cloudchef run view --log` prints a publish's log, to find what failed; `cloudchef run rerun` publishes the same commit again, for a failure the code didn't cause.
+- `cloudchef browse` opens the live site, or the current branch's preview.
+- Secrets belong in Cloudflare (the project's Worker secrets), never in the repository; `.env` and `.dev.vars` aren't pushed.
+- `cloudchef api PATH` makes an authenticated request to CloudChef's API; `cloudchef config set clone-dir PATH` changes where projects are cloned.
+
+## In the browser
+
+- [Home](https://cloudchef.build/): start a project from a message, or open one.
+- [Explore](https://cloudchef.build/explore): everyone's public projects, to open or copy.
+- [Approvals](https://cloudchef.build/approvals): changes team members asked for that wait for a team admin.
+- [Settings](https://cloudchef.build/settings): the connected Cloudflare account, teams, AI models and provider keys, command-line tokens.
+- [Sign in](https://cloudchef.build/sign-in): with Cloudflare, Google, or a link sent by email.
+- Pages of CloudChef offer WebMCP tools (`document.modelContext`) to an agent in the person's browser: listing projects, public projects and approvals, opening a project, reading a publish and its log, and starting a project from a prompt that the person then sends. They act with the signed-in person's own permissions and never delete, publish or approve.
 
 ## How it works
 
 - Sign in, then connect a Cloudflare account. CloudChef sets up a workspace in that account where the agent works on each project.
-- A project is a git repository in the account's Cloudflare Artifacts. Its history is a list of versions people can restore, copy, clone or download as a ZIP at any time.
-- A new project starts from a message in the chat, an upload of a ZIP of existing code, or a one-time import of a GitHub repository.
-- The agent publishes a project to the person's Cloudflare account. A team project is built and deployed by Cloudflare Workers Builds; previews come from branches.
-- Teams share projects: an admin brings the Cloudflare account and decides which AI models the team may use; members can be given view or edit access to each project.
+- A project's code and history are kept in the account's Cloudflare Artifacts. Its history is a list of versions people can restore, copy, clone, or download as a ZIP.
+- A new project starts from a message in the chat, an upload of a ZIP, a one-time import of a GitHub repository, or `cloudchef repo create`.
+- Teams share projects: an admin brings the Cloudflare account and decides which AI models the team may use; members get view or edit access to each project.
 - Models run through the account's own Workers AI and AI Gateway, with the account's own provider keys where it adds them.
 
-## Pages
+## Optional
 
-- [Home](https://cloudchef.build/): start a project or open one
 - [Privacy](https://cloudchef.build/privacy): what CloudChef stores and where
 - [Terms](https://cloudchef.build/terms)
 - [Support](https://cloudchef.build/support)
 - [Security](https://cloudchef.build/security): reporting a vulnerability
-
-## Optional
-
 - [Source code](https://github.com/ferdousbhai/cloud-chef)
 - [Third-party licenses](https://cloudchef.build/THIRD_PARTY_LICENSES.txt)
