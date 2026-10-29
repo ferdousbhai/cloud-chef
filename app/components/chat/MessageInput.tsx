@@ -1,7 +1,7 @@
 import {
   memo,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEventHandler,
@@ -21,6 +21,7 @@ import { getMessageInputPrimaryActionLabel, useMessageInputController } from './
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
 import { PromptPrefillContext } from './prompt-prefill';
+import { adoptEarlyPrompt, PROMPT_TEXTAREA_CLASS } from './early-prompt';
 
 interface MessageInputProps {
   chatStarted: boolean;
@@ -109,7 +110,8 @@ export const MessageInput = memo(function MessageInput({
           chatStarted ? 'max-w-none' : 'cloudchef-message-input--home max-w-none',
         )}
       >
-        {modelSelector ? <NewModelsNotice /> : null}
+        {/* In a chat the box sits at the bottom, so a notice above it moves nothing; on the home it goes below. */}
+        {modelSelector && chatStarted ? <NewModelsNotice /> : null}
         <div
           className={classNames(
             'cloudchef-message-input__surface rounded-lg bg-bolt-elements-background-depth-1 shadow-panel',
@@ -129,8 +131,9 @@ export const MessageInput = memo(function MessageInput({
               maxHeight={chatStarted ? 200 : 160}
               placeholder={placeholder}
               disabled={disabled}
+              onEarlyPrompt={controller.takeEarlyPrompt}
             />
-            <div className="flex items-center gap-2 px-2 pb-2">
+            <div className="cloudchef-message-input__toolbar flex items-center gap-2 px-2 pb-2">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {modelSelector}
                 <div className="hidden min-w-0 sm:block">{inputStatus}</div>
@@ -140,6 +143,7 @@ export const MessageInput = memo(function MessageInput({
           </div>
         </div>
       </div>
+      {modelSelector && !chatStarted ? <NewModelsNotice placement="below" /> : null}
       {authKind === 'unauthenticated' && !session && sessionError ? (
         <SessionCheckError className="mt-4 text-center" />
       ) : authKind === 'unauthenticated' ? (
@@ -165,6 +169,7 @@ function PromptTextarea({
   maxHeight,
   placeholder,
   disabled,
+  onEarlyPrompt,
 }: {
   onKeyDown: KeyboardEventHandler<HTMLTextAreaElement>;
   onChange: ChangeEventHandler<HTMLTextAreaElement>;
@@ -173,12 +178,24 @@ function PromptTextarea({
   maxHeight: number;
   placeholder: string;
   disabled: boolean;
+  /** Given what was typed into the home's early box, which this box takes over with its caret and focus. */
+  onEarlyPrompt?: (typed: string) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  // Only as the box mounts: the early box was removed in this same commit.
+  const onEarlyPromptRef = useRef(onEarlyPrompt);
+  useLayoutEffect(() => {
+    const typed = ref.current && onEarlyPromptRef.current ? adoptEarlyPrompt(ref.current) : null;
+    if (typed) {
+      onEarlyPromptRef.current?.(typed);
+    }
+  }, []);
   // The textarea grows with its text, so only the box around it ever scrolls, and only once the text is
-  // taller than the box: an empty composer never shows a scrollbar.
+  // taller than the box: an empty composer never shows a scrollbar. Sized in the commit, not after paint: sized
+  // after paint, keys that arrived faster than the page drew them met a render still pending from this effect,
+  // and React put the box back to the text from before the latest key, so a character was lost now and then.
   const [overflowing, setOverflowing] = useState(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (ref.current) {
       ref.current.style.height = 'auto';
       ref.current.style.height = `${ref.current.scrollHeight}px`;
@@ -199,10 +216,7 @@ function PromptTextarea({
       <textarea
         ref={ref}
         rows={1}
-        className={classNames(
-          'block w-full appearance-none resize-none overflow-hidden bg-transparent text-sm leading-snug text-content-primary outline-hidden placeholder-content-tertiary p-3',
-          'disabled:cursor-not-allowed disabled:opacity-50',
-        )}
+        className={classNames(PROMPT_TEXTAREA_CLASS, 'disabled:cursor-not-allowed disabled:opacity-50')}
         disabled={disabled}
         onKeyDown={onKeyDown}
         onChange={onChange}

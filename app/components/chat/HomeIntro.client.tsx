@@ -2,7 +2,6 @@ import { lazy, Suspense, type ReactNode } from 'react';
 import { HomeHeroCopy } from '~/components/HomeHeroCopy';
 import { authClient } from '~/lib/auth-client';
 import { MessageInput } from './MessageInput';
-import { classNames } from '~/utils/classNames';
 
 const DisabledChatMessageSheet = lazy(() =>
   import('./DisabledChatMessageSheet').then((module) => ({ default: module.DisabledChatMessageSheet })),
@@ -36,12 +35,7 @@ export function HomeIntro({
       ? session.context.orgName
       : null;
   return (
-    <div
-      className={classNames(
-        'cloudchef-home-shell grow p-4 sm:px-6 lg:px-8',
-        children ? 'cloudchef-home-shell--projects flex-col' : undefined,
-      )}
-    >
+    <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="intro">
         <div className="cloudchef-home-hero">
           <div className="min-w-0">
