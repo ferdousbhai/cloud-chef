@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { controlPlaneDatabase, envWith, withStatementHook } from '~/test/control-plane-d1';
+import {
+  controlPlaneDatabase,
+  createProvenEmailUser,
+  envWith,
+  inviteToTeam,
+  withStatementHook,
+} from '~/test/control-plane-d1';
 import { getAuthSession } from '~/lib/.server/auth';
 import { z } from 'zod';
 import {
@@ -65,8 +71,9 @@ async function sessionFrom(env: Env, response: Response) {
 }
 
 describe('Google sign-in', () => {
-  it('asks Google for a verified identity with PKCE, then signs in', async () => {
+  it('asks Google for a verified identity with PKCE, then signs in a person a team invited', async () => {
     const { env, database } = setup();
+    await inviteToTeam(env.DB, 'sam@acme.com');
     const { response, authorizationUrl, state } = await start(env);
     expect(response.status).toBe(201);
     expect(authorizationUrl.searchParams.get('code_challenge_method')).toBe('S256');
@@ -88,15 +95,44 @@ describe('Google sign-in', () => {
 
     const session = await sessionFrom(env, done);
     expect(session?.user).toMatchObject({ email: 'sam@acme.com', name: 'Sam' });
-    expect(database.prepare('SELECT google_subject FROM "user"').get()).toEqual({ google_subject: 'g-1' });
+    expect(database.prepare('SELECT google_subject FROM "user" WHERE email = ?').get('sam@acme.com')).toEqual({
+      google_subject: 'g-1',
+    });
 
     // The state is used once.
     const replay = await completeGoogleSignInAction({ request: callback(state), env });
     expect(replay.status).toBe(410);
   });
 
+  it('signs in the existing account that has the Google address', async () => {
+    const { env, database } = setup();
+    const sam = await createProvenEmailUser(env.DB, 'sam@acme.com');
+    const { state } = await start(env);
+    google({ sub: 'g-1', email: 'Sam@acme.com', email_verified: true, name: 'Sam' });
+    const done = await completeGoogleSignInAction({ request: callback(state), env });
+    expect(done.status).toBe(303);
+    expect(done.headers.get('location')).toBe(`${ORIGIN}/settings`);
+    expect((await sessionFrom(env, done))?.user.id).toBe(sam.id);
+    expect(database.prepare('SELECT google_subject FROM "user" WHERE id = ?').get(sam.id)).toEqual({
+      google_subject: 'g-1',
+    });
+  });
+
+  it('signs no one in for a Google account with no CloudChef account and no invite, and says why', async () => {
+    const { env, database } = setup();
+    const { state } = await start(env);
+    google({ sub: 'g-9', email: 'nobody@acme.com', email_verified: true });
+    const refused = await completeGoogleSignInAction({ request: callback(state), env });
+    expect(refused.status).toBe(303);
+    expect(refused.headers.get('location')).toBe(`${ORIGIN}/sign-in?sign_in=no_account`);
+    expect(refused.headers.get('set-cookie')).not.toContain('cloudchef_session=');
+    expect(await sessionFrom(env, refused)).toBeNull();
+    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 0 });
+  });
+
   it('finds the same user when their Google email changes', async () => {
     const { env } = setup();
+    await inviteToTeam(env.DB, 'old@acme.com');
     const first = await start(env);
     google({ sub: 'g-1', email: 'old@acme.com', email_verified: true });
     const one = await completeGoogleSignInAction({

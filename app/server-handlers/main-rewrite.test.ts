@@ -4,7 +4,11 @@ import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtim
 import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { ORG, teamFixture } from '~/test/project-fixture';
+import { z } from 'zod';
+import { latestMainChanges, recordMainRewrite } from '~/lib/cloudflare/data/org-projects.server';
 import { commandLineRewriteMainAction, runtimeMainRewriteAction, runtimeMainRewrittenAction } from './main-rewrite';
+import { listMyProjectsAction } from './projects';
+import { runtimeMainPushedAction } from './runtime-projects';
 
 const SITE = '55555555-5555-4555-8555-555555555555';
 const MAIN = 'a'.repeat(40);
@@ -12,6 +16,7 @@ const SLIM = 'b'.repeat(40);
 const OWNER_ONLY = 'Only the project’s owner, or one of its team’s admins, can rewrite its main.';
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -129,5 +134,60 @@ describe('a runtime rewriting main', () => {
     expect(rewrites()).toEqual([
       { project_id: SITE, rewritten_by: admin.userId, branch: 'slim', old_commit: MAIN, new_commit: SLIM },
     ]);
+  });
+});
+
+describe('a runtime telling of a push to main', () => {
+  it('records who pushed, for someone who may edit the project, and who last changed it', async () => {
+    const { runtime, env, admin, sara, database } = await world();
+    const told = (userId: string, body: Record<string, string | null>) =>
+      runtime('/api/cloudflare/runtime-projects/main-pushed', { orgProjectId: SITE, ...body }, { userId }).then(
+        (request) => runtimeMainPushedAction({ request, env }),
+      );
+    const pushes = () =>
+      database.prepare('SELECT project_id, pushed_by, old_commit, new_commit FROM project_main_pushes').all();
+
+    // Sara can't see the project, then may only view it.
+    expect((await told(sara.userId, { oldCommit: MAIN, newCommit: SLIM })).status).toBe(403);
+    database
+      .prepare(`INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES (?, ?, 'view', 1)`)
+      .run(SITE, sara.userId);
+    expect((await told(sara.userId, { oldCommit: MAIN, newCommit: SLIM })).status).toBe(403);
+    expect(pushes()).toEqual([]);
+
+    database.prepare(`UPDATE org_project_access SET role = 'edit' WHERE user_id = ?`).run(sara.userId);
+    vi.useFakeTimers({ toFake: ['Date'], now: 10_000 });
+    expect((await told(sara.userId, { oldCommit: null, newCommit: MAIN })).status).toBe(200);
+    vi.setSystemTime(20_000);
+    expect((await told(admin.userId, { oldCommit: MAIN, newCommit: SLIM })).status).toBe(200);
+    vi.useRealTimers();
+    expect(pushes()).toEqual([
+      { project_id: SITE, pushed_by: sara.userId, old_commit: null, new_commit: MAIN },
+      { project_id: SITE, pushed_by: admin.userId, old_commit: MAIN, new_commit: SLIM },
+    ]);
+    expect((await told(admin.userId, { oldCommit: MAIN, newCommit: 'main' })).status).toBe(400);
+
+    expect((await latestMainChanges(env.DB, [SITE])).get(SITE)?.by).toBe('ada');
+    // A rewrite after it is the newest change.
+    await recordMainRewrite(env.DB, {
+      projectId: SITE,
+      userId: sara.userId,
+      branch: 'slim',
+      oldCommit: SLIM,
+      newCommit: MAIN,
+      rewrittenAt: 30_000,
+    });
+    expect((await latestMainChanges(env.DB, [SITE])).get(SITE)?.by).toBe('sara.a');
+    expect((await latestMainChanges(env.DB, [])).size).toBe(0);
+
+    // Ada's projects list says who last changed it.
+    const list = await listMyProjectsAction({
+      request: new Request('https://cloudchef.build/api/org-projects', { headers: { cookie: admin.cookie } }),
+      env,
+    });
+    const listed = z
+      .object({ projects: z.array(z.object({ id: z.string(), lastChange: z.object({ by: z.string() }).nullable() })) })
+      .parse(await list.json());
+    expect(listed.projects.find((project) => project.id === SITE)?.lastChange?.by).toBe('sara.a');
   });
 });

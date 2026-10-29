@@ -46,6 +46,8 @@ const teamProjectsSchema = z.object({
       deploysWith: z.enum(['workers_builds', 'cloudchef']).nullish(),
       /** For a project CloudChef publishes, its newest publish of main, however it went; null before the first. */
       deployment: deploymentSchema.nullish(),
+      /** Who last changed what it publishes (pushed main) and when; `by` is null for someone no longer on CloudChef. */
+      lastChange: z.object({ by: z.string().nullable(), at: z.iso.datetime() }).nullish(),
       /** Its address on CloudChef, `owner/slug`. */
       fullName: z.string().nullish(),
       /** Whether anyone signed in to CloudChef can find it in Explore, open its site, read its code and copy it. */
@@ -146,13 +148,14 @@ export async function copyProject(projectId: string, name?: string): Promise<z.i
 }
 
 const deletionResourceSchema = z.object({
-  kind: z.enum(['database', 'storage', 'keys', 'other']),
+  kind: z.enum(['database', 'storage', 'keys', 'queue', 'vectors', 'connection', 'other']),
   id: z.string(),
   name: z.string(),
 });
 const deletionPreviewSchema = z.object({
   sites: z.array(z.string()),
   workers: z.array(z.string()),
+  buildTriggers: z.array(z.string()),
   resources: z.array(deletionResourceSchema),
   kept: z.array(deletionResourceSchema.extend({ reason: z.string() })),
   repository: z.string().nullable(),

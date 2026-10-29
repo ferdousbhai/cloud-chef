@@ -3,6 +3,7 @@ import { createGitHubAppJwt } from './app-jwt';
 import { callGitHub, callGitHubOrNull, fetchGitHub, GitHubError, type GitHubRequestInit } from './github-api';
 
 const OAUTH_TOKEN_URL = 'https://github.com/login/oauth/access_token';
+const OAUTH_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize';
 
 /** The permissions CloudChef asks for when it mints a token: never more than one operation needs. */
 type GitHubTokenPermissions = {
@@ -50,6 +51,18 @@ export class GitHubApp {
   /** Where an admin installs the App, choosing the account and repositories it may reach. */
   installUrl(): string {
     return `https://github.com/apps/${encodeURIComponent(this.config.slug)}/installations/new`;
+  }
+
+  /**
+   * Where a person authorizes the App as themselves (GitHub user authorization), returning to `redirectUri` with a
+   * code for who they are and `state`: how CloudChef learns who controls an account that already has the App.
+   */
+  authorizeUrl(state: string, redirectUri: string): string {
+    const url = new URL(OAUTH_AUTHORIZE_URL);
+    url.searchParams.set('client_id', this.config.clientId);
+    url.searchParams.set('redirect_uri', redirectUri);
+    url.searchParams.set('state', state);
+    return url.toString();
   }
 
   /** The login of the GitHub user behind `userToken`. */

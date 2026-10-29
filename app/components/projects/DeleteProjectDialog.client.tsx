@@ -131,6 +131,7 @@ export function DeleteProjectDialog({
 function PreviewList({ preview }: { preview: ProjectDeletionPreview }) {
   const removed = [
     ...preview.sites.map((site) => `Site ${site}`),
+    ...(preview.buildTriggers.length > 0 ? ['Its automatic builds from its code'] : []),
     ...preview.workers.map((worker) => `Worker ${worker}, with its versions and previews`),
     ...preview.resources.map(resourceLabel),
     ...(preview.repository ? ['Its code, with every version'] : []),
@@ -169,7 +170,13 @@ function resourceLabel(resource: ProjectDeletionPreview['resources'][number]): s
         ? 'File storage'
         : resource.kind === 'keys'
           ? 'Key-value store'
-          : 'Resource';
+          : resource.kind === 'queue'
+            ? 'Queue'
+            : resource.kind === 'vectors'
+              ? 'Search index'
+              : resource.kind === 'connection'
+                ? 'Database connection'
+                : 'Resource';
   return `${kind} ${resource.name}`;
 }
 

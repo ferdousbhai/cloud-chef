@@ -7,6 +7,13 @@ import {
   markBuilderModelsSeen,
 } from '~/lib/stores/builder-model.client';
 import type { BuilderModel } from '~/lib/workers-ai-model';
+import { classNames } from '~/utils/classNames';
+
+/**
+ * Which side of the prompt box the notices sit on: the side where appearing moves nothing the person is looking
+ * at. A chat's box is pinned to the bottom, so above it; the home's box is at the top, so below it.
+ */
+type NoticePlacement = 'above' | 'below';
 
 /** Beyond this the line stops being a line, so the rest is counted instead of named. */
 const MAX_NAMED_MODELS = 2;
@@ -17,20 +24,20 @@ const MAX_NAMED_MODELS = 2;
  * picker that acts on it, and disappears for good as soon as the list has been seen. It also says when
  * the model this browser saved is no longer offered, so the switch to the default is never silent.
  */
-export function NewModelsNotice() {
+export function NewModelsNotice({ placement = 'above' }: { placement?: NoticePlacement }) {
   const newModels = useStore(builderNewModelsStore);
   const unavailable = useStore(builderModelUnavailableStore);
   return (
     <>
       {unavailable ? (
-        <Notice onDismiss={dismissUnavailableBuilderModel}>
+        <Notice placement={placement} onDismiss={dismissUnavailableBuilderModel}>
           <span className="font-semibold text-content-warning">Model changed:</span> {unavailable.label} isn’t offered
           in this account any more, so new messages use {unavailable.replacementLabel}. The models are chosen in
           Settings, under Models, by the team&apos;s admins, or by you in Personal.
         </Notice>
       ) : null}
       {newModels.length > 0 ? (
-        <Notice onDismiss={markBuilderModelsSeen}>
+        <Notice placement={placement} onDismiss={markBuilderModelsSeen}>
           <span className="font-semibold text-content-accent">New models:</span> {describeNewModels(newModels)} —
           available in the model picker.
         </Notice>
@@ -39,11 +46,22 @@ export function NewModelsNotice() {
   );
 }
 
-function Notice({ children, onDismiss }: { children: ReactNode; onDismiss: () => void }) {
+function Notice({
+  children,
+  placement,
+  onDismiss,
+}: {
+  children: ReactNode;
+  placement: NoticePlacement;
+  onDismiss: () => void;
+}) {
   return (
     <div
       role="status"
-      className="mb-2 flex items-start gap-2 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-xs leading-5 text-content-secondary"
+      className={classNames(
+        placement === 'above' ? 'mb-2' : 'mt-2',
+        'flex items-start gap-2 rounded border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1.5 text-xs leading-5 text-content-secondary',
+      )}
     >
       <span aria-hidden="true" className="shrink-0 text-content-tertiary">
         {'//'}

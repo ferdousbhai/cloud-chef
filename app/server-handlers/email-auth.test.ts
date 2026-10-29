@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, createProvenEmailUser, envWith, inviteToTeam } from '~/test/control-plane-d1';
 import { getAuthSession } from '~/lib/.server/auth';
 import {
   completeEmailSignInAction,
@@ -34,6 +34,11 @@ function post(path: string, body: Record<string, string>, origin = ORIGIN): Requ
   });
 }
 
+async function sessionFrom(env: Env, response: Response) {
+  const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0];
+  return getAuthSession(env, new Request(ORIGIN, { headers: { cookie } }));
+}
+
 function tokenFrom(text: string): string {
   const match = /token=([\w-]+)/.exec(text);
   if (!match) {
@@ -43,8 +48,9 @@ function tokenFrom(text: string): string {
 }
 
 describe('email sign-in', () => {
-  it('emails a one-time link that signs in a new user without a Cloudflare connection', async () => {
+  it('emails a one-time link that signs in a new user a team invited, without a Cloudflare connection', async () => {
     const { env, sent } = setup();
+    await inviteToTeam(env.DB, 'sam@example.com');
     const start = await startEmailSignInAction({
       request: post('/api/auth/email/start', { email: 'Sam@Example.com', callbackURL: `${ORIGIN}/chat/1` }),
       env,
@@ -71,6 +77,7 @@ describe('email sign-in', () => {
 
   it("emails a link to CloudChef's own address, whichever hostname the request reached", async () => {
     const { env, sent } = setup();
+    await createProvenEmailUser(env.DB, 'sam@example.com');
     const preview = 'https://0123abcd-cloudchef.example.workers.dev';
     const start = await startEmailSignInAction({
       request: new Request(`${preview}/api/auth/email/start`, {
@@ -87,6 +94,7 @@ describe('email sign-in', () => {
 
   it('returns to the builder after a link asked to return somewhere that is not a URL', async () => {
     const { env, sent } = setup();
+    await createProvenEmailUser(env.DB, 'sam@example.com');
     const start = await startEmailSignInAction({
       request: post('/api/auth/email/start', { email: 'sam@example.com', callbackURL: 'http://[' }),
       env,
@@ -101,6 +109,7 @@ describe('email sign-in', () => {
 
   it('says which address a link is for without using it up', async () => {
     const { env, sent } = setup();
+    await createProvenEmailUser(env.DB, 'sam@example.com');
     await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env });
     const token = tokenFrom(sent[0]);
     const described = await describeEmailSignInAction({ request: post('/api/auth/email/describe', { token }), env });
@@ -129,8 +138,55 @@ describe('email sign-in', () => {
     expect(session?.user.id).toBe('user-1');
   });
 
+  it('signs in an existing user who first signed in with Google or a link', async () => {
+    const { env, sent } = setup();
+    const sam = await createProvenEmailUser(env.DB, 'sam@example.com');
+    await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'Sam@example.com' }), env });
+    const complete = await completeEmailSignInAction({
+      request: post('/api/auth/email/complete', { token: tokenFrom(sent[0]) }),
+      env,
+    });
+    expect(complete.status).toBe(200);
+    expect((await sessionFrom(env, complete))?.user.id).toBe(sam.id);
+  });
+
+  it('answers the same for an address with no account and no invite, and emails it why instead of a link', async () => {
+    const { database, env, sent } = setup();
+    const start = await startEmailSignInAction({
+      request: post('/api/auth/email/start', { email: 'nobody@example.com' }),
+      env,
+    });
+    expect(start.status).toBe(202);
+    await expect(start.json()).resolves.toEqual({ sent: true });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toContain('"to":"nobody@example.com"');
+    expect(sent[0]).toContain("There's no CloudChef account for this address.");
+    expect(sent[0]).toContain(`${ORIGIN}/sign-in`);
+    expect(sent[0]).not.toContain('token=');
+    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 0 });
+  });
+
+  it('refuses a link whose invite went away before it was used, saying why', async () => {
+    const { database, env, sent } = setup();
+    await inviteToTeam(env.DB, 'sam@example.com');
+    await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env });
+    database.prepare('DELETE FROM organization_invites').run();
+    const complete = await completeEmailSignInAction({
+      request: post('/api/auth/email/complete', { token: tokenFrom(sent[0]) }),
+      env,
+    });
+    expect(complete.status).toBe(403);
+    await expect(complete.json()).resolves.toEqual({
+      error:
+        "There's no CloudChef account for this address. Connect Cloudflare to start, or ask your team's admin to invite you.",
+    });
+    expect(complete.headers.get('set-cookie')).toBeNull();
+    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 1 });
+  });
+
   it('refuses an expired link', async () => {
     const { database, env, sent } = setup();
+    await createProvenEmailUser(env.DB, 'sam@example.com');
     await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env });
     database.prepare('UPDATE email_sign_in_tokens SET expires_at = 0').run();
     const complete = await completeEmailSignInAction({

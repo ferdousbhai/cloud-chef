@@ -58,6 +58,8 @@ export type FakeArtifacts = Artifacts & {
   /** Tokens made, by scope, id and lifetime in seconds, and the ids revoked since. */
   tokens: { repo: string; id: string; scope: 'read' | 'write'; ttl: number | undefined }[];
   revoked: string[];
+  /** Forks made: from which repository, to which, and whether read-only. */
+  forks: { from: string; to: string; readOnly: boolean }[];
 };
 
 export function fakeArtifacts(): FakeArtifacts {
@@ -70,6 +72,7 @@ export function fakeArtifacts(): FakeArtifacts {
   const streamedPushes: FakeArtifacts['streamedPushes'] = [];
   const tokens: FakeArtifacts['tokens'] = [];
   const revoked: string[] = [];
+  const forks: FakeArtifacts['forks'] = [];
   let pending = 0;
 
   async function newRepo(): Promise<FakeRepo> {
@@ -202,11 +205,21 @@ export function fakeArtifacts(): FakeArtifacts {
         revoked.push(id);
         return true;
       },
-      async fork(target) {
+      async fork(target, opts = {}) {
         if (repos.has(target)) {
           throw new FakeArtifactsError('ALREADY_EXISTS');
         }
         const copy = copyRepo(repo);
+        // Only main comes along, as Artifacts' default: every other ref is left behind.
+        if (opts.defaultBranchOnly !== false) {
+          for (const path of Object.keys(copy.volume.toJSON())) {
+            const ref = path.slice(copy.gitdir.length + 1);
+            if (ref.startsWith('refs/') && ref !== 'refs/heads/main' && copy.volume.statSync(path).isFile()) {
+              copy.volume.unlinkSync(path);
+            }
+          }
+        }
+        forks.push({ from: name, to: target, readOnly: opts.readOnly === true });
         copy.pendingCode = 'FORK_IN_PROGRESS';
         repos.set(target, copy);
         return {
@@ -332,6 +345,7 @@ export function fakeArtifacts(): FakeArtifacts {
     pushes,
     tokens,
     revoked,
+    forks,
     setPending(count) {
       pending = count;
     },
@@ -350,7 +364,21 @@ export function fakeArtifacts(): FakeArtifacts {
       throw new Error('CloudChef does not use Artifacts import.');
     },
     async list() {
-      return { repos: [], total: repos.size };
+      // Every repository on one page: a test holds few.
+      return {
+        repos: [...repos].map(([name, repo]) => ({
+          id: name,
+          name,
+          description: null,
+          defaultBranch: 'main',
+          createdAt: repo.createdAt,
+          updatedAt: repo.createdAt,
+          lastPushAt: null,
+          source: null,
+          readOnly: false,
+        })),
+        total: repos.size,
+      };
     },
     async delete(name) {
       return repos.delete(name);

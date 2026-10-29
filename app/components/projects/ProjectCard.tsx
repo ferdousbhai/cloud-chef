@@ -37,6 +37,7 @@ export function deployInProgress(state: ProjectDeploymentState | null | undefine
 export function ProjectCard({
   title,
   updatedAt,
+  updatedBy = null,
   siteUrl,
   siteFramed = true,
   subtitle,
@@ -48,6 +49,8 @@ export function ProjectCard({
 }: {
   title: string;
   updatedAt: string | null;
+  /** Who made that change, when it's known: a team project's last push of what it publishes. */
+  updatedBy?: string | null;
   siteUrl: string | null;
   /** Whether the site may be shown live in the card; one that refuses is shown by its address. */
   siteFramed?: boolean;
@@ -112,6 +115,7 @@ export function ProjectCard({
               <>
                 Updated{' '}
                 <time dateTime={updatedAt}>{formatDistanceToNowStrict(new Date(updatedAt), { addSuffix: true })}</time>
+                {updatedBy ? ` by ${updatedBy}` : null}
               </>
             ) : null}
             {updatedAt && badge ? ' · ' : null}

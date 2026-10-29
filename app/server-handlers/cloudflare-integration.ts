@@ -80,6 +80,15 @@ const WORKSPACE_ELIGIBILITY_UNKNOWN_MESSAGE =
   'CloudChef could not reach Cloudflare to confirm that this account can run Containers, so it did not start creating your workspace. Nothing changed in your Cloudflare account. Try again in a moment.';
 const CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE =
   'CloudChef needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.';
+
+/** The answer to a request a connection can't make until its person approves CloudChef's newer Cloudflare permissions. */
+export function cloudflareReauthorizationRequired(): Response {
+  return Response.json(
+    { code: 'cloudflare_reauthorization_required', error: CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE },
+    { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
+  );
+}
+
 const startPayloadSchema = z.object({
   callbackURL: z.string().url().max(2_048).optional(),
   /** Set when an admin connects their organization's Cloudflare account rather than their own. */
@@ -179,13 +188,7 @@ export async function cloudflareRuntimeSessionAction({
     return Response.json({ error: 'Runtime authorization is unavailable.' }, { status: 503 });
   }
   if (missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
-    return Response.json(
-      {
-        code: 'cloudflare_reauthorization_required',
-        error: CLOUDFLARE_REAUTHORIZATION_REQUIRED_MESSAGE,
-      },
-      { status: 409, headers: { 'Cache-Control': 'private, no-store' } },
-    );
+    return cloudflareReauthorizationRequired();
   }
   const found = await findUserWorkspaceRuntime(env.DB, session.user.id, connection.id);
   const usable = usableWorkspaceRuntime(found, connection);
@@ -409,6 +412,7 @@ export async function completeCloudflareConnectionAction(args: {
   request: Request;
   env: Env;
   orchestrator?: Pick<CloudflareOAuthOrchestrator, 'completeConnection'>;
+  provision?: typeof startUserWorkspaceRuntimeProvisioning;
 }): Promise<Response> {
   let returnTo: string | null = null;
   try {
@@ -575,6 +579,7 @@ export async function completeCloudflareConnectionAction(args: {
       .bind(owner.kind === 'user' ? owner.userId : owner.orgId, sessionId)
       .run();
     await settleOAuthState(args.env.DB, state, 'completed', userId);
+    await prepareWorkspacesAfterConnecting(args.env, owner, args.provision ?? startUserWorkspaceRuntimeProvisioning);
     const headers = new Headers({
       Location: new URL(
         safeReturnTo(oauthState.return_to, new URL(args.request.url).origin),
@@ -602,6 +607,80 @@ export async function completeCloudflareConnectionAction(args: {
     const unexpected = cloudflareIntegrationErrorResponse(error).status >= 500;
     return connectReturnFailure(args.request, returnTo, unexpected ? 'unavailable' : 'unreadable');
   }
+}
+
+/**
+ * Starts preparing workspaces in a space as soon as its connection is saved, in the background, so each one's
+ * first start (installing the container's tools and saving them as its snapshot, a few minutes) is done before
+ * anyone opens a project: the person's own, or, for a team's account, every member's who may use it.
+ */
+async function prepareWorkspacesAfterConnecting(
+  env: Env,
+  owner: CloudflareConnectionOwner,
+  provision: typeof startUserWorkspaceRuntimeProvisioning,
+): Promise<void> {
+  try {
+    const connection = await findCloudflareConnectionForOwner(env.DB, owner);
+    if (!connection) {
+      return;
+    }
+    const userIds = owner.kind === 'user' ? [owner.userId] : await listOrganizationMemberIds(env.DB, owner.orgId);
+    for (const userId of userIds) {
+      await prepareWorkspaceInBackground(env, userId, connection, provision);
+    }
+  } catch (error) {
+    console.warn({
+      event: 'workspace_preparation_after_connect_failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+/**
+ * Starts preparing `userId`'s workspace in `connection`'s account, unless it is ready already or they may not use
+ * it. Opening a project later finds the same Workflow. A failure is only logged: the first session request
+ * starts or reports it as before.
+ */
+export async function prepareWorkspaceInBackground(
+  env: Env,
+  userId: string,
+  connection: CloudflareConnection,
+  provision: typeof startUserWorkspaceRuntimeProvisioning = startUserWorkspaceRuntimeProvisioning,
+): Promise<void> {
+  try {
+    if (
+      connection.status !== 'active' ||
+      missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0 ||
+      !(await canUseConnection(env.DB, userId, connection)) ||
+      isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection)
+    ) {
+      return;
+    }
+    const started = await provision({
+      env,
+      userId,
+      connectionId: connection.id,
+      connectionGeneration: connection.generation,
+      isReady: async () =>
+        isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection),
+    });
+    if (started.status === 'error') {
+      console.warn({ event: 'workspace_preparation_in_background_unavailable', errorCode: started.errorCode });
+    }
+  } catch (error) {
+    console.warn({
+      event: 'workspace_preparation_in_background_failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+async function listOrganizationMemberIds(db: D1Database, orgId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare('SELECT user_id FROM organization_members WHERE org_id = ? ORDER BY joined_at')
+    .bind(orgId)
+    .all<{ user_id: string }>();
+  return results.map((row) => row.user_id);
 }
 
 /** The active admin of the team `orgId` who is connecting it; refuses anyone else. */

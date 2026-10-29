@@ -746,7 +746,8 @@ function ConnectionProjectCard({
   return (
     <ProjectCard
       title={project.name}
-      updatedAt={project.createdAt ?? null}
+      updatedAt={project.lastChange?.at ?? project.createdAt ?? null}
+      updatedBy={project.lastChange?.by ?? null}
       siteUrl={project.siteUrl ?? null}
       siteFramed={project.siteFrameable !== false}
       subtitle={project.fullName}

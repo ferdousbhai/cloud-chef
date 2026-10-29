@@ -65,12 +65,12 @@ async function gitHubApp(status = 201) {
  */
 /**
  * The projects' own sites, as the projects home checks whether they may be shown in a frame: they refuse,
- * as many do. Anything else goes on as it would.
+ * as many do, so no test reaches the real sites. Anything else goes on as it would.
  */
 function stubSites() {
   const passOn = globalThis.fetch;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) =>
-    new URL(input instanceof Request ? input.url : input).hostname.endsWith('example.com')
+    /\.(example\.com|workers\.dev)$/.test(new URL(input instanceof Request ? input.url : input).hostname)
       ? new Response('', { headers: { 'x-frame-options': 'DENY' } })
       : passOn(input, init),
   );

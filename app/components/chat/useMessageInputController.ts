@@ -1,6 +1,14 @@
 import { useStore } from '@nanostores/react';
 import { useSearch } from '@tanstack/react-router';
-import { useCallback, useEffect, useRef, type ChangeEventHandler, type KeyboardEventHandler } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ChangeEventHandler,
+  type KeyboardEventHandler,
+} from 'react';
 import { toast } from 'sonner';
 import { captureException } from '~/lib/telemetry.client';
 import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
@@ -33,13 +41,27 @@ export function useMessageInputController({
 }: MessageInputControllerOptions) {
   const authKind = useCloudChefAuthKind();
   const input = useStore(messageInputStore);
+  // The store is read through a subscription React starts only after the box first paints. Until then a key that
+  // changed only the store re-rendered nothing, and React put the box's old text back over it: typing right as the
+  // page loaded lost characters. Each change also sets this state, so the box re-renders with the store's latest
+  // text at once, subscribed or not.
+  const [, showTyped] = useState('');
   const search = useSearch({ from: '__root__' });
 
-  useEffect(() => {
-    if (!prefillEnabled) {
+  // What was typed into the home's early box before this editor loaded wins over any prefill. The textarea takes
+  // it as it mounts, before this hook's effect runs; the prefill is a layout effect too, so nothing typed into the
+  // new box can land before it and be replaced by it.
+  const tookEarlyPrompt = useRef(false);
+  const takeEarlyPrompt = useCallback((typed: string) => {
+    tookEarlyPrompt.current = true;
+    setMessageInput(typed);
+    showTyped(typed);
+    cachePrompt(typed);
+  }, []);
+  useLayoutEffect(() => {
+    if (!prefillEnabled || tookEarlyPrompt.current) {
       return;
     }
-
     setMessageInput(search.prefill || readPendingPrompt() || '');
   }, [prefillEnabled, search.prefill]);
 
@@ -129,6 +151,7 @@ export function useMessageInputController({
 
   const handleChange: ChangeEventHandler<HTMLTextAreaElement> = useCallback((event) => {
     setMessageInput(event.target.value);
+    showTyped(event.target.value);
     cachePrompt(event.target.value);
   }, []);
 
@@ -140,6 +163,8 @@ export function useMessageInputController({
     primaryAction,
     runPrimaryAction,
     signIn,
+    /** Only an unstarted composer that may be prefilled takes what was typed into the home's early box. */
+    takeEarlyPrompt: prefillEnabled ? takeEarlyPrompt : undefined,
   };
 }
 

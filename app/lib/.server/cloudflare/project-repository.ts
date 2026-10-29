@@ -99,6 +99,18 @@ export function importedProjectRepo(projectId: string): string {
   return `t-${repoNamePart(projectId)}`;
 }
 
+/**
+ * The read-only fork of one project's main that one copy imports from (`readAccess`), named for the id its reader is
+ * given: `c-<id>`. Never a project's own repository, which are `p-` and `t-`; deleted once that import is done.
+ */
+function importCopyRepo(id: string): string {
+  return `c-${id}`;
+}
+
+function isImportCopyRepo(name: string): boolean {
+  return /^c-[0-9a-f-]{36}$/.test(name);
+}
+
 function repoNamePart(value: string): string {
   return value.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 96);
 }
@@ -267,14 +279,90 @@ export class ProjectRepositories {
 
   /**
    * The local secret files (`.env`, `.dev.vars` and their variants, not `.env.example` and the like) `commit` adds
-   * or changes compared with `base`: what the workspace's own commit hook refuses, for a push from anywhere.
+   * or changes compared with `base` (every one it holds, when `base` is null: nothing to compare with): what the
+   * workspace's own commit hook refuses, for a push from anywhere.
    */
-  async secretFilesChanged(repo: string, base: string, commit: string): Promise<string[]> {
-    const [before, after] = await Promise.all([this.readTreeAt(repo, base), this.readTreeAt(repo, commit)]);
+  async secretFilesChanged(repo: string, base: string | null, commit: string): Promise<string[]> {
+    const [before, after] = await Promise.all([
+      base === null ? { files: [] } : this.readTreeAt(repo, base),
+      this.readTreeAt(repo, commit),
+    ]);
     const earlier = new Map(before.files.map((file) => [file.path, file.oid]));
     return after.files
       .filter((file) => isSecretFilePath(file.path) && earlier.get(file.path) !== file.oid)
       .map((file) => file.path);
+  }
+
+  /**
+   * The local secret files a history brings that `old`'s history doesn't: every commit reachable from `commit` and
+   * not from `old` is read, and `commit` itself always, and the first secret file any of them holds is answered
+   * (none: `[]`), whether or not `old` held it too. For replacing main's history, where a secret already on main,
+   * or one only in an older commit of the new history, must not come along. Null when either history holds more
+   * than `limit` commits, so it couldn't be read in time.
+   */
+  async secretFilesIntroduced(repo: string, old: string, commit: string, limit = 5_000): Promise<string[] | null> {
+    return this.#withRepo(repo, async (handle) => {
+      const walk = async (from: string, skip: ReadonlySet<string>, visit: (read: ArtifactsCommitMetadata) => void) => {
+        const seen = new Set<string>();
+        const queue = [from];
+        for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+          if (seen.has(next) || skip.has(next)) {
+            continue;
+          }
+          seen.add(next);
+          if (seen.size > limit) {
+            return null;
+          }
+          const read = await handle.readCommit(next);
+          if (!read) {
+            throw new ProjectRepositoryError(`The repository has no commit ${next.slice(0, 64)}.`, 'not_found');
+          }
+          visit(read);
+          queue.push(...read.parents);
+        }
+        return seen;
+      };
+      const kept = await walk(old, new Set(), () => undefined);
+      if (!kept) {
+        return null;
+      }
+      const trees: string[] = [];
+      const tip = await handle.readCommit(commit);
+      if (!tip) {
+        throw new ProjectRepositoryError(`The repository has no commit ${commit.slice(0, 64)}.`, 'not_found');
+      }
+      trees.push(tip.treeHash);
+      if (!(await walk(commit, kept, (read) => trees.push(read.treeHash)))) {
+        return null;
+      }
+      // A folder already read and found clean is the same in every commit that holds it, so it's read once.
+      const clean = new Set<string>();
+      const secretIn = async (hash: string, prefix: string): Promise<string | null> => {
+        if (clean.has(hash)) {
+          return null;
+        }
+        const entries = await handle.readTree(hash);
+        if (!entries) {
+          throw new ProjectRepositoryError('A folder in the repository could not be read.', 'not_found');
+        }
+        for (const entry of entries) {
+          const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+          const found = entry.type === 'tree' ? await secretIn(entry.hash, path) : isSecretFilePath(path) ? path : null;
+          if (found) {
+            return found;
+          }
+        }
+        clean.add(hash);
+        return null;
+      };
+      for (const tree of trees) {
+        const found = await secretIn(tree, '');
+        if (found) {
+          return [found];
+        }
+      }
+      return [];
+    });
   }
 
   /** Commits on `ref`'s first-parent chain, newest first. */
@@ -541,20 +629,60 @@ export class ProjectRepositories {
   }
 
   /**
-   * A read-only token for git over HTTPS, and the repository's remote: for another repository to import this one's
-   * history, so it lasts as long as one import may take, and whoever asked revokes it once the import is done. It
-   * reads every ref (Artifacts scopes a token to a repository, not to refs); an import fetches one branch.
+   * A read-only token for git over HTTPS, and a remote, for another repository to import `repo`'s main with its
+   * history: a token lasting as long as one import may take, on a read-only fork of main alone made for this one
+   * import (`importCopyRepo`). Artifacts scopes a token to a repository, not to refs, so a token on `repo` itself
+   * would read every ref it holds, CloudChef's own (`refs/cloudchef/*`: workspaces' saved branches) and other
+   * branches among them; the fork holds none of those. Whoever asked ends it, fork and token, with
+   * `endReadAccess(tokenId)` once the import is done; one never ended is deleted by a later `readAccess`.
    */
   async readAccess(repo: string): Promise<RepositoryReadAccess> {
-    return this.#withRepo(repo, async (handle) => {
-      const [info, token] = await Promise.all([handle.info(), handle.createToken('read', IMPORT_TOKEN_TTL_SECONDS)]);
-      return {
-        remote: info.remote,
-        tokenId: token.id,
-        token: tokenSecret(token.plaintext),
-        expiresAt: token.expiresAt,
-      };
-    });
+    await this.#deleteStaleImportCopies().catch((error: Error) =>
+      console.warn({ event: 'import_copies_not_swept', message: error.message }),
+    );
+    const id = crypto.randomUUID();
+    const name = importCopyRepo(id);
+    const forked = await this.#withRepo(repo, (handle) =>
+      handle.fork(name, { defaultBranchOnly: true, readOnly: true }),
+    );
+    await this.#revokeInitialToken(name, forked.token);
+    try {
+      await this.#waitUntilReady(name);
+      return await this.#withRepo(name, async (handle) => {
+        const [info, token] = await Promise.all([handle.info(), handle.createToken('read', IMPORT_TOKEN_TTL_SECONDS)]);
+        return { remote: info.remote, tokenId: id, token: tokenSecret(token.plaintext), expiresAt: token.expiresAt };
+      });
+    } catch (error) {
+      await this.deleteRepo(name).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Ends what `readAccess` gave out as `tokenId`: its fork, with the token on it. One already gone is done. */
+  async endReadAccess(tokenId: string): Promise<void> {
+    const name = importCopyRepo(tokenId);
+    if (!isImportCopyRepo(name)) {
+      throw new ProjectRepositoryError('That is not a read token CloudChef gave out.', 'refused');
+    }
+    await this.deleteRepo(name);
+  }
+
+  /** Deletes import copies whose token has expired, which no one ended: at most a few pages of the namespace. */
+  async #deleteStaleImportCopies(): Promise<void> {
+    const before = Date.now() - IMPORT_TOKEN_TTL_SECONDS * 1_000;
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const listed = await this.#artifacts.list({ limit: 200, cursor });
+      for (const repo of listed.repos) {
+        if (isImportCopyRepo(repo.name) && Date.parse(repo.createdAt) < before) {
+          await this.deleteRepo(repo.name);
+        }
+      }
+      cursor = listed.cursor;
+      if (!cursor) {
+        return;
+      }
+    }
   }
 
   /** Revokes one of the repository's tokens, by id or plaintext; one already gone, with its repository or not, is done. */

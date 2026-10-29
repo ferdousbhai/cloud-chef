@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore, withStatementHook } from '~/test/control-plane-d1';
-import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import {
+  controlPlaneDatabase,
+  createProvenEmailUser,
+  envWith,
+  sessionCookieSignedInBefore,
+  withStatementHook,
+} from '~/test/control-plane-d1';
+import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import {
@@ -16,6 +22,7 @@ import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtim
 import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { completeCloudflareConnectionAction, startCloudflareConnectionAction } from './cloudflare-integration';
+import type { startUserWorkspaceRuntimeProvisioning } from '~/workflows/user-workspace-runtime-provisioning';
 
 const ORIGIN = 'https://cloudchef.build';
 const HOUR = 60 * 60_000;
@@ -42,8 +49,29 @@ function cloudflareAs(subject: string): Pick<CloudflareOAuthOrchestrator, 'start
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+/**
+ * Runs `work` with fake timers, firing each timer it sets as soon as it is set: a refused refresh waits 2 s for a
+ * concurrent one to land, which here passes at once and the same way every run. Real I/O (crypto, D1) still
+ * completes between turns of the event loop, which `setImmediate` (left real) yields to.
+ */
+async function withTimersAtOnce<T>(work: () => Promise<T>): Promise<{ result: T; waitedMs: number }> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+  const started = Date.now();
+  let done = false;
+  const pending = work().finally(() => {
+    done = true;
+  });
+  while (!done) {
+    await new Promise((resolve) => setImmediate(resolve));
+    await vi.runOnlyPendingTimersAsync();
+  }
+  const result = await pending;
+  return { result, waitedMs: Date.now() - started };
+}
 
 async function setup() {
   const { database, db } = controlPlaneDatabase();
@@ -54,7 +82,7 @@ async function setup() {
     CLOUDFLARE_OAUTH_CLIENT_SECRET: 'client-secret',
     CLOUDFLARE_OAUTH_START_RATE_LIMITER: { limit: async () => ({ success: true }) },
   });
-  const user = await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' });
+  const user = await createProvenEmailUser(db, 'sam@corp.com');
   // Signed in an hour ago: too long ago for export or erasure.
   const cookie = await sessionCookieSignedInBefore(env, user.id, HOUR);
   return { database, db, env, user, cookie };
@@ -65,7 +93,10 @@ async function connect(
   env: Env,
   cookie: string,
   orchestrator: Pick<CloudflareOAuthOrchestrator, 'startConnection' | 'completeConnection'>,
-  { organizationId }: { organizationId?: string } = {},
+  {
+    organizationId,
+    provision = vi.fn().mockResolvedValue({ status: 'preparing' }),
+  }: { organizationId?: string; provision?: typeof startUserWorkspaceRuntimeProvisioning } = {},
 ) {
   const started = await startCloudflareConnectionAction({
     request: new Request(`${ORIGIN}/api/cloudflare/connection/start`, {
@@ -86,6 +117,7 @@ async function connect(
     }),
     env,
     orchestrator,
+    provision,
   });
 }
 
@@ -148,7 +180,7 @@ describe('connecting Cloudflare while signed in', () => {
 
   it("names a Cloudflare login that is someone else's by a code, not by the error's own words", async () => {
     const { database, db, env, user } = await setup();
-    const other = await upsertVerifiedEmailUser(db, { email: 'kim@corp.com' });
+    const other = await createProvenEmailUser(db, 'kim@corp.com');
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', other.id);
     const recent = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
       ';',
@@ -171,7 +203,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
     const fixture = await setup();
     const { database, db, user } = fixture;
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', user.id);
-    const kim = await upsertVerifiedEmailUser(db, { email: 'kim@corp.com' });
+    const kim = await createProvenEmailUser(db, 'kim@corp.com');
     database.exec(`
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('${ORG}', 'Sites', 1, 1);
       INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('old', 'x', 'y', 1);
@@ -217,13 +249,19 @@ describe("one Cloudflare account shared by a person's own space and their team",
   }
 
   it('is reauthorized once, from the team, for both spaces, and only the team space prepares its workspaces again', async () => {
-    const { database, db, env, user, cookie } = await sharedAccount();
+    const { database, db, env, user, cookie, kim } = await sharedAccount();
     const before = await findCloudflareConnectionForUser(db, user.id);
     expect(missingCoreOAuthScopes(before?.grantedOAuthScopes ?? [])).not.toEqual([]);
 
-    const response = await connect(env, cookie, reauthorizedAs('cf-sam'), { organizationId: ORG });
+    const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
+    const response = await connect(env, cookie, reauthorizedAs('cf-sam'), { organizationId: ORG, provision });
     expect(response.status).toBe(303);
     expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBeNull();
+    // Every member's workspace in the team's account starts preparing at once, not only the admin's.
+    const teamConnection = await findCloudflareConnectionForOrganization(db, ORG);
+    expect(provision.mock.calls.map(([call]) => `${call.userId}@${call.connectionId}`).sort()).toEqual(
+      [`${user.id}@${teamConnection?.id}`, `${kim.id}@${teamConnection?.id}`].sort(),
+    );
 
     const own = await findCloudflareConnectionForUser(db, user.id);
     const team = await findCloudflareConnectionForOrganization(db, ORG);
@@ -395,8 +433,12 @@ describe("one Cloudflare account shared by a person's own space and their team",
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-kim', kim.id);
     const kimCookie = (await createAuthSession(env, kim.id, new Request(ORIGIN))).cookie.split(';')[0];
 
-    const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'));
+    const { result: response, waitedMs } = await withTimersAtOnce(() =>
+      connect(env, kimCookie, reauthorizedAs('cf-kim')),
+    );
     expect(connectMessage(response)).toBeNull();
+    // The refused refresh waited its settle for a concurrent refresh, on the fake clock.
+    expect(waitedMs).toBeGreaterThanOrEqual(2_000);
 
     const own = await findCloudflareConnectionForUser(db, user.id);
     const kims = await findCloudflareConnectionForUser(db, kim.id);

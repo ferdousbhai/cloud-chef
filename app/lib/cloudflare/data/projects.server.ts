@@ -25,6 +25,7 @@ import {
 } from '~/lib/.server/cloudflare/project-repository';
 import type { DataOperationResult, ProjectCommit, ProjectGitAddress } from '~/lib/cloudflare/data-api';
 import { ensureInitialWorkspace, findWorkspace, openLinkedWorkspace } from './workspace-repository.server';
+import { removeWorkspace } from './workspace-service.server';
 import { extractZip, ZipReadError } from '~/lib/.server/cloudflare/zip-extract';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
 import {
@@ -509,13 +510,14 @@ export async function userRuntimeAppReadAccessAction(
 }
 
 const revokeReadAccessSchema = z.union([
-  z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().min(1).max(256) }),
-  z.strictObject({ appId: z.string().uuid(), tokenId: z.string().min(1).max(256) }),
+  z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().uuid() }),
+  z.strictObject({ appId: z.string().uuid(), tokenId: z.string().uuid() }),
 ]);
 
 /**
  * `POST /v1/read-access/revoke`: ends a read token `/v1/projects/read-access` or `/v1/apps/read-access` gave out, once
- * the copy it was for is made or has failed. One already gone is done.
+ * the copy it was for is made or has failed, by deleting the read-only fork it was made on (`endReadAccess`). One
+ * already gone is done.
  */
 export async function userRuntimeRevokeReadAccessAction(
   args: { request: Request; env: Env },
@@ -526,19 +528,9 @@ export async function userRuntimeRevokeReadAccessAction(
     return Response.json({ error: 'Name the token.' }, { status: 400 });
   }
   try {
-    let repo: string | null;
-    if ('appId' in parsed.data) {
-      repo = nativeProjectRepo(parsed.data.appId);
-    } else {
-      const identity = runtimeConnectionIdentity(args.env);
-      if (!identity) {
-        throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
-      }
-      repo = (await openProject(args.env, identity, parsed.data.orgProjectId)).repo;
-    }
-    if (repo) {
-      await repositories(args.env).revokeToken(repo, parsed.data.tokenId);
-    }
+    // The token is on a fork made for its one import, never on the project's own repository: ending it touches
+    // nothing of the project's.
+    await repositories(args.env).endReadAccess(parsed.data.tokenId);
     return new Response(null, { status: 204 });
   } catch (error) {
     return internalErrorResponse(error, 'The token could not be revoked. Try again.');
@@ -574,6 +566,38 @@ export async function userRuntimeDeleteProjectRepositoryAction(
       return Response.json({ error: error.message }, { status: 403 });
     }
     return internalErrorResponse(error, 'The project’s code could not be deleted. Try again.');
+  }
+}
+
+const removeProjectWorkspaceSchema = z.strictObject({ orgProjectId: z.string().uuid() });
+
+/**
+ * `POST /v1/projects/remove-workspace`: removes this person's workspace of a team project, as deleting it from their
+ * projects does: its conversations' agents and its files go after the grace period. CloudChef asks every member's
+ * runtime for this when the project is deleted, so nobody is left with a workspace of a project that no longer
+ * exists. None left is done.
+ */
+export async function userRuntimeRemoveProjectWorkspaceAction(args: {
+  request: Request;
+  env: Env;
+  userId: string;
+}): Promise<Response> {
+  const parsed = removeProjectWorkspaceSchema.safeParse(await args.request.json().catch(() => null));
+  if (!parsed.success) {
+    return Response.json({ error: 'Name the project.' }, { status: 400 });
+  }
+  try {
+    const { results } = await args.env.DB.prepare(
+      `SELECT initial_id FROM workspaces WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0`,
+    )
+      .bind(args.userId, parsed.data.orgProjectId)
+      .all<{ initial_id: string }>();
+    for (const workspace of results) {
+      await removeWorkspace(args.env.DB, { sessionId: args.userId, id: workspace.initial_id });
+    }
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    return internalErrorResponse(error, 'The project’s workspace could not be removed. Try again.');
   }
 }
 
@@ -848,8 +872,10 @@ const rewriteMainSchema = z.strictObject({
 /**
  * `POST /v1/projects/rewrite-main`: main becomes `branch`'s commit even though it doesn't add to main's history, once
  * CloudChef says this person runs the project (its owner, or one of its team's admins). Only while main and the branch
- * are still where the person read them, and never with a secret file main didn't already hold. The change is recorded,
- * then published as a push to main is. main's old commits stay in the repository, unreachable from it.
+ * are still where the person read them; never for a branch that only adds to main, which is pushed as usual; and
+ * never with a secret file in any commit the new history brings, or in its last commit, even one main already held.
+ * The change is recorded, then published as a push to main is. main's old commits stay in the repository,
+ * unreachable from it.
  */
 export async function userRuntimeRewriteMainAction(
   args: { request: Request; env: Env },
@@ -889,7 +915,19 @@ export async function userRuntimeRewriteMainAction(
     if (commit === expected) {
       return refused(`main is already at ${commit.slice(0, 7)}.`);
     }
-    const secrets = await store.secretFilesChanged(target.repo, expected, commit);
+    // A branch that only adds to main is pushed to it, as any change is: that keeps it an ordinary push.
+    const fastForward = await store.isAncestor(target.repo, expected, commit);
+    if (fastForward) {
+      return refused(
+        `${branch} only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ${branch}:main).`,
+      );
+    }
+    // Every commit the new history brings, and its last one's files whole: a secret file main already held, or one
+    // only in an older commit of the new history, would otherwise come along.
+    const secrets = fastForward === null ? null : await store.secretFilesIntroduced(target.repo, expected, commit);
+    if (secrets === null) {
+      return refused(`${branch}’s history is too long for CloudChef to check, so main was left as it is.`, 422);
+    }
     if (secrets[0] !== undefined) {
       return refused(secretFileRefusal(secrets[0]), 422);
     }

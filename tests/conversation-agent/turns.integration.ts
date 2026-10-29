@@ -191,6 +191,55 @@ describe('a builder turn on pi-durable', () => {
     expect((await harness.messages())[1]?.parts.at(-1)).toMatchObject({ text: 'Deleted.' });
   });
 
+  it('leaves a change its command stopped waiting for in the chat, and tells the model the decision next turn', async () => {
+    const faux = fauxProvider();
+    let sent: string[] = [];
+    faux.setResponses([
+      runCommand('cf workers delete old', 'call-cf'),
+      answer('It waits for you in the chat.'),
+      (context) => {
+        sent = sentTexts(context);
+        return answer('The old worker is gone.');
+      },
+    ]);
+    let executionId = '';
+    let harness: ConversationAgentHarness | undefined;
+    harness = await conversationAgentHarness({
+      faux,
+      cloudflareIdentity: true,
+      workspace: commandWorkspace(async () => {
+        const answer = await harness!.agent.proposeWorkspaceCloudflareChange({
+          toolCallId: 'call-cf',
+          request: {
+            method: 'DELETE',
+            url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old',
+          },
+        });
+        executionId = answer.kind === 'waiting' ? answer.executionId : '';
+        // The command's wait ran out before the person decided: it ends, and the change stays in the chat.
+        return { exitCode: 1, stdout: '', stderr: 'still waiting for approval' };
+      }),
+    });
+    Reflect.set(harness.agent, 'createCloudflareApiClient', () => ({
+      send: async () => ({ status: 'success', content: '{}', requestId: 'ray', httpStatus: 200, truncated: false }),
+    }));
+
+    await send(harness, 'Delete the old worker');
+    await turnEnded(harness);
+    const waiting = (await harness.messages())[1]?.parts.map(getToolInvocation).find(Boolean);
+    expect(JSON.stringify(waiting?.output)).toContain('cloudflare_change_waiting_in_chat');
+
+    await expect(harness.agent.approveCloudflareExecution({ executionId })).resolves.toMatchObject({
+      execution: { status: 'succeeded' },
+    });
+    const decided = (await harness.messages())[1]?.parts.map(getToolInvocation).find(Boolean);
+    expect(JSON.stringify(decided?.output)).not.toContain('cloudflare_change_waiting_in_chat');
+
+    await send(harness, 'Is it done?');
+    await turnEnded(harness);
+    expect(sent.some((text) => text.includes('left waiting in the chat was decided'))).toBe(true);
+  });
+
   it('takes a message sent while the run works into it after the running command', async () => {
     const faux = fauxProvider();
     let sent: string[] = [];

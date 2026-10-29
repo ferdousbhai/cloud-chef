@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { CloudflareExecutionPublicState } from 'cloudchef-agent/cloudflare-api';
+import {
+  CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS,
+  type CloudflareExecutionPublicState,
+} from 'cloudchef-agent/cloudflare-api';
+import { BUILDER_TOOL_DEADLINES_MS } from '~/lib/.server/llm/builder-turn-limits';
 import {
   BuilderCloudflareExecutionRepository,
   cloudflareChangeAnswer,
@@ -27,6 +31,7 @@ type TestRow = {
   started_at: number | null;
   completed_at: number | null;
   expires_at: number;
+  left_waiting_at: number | null;
   outcome_json: string | null;
 };
 
@@ -76,6 +81,7 @@ class TestExecutionStorage {
           started_at: null,
           completed_at: null,
           expires_at: Number(bindings[14]),
+          left_waiting_at: null,
           outcome_json: null,
         };
         this.rows.set(row.execution_id, row);
@@ -143,7 +149,7 @@ class TestExecutionStorage {
       }
       if (normalized.includes("SET status = 'expired'") && normalized.includes('WHERE execution_id = ?')) {
         const row = this.rows.get(String(bindings[2]));
-        const written = row?.status === 'awaiting_approval';
+        const written = row?.status === 'awaiting_approval' && row.left_waiting_at === null;
         if (row && written) {
           row.status = 'expired';
           row.completed_at = Number(bindings[0]);
@@ -151,13 +157,23 @@ class TestExecutionStorage {
         }
         return result([], written ? 1 : 0);
       }
-      if (normalized.includes("SET status = 'expired'")) {
+      if (normalized.includes('SET left_waiting_at = ?') && normalized.includes('WHERE execution_id = ?')) {
+        const row = this.rows.get(String(bindings[1]));
+        const written = row?.status === 'awaiting_approval' && row.left_waiting_at === null;
+        if (row && written) {
+          row.left_waiting_at = Number(bindings[0]);
+        }
+        return result([], written ? 1 : 0);
+      }
+      if (normalized.includes('SET left_waiting_at = ?')) {
         let written = 0;
         for (const row of this.rows.values()) {
-          if (row.status === 'awaiting_approval' && row.expires_at <= Number(bindings[2])) {
-            row.status = 'expired';
-            row.completed_at = Number(bindings[0]);
-            row.outcome_json = String(bindings[1]);
+          if (
+            row.status === 'awaiting_approval' &&
+            row.left_waiting_at === null &&
+            row.expires_at <= Number(bindings[1])
+          ) {
+            row.left_waiting_at = Number(bindings[0]);
             written += 1;
           }
         }
@@ -272,17 +288,20 @@ describe('durable Cloudflare execution approval repository', () => {
     );
   });
 
-  it('expires awaiting approvals and prevents a late decision', async () => {
+  it('waits inside its command until just before exec’s deadline, then waits in the chat and can still be approved', async () => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({
       toolCallId: 'tool-4',
       binding,
       request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/old' },
     });
+    expect(proposal.expiresAt - proposal.createdAt).toBe(CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS);
+    expect(CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS).toBeLessThan(BUILDER_TOOL_DEADLINES_MS.exec);
+    expect(CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS).toBeGreaterThanOrEqual(BUILDER_TOOL_DEADLINES_MS.exec - 2 * 60_000);
 
-    vi.useFakeTimers({ toFake: ['Date'], now: proposal.expiresAt });
-    await expect(repository.approve(proposal.executionId, binding)).rejects.toThrow('can no longer be approved');
-    expect(repository.get(proposal.executionId)?.status).toBe('expired');
+    vi.useFakeTimers({ toFake: ['Date'], now: proposal.expiresAt + 6 * 60 * 60_000 });
+    const { record } = await repository.approve(proposal.executionId, binding);
+    expect(record).toMatchObject({ status: 'approved', leftWaitingAt: proposal.expiresAt + 6 * 60 * 60_000 });
   });
 
   it('terminalizes recovered approval fibers as indeterminate and never claims them afterward', async () => {
@@ -341,34 +360,52 @@ describe('a change a workspace command asked for', () => {
     expect(second?.executionId).not.toBe(first.executionId);
   });
 
-  it('withdraws only the change a stopped request waited for, when named', async () => {
+  it('leaves only the change a stopped cf waited for in the chat, when named', async () => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
 
-    expect(repository.withdraw('exec-1', 'another-execution')).toBe(false);
-    expect(repository.get(proposal.executionId)?.status).toBe('awaiting_approval');
-    expect(repository.withdraw('exec-1', proposal.executionId)).toBe(true);
-    expect(repository.get(proposal.executionId)?.status).toBe('expired');
+    expect(repository.leaveInChat('exec-1', 'another-execution')).toBe(false);
+    expect(repository.get(proposal.executionId)?.leftWaitingAt).toBeNull();
+    expect(repository.leaveInChat('exec-1', proposal.executionId)).toBe(true);
+    expect(repository.get(proposal.executionId)).toMatchObject({
+      status: 'awaiting_approval',
+      leftWaitingAt: expect.any(Number),
+    });
   });
 
-  it('withdraws the change of a command that ended before anyone decided, so it can never be approved', async () => {
+  it('keeps the change of a command that finished before anyone decided waiting in the chat, to approve later', async () => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
 
-    expect(repository.withdraw('exec-1')).toBe(true);
-    expect(repository.withdraw('exec-1')).toBe(false);
-    const withdrawn = repository.get(proposal.executionId)!;
+    expect(repository.leaveInChat('exec-1')).toBe(true);
+    expect(repository.leaveInChat('exec-1')).toBe(false);
+    expect(repository.leftInChatBy('exec-1').map((record) => record.executionId)).toEqual([proposal.executionId]);
+    // It no longer holds up the command's next change.
+    await expect(repository.propose({ toolCallId: 'exec-1', binding, request: deleteSite })).resolves.not.toBeNull();
+    await expect(repository.approve(proposal.executionId, binding)).resolves.toMatchObject({ transitioned: true });
+  });
+
+  it('withdraws the change a stopped command still held, but not one already waiting in the chat', async () => {
+    const { repository } = executionRepository();
+    const inChat = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
+    repository.leaveInChat('exec-1');
+    const held = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
+
+    expect(repository.withdrawHeld('exec-1')).toBe(true);
+    const withdrawn = repository.get(held.executionId)!;
     expect(withdrawn.status).toBe('expired');
-    expect(withdrawn.outcome?.summary).toContain('The command ended before anyone approved the change');
-    await expect(repository.approve(proposal.executionId, binding)).rejects.toThrow('can no longer be approved');
+    expect(withdrawn.outcome?.summary).toContain('The command was stopped before anyone approved the change');
+    await expect(repository.approve(held.executionId, binding)).rejects.toThrow('can no longer be approved');
+    expect(repository.get(inChat.executionId)?.status).toBe('awaiting_approval');
   });
 
-  it('withdraws nothing once a change was approved', async () => {
+  it('leaves nothing in the chat once a change was approved', async () => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({ toolCallId: 'exec-1', binding, request: deleteSite });
     await repository.approve(proposal.executionId, binding);
 
-    expect(repository.withdraw('exec-1')).toBe(false);
+    expect(repository.leaveInChat('exec-1')).toBe(false);
+    expect(repository.withdrawHeld('exec-1')).toBe(false);
     expect(repository.get(proposal.executionId)?.status).toBe('approved');
   });
 });
@@ -385,6 +422,7 @@ describe('what cf is answered about a change', () => {
     startedAt: null,
     completedAt: null,
     expiresAt: 2,
+    leftWaitingAt: null,
     outcome: null,
     request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/accounts/account-1/workers/scripts/site' },
     riskNote: 'risk',
@@ -396,6 +434,14 @@ describe('what cf is answered about a change', () => {
 
   it.each(['awaiting_approval', 'approved', 'executing'] as const)('keeps cf waiting while it is %s', (status) => {
     expect(cloudflareChangeAnswer(state({ status }))).toEqual({ kind: 'waiting', executionId: 'execution-1' });
+  });
+
+  it('tells cf plainly that a change left waiting in the chat is not made yet, and will be when approved', () => {
+    const answer = cloudflareChangeAnswer(state({ status: 'awaiting_approval', leftWaitingAt: 3 }));
+    expect(answer).toMatchObject({ kind: 'answer', status: 202 });
+    expect(message(answer)).toBe(
+      'Not changed yet: waiting for your approval in the chat. It will be sent when you approve it.',
+    );
   });
 
   it("answers with Cloudflare's own answer once the change was made", () => {

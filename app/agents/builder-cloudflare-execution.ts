@@ -1,8 +1,11 @@
 import {
+  CLOUDFLARE_CHANGE_WAITING_IN_CHAT,
   CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS,
   cloudflareApiRequestSchema,
   type CloudflareApiRequest,
+  type CloudflareChangeWaitingInChat,
   type CloudflareExecutionPublicState,
+  type CloudflareRequestFinalResult,
   type CloudflareExecutionSafeOutcome,
   type CloudflareExecutionStatus,
 } from 'cloudchef-agent/cloudflare-api';
@@ -46,6 +49,7 @@ type CloudflareExecutionRow = {
   started_at: number | null;
   completed_at: number | null;
   expires_at: number;
+  left_waiting_at: number | null;
   outcome_json: string | null;
   risk_reasons_json: string;
 };
@@ -53,7 +57,7 @@ type CloudflareExecutionRow = {
 const EXECUTION_COLUMNS = `execution_id, tool_call_id, user_id, account_id, connection_id,
   connection_generation, transcript_agent_name, transcript_chat_initial_id,
   transcript_subchat_index, transcript_parent_agent_name, execute_input_json, proposal_sha256,
-  status, created_at, decided_at, started_at, completed_at, expires_at, outcome_json, risk_reasons_json`;
+  status, created_at, decided_at, started_at, completed_at, expires_at, left_waiting_at, outcome_json, risk_reasons_json`;
 
 const CLOUDFLARE_EXECUTION_RISK_NOTE =
   'This changes your Cloudflare account, and may delete something, be hard to undo, or cost money. Approving sends exactly this request once.';
@@ -62,6 +66,7 @@ const CLOUDFLARE_EXECUTION_RISK_NOTE =
 const RISK_REASON = 'Cloudflare changes can be externally visible, destructive, irreversible, or billable.';
 const riskReasonsSchema = z.array(z.string());
 const EXPIRED_SUMMARY = 'No one approved this change in time, so nothing was sent to Cloudflare.';
+const STOPPED_SUMMARY = 'The command was stopped before anyone approved the change, so nothing was sent to Cloudflare.';
 
 const credentialishPatterns: readonly RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/iu,
@@ -107,7 +112,7 @@ export class BuilderCloudflareExecutionRepository {
     const now = Date.now();
     const inputJson = JSON.stringify(args.request);
     const proposalSha256 = await proposalDigest(args.toolCallId, args.binding, inputJson);
-    this.expireAwaiting();
+    this.leaveOverdueInChat();
     return this.storage.transactionSync(() => {
       if (this.unsettledFor(args.toolCallId)) {
         return null;
@@ -175,7 +180,7 @@ export class BuilderCloudflareExecutionRepository {
       const current = this.require(executionId);
       // The status and expiry were just read inside this synchronous transaction, so they decide the
       // transition. A SQL cursor's rowsWritten is not final until the cursor is consumed.
-      if (current.status === 'awaiting_approval' && current.expiresAt > now) {
+      if (decidable(current, now)) {
         this.storage.sql.exec(
           `UPDATE builder_cloudflare_executions SET status = 'approved', decided_at = ? WHERE execution_id = ?`,
           now,
@@ -204,7 +209,7 @@ export class BuilderCloudflareExecutionRepository {
     let transitioned = false;
     const record = this.storage.transactionSync(() => {
       const current = this.require(executionId);
-      if (current.status === 'awaiting_approval' && current.expiresAt > now) {
+      if (decidable(current, now)) {
         this.storage.sql.exec(
           `UPDATE builder_cloudflare_executions
            SET status = 'rejected', decided_at = ?, completed_at = ?, outcome_json = ?
@@ -302,48 +307,74 @@ export class BuilderCloudflareExecutionRepository {
   }
 
   /**
-   * The command that asked for a change ended (or stopped waiting for `executionId`) before anyone decided: it is
-   * never sent. Answers whether a change was waiting.
+   * The command that asked was stopped (by the person, or because its turn ended) while `cf` still waited for a
+   * change: nothing would read its answer, so it is never sent. A change already left waiting in the chat stays
+   * there. Answers whether one was withdrawn.
    */
-  withdraw(toolCallId: string, executionId?: string): boolean {
+  withdrawHeld(toolCallId: string): boolean {
     const now = Date.now();
-    const outcome: CloudflareExecutionSafeOutcome = {
-      status: 'denied',
-      summary: 'The command ended before anyone approved the change, so nothing was sent to Cloudflare.',
-    };
+    const outcome: CloudflareExecutionSafeOutcome = { status: 'denied', summary: STOPPED_SUMMARY };
     return this.storage.transactionSync(() => {
-      const waiting = this.awaitingFor(toolCallId).filter(
-        (record) => executionId === undefined || record.executionId === executionId,
-      );
-      for (const record of waiting) {
+      const held = this.awaitingFor(toolCallId).filter((record) => record.leftWaitingAt === null);
+      for (const record of held) {
         this.storage.sql.exec(
           `UPDATE builder_cloudflare_executions
            SET status = 'expired', completed_at = ?, outcome_json = ?
-           WHERE execution_id = ? AND status = 'awaiting_approval'`,
+           WHERE execution_id = ? AND status = 'awaiting_approval' AND left_waiting_at IS NULL`,
           now,
           JSON.stringify(outcome),
           record.executionId,
         );
       }
-      return waiting.length > 0;
+      return held.length > 0;
     });
   }
 
-  expireAwaiting(): void {
+  /**
+   * The command that asked no longer waits for a change still waiting for the person (or for `executionId`, when
+   * named): it finished, `cf` stopped, or the proxy stopped asking. It goes on waiting in the chat, with no deadline,
+   * and is sent once if the person approves it. Answers whether one was left so.
+   */
+  leaveInChat(toolCallId: string, executionId?: string): boolean {
+    const now = Date.now();
+    return this.storage.transactionSync(() => {
+      const held = this.awaitingFor(toolCallId).filter(
+        (record) => record.leftWaitingAt === null && (executionId === undefined || record.executionId === executionId),
+      );
+      for (const record of held) {
+        this.storage.sql.exec(
+          `UPDATE builder_cloudflare_executions SET left_waiting_at = ?
+           WHERE execution_id = ? AND status = 'awaiting_approval' AND left_waiting_at IS NULL`,
+          now,
+          record.executionId,
+        );
+      }
+      return held.length > 0;
+    });
+  }
+
+  /**
+   * A change still undecided when its command's wait runs out is left waiting in the chat: `cf` is told so, and the
+   * command goes on.
+   */
+  leaveOverdueInChat(): void {
     const now = Date.now();
     this.storage.sql.exec(
-      `UPDATE builder_cloudflare_executions
-       SET status = 'expired', completed_at = ?, outcome_json = ?
-       WHERE status = 'awaiting_approval' AND expires_at <= ?`,
+      `UPDATE builder_cloudflare_executions SET left_waiting_at = ?
+       WHERE status = 'awaiting_approval' AND left_waiting_at IS NULL AND expires_at <= ?`,
       now,
-      JSON.stringify({ status: 'denied', summary: EXPIRED_SUMMARY }),
       now,
     );
   }
 
+  /** The changes of the command `toolCallId` that it left waiting in the chat, whatever became of them since. */
+  leftInChatBy(toolCallId: string): CloudflareExecutionRecord[] {
+    return this.changesOf(toolCallId).filter((record) => record.leftWaitingAt !== null);
+  }
+
   /** The execution, provided it is still this binding's and still the proposal it was approved as. */
   async verify(executionId: string, binding: CloudflareExecutionBinding): Promise<CloudflareExecutionRecord> {
-    this.expireAwaiting();
+    this.leaveOverdueInChat();
     const record = this.require(executionId);
     if (!executionBindingsEqual(record.binding, binding)) {
       throw new CloudflareExecutionDecisionError('The Cloudflare execution identity or connection changed.');
@@ -363,9 +394,16 @@ export class BuilderCloudflareExecutionRepository {
     return record;
   }
 
-  /** Whether a change of the command `toolCallId` still waits for the person, or is being sent. */
+  /**
+   * Whether a change of the command `toolCallId` still waits for the person inside the command, or is being sent;
+   * one the command left waiting in the chat no longer holds up its next change.
+   */
   private unsettledFor(toolCallId: string): boolean {
-    return this.changesOf(toolCallId).some((record) => !isCloudflareExecutionTerminal(record.status));
+    return this.changesOf(toolCallId).some(
+      (record) =>
+        !isCloudflareExecutionTerminal(record.status) &&
+        !(record.status === 'awaiting_approval' && record.leftWaitingAt !== null),
+    );
   }
 
   private awaitingFor(toolCallId: string): CloudflareExecutionRecord[] {
@@ -394,6 +432,7 @@ export function publicExecutionState(record: CloudflareExecutionRecord): Cloudfl
     startedAt: record.startedAt,
     completedAt: record.completedAt,
     expiresAt: record.expiresAt,
+    leftWaitingAt: record.leftWaitingAt,
     outcome: record.outcome,
     request: record.request,
     riskNote: record.riskNote,
@@ -416,6 +455,7 @@ function recordFromRow(row: CloudflareExecutionRow): CloudflareExecutionRecord {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     expiresAt: row.expires_at,
+    leftWaitingAt: row.left_waiting_at,
     outcome: parseOutcome(row.outcome_json),
     riskNote: riskNote(row.risk_reasons_json),
     binding: {
@@ -457,6 +497,14 @@ function parseOutcome(value: string | null): CloudflareExecutionSafeOutcome | nu
     throw new Error('Stored Cloudflare execution outcome is invalid.');
   }
   return parsed.data;
+}
+
+/**
+ * Whether the person may still decide: it waits, and either its command still waits for it within its time or it
+ * waits in the chat, which has no deadline.
+ */
+function decidable(record: CloudflareExecutionRecord, now: number): boolean {
+  return record.status === 'awaiting_approval' && (record.leftWaitingAt !== null || record.expiresAt > now);
 }
 
 const terminalExecutionStatuses = ['rejected', 'succeeded', 'failed', 'indeterminate', 'expired'] as const;
@@ -532,6 +580,37 @@ function executionBindingsEqual(left: CloudflareExecutionBinding, right: Cloudfl
 }
 
 /**
+ * A change its command left waiting in the chat, as the command's output gives it to the agent: still waiting for
+ * the person, or what they decided and, when it was sent, what Cloudflare answered.
+ */
+export function chatCloudflareChange(
+  record: CloudflareExecutionPublicState,
+): CloudflareChangeWaitingInChat | CloudflareRequestFinalResult {
+  if (!isCloudflareExecutionTerminal(record.status)) {
+    return {
+      kind: 'cloudflare_change_waiting_in_chat',
+      executionId: record.executionId,
+      accountId: record.accountId,
+      request: record.request,
+      note:
+        'Not changed yet: it waits for the person’s approval in the chat, and is sent once when they approve it. ' +
+        'What they decide, and what Cloudflare answers, replaces this.',
+    };
+  }
+  return {
+    kind: 'cloudflare_request_final_result',
+    executionId: record.executionId,
+    accountId: record.accountId,
+    proposalSha256: record.proposalSha256,
+    status: record.status,
+    outcome:
+      record.status === 'rejected'
+        ? { status: 'denied', summary: 'The person rejected this change, so nothing was sent to Cloudflare.' }
+        : (record.outcome ?? { status: 'denied', summary: EXPIRED_SUMMARY }),
+  };
+}
+
+/**
  * What `cf` is answered while a change waits or once it is settled: Cloudflare's own answer when it was sent (its
  * content withheld when it looked like it held a secret), or why nothing was sent, in Cloudflare's error shape.
  */
@@ -539,6 +618,10 @@ export function cloudflareChangeAnswer(record: CloudflareExecutionPublicState): 
   const outcome = record.outcome;
   switch (record.status) {
     case 'awaiting_approval':
+      // Left waiting in the chat: `cf` is told so at once, and its command goes on.
+      return record.leftWaitingAt === null
+        ? { kind: 'waiting', executionId: record.executionId }
+        : { kind: 'answer', status: 202, body: cloudflareApiErrorBody(CLOUDFLARE_CHANGE_WAITING_IN_CHAT) };
     case 'approved':
     case 'executing':
       return { kind: 'waiting', executionId: record.executionId };

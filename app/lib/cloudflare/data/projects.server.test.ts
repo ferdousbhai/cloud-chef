@@ -14,6 +14,7 @@ import {
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
   userRuntimeDeleteProjectRepositoryAction,
+  userRuntimeRemoveProjectWorkspaceAction,
   userRuntimeRewriteMainAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
@@ -557,8 +558,10 @@ describe('copying an app into a new app of this person', () => {
       },
       store,
     );
-    const { tokenId } = z.object({ tokenId: z.string() }).parse(await answer.json());
-    expect(artifacts.tokens.find((token) => token.id === tokenId)).toMatchObject({ scope: 'read', ttl: 35 * 60 });
+    const { tokenId, url } = z.object({ tokenId: z.string(), url: z.string() }).parse(await answer.json());
+    // On a fork of main made for this one copy, not on the app's own repository.
+    expect(url).toBe(`https://artifacts.test/git/cloudchef/c-${tokenId}.git`);
+    expect(artifacts.tokens.at(-1)).toMatchObject({ repo: `c-${tokenId}`, scope: 'read', ttl: 35 * 60 });
 
     const revoked = await userRuntimeRevokeReadAccessAction(
       {
@@ -571,7 +574,8 @@ describe('copying an app into a new app of this person', () => {
       store,
     );
     expect(revoked.status).toBe(204);
-    expect(artifacts.revoked).toContain(tokenId);
+    expect(artifacts.repos.has(`c-${tokenId}`)).toBe(false);
+    expect(artifacts.repos.has(`p-${CHAT}`)).toBe(true);
   });
 });
 
@@ -607,6 +611,42 @@ describe('deleting a project’s repository', () => {
     expect((await ask()).status).toBe(204);
     expect(artifacts.repos.has('t-storefront')).toBe(false);
     expect((await ask()).status).toBe(204);
+  });
+});
+
+describe('removing a deleted team project’s workspace', () => {
+  it('removes only this person’s workspace of that project, with its agents queued for deletion, and again is done', async () => {
+    const { database, env } = await setup();
+    database.exec(`
+      INSERT INTO workspaces (id, creator_id, initial_id, timestamp, has_messages, org_project_id) VALUES
+        ('linked-1', '${OWNER}', 'linked-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}'),
+        ('linked-2', 'someone-else', 'their-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}');
+      INSERT INTO conversations (workspace_id, conversation_index, agent_name, transition_token, created_at, updated_at)
+        VALUES ('linked-1', 0, 'linked-agent', 'token-2', 1, 1);
+    `);
+    const remove = (body: { orgProjectId: string }) =>
+      userRuntimeRemoveProjectWorkspaceAction({
+        request: new Request('https://runtime.test/v1/projects/remove-workspace', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        }),
+        env,
+        userId: OWNER,
+      });
+    const deleted = () => database.prepare('SELECT id, is_deleted FROM workspaces ORDER BY id').all();
+
+    expect((await remove({ orgProjectId: 'not-a-project' })).status).toBe(400);
+    expect((await remove({ orgProjectId: TEAM_PROJECT })).status).toBe(204);
+
+    expect(deleted()).toEqual([
+      { id: 'chat-1', is_deleted: 0 },
+      { id: 'linked-1', is_deleted: 1 },
+      { id: 'linked-2', is_deleted: 0 },
+    ]);
+    expect(database.prepare('SELECT workspace_id FROM agent_gc_candidates').all()).toEqual([
+      { workspace_id: 'linked-1' },
+    ]);
+    expect((await remove({ orgProjectId: TEAM_PROJECT })).status).toBe(204);
   });
 });
 
@@ -660,7 +700,7 @@ describe('rewriting main', () => {
         },
         store,
       );
-    return { artifacts, calls, enqueued, rewrite, main, slim };
+    return { artifacts, calls, enqueued, rewrite, main, slim, store };
   }
 
   it('moves main to the branch for the project’s owner, records it, and publishes it', async () => {
@@ -748,5 +788,50 @@ describe('rewriting main', () => {
     expect(answer.status).toBe(422);
     expect(JSON.stringify(await answer.json())).toContain('.env holds secrets and can');
     expect(await artifacts.head('t-storefront')).toBe(main);
+  });
+
+  it('checks every commit the new history brings, and keeps a secret main already held from staying', async () => {
+    const { artifacts, rewrite, main } = await world();
+    // The secret is only in an older commit of the new history: its last commit holds none.
+    await artifacts.commitDirect('t-storefront', 'buried', { 'index.html': 'v2', 'api/.dev.vars': 'KEY=1' }, 'Oops');
+    const buried = await artifacts.commitDirect('t-storefront', 'buried', { 'index.html': 'v2' }, 'Removed');
+
+    const older = await rewrite({ branch: 'buried', commit: buried });
+    expect(older.status).toBe(422);
+    expect(JSON.stringify(await older.json())).toContain('api/.dev.vars holds secrets');
+    expect(await artifacts.head('t-storefront')).toBe(main);
+
+    // main already holds a secret, and the new history keeps it in its last commit.
+    const held = await artifacts.commitDirect('t-storefront', 'main', { 'index.html': 'v3', '.env': 'KEY=1' }, 'Held');
+    const kept = await artifacts.commitDirect('t-storefront', 'kept', { 'index.html': 'v4', '.env': 'KEY=1' }, 'Kept');
+    const keeping = await rewrite({ branch: 'kept', commit: kept, expected: held });
+    expect(keeping.status).toBe(422);
+    expect(JSON.stringify(await keeping.json())).toContain('.env holds secrets');
+    expect(await artifacts.head('t-storefront')).toBe(held);
+  });
+
+  it('refuses a branch that only adds to main, which is pushed as usual and not recorded as a rewrite', async () => {
+    const { artifacts, calls, enqueued, rewrite, main, store } = await world();
+    const added = await store().commitFiles({
+      repo: 't-storefront',
+      branch: 'ahead',
+      parent: main,
+      replaces: null,
+      files: [{ path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('v3') }],
+      message: 'Ahead',
+      author,
+    });
+    const ahead = 'commit' in added ? added.commit : '';
+
+    const answer = await rewrite({ branch: 'ahead', commit: ahead });
+
+    expect(answer.status).toBe(409);
+    expect(await answer.json()).toEqual({
+      error:
+        'ahead only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ahead:main).',
+    });
+    expect(await artifacts.head('t-storefront')).toBe(main);
+    expect(calls.map((call) => call.route)).not.toContain('runtime-projects/main-rewritten');
+    expect(enqueued).toEqual([]);
   });
 });

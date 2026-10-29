@@ -195,7 +195,10 @@ repository is imported by its address (its default branch read from the ref adve
 credentials, so no GitHub token is needed); a private one through CloudChef's GitHub App, which a team's admin, or a
 person for their own projects, installs on the GitHub account holding it (`app/server-handlers/github-projects.ts`).
 The installation is recorded for the connection only after the returning person's own GitHub authorization shows
-they control it: their own account, or a GitHub organization they own. No GitHub token is stored. Importing makes
+they control it: their own account, or a GitHub organization they own. An account that already has the App comes
+back from GitHub's "Configure" with no authorization, so CloudChef sends the person on to GitHub's user authorization
+(a new state that keeps the installation id, `github_install_states.installation_id`) and checks the code it returns
+the same way; no earlier proof is reused. No GitHub token is stored. Importing makes
 the project at once, with its source (`import_repo_full_name`, `import_branch`) and no repository; the first member
 who may edit it and opens it imports it: their workspace runtime asks the control plane
 (`/api/cloudflare/runtime-projects/open`), which answers with the source and, for a private repository, a fresh App
@@ -213,7 +216,10 @@ deploys `main` (the only production branch Artifacts supports) and builds other 
 control plane reads what it reports with the connection's own authorization (`workers-ci.read`), never handing
 a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
 repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
-its builds are switched) and remembered (`workers_builds_script_tag`); `/runtime-projects/status` matches a
+its builds are switched) and remembered (`workers_builds_script_tag`). The one change CloudChef makes to a
+project's builds is removing its triggers when the project is deleted, before its Worker (`workers-ci.write`):
+Cloudflare doesn't document that deleting a Worker removes them, and keeps `cf builds workers delete` apart from
+the Worker's own deletion. A connection authorized before that scope is asked to reauthorize. `/runtime-projects/status` matches a
 commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, which each
 turn's context names so the agent knows where the live site is (it reads it with `curl`, like any address). Workers Builds' API names no Artifacts provider for a repository
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
@@ -246,17 +252,32 @@ later commits never show as changes undone, with secret files and build output e
 committing `.env`/`.dev.vars` and rewriting main. Its remote is `http://git.internal/project.git`, which the
 runtime's `GitProxy` (`user-workspace-runtime/src/git-proxy.ts`, `app/lib/.server/cloudflare/git-proxy.ts`) answers:
 it checks the person's access on each request, adds a short-lived Artifacts token the container never sees, refuses
-deleting main or pushing anything but branches and tags, and records the refs a push updated. A push moves main only
-as a fast-forward from the commit git read, so no push rewrites it. Replacing main's history on purpose (to drop large
+deleting main or pushing anything but branches and tags, and records the refs a push updated. Every branch a push
+sets (from a workspace, or from the person's own computer through `/v1/git/…`, which uses the same proxy) lands first
+on a ref of its own under `refs/cloudchef/incoming/`, and the branch moves to it from the commit git read only once it
+adds or changes no `.env`/`.dev.vars` file compared with the branch's old commit, or for a new branch with main (with
+nothing, for main's first push). A push moves main only as a fast-forward, so no push rewrites it. Replacing main's history on purpose (to drop large
 files from old commits) is the project owner's, or a team admin's, `cloudchef repo rewrite-main BRANCH`
 (`app/server-handlers/main-rewrite.ts`, then the runtime's `POST /v1/projects/rewrite-main`): main moves to the pushed
-branch's commit only from the commit the owner read, never with a secret file main didn't hold, is recorded in
-`project_main_rewrites`, and publishes as a push to main does. A CloudChef app's
+branch's commit only from the commit the owner read, never for a branch that only adds to main (that is pushed as
+usual), never with a secret file in any commit the new history brings or in its last commit (even one main already
+held), is recorded in `project_main_rewrites`, and publishes as a push to main does. A push to a team project's main
+goes from the member's runtime straight to the repository, and Workers Builds reads main from there, so the control
+plane never sees it go by: the runtime's git proxy tells it once main has moved (`runtime-projects/main-pushed`), and
+it keeps who pushed, when, and main's commit before and after in `project_main_pushes`, for a member who may edit the
+project. The projects home shows the newest push or rewrite on the project's card ("Updated 2 hours ago by Sara"). A
+push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
+checked). A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
 change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication
 follows. A fork copies the repository to the new chat's own `p-<id>` (main moved back to the chosen commit) and the
-new chat's workspace seeds from it. A team project's workspace seeds from its main (importing it first, when the
+new chat's workspace seeds from it. A copy of a project or app (from the browser or the command line, into the
+copier's own account) imports it over git with a 35-minute read token, and Artifacts scopes a token to a repository, not to
+refs: so the source's runtime first forks the project's main alone into a read-only `c-<id>` repository, mints the
+token there, and deletes that fork once the copy is made or has failed (`ProjectRepositories.readAccess`,
+`endReadAccess`), so the token never reads the project's other branches or CloudChef's `refs/cloudchef/*`. A fork never
+ended is deleted by the next `readAccess` once its token has expired. A team project's workspace seeds from its main (importing it first, when the
 control plane gives an import source); a push of a branch makes a preview and a push of main publishes, each shown
 in the pushing command's card while a background watch reads Workers Builds' status for the commit from the control
 plane (`runtime-projects/status`). The browser
@@ -385,9 +406,17 @@ changes: each waits in the same card in turn, one at a time (`cf` sends them one
 while an earlier one of the same command still waits or is being sent is queued, and the proxy asks again until its
 turn, provided the command still runs). The proxy holds `cf`'s request and asks the agent every 1.5 s until the
 proposal is settled, then answers with Cloudflare's own answer to the approved request (content that looks like a
-credential withheld), or why nothing was sent. The approval expires after 15 minutes, inside `exec`'s own deadline; a
-command that ends first withdraws whatever change of it still waits, so a late approval can never send it; an
-interrupted approved request is marked indeterminate rather than replayed. A team member's change is filed for the
+credential withheld), or why nothing was sent. `cf` gives up on a request whose response headers haven't arrived
+within 60 s (its API client's fixed `timeoutInSeconds ?? 60`, with `maxRetries: 0` and no setting for either), so a
+change still undecided after 30 s is answered with 200 at once and its answer follows in the body, after a space every
+20 s that keeps Node's fetch from ending a silent body (its `bodyTimeout` is 300 s); a failure sent that way is in
+Cloudflare's `success: false` shape, which `cf` reports as an error whatever the status. A change waits inside its
+command for up to 34 minutes, just under `exec`'s 35-minute deadline. One still undecided then, or whose command ended
+or whose `cf` stopped first, is left waiting in the chat (`left_waiting_at`) with no deadline: `cf` is answered "Not
+changed yet: waiting for your approval in the chat", the command goes on, and the command's output lists it
+(`cloudflare_change_waiting_in_chat`); approving it there sends it once, and the decision with Cloudflare's answer
+replaces it in that output, which the agent reads at its next turn. A command the person stopped withdraws the change
+its `cf` still waited for. An interrupted approved request is marked indeterminate rather than replayed. A team member's change is filed for the
 team's admins instead (`runtime-projects/approvals/file`, `source` 'agent') and `cf` is answered at once that it was
 sent to them; the command's output keeps each filed change (`cloudflareChanges`), and the admins' decision replaces
 it there. Each change of a command is filed under its own `change_number`: the first keeps the command's tool call id
@@ -707,7 +736,12 @@ A release from before this one cannot start containers under `durable_object`: i
 an image and `scheduling_policy: "default"`, which Cloudflare is expected to refuse, the policy being immutable.
 Rolling back a moved runtime is therefore two things: deploy the earlier release, and delete the runtime's two
 `durable_object` applications (`cf containers applications delete <id>`, an application's id being its namespace's under
-this policy, as Wrangler expects) while the runtime is idle. The earlier release's provisioning, whose
+this policy, as Wrangler expects) while the runtime is idle. `scripts/rollback-workspace-containers.mjs`
+(`pnpm run rollback:workspace-containers`) does the second: it lists the runtimes from the control plane's D1, prints
+each one's `<worker>` and `<worker>-builder` applications on `durable_object` (a dry run, by default), and with
+`--apply` deletes them one runtime at a time, each only while its own D1 shows nothing running, just ended, or holding
+an upgrade window, the same test that grants the window; one whose activity can't be read waits for `--force`
+(DEVELOPMENT.md). The earlier release's provisioning, whose
 container step is retried with backoff and whose failed-after-redeploy upgrades every sweep restarts, then finds no
 application and creates the platform-scheduled one with its own image. Workspace files are in the Durable Objects and
 survive both directions; the base snapshot row stays in D1, unused, until a release with its key runs again.

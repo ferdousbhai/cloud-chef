@@ -132,6 +132,7 @@ it.each(['dynamic-tool', 'tool-exec'])(
               startedAt: null,
               completedAt: null,
               expiresAt: Date.now() + 60_000,
+              leftWaitingAt: null,
               outcome: null,
               request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
               riskNote: 'Review this action.',

@@ -7,7 +7,7 @@ import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provisioning';
 
 /**
- * Deletes a person's workspace (its Worker, container and database: their chats and project files)
+ * Deletes a person's workspace (its Worker, its workspace and project builder containers, and its database: their chats and project files)
  * from a team's Cloudflare account, with the team's authorization. Used when they are removed or
  * leave, when the team is deleted, and when they erase their CloudChef account. Throws when it
  * can't: the caller says the workspace is left behind.

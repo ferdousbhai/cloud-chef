@@ -5,7 +5,7 @@ import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
 import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
 import { Loading } from '~/components/Loading';
-import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
+import { authClient, createCloudflareReturnURL, signInWithCloudflare, signOutOfCloudChef } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { createPrivatePageHead } from '~/lib/social-meta';
@@ -232,8 +232,9 @@ function JoinCard({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * Signed out: sign in as the invited address, by Google or a link emailed to it, and come straight back
- * here, where joining happens by itself.
+ * Signed out: sign in as the invited address, by Google, a link emailed to it, or Cloudflare, and come
+ * straight back here, where joining happens by itself. The invite lets Google or the link make a CloudChef
+ * account for that address.
  */
 function SignInToJoin({
   invite,
@@ -253,11 +254,25 @@ function SignInToJoin({
     onLinkSent,
     failure: 'Unable to sign in.',
   });
+  const [connecting, setConnecting] = useState(false);
+  const continueWithCloudflare = async () => {
+    setConnecting(true);
+    onError(null);
+    try {
+      await signInWithCloudflare(createCloudflareReturnURL());
+    } catch (failure) {
+      onError(messageOf(failure, 'Unable to sign in.'));
+    } finally {
+      // Signing in navigates away on success.
+      setConnecting(false);
+    }
+  };
+  const anyBusy = busy !== null || connecting;
   return (
     <JoinCard title={`Join ${invite.orgName} on CloudChef`}>
       <p className="app-page-lede wrap-break-word">
-        {invite.inviterName} invited <span className="break-all">{invite.email}</span>. Sign in as that address to join;
-        you&apos;ll come straight back here.
+        {invite.inviterName} invited <span className="break-all">{invite.email}</span> to the team. Sign in as that
+        address to join, with Google, an emailed link, or Cloudflare. You&apos;ll come straight back here.
       </p>
       {error ? (
         <p className="mt-4 text-sm text-content-error" role="alert">
@@ -266,28 +281,30 @@ function SignInToJoin({
       ) : null}
       {linkSentTo ? (
         <p className="mt-4 wrap-break-word text-sm text-content-secondary" role="status">
-          Check <span className="break-all">{linkSentTo}</span> for a sign-in link, and open it in this browser.
+          We sent a sign-in link to <span className="break-all">{linkSentTo}</span>. Open it in this browser.
         </p>
       ) : (
-        <>
-          <p className="mt-4 wrap-break-word text-sm text-content-secondary">
-            Continue with Google, or get a sign-in link at <span className="break-all">{invite.email}</span> and open it
-            in this browser.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button loading={busy === 'google'} disabled={busy !== null} onClick={() => void continueWithGoogle()}>
-              Continue with Google
-            </Button>
-            <Button
-              variant="neutral"
-              loading={busy === 'email'}
-              disabled={busy !== null}
-              onClick={() => void emailLink(invite.email)}
-            >
-              Email me a sign-in link
-            </Button>
-          </div>
-        </>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button loading={busy === 'google'} disabled={anyBusy} onClick={() => void continueWithGoogle()}>
+            Continue with Google
+          </Button>
+          <Button
+            variant="neutral"
+            loading={busy === 'email'}
+            disabled={anyBusy}
+            onClick={() => void emailLink(invite.email)}
+          >
+            Email me a sign-in link
+          </Button>
+          <Button
+            variant="neutral"
+            loading={connecting}
+            disabled={anyBusy}
+            onClick={() => void continueWithCloudflare()}
+          >
+            Continue with Cloudflare
+          </Button>
+        </div>
       )}
     </JoinCard>
   );

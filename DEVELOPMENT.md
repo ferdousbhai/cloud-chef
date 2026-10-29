@@ -155,9 +155,21 @@ first:
 To back out a runtime build that kept the scheduling policy, release the previous runtime (with the variable naming
 nobody else, or empty); the canary's runtime is upgraded back the same way. To back out the move to `durable_object`,
 release the previous runtime and, for each moved runtime, while it is idle, delete its two applications
-(`cf containers applications delete <id>`, the Durable Object namespace id, for `<worker>` and `<worker>-builder`):
-the previous release's provisioning, which keeps retrying its container step, then creates platform-scheduled ones
-again (ARCHITECTURE.md, Rolling back).
+(`<worker>` and `<worker>-builder`): the previous release's provisioning, which keeps retrying its container step,
+then creates platform-scheduled ones again (ARCHITECTURE.md, Rolling back). The script does the deleting:
+
+```sh
+pnpm run rollback:workspace-containers                    # dry run: each runtime's applications, and whether it is idle
+pnpm run rollback:workspace-containers -- --apply         # delete them, one idle runtime at a time
+pnpm run rollback:workspace-containers -- --apply --force # also for a runtime whose activity can't be read
+```
+
+It lists the runtimes from the control plane's D1 with SELECTs through your `cf` login, as `pnpm run ops` does, and
+reads each runtime's applications and its own D1 (`runtime_activity`, `runtime_upgrade_window`) in that runtime's
+account. `--apply` deletes a runtime's applications (`cf containers applications delete <id> --force`) only while
+nothing there is running, has just ended, or holds an upgrade window; a busy runtime is left for another run, and one
+whose activity can't be read is left with a warning unless `--force` is given. It exits non-zero when any runtime was
+left.
 
 ## Deployment
 

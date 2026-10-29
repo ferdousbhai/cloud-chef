@@ -9,10 +9,6 @@ const GITHUB_RETURN_MESSAGES = {
   install_cancelled: 'GitHub was not connected: the installation was cancelled. Try again.',
   install_other_admin:
     'Connecting GitHub has to be finished by the person who started it, while they still manage this account (Personal, or as a team admin). Sign in as them, then connect it again.',
-  install_already_there:
-    "That GitHub account already has CloudChef's GitHub App, so GitHub didn't ask its owner to confirm it. If someone else set it up and this is a team they admin, ask them to add it here. Otherwise its owner uninstalls CloudChef's App on GitHub (in the account's or organization's settings, under Applications or GitHub Apps), then connects it again here.",
-  install_organization_elsewhere:
-    "That GitHub organization is already connected in Personal or one of your teams, and for now an organization can be connected in only one of them at a time. Disconnect it there first, then uninstall CloudChef's App in the organization's settings on GitHub (GitHub Apps) and connect it here.",
   install_not_owner: 'Only the owner of that GitHub account or organization can connect it.',
   install_failed: "GitHub couldn't be connected just now. Try again.",
   connected: 'Connected GitHub.',

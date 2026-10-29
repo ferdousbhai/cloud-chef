@@ -131,9 +131,13 @@ const cloudflareRequestFiledSchema = z.object({
   riskNote: z.string(),
 });
 
-/** What became of a change the team's admins decided, in place of the filed one. */
+/**
+ * What became of a change the team's admins decided, in place of the filed one, or of one in the person's own
+ * account that its command left waiting in the chat (shown by its own card while the chat still lists it).
+ */
 const cloudflareRequestFinalResultSchema = z.object({
   kind: z.literal('cloudflare_request_final_result'),
+  executionId: z.string(),
   status: z.enum(['rejected', 'succeeded', 'failed', 'indeterminate', 'expired']),
   outcome: z.object({
     summary: z.string(),
@@ -167,7 +171,11 @@ function CloudflareChangeContents({
   onDecision?: CloudflareExecutionDecisionHandler;
 }) {
   const output = invocation.state === 'output-available' ? invocation.output : undefined;
-  const filed = commandChangesSchema.safeParse(output).data?.cloudflareChanges ?? [];
+  const shown = new Set(executions.map((execution) => execution.executionId));
+  const filed = (commandChangesSchema.safeParse(output).data?.cloudflareChanges ?? []).filter((change) => {
+    const executionId = cloudflareRequestFinalResultSchema.safeParse(change).data?.executionId;
+    return executionId === undefined || !shown.has(executionId);
+  });
   if (executions.length === 0 && filed.length === 0) {
     return null;
   }
@@ -221,19 +229,19 @@ function CloudflareApprovalContents({
 }) {
   const [pendingDecision, setPendingDecision] = useState<'approve' | 'reject' | null>(null);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  // Once its command's wait is over, a change goes on waiting here, with no deadline.
+  const waitsInChat = execution.leftWaitingAt !== null;
   const { expiresAt } = execution;
-  // The deadline that has passed; a change with another deadline hasn't expired.
+  // The time the command's wait ran out; the change then waits in the chat.
   const [passedDeadline, setPassedDeadline] = useState<number | null>(() =>
     expiresAt <= Date.now() ? expiresAt : null,
   );
-  const expired = passedDeadline === expiresAt;
   useEffect(() => {
     const timeout = window.setTimeout(() => setPassedDeadline(expiresAt), Math.max(0, expiresAt - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [expiresAt]);
 
-  const effectiveStatus = execution.status === 'awaiting_approval' && expired ? 'expired' : execution.status;
-  const canDecide = effectiveStatus === 'awaiting_approval' && Boolean(onDecision) && pendingDecision === null;
+  const canDecide = execution.status === 'awaiting_approval' && Boolean(onDecision) && pendingDecision === null;
 
   const decide = async (decision: 'approve' | 'reject') => {
     if (!onDecision || !canDecide) {
@@ -259,8 +267,12 @@ function CloudflareApprovalContents({
         </div>
         <CloudflareRequestLine request={execution.request} />
         <p className="text-xs leading-5 text-content-secondary">{execution.riskNote}</p>
-        <CloudflareExecutionStatus status={effectiveStatus} outcome={execution.outcome} />
-        {effectiveStatus === 'awaiting_approval' ? (
+        <CloudflareExecutionStatus
+          status={execution.status}
+          outcome={execution.outcome}
+          waitsInChat={waitsInChat || passedDeadline === expiresAt}
+        />
+        {execution.status === 'awaiting_approval' ? (
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
@@ -293,19 +305,24 @@ function CloudflareApprovalContents({
 function CloudflareExecutionStatus({
   status,
   outcome,
+  waitsInChat = false,
 }: {
   status: CloudflareExecutionPublicState['status'];
   outcome: CloudflareExecutionPublicState['outcome'];
+  /** The command that asked has stopped waiting for it, so it waits here. */
+  waitsInChat?: boolean;
 }) {
   const label =
     status === 'awaiting_approval'
-      ? 'Waiting for approval.'
+      ? waitsInChat
+        ? 'Waiting for your approval. The agent went on without it; approving sends it once, and the agent is told what happened.'
+        : 'Waiting for your approval. The agent waits until you decide.'
       : status === 'approved' || status === 'executing'
         ? 'Approved. Sending exactly this request…'
         : status === 'rejected'
           ? 'Rejected. Nothing was sent to Cloudflare.'
           : status === 'expired'
-            ? 'Not approved in time. Nothing was sent to Cloudflare.'
+            ? 'Withdrawn. Nothing was sent to Cloudflare.'
             : status === 'succeeded'
               ? 'Cloudflare made the change.'
               : status === 'indeterminate'

@@ -137,6 +137,10 @@ describe('ConversationAgent schema', () => {
       database.prepare('SELECT execution_id FROM builder_cloudflare_executions ORDER BY execution_id').all(),
     ).toEqual([{ execution_id: 'execution-1' }, { execution_id: 'execution-2' }]);
     expect(schemaObjects(database)).toContain('builder_cloudflare_executions_status_expiry');
+    // It also gains the time a change was left waiting in the chat, unset for the changes it held.
+    expect(
+      database.prepare('SELECT left_waiting_at FROM builder_cloudflare_executions ORDER BY execution_id').all(),
+    ).toEqual([{ left_waiting_at: null }, { left_waiting_at: null }]);
 
     // Starting again leaves the rebuilt table as it is.
     const again = agentContext(database);

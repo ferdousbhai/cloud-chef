@@ -65,6 +65,52 @@ export async function sessionCookieSignedInBefore(env: Env, userId: string, ago:
   }
 }
 
+/**
+ * A CloudChef user who signed in with Google or an emailed link before: their email proven, no Cloudflare
+ * login. Signing in that way makes a new account only for an invited address, so tests start from this.
+ */
+export async function createProvenEmailUser(
+  db: D1Database,
+  email: string,
+): Promise<{ id: string; name: string; email: string; image: null }> {
+  const id = crypto.randomUUID();
+  const address = email.trim().toLowerCase();
+  const name = address.split('@')[0];
+  const now = Date.now();
+  await db
+    .prepare(
+      `INSERT INTO "user" (id, name, email, emailVerified, image, createdAt, updatedAt, email_proven_at)
+       VALUES (?, ?, ?, 1, NULL, ?, ?, ?)`,
+    )
+    .bind(id, name, address, now, now, now)
+    .run();
+  return { id, name, email: address, image: null };
+}
+
+/**
+ * A pending invite to a team for `email`, sent by the team's admin, expiring `expiresIn` milliseconds from
+ * now: what lets Google or an emailed link make a new account for that address.
+ */
+export async function inviteToTeam(db: D1Database, email: string, expiresIn = 60 * 60_000): Promise<void> {
+  const admin = await createProvenEmailUser(db, `admin-${crypto.randomUUID()}@team.example`);
+  const orgId = crypto.randomUUID();
+  const now = Date.now();
+  await db.batch([
+    db
+      .prepare('INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
+      .bind(orgId, 'Team', now, now),
+    db
+      .prepare("INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', ?)")
+      .bind(orgId, admin.id, now),
+    db
+      .prepare(
+        `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
+         VALUES (?, ?, ?, 'member', ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), orgId, email, crypto.randomUUID(), admin.id, now + expiresIn, now),
+  ]);
+}
+
 function result<T>(results: T[], changes = 0): D1Result<T> {
   return {
     success: true,

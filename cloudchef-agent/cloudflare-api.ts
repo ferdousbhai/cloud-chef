@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-export const CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS = 15 * 60_000;
+/**
+ * How long a change waits for the person inside the command that asked: just under that command's own deadline
+ * (exec's 35 minutes), so `cf` is answered before the command is stopped. A change still undecided then stays
+ * waiting in the chat, with no deadline, and the command goes on.
+ */
+export const CLOUDFLARE_EXECUTION_APPROVAL_TTL_MS = 34 * 60_000;
+/** What `cf` is told of a change its command no longer waits for: it waits in the chat instead. */
+export const CLOUDFLARE_CHANGE_WAITING_IN_CHAT =
+  'Not changed yet: waiting for your approval in the chat. It will be sent when you approve it.';
 /** How long a team member's change waits for one of the team's admins on the Approvals page. */
 export const TEAM_APPROVAL_TTL_MS = 7 * 24 * 60 * 60_000;
 
@@ -117,6 +125,12 @@ export type CloudflareExecutionPublicState = {
   startedAt: number | null;
   completedAt: number | null;
   expiresAt: number;
+  /**
+   * When the command that asked stopped waiting for it (its time ran out, `cf` stopped, or the command ended) while
+   * it still waited for the person: from then on it waits in the chat with no deadline, and what the person decides
+   * reaches the agent in that command's output. Null while the command still waits for it.
+   */
+  leftWaitingAt: number | null;
   outcome: CloudflareExecutionSafeOutcome | null;
   request: CloudflareApiRequest;
   riskNote: string;
@@ -144,6 +158,22 @@ export type CloudflareRequestFiled = {
   expiresAt: number;
   note: string;
 };
+
+/**
+ * A change in the person's own account that the command ended without: it waits in the chat for the person, and
+ * what they decide replaces it in the command's output.
+ */
+export type CloudflareChangeWaitingInChat = {
+  kind: 'cloudflare_change_waiting_in_chat';
+  executionId: string;
+  accountId: string;
+  request: CloudflareApiRequest;
+  note: string;
+};
+
+/** The changes a finished command asked for, in its output: each one waiting, or what was decided. */
+export type CloudflareCommandChange =
+  CloudflareRequestFiled | CloudflareChangeWaitingInChat | CloudflareRequestFinalResult;
 
 export type CloudflareRequestFinalResult = {
   kind: 'cloudflare_request_final_result';

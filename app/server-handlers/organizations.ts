@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { prepareWorkspaceInBackground } from '~/server-handlers/cloudflare-integration';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { normalizeEmail, setSessionContext } from '~/lib/.server/auth';
 import { hasSameOrigin, readJsonRequest, withinAddressRateLimit } from '~/lib/.server/request-guards';
@@ -177,7 +178,15 @@ export async function describeInviteAction({ request, env }: { request: Request;
   });
 }
 
-export function acceptInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+export function acceptInviteAction({
+  request,
+  env,
+  prepareWorkspace = prepareWorkspaceInBackground,
+}: {
+  request: Request;
+  env: Env;
+  prepareWorkspace?: typeof prepareWorkspaceInBackground;
+}): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, acceptSchema, 'This invite link is not valid.');
     if ('response' in body) {
@@ -190,6 +199,9 @@ export function acceptInviteAction({ request, env }: { request: Request; env: En
     const switched = connection?.status === 'active';
     if (switched) {
       await setSessionContext(env, request, connection.id);
+      // Their workspace in the team's account starts preparing now, so its first setup is done when they open
+      // a project.
+      await prepareWorkspace(env, session.user.id, connection);
     }
     return Response.json({ orgId, switched });
   });

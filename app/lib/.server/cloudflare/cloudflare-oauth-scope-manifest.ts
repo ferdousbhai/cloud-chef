@@ -16,14 +16,21 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'd1.write',
   'workers-r2.write',
   'workers-kv-storage.write',
+  // Deleting a project also deletes the queues, Vectorize indexes and Hyperdrive configs only its Workers use, as it
+  // does their D1 databases, KV namespaces and R2 buckets.
+  'queues.write',
+  'vectorize.write',
+  'query-cache.write',
   'ai.read',
   // Linking an account's own Anthropic key to its AI Gateway (BYOK), from Settings: the gateway's
   // provider keys, and the Secrets Store secrets they are kept in.
   'aig.write',
   'secrets-store.write',
   // What Workers Builds reports for a project: which Worker builds its repository, each commit's build,
-  // and its Previews. Read only: CloudChef never changes a project's builds.
+  // and its Previews; and removing the triggers that build a project when it is deleted (deleting its Worker
+  // isn't documented to remove them). CloudChef changes a project's builds in no other way.
   'workers-ci.read',
+  'workers-ci.write',
   // Giving a project's site a domain of the account's own (Workers Custom Domains), which the agent asks for and an
   // admin approves request by request: finding the domain's zone, and attaching it to the site's Worker.
   'zone.read',

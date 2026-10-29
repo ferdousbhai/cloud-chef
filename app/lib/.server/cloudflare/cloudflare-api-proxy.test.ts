@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CloudflareApiRequest } from 'cloudchef-agent/cloudflare-api';
 import {
+  CLOUDFLARE_CHANGE_HEADERS_AFTER_MS,
   CLOUDFLARE_API_PROXY_BASE_URL,
   CLOUDFLARE_API_PROXY_TOKEN,
   handleCloudflareApiProxyRequest,
@@ -38,10 +39,10 @@ function harness(
     command: vi.fn(async () => (options.command === undefined ? COMMAND : options.command)),
     propose: vi.fn(async () => answers.shift()!),
     outcome: vi.fn(async () => answers.shift()!),
-    withdraw: vi.fn(async () => undefined),
+    leaveInChat: vi.fn(async () => undefined),
     fileForTeamAdmins: vi.fn(async () => FILED),
     recordTerminalChange: vi.fn(),
-    sleep: vi.fn(async () => undefined),
+    sleep: vi.fn(async (_ms: number) => undefined),
   } satisfies CloudflareApiProxyDependencies;
   return deps;
 }
@@ -302,7 +303,7 @@ describe('Cloudflare API proxy', () => {
     expect(response.status).toBe(403);
     expect(await errorMessage(response)).toContain('nothing was sent');
     expect(deps.propose).toHaveBeenCalledTimes(1);
-    expect(deps.withdraw).not.toHaveBeenCalled();
+    expect(deps.leaveInChat).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -322,7 +323,7 @@ describe('Cloudflare API proxy', () => {
     expect(deps.send).not.toHaveBeenCalled();
   });
 
-  it('withdraws a waiting change when the command that asked stops', async () => {
+  it('leaves a waiting change in the chat when cf stops waiting for it', async () => {
     const stop = new AbortController();
     const deps = harness({ answers: [{ kind: 'waiting', executionId: 'execution-1' }] });
     deps.sleep.mockImplementation(async () => {
@@ -336,9 +337,145 @@ describe('Cloudflare API proxy', () => {
       deps,
     );
 
-    expect(deps.withdraw).toHaveBeenCalledWith(COMMAND, 'execution-1');
+    expect(deps.leaveInChat).toHaveBeenCalledWith(COMMAND, 'execution-1');
     expect(response.status).toBe(499);
-    expect(await errorMessage(response)).toContain('nothing was sent');
+    expect(await errorMessage(response)).toBe(
+      'Not changed yet: waiting for your approval in the chat. It will be sent when you approve it.',
+    );
+  });
+});
+
+/**
+ * How `cf` 1.0.0-beta.24 sends a request (its API client in `dist/api-*.mjs`): `timeoutInSeconds ?? 60`, with no
+ * setting for it and `maxRetries: 0`, aborts the request when its response headers haven't arrived in 60 s; the timer
+ * is cleared once they have, and the body is then read with no timer, as text, then parsed as JSON.
+ */
+const CF_HEADERS_TIMEOUT_MS = 60_000;
+/** Node's fetch (undici) ends a response body that sends nothing for this long. */
+const NODE_FETCH_BODY_TIMEOUT_MS = 300_000;
+
+describe('a change the person takes minutes to approve', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The agent's answers while the person decides `decidedAfterMs` after `cf` asked, polled as the proxy polls. */
+  function decidedAfter(decidedAfterMs: number, decision: CloudflareChangeAnswer) {
+    const asked = Date.now();
+    const deps = harness({ answers: [{ kind: 'waiting', executionId: 'execution-1' }] });
+    deps.outcome.mockImplementation(async () =>
+      Date.now() - asked >= decidedAfterMs ? decision : { kind: 'waiting', executionId: 'execution-1' },
+    );
+    deps.sleep.mockImplementation((ms: number) => new Promise<undefined>((resolve) => setTimeout(resolve, ms)));
+    return deps;
+  }
+
+  /** Reads the answer's body as `cf` does, noting the longest time it went without receiving anything. */
+  async function readAsCf(response: Response) {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    let last = Date.now();
+    let longestSilenceMs = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      longestSilenceMs = Math.max(longestSilenceMs, Date.now() - last);
+      last = Date.now();
+      if (done) {
+        return { json: z.unknown().parse(JSON.parse(text)), longestSilenceMs };
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+  }
+
+  it("answers cf before its 60 s timeout, then gives that same command Cloudflare's answer minutes later", async () => {
+    vi.useFakeTimers();
+    const deps = decidedAfter(12 * 60_000, {
+      kind: 'answer',
+      status: 200,
+      body: '{"success":true,"result":{"id":"kv-1","title":"canary-test"}}',
+    });
+    let headers: Response | undefined;
+    const answered = handleCloudflareApiProxyRequest(
+      fromContainer('POST', `/accounts/${ACCOUNT}/storage/kv/namespaces`, {
+        body: '{"title":"canary-test"}',
+        type: 'application/json',
+      }),
+      deps,
+    ).then((response) => {
+      headers = response;
+      return response;
+    });
+
+    // In production the approval card showed, and `cf` ended with a timeout about a minute later.
+    await vi.advanceTimersByTimeAsync(CF_HEADERS_TIMEOUT_MS - 1);
+    expect(headers, 'cf gives up on a request whose headers have not arrived in 60 s').toBeDefined();
+    expect(headers?.status).toBe(200);
+    expect(CLOUDFLARE_CHANGE_HEADERS_AFTER_MS).toBeLessThan(CF_HEADERS_TIMEOUT_MS);
+
+    const reading = readAsCf(await answered);
+    await vi.advanceTimersByTimeAsync(13 * 60_000);
+    const { json, longestSilenceMs } = await reading;
+
+    expect(json).toEqual({ success: true, result: { id: 'kv-1', title: 'canary-test' } });
+    expect(longestSilenceMs).toBeLessThan(NODE_FETCH_BODY_TIMEOUT_MS);
+    // One change, proposed once and asked about until it was decided; only the agent sends it.
+    expect(deps.propose).toHaveBeenCalledTimes(1);
+    expect(deps.send).not.toHaveBeenCalled();
+    expect(deps.leaveInChat).not.toHaveBeenCalled();
+  });
+
+  it("keeps a failure decided after the answer began in Cloudflare's error shape, which cf reports as an error", async () => {
+    vi.useFakeTimers();
+    const notYet = 'Not changed yet: waiting for your approval in the chat. It will be sent when you approve it.';
+    const deps = decidedAfter(5 * 60_000, {
+      kind: 'answer',
+      status: 202,
+      body: JSON.stringify({ success: false, errors: [{ code: 10000, message: notYet }], messages: [], result: null }),
+    });
+    const answered = handleCloudflareApiProxyRequest(
+      fromContainer('DELETE', `/accounts/${ACCOUNT}/workers/scripts/site`),
+      deps,
+    );
+    await vi.advanceTimersByTimeAsync(CLOUDFLARE_CHANGE_HEADERS_AFTER_MS);
+    const reading = readAsCf(await answered);
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+
+    expect(cloudflareErrorSchema.parse((await reading).json).errors[0]?.message).toBe(notYet);
+  });
+
+  it('wraps a failing answer that is not in Cloudflare’s error shape, so cf still sees that it failed', async () => {
+    vi.useFakeTimers();
+    const deps = decidedAfter(2 * 60_000, { kind: 'answer', status: 502, body: 'upstream unavailable' });
+    const answered = handleCloudflareApiProxyRequest(
+      fromContainer('DELETE', `/accounts/${ACCOUNT}/workers/scripts/site`),
+      deps,
+    );
+    await vi.advanceTimersByTimeAsync(CLOUDFLARE_CHANGE_HEADERS_AFTER_MS);
+    const reading = readAsCf(await answered);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+
+    expect(cloudflareErrorSchema.parse((await reading).json).errors[0]?.message).toContain(
+      'status 502: upstream unavailable',
+    );
+  });
+
+  it('leaves the change waiting in the chat, asking for no other, when cf stops reading the answer', async () => {
+    vi.useFakeTimers();
+    const deps = decidedAfter(30 * 60_000, { kind: 'answer', status: 200, body: '{"success":true}' });
+    const answered = handleCloudflareApiProxyRequest(
+      fromContainer('DELETE', `/accounts/${ACCOUNT}/workers/scripts/site`),
+      deps,
+    );
+    await vi.advanceTimersByTimeAsync(CLOUDFLARE_CHANGE_HEADERS_AFTER_MS);
+    await (await answered).body!.cancel();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(deps.leaveInChat).toHaveBeenCalledWith(COMMAND, 'execution-1');
+    expect(deps.propose).toHaveBeenCalledTimes(1);
+    const polls = deps.outcome.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(deps.outcome.mock.calls.length).toBe(polls);
   });
 });
 
