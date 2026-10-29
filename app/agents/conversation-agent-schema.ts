@@ -26,7 +26,8 @@ const CLOUDFLARE_EXECUTIONS_COLUMNS = `
       started_at INTEGER,
       completed_at INTEGER,
       expires_at INTEGER NOT NULL,
-      outcome_json TEXT
+      outcome_json TEXT,
+      left_waiting_at INTEGER
 `;
 
 /**
@@ -91,11 +92,26 @@ function allowSeveralChangesPerCommand(storage: ConversationAgentInitializationC
 }
 
 /**
+ * `left_waiting_at` came later: when the command that asked for a change stopped waiting for it, and it went on
+ * waiting in the chat. A table made before it gains the column, last, as the columns above have it, so the rebuild
+ * below copies every column across.
+ */
+function recordWhenChangesLeftWaiting(storage: ConversationAgentInitializationContext['storage']): void {
+  const columns = [
+    ...storage.sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('builder_cloudflare_executions')`),
+  ];
+  if (columns.length > 0 && !columns.some((column) => column.name === 'left_waiting_at')) {
+    storage.sql.exec(`ALTER TABLE builder_cloudflare_executions ADD COLUMN left_waiting_at INTEGER`);
+  }
+}
+
+/**
  * Gate ConversationAgent startup on its local SQLite schema. Cloudflare delivers no
  * other events to this Durable Object until the callback resolves.
  */
 export function initializeConversationAgentSchema(ctx: ConversationAgentInitializationContext): void {
   ctx.blockConcurrencyWhile(async () => {
+    recordWhenChangesLeftWaiting(ctx.storage);
     allowSeveralChangesPerCommand(ctx.storage);
     for (const statement of SCHEMA_STATEMENTS) {
       ctx.storage.sql.exec(statement);

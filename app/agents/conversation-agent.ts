@@ -162,6 +162,7 @@ import {
   BuilderCloudflareExecutionRepository,
   cloudflareChangeAnswer,
   cloudflareExecutionStatusForOutcome,
+  chatCloudflareChange,
   isCloudflareExecutionTerminal,
   publicExecutionState,
   safeCloudflareExecutionOutcome,
@@ -176,6 +177,7 @@ import {
   type CloudflareApiRequest,
   type CloudflareExecutionDecisionResult,
   type CloudflareExecutionPublicState,
+  type CloudflareCommandChange,
   type CloudflareExecutionSafeOutcome,
   type CloudflareRequestFiled,
   type CloudflareRequestFinalResult,
@@ -306,7 +308,10 @@ const workspaceCloudflareChangeSchema = z.object({
   request: cloudflareApiRequestSchema,
 });
 const WORKSPACE_CHANGE_REFUSAL = 'This workspace can’t change the Cloudflare account.';
-/** A change whose proxy hasn't asked about it for this long has no command waiting for it any more. */
+/**
+ * A change whose proxy hasn't asked about it for this long has no command waiting for it any more: approving it
+ * leaves it to the chat, and what Cloudflare answers reaches the agent in the command's output.
+ */
 const CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS = 15_000;
 const TEAM_APPROVAL_NOTE =
   'This changes the team’s Cloudflare account. One of the team’s admins approves or rejects it on their Approvals ' +
@@ -315,6 +320,8 @@ const TEAM_APPROVAL_NOTE =
 const commandChangesSchema = z.looseObject({ cloudflareChanges: z.array(z.unknown()) });
 /** One of them still waiting for the team's admins. */
 const filedChangeSchema = z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() });
+/** One in the person's own account the command left waiting in the chat. */
+const waitingInChatSchema = z.object({ kind: z.literal('cloudflare_change_waiting_in_chat'), executionId: z.string() });
 const commandOutputPartSchema = z.object({ output: commandChangesSchema });
 const approvalOutcomeSchema = z.object({
   agentName: z.string(),
@@ -763,8 +770,10 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       readAccountModelSettings(this.env),
     );
     const chosenReasoningLevel = requireBuilderReasoningLevel(model, reasoningLevel);
-    // The model reads what became of any change this conversation filed for the team's admins.
+    // The model reads what became of any change this conversation filed for the team's admins, or left waiting in
+    // the chat.
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
+    await this.settleChatCloudflareChanges();
     // Refused before anything is stopped or recorded: a turn that never starts must not hold anything.
     const requestedTurnContext = parseTurnContext(body.turnContext);
     const siteNote = this.linkedSiteNote();
@@ -877,7 +886,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         linkedProject,
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         pushResult: (toolCallId) => this.gitPushResult(toolCallId),
-        cloudflareChanges: async (toolCallId) => this.settleCommandCloudflareChanges(toolCallId),
+        cloudflareChanges: async (toolCallId, ended) => this.settleCommandCloudflareChanges(toolCallId, ended),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
         onSettled: () => {
@@ -1072,12 +1081,14 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       proposalSha256: proposal.proposalSha256,
     };
     await this.runtimeActivity.admit();
-    // Sent only while the command that asked still waits for it: its proxy asks again every few seconds.
+    // While the command that asked waits for it, its proxy asks again every few seconds and hands `cf` the answer.
+    // A change no proxy asks about any more is the chat's: it is sent all the same, and the answer goes to the agent.
     const asked = this.waitingCloudflareChanges.get(proposal.executionId);
-    if (asked === undefined || Date.now() - asked > CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS) {
-      this.cloudflareExecutions.withdraw(proposal.toolCallId, proposal.executionId);
-      this.refreshCloudflareExecutionState();
-      throw new Response('The command that asked for this change has stopped, so it wasn’t sent.', { status: 409 });
+    if (
+      proposal.leftWaitingAt === null &&
+      (asked === undefined || Date.now() - asked > CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS)
+    ) {
+      this.cloudflareExecutions.leaveInChat(proposal.toolCallId, proposal.executionId);
     }
     await this.startFiber(
       CLOUDFLARE_EXECUTION_FIBER,
@@ -1095,6 +1106,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       throw new Error('The Cloudflare execution disappeared after its durable fiber completed.');
     }
     this.refreshCloudflareExecutionState();
+    await this.settleChatCloudflareChanges();
     return { execution: publicExecutionState(execution) };
   }
 
@@ -1107,6 +1119,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     const binding = await this.requireCurrentCloudflareExecutionBinding('reject_cloudflare_execution');
     const { record } = await this.cloudflareExecutions.reject(parsed.data.executionId, binding);
     this.refreshCloudflareExecutionState();
+    await this.settleChatCloudflareChanges();
     return { execution: publicExecutionState(record) };
   }
 
@@ -2205,35 +2218,90 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if (!record || record.toolCallId !== input.toolCallId) {
       return refusedChange(404, 'This change is not waiting for approval.');
     }
-    if (record.status === 'awaiting_approval' && record.expiresAt <= Date.now()) {
+    if (record.status === 'awaiting_approval' && record.leftWaitingAt === null && record.expiresAt <= Date.now()) {
+      // Its command's wait ran out: it is left waiting in the chat, and `cf` is told so.
       this.refreshCloudflareExecutionState();
       return this.answerWaitingChange(this.cloudflareExecutions.get(input.executionId) ?? record);
     }
     return this.answerWaitingChange(record);
   }
 
-  /** The command that asked for a change stopped while it waited: it is never sent. */
-  async withdrawWorkspaceCloudflareChange(input: { toolCallId: string; executionId: string }): Promise<void> {
+  /** `cf` stopped while its change waited (the command may go on): the change waits in the chat instead. */
+  async leaveWorkspaceCloudflareChangeInChat(input: { toolCallId: string; executionId: string }): Promise<void> {
     const record = this.cloudflareExecutions.get(input.executionId);
     if (
       record?.toolCallId === input.toolCallId &&
-      this.cloudflareExecutions.withdraw(input.toolCallId, input.executionId)
+      this.cloudflareExecutions.leaveInChat(input.toolCallId, input.executionId)
     ) {
       this.refreshCloudflareExecutionState();
     }
   }
 
   /**
-   * After a command ends: a change it left waiting is withdrawn, since nothing waits for its answer any more, and
-   * the changes it filed for the team's admins are given for its output, where their decisions later land.
+   * After a command ends, the changes it asked for, for its output. One it finished without stays waiting in the
+   * chat, where the person may still approve or reject it, and what they decide replaces it in this output; when the
+   * command was stopped, one `cf` still waited for is withdrawn, since nothing reads its answer. The changes it filed
+   * for the team's admins are given too, where their decisions later land.
    */
-  private settleCommandCloudflareChanges(toolCallId: string): CloudflareRequestFiled[] {
-    if (this.cloudflareExecutions.withdraw(toolCallId)) {
+  private settleCommandCloudflareChanges(
+    toolCallId: string,
+    ended: 'finished' | 'stopped' = 'finished',
+  ): CloudflareCommandChange[] {
+    const settled =
+      ended === 'stopped'
+        ? this.cloudflareExecutions.withdrawHeld(toolCallId)
+        : this.cloudflareExecutions.leaveInChat(toolCallId);
+    if (settled) {
       this.refreshCloudflareExecutionState();
     }
+    const inChat = this.cloudflareExecutions
+      .leftInChatBy(toolCallId)
+      .map((record) => chatCloudflareChange(publicExecutionState(record)));
     const filed = this.filedCloudflareChanges.get(toolCallId) ?? [];
     this.filedCloudflareChanges.delete(toolCallId);
-    return filed;
+    return [...inChat, ...filed];
+  }
+
+  /**
+   * Puts what the person decided on each change a command left waiting in the chat in place of that change in the
+   * command's output, which the agent reads at its next turn.
+   */
+  private async settleChatCloudflareChanges(): Promise<void> {
+    let messages: CloudChefMessage[] | null = null;
+    for (const message of this.messages) {
+      for (const part of message.parts) {
+        const changes = commandOutputPartSchema.safeParse(part).data?.output.cloudflareChanges ?? [];
+        for (const change of changes) {
+          const waiting = waitingInChatSchema.safeParse(change);
+          const record = waiting.success ? this.cloudflareExecutions.get(waiting.data.executionId) : null;
+          if (!record || !isCloudflareExecutionTerminal(record.status)) {
+            continue;
+          }
+          const next = replaceToolCallPart(messages ?? this.messages, record.toolCallId, (current, invocation) => {
+            if (
+              invocation.toolName !== 'exec' ||
+              invocation.state !== 'output-available' ||
+              !isRecord(invocation.output)
+            ) {
+              return null;
+            }
+            const listed = commandChangesSchema.safeParse(invocation.output).data?.cloudflareChanges;
+            const at = listed?.findIndex(
+              (entry) => waitingInChatSchema.safeParse(entry).data?.executionId === record.executionId,
+            );
+            if (!listed || at === undefined || at < 0) {
+              return null;
+            }
+            const decided = chatCloudflareChange(publicExecutionState(record));
+            return { ...current, output: { ...invocation.output, cloudflareChanges: listed.with(at, decided) } };
+          });
+          messages = next ?? messages;
+        }
+      }
+    }
+    if (messages) {
+      await this.persistReplacedToolOutput(messages);
+    }
   }
 
   /**
@@ -2433,7 +2501,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   }
 
   private refreshCloudflareExecutionState(): void {
-    this.cloudflareExecutions.expireAwaiting();
+    this.cloudflareExecutions.leaveOverdueInChat();
     const cloudflareExecutions = this.cloudflareExecutions.listRecent();
     this.setState({ ...this.state, cloudflareExecutions });
   }

@@ -41,7 +41,7 @@ const NOT_CONNECTED = 'This workspace is not connected to CloudChef.';
 /**
  * Minted for one workspace by its ProjectWorkspace, as the handler for cloudflare-api.internal in its container:
  * reads go to Cloudflare with the account's authorization; a change goes to the agent whose command asked, which
- * keeps it until the person approves, or, with no agent command running, is the person's own from the terminal and
+ * holds `cf` until the person decides (within the command's time; after it the change waits in the chat), or, with no agent command running, is the person's own from the terminal and
  * is sent at once (a team member's, from either, goes to the team's admins).
  */
 export class CloudflareApiProxy extends WorkerEntrypoint<CloudflareApiProxyEnv, { workspaceId: string }> {
@@ -70,8 +70,8 @@ export class CloudflareApiProxy extends WorkerEntrypoint<CloudflareApiProxyEnv, 
         }),
       outcome: (command, executionId) =>
         agent(command.agentName).workspaceCloudflareChangeOutcome({ toolCallId: command.toolCallId, executionId }),
-      withdraw: (command, executionId) =>
-        agent(command.agentName).withdrawWorkspaceCloudflareChange({ toolCallId: command.toolCallId, executionId }),
+      leaveInChat: (command, executionId) =>
+        agent(command.agentName).leaveWorkspaceCloudflareChangeInChat({ toolCallId: command.toolCallId, executionId }),
       fileForTeamAdmins: async (canonical) => {
         const identity = runtimeConnectionIdentity(env);
         if (!identity) {

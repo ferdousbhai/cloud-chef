@@ -247,6 +247,7 @@ function execution(status: CloudflareExecutionStatus): CloudflareExecutionPublic
     startedAt: null,
     completedAt: null,
     expiresAt: 2,
+    leftWaitingAt: null,
     outcome: null,
     request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-1' },
     riskNote: 'risk',

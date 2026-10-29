@@ -20,7 +20,7 @@ import type { BuilderValidationStage } from '~/lib/common/builder-validation-pro
 import type { Tool } from 'cloudchef-agent/tool';
 import { type BuilderSkillReader, isBuilderSkillPath } from './builder-skills';
 import { sha256Hex } from '~/lib/hex-digest';
-import type { CloudflareRequestFiled } from 'cloudchef-agent/cloudflare-api';
+import type { CloudflareCommandChange } from 'cloudchef-agent/cloudflare-api';
 import { VALIDATE_COMMAND } from 'cloudchef-agent/constants';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
 
@@ -33,10 +33,11 @@ export type BuilderOperationContext = {
    */
   pushResult?: (toolCallId: string) => Promise<CloudChefToolResult | undefined>;
   /**
-   * Settles the Cloudflare changes the finished command asked for: one still waiting for approval is withdrawn,
-   * and those filed for a team's admins are given for the command's output, where their decisions later land.
+   * Settles the Cloudflare changes the ended command asked for, given for its output: one still waiting for the
+   * person stays waiting in the chat when the command finished (withdrawn when it was stopped), and those filed for
+   * a team's admins are given too; what is decided later replaces each in the output.
    */
-  cloudflareChanges?: (toolCallId: string) => Promise<CloudflareRequestFiled[]>;
+  cloudflareChanges?: (toolCallId: string, ended: 'finished' | 'stopped') => Promise<CloudflareCommandChange[]>;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -142,8 +143,11 @@ type ExecToolReport = {
   error?: string;
   /** What the command pushed to the project's repository, and its build: the chat shows it as a publish. */
   push?: CloudChefToolResult;
-  /** The changes to the team's Cloudflare account the command filed for its admins, then what they decided. */
-  cloudflareChanges?: CloudflareRequestFiled[];
+  /**
+   * The changes to the Cloudflare account the command ended without: left waiting in the chat for the person, or
+   * filed for a team's admins, then what was decided.
+   */
+  cloudflareChanges?: CloudflareCommandChange[];
 };
 
 const EXEC_TOOL_DESCRIPTION =
@@ -169,8 +173,8 @@ function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOpera
           abortSignal: options.abortSignal,
         });
       } catch (error) {
-        // A command that stopped leaves no change of its own waiting: nothing would read its answer.
-        await context.cloudflareChanges?.(options.toolCallId).catch(() => undefined);
+        // A command that stopped leaves no change `cf` still waited for: nothing would read its answer.
+        await context.cloudflareChanges?.(options.toolCallId, 'stopped').catch(() => undefined);
         throw error;
       }
       // A stop mid-run rejects the command above; a result here is a command that ran to completion.
@@ -187,7 +191,7 @@ function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOpera
       if (push) {
         report.push = push;
       }
-      const cloudflareChanges = (await context.cloudflareChanges?.(options.toolCallId)) ?? [];
+      const cloudflareChanges = (await context.cloudflareChanges?.(options.toolCallId, 'finished')) ?? [];
       if (cloudflareChanges.length > 0) {
         report.cloudflareChanges = cloudflareChanges;
       }

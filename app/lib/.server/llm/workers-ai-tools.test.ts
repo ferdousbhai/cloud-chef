@@ -434,7 +434,7 @@ describe('minimal Workers AI tool surface', () => {
     await expect(executeTool(tools.exec, { command: 'cf workers domains create' })).resolves.toMatchObject({
       cloudflareChanges: [filed, second],
     });
-    expect(cloudflareChanges).toHaveBeenCalledWith('tool-call');
+    expect(cloudflareChanges).toHaveBeenCalledWith('tool-call', 'finished');
   });
 
   it('offers the model exactly read, write, edit and exec', () => {
