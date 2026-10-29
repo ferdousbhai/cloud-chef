@@ -64,7 +64,7 @@ describe('the sign-in prompt', () => {
     expect(text).toContain('Sign in to CloudChef.');
     expect(text).toContain('Build in your own Cloudflare account.');
     expect(text).toContain("Needs Cloudflare's Workers Paid plan.");
-    expect(text).toContain('Already have a CloudChef account? Sign in with Google or an emailed link.');
+    expect(text).toContain('Or sign in with Google or an emailed link.');
     expect(text).toContain('By continuing, you agree to the Terms and Privacy notice.');
     expect(buttons).toEqual(['Continue with Cloudflare', 'Continue with Google', 'Email me a link']);
     expect(text).not.toContain('Back to CloudChef');
@@ -83,6 +83,6 @@ describe('the sign-in prompt', () => {
     expect(text).toContain("You're signed in as sam@acme.com.");
     expect(buttons).toEqual(['Connect Cloudflare', 'Sign out']);
     expect(text).toContain('Teams');
-    expect(text).not.toContain('Already have a CloudChef account?');
+    expect(text).not.toContain('Or sign in with Google');
   });
 });

@@ -39,7 +39,7 @@ function SignIn() {
   return (
     <CloudflareSignInPrompt
       title="Sign in to CloudChef."
-      description="Build in your own Cloudflare account."
+      description="Build in your own Cloudflare account, or in a team you've joined."
       initialError={search[SIGN_IN_REFUSAL_PARAM] === NO_ACCOUNT_REFUSAL ? NO_ACCOUNT_MESSAGE : null}
       returnTo="/"
     />
