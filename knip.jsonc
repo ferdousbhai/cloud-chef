@@ -57,8 +57,5 @@
 
     // run as `pnpm exec wrangler` only by local D1 migrations (scripts/apply-d1-migrations.mjs --local)
     "wrangler",
-
-    // type-only peer of the Agents packages (see pnpm-workspace.yaml peerDependencyRules)
-    "@cloudflare/workers-types",
   ],
 }

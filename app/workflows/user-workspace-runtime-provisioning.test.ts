@@ -67,6 +67,7 @@ const dependencies = {
   findRuntime: mocks.findRuntime,
   claimUpgradeWindow: mocks.claimUpgradeWindow,
   changeUpgradeWindow: mocks.changeUpgradeWindow,
+  imagePublished: () => true,
 } satisfies UserWorkspaceRuntimeProvisioningDependencies;
 
 describe('workspace runtime provisioning Workflow', () => {
@@ -274,6 +275,18 @@ describe('workspace runtime provisioning Workflow', () => {
       );
       expect(instance.restart).toHaveBeenCalledOnce();
     });
+  });
+
+  it('prepares nothing while this release pins no published workspace image', async () => {
+    await expect(
+      runUserWorkspaceRuntimeProvisioningWorkflow({
+        ...workflowArgs(),
+        dependencies: { ...dependencies, imagePublished: () => false },
+      }),
+    ).resolves.toEqual({ status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null });
+    expect(mocks.requireActiveConnection).not.toHaveBeenCalled();
+    expect(mocks.accountApi.ensureD1Database).not.toHaveBeenCalled();
+    expect(mocks.accountApi.deployWorkspaceRuntimeWorker).not.toHaveBeenCalled();
   });
 
   it('returns the two actionable eligibility outcomes without creating resources', async () => {

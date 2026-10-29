@@ -1,6 +1,6 @@
-// @cloudflare/computer declares itself preview-only. Keep the exact pin below, the local dist patch,
-// and the durable workspace surfaces reviewed together.
-export const CLOUDFLARE_COMPUTER_VERSION = '0.2.1';
+// @cloudflare/computer marks its container backend and sync protocol experimental. Keep the exact pin
+// below, the local dist patch, and the durable workspace surfaces reviewed together.
+export const CLOUDFLARE_COMPUTER_VERSION = '0.8.0';
 export const GENERATED_PROJECT_PNPM_VERSION = '11.14.0';
 
 export const COMPUTER_DEFAULT_SHELL_BACKEND = 'container-shell';

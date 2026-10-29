@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { ORG, teamFixture } from '~/test/project-fixture';
 import { commandLineRewriteMainAction, runtimeMainRewriteAction, runtimeMainRewrittenAction } from './main-rewrite';
@@ -31,7 +31,7 @@ async function world() {
     .run(
       team.admin.userId,
       USER_WORKSPACE_RUNTIME_SHA256,
-      USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+      USER_WORKSPACE_IMAGE,
       USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     );
   const forwarded: { url: string; body: unknown }[] = [];

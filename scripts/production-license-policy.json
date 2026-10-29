@@ -39,7 +39,7 @@
     "@bufbuild/protobuf",
     "@cfworker/json-schema",
     "@cloudflare/computer",
-    "@cloudflare/containers",
+    "@cloudflare/workers-types",
     "@earendil-works/pi-agent-core",
     "@earendil-works/pi-ai",
     "@earendil-works/pi-telemetry",

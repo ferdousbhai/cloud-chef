@@ -6,7 +6,6 @@ import {
   Workspace,
   WorkspaceProxy,
 } from '@cloudflare/computer';
-import { proxyTerminal, type SandboxCommand } from '@cloudflare/sandbox';
 import { settleCancelledWorkspaceCommand } from './command-cancellation';
 import { terminateWorkspaceCommand } from './command-termination';
 import {
@@ -89,7 +88,7 @@ import {
 import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-boundary';
 import { applyAtomicWorkspaceChanges, isMissingPath, type AtomicWorkspaceChange } from './atomic-workspace-changes';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
-import { terminalCommand, terminalEnvironment } from './workspace-terminal';
+import { bridgeTerminal, TERMINAL_PATH, terminalSize } from './workspace-terminal';
 import { matchDeploymentRoute } from './deployment-route';
 import {
   enumerateProjectFiles,
@@ -124,6 +123,10 @@ import {
 } from './operation-lease-policy';
 import {
   DurableWorkspaceSyncRetryScheduler,
+  pullFromOriginRuntime,
+  retryPendingSync,
+  type WorkspaceSyncPullTarget,
+  WorkspaceSyncRuntimeLostError,
   requireDurableCommandResult,
   requireWorkspaceSyncBarrier,
   WorkspaceSyncPendingError,
@@ -174,7 +177,8 @@ import {
   PLACEHOLDER_D1_DATABASE_ID,
   PLACEHOLDER_KV_NAMESPACE_ID,
 } from '../../template/scripts/lib/cloudflare-project.mjs';
-import { COMPUTERD_ENV, COMPUTERD_PROCESS_ROLE, ComputerSandboxBase, CONTAINER_TOOL_ENV } from './computer-sandbox';
+import { ComputerSandboxBase, CONTAINER_COMMAND_ENV, sandboxShellCommand } from './computer-sandbox';
+import type { ScheduledCallbackPayload } from './scheduled-callbacks';
 import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT, relativeIsolatedPath } from './isolated-project';
 import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
@@ -391,7 +395,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         .reconcile()
         .catch((error) => console.error('Unable to reconcile persisted Computer sync retries', error)),
     );
-    this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
+    this.#workspace = new Workspace(this.createComputerWorkspaceOptions());
     this.#toolOperations = new ToolOperationJournal(ctx.storage);
     this.#toolOperations.initialize();
     if (this.#toolOperations.pending().length > 0 || this.#syncRetries.state('container-shell')?.exhausted === true) {
@@ -505,12 +509,110 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     );
   }
 
-  override fetch(request: Request): Promise<Response> {
-    // The Computer container calls back on `/ws`; everything else is the Agent's own request.
-    if (new URL(request.url).pathname === '/ws') {
+  override fetch(request: Request): Response | Promise<Response> {
+    const path = new URL(request.url).pathname;
+    // computerd dials back through WorkspaceProxy, which forwards only its RPC upgrade on `/api`.
+    if (path === '/api') {
       return this.containerBackend.handleFetch(request);
     }
+    // The person's own shell, forwarded by the runtime Worker once it has checked whose workspace this is.
+    if (path === TERMINAL_PATH) {
+      return this.serveTerminal(request);
+    }
     return super.fetch(request);
+  }
+
+  protected override async startWorkspaceContainer(): Promise<void> {
+    await this.#workspace.ready('container-shell');
+  }
+
+  protected override async runScheduledCallback(callback: string, payload: ScheduledCallbackPayload): Promise<void> {
+    if (callback === 'retryPendingComputerSync') {
+      await this.retryPendingComputerSync(payload);
+    } else if (callback === 'reconcilePendingCommands') {
+      await this.reconcilePendingCommands();
+    } else {
+      console.warn('ProjectWorkspace ignored an unknown scheduled callback', { callback });
+    }
+  }
+
+  /**
+   * How a post-command pull reaches the container: connect it if needed and name the runtime it is,
+   * then pull. The runtime id is the one the container host recorded at its latest launch or adoption,
+   * so a container replaced underneath a pull is seen as a different runtime.
+   */
+  private syncPullTarget(): WorkspaceSyncPullTarget {
+    return {
+      currentRuntimeId: async (backend) => {
+        await this.#workspace.ready(backend);
+        return this.currentContainerRuntimeId();
+      },
+      pull: (backend) => drainSync(this.#workspace.pull(backend)),
+    };
+  }
+
+  /**
+   * Confirm a streamed command's changes reached the durable VFS. Computer's streaming path runs the
+   * post-command pull but cannot report its outcome, so the confirmation is a pull of CloudChef's
+   * own, from the runtime that ran the command: a no-op when the vendor pull already landed, and the
+   * first durable record of a pending pull when it did not.
+   */
+  private async confirmCommandSync(
+    backend: 'container-shell',
+    runtimeId: string | null,
+  ): Promise<WorkspaceRuntimeResult<'utf8'>['sync']> {
+    try {
+      await pullFromOriginRuntime(this.syncPullTarget(), backend, runtimeId ?? undefined);
+      return { status: 'complete', applied: 0, skipped: [] };
+    } catch (error) {
+      if (error instanceof WorkspaceSyncRuntimeLostError) {
+        throw new Error(
+          'The workspace command cannot be confirmed: the container that ran it was replaced before its changes were saved.',
+          { cause: error },
+        );
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      await this.#syncRetries.schedulePending(backend, runtimeId ?? undefined, message);
+      return { status: 'pending', applied: 0, skipped: [], error: message };
+    }
+  }
+
+  private async processForRole(role: string): Promise<TrackedSandboxProcess | null> {
+    const row = first(
+      this.ctx.storage.sql.exec<{ process_id: string }>(
+        'SELECT process_id FROM cloudchef_sandbox_processes WHERE role = ?',
+        role,
+      ),
+    );
+    if (!row) {
+      return null;
+    }
+    const process = await this.containerProcesses.getProcess(row.process_id).catch(() => null);
+    if (!process) {
+      this.clearProcessForRole(role);
+    }
+    return process;
+  }
+
+  private setProcessForRole(role: string, processId: string): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO cloudchef_sandbox_processes (role, process_id) VALUES (?, ?)
+       ON CONFLICT(role) DO UPDATE SET process_id = excluded.process_id`,
+      role,
+      processId,
+    );
+  }
+
+  private clearProcessForRole(role: string, processId?: string): void {
+    if (processId) {
+      this.ctx.storage.sql.exec(
+        'DELETE FROM cloudchef_sandbox_processes WHERE role = ? AND process_id = ?',
+        role,
+        processId,
+      );
+      return;
+    }
+    this.ctx.storage.sql.exec('DELETE FROM cloudchef_sandbox_processes WHERE role = ?', role);
   }
 
   async __getWorkspaceStub() {
@@ -571,7 +673,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       await this.#syncRetries.rearm(backend);
       return;
     }
-    const result = await this.#workspace.retryPendingSync(backend);
+    const result = await retryPendingSync({ scheduler: this.#syncRetries, target: this.syncPullTarget(), backend });
     const event = {
       backend,
       attempt: state.attempt,
@@ -579,6 +681,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       cause: state.lastError ? 'post_command_pull_failed' : 'post_command_pull_pending',
       completion: result.status,
       exhaustion: result.status === 'exhausted',
+      originRuntime: state.runtimeId === undefined ? 'unknown' : 'checked',
     };
     if (result.status === 'pending' || result.status === 'exhausted') {
       this.#syncRetries.recordFailure(backend, result.error, result.status === 'exhausted');
@@ -643,7 +746,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           // package intentionally swallows host scheduling failures after a
           // command. An ordinary pull is idempotent and proves remote changes
           // reached the durable VFS before the tool result is exposed.
-          await this.#workspace.pull(backend);
+          await drainSync(this.#workspace.pull(backend));
           this.#toolOperations.completePending(backend);
           await this.cleanupReadinessRoot().catch(() => undefined);
         }
@@ -1105,7 +1208,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
    *
    * Nothing before the model's first `exec` requires a container: seeding writes into the durable
    * VFS, and `read`/`ls`/`grep` are served from it. Left to that `exec`, the whole cold start —
-   * container boot, the toolchain and computerd bootstraps, the FUSE mount — would land in the
+   * container boot, the toolchain bootstrap, computerd's FUSE mount and RPC connection — would land in the
    * middle of the first turn. Opening a chat is the moment we learn a container will be wanted, and
    * the user is still typing, so that is when to pay for it.
    *
@@ -1116,7 +1219,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
    */
   async warmContainer(): Promise<void> {
     try {
-      await this.getWorkspaceContainer().start(COMPUTERD_ENV, false);
+      await this.startWorkspaceContainer();
     } catch (error) {
       console.info('ProjectWorkspace container warm-up did not complete', {
         error: error instanceof Error ? error.message : String(error),
@@ -1164,21 +1267,20 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   /**
    * The workspace's shell for the person to work in themselves (their own tools, such as a coding agent), in the
    * project folder of the same container the agent uses. One per container, kept between visits: a reloaded page
-   * reattaches to it, and a new container starts a new one, in the same folder with the same kept home.
+   * reattaches to it, and a new container starts a new one, in the same folder with the same kept home. Reached
+   * only through `fetch` at `TERMINAL_PATH`, which the runtime Worker forwards after checking the chat is the
+   * person's; computerd's WorkspaceProxy forwards nothing but `/api`.
    */
-  async openTerminal(size: TerminalSize): ReturnType<ProjectWorkspace['createTerminal']> {
+  private async serveTerminal(request: Request): Promise<Response> {
+    if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
+      return Response.json({ error: 'Expected a WebSocket upgrade' }, { status: 426 });
+    }
     await this.withComputer(async () => undefined);
     await this.assertContainerMatchesDurableProject();
-    const running = (await this.listTerminals()).find((terminal) => terminal.snapshot.status === 'running');
-    return (
-      running ??
-      this.createTerminal({
-        command: terminalCommand(),
-        cwd: PROJECT_ROOT,
-        env: terminalEnvironment(),
-        ...size,
-      })
-    );
+    return bridgeTerminal(await this.runningContainer(), {
+      cwd: PROJECT_ROOT,
+      size: terminalSize(new URL(request.url)),
+    });
   }
 
   async execute(value: unknown): Promise<WorkspaceRuntimeResult<'utf8'>> {
@@ -1210,10 +1312,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
               this.armCommandKill(request.operationKey, kill);
             },
             onSyncPending: request.toolCallId
-              ? (result) => {
-                  this.recordPendingCommand(request, result);
+              ? (result, runtimeId) => {
+                  this.recordPendingCommand(request, result, runtimeId);
                 }
               : undefined,
+            runtimeId: () => this.currentContainerRuntimeId(),
           }),
         );
       },
@@ -1270,10 +1373,12 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
                   this.armCommandKill(request.operationKey, kill, cancelled);
                 },
                 onSyncPending: request.toolCallId
-                  ? (pending) => {
-                      this.recordPendingCommand(request, pending);
+                  ? (pending, runtimeId) => {
+                      this.recordPendingCommand(request, pending, runtimeId);
                     }
                   : undefined,
+                runtimeId: () => this.currentContainerRuntimeId(),
+                confirmSync: (runtimeId) => this.confirmCommandSync(request.backend, runtimeId),
               }),
             );
             if (result.sync.status === 'complete') {
@@ -1444,6 +1549,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   private recordPendingCommand(
     request: Awaited<ReturnType<ProjectWorkspace['commandRequest']>>,
     result: WorkspaceRuntimeResult<'utf8'>,
+    runtimeId: string | null,
   ): void {
     if (!request.toolCallId) {
       return;
@@ -1451,6 +1557,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.registerPendingCommand({
       backend: request.backend,
       toolCallId: request.toolCallId,
+      runtimeId,
       result: {
         command: request.command,
         cwd: request.cwd,
@@ -2528,20 +2635,21 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
    * #139 failure wearing different clothes: `read` returns the new file, `pnpm run test` runs the
    * old one, and the model is told its own fix did not work.
    *
-   * Keyed on the computerd process, because that is what changes when the container is replaced,
+   * Keyed on the container runtime, because that is what changes when the container is replaced,
    * which is the event the divergence was observed after. Verifying per command would read the
    * whole project on every `exec`; verifying per generation costs that once and is bounded by how
    * often a container is actually replaced. An evicted Durable Object simply verifies again.
    */
   private async assertContainerMatchesDurableProject(): Promise<void> {
-    const generation = (await this.processForRole(COMPUTERD_PROCESS_ROLE))?.id ?? null;
+    await this.startWorkspaceContainer();
+    const generation = this.currentContainerRuntimeId();
     if (generation !== null && generation === this.#verifiedContainerGeneration) {
       return;
     }
     for (const forcePush of [false, true]) {
       await this.pushDurableProjectToContainer(forcePush);
       if (await this.containerPathMatchesDurableProject(PROJECT_ROOT)) {
-        this.#verifiedContainerGeneration = (await this.processForRole(COMPUTERD_PROCESS_ROLE))?.id ?? generation;
+        this.#verifiedContainerGeneration = this.currentContainerRuntimeId() ?? generation;
         return;
       }
       console.warn('Container project view does not match the durable project; re-materialising it', {
@@ -2571,7 +2679,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         }),
       ),
       timeout: 2 * 60_000,
-      exec: (command, options) => this.sandboxProcesses.exec(command, options),
+      exec: (command, options) => this.containerProcesses.exec(command, { ...options, env: CONTAINER_COMMAND_ENV }),
     });
     return observed.stdout.trim() === expected;
   }
@@ -2589,14 +2697,14 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
 
     // The container-side filesystem is in memory. After a container lifecycle transition, a stale Computer
-    // connection can retain its sync watermark even though the native Sandbox no longer sees the FUSE mount.
-    // Reconnect through a fresh computerd generation so Computer performs a full durable-to-container sync.
+    // connection can retain its sync watermark even though the container no longer sees the FUSE mount.
+    // Reconnect through a fresh container so Computer performs a full durable-to-container sync.
     // `forced` distinguishes the two reasons this runs: an absent mount, or one observed serving
     // stale bytes. Only the first is a missing project.
     console.warn('ProjectWorkspace is rematerializing the container project', { forced: force });
     await this.#workspace.close();
-    await this.restartComputerd(COMPUTERD_ENV);
-    await this.#workspace.push('container-shell');
+    await this.destroy();
+    await drainSync(this.#workspace.push('container-shell'));
     if (!(await this.exists(PROJECT_ROOT)).exists) {
       throw new Error('Cloudflare Computer could not restore the project filesystem in its execution container.');
     }
@@ -2619,7 +2727,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         // that `pnpm run` performs before a script, must inherit CI mode so an incompatible modules
         // directory is replaced deterministically instead of prompting and aborting.
         exec: (trackedCommand, options) =>
-          this.sandboxProcesses.exec(trackedCommand, { ...options, env: { CI: 'true', ...CONTAINER_TOOL_ENV } }),
+          this.containerProcesses.exec(trackedCommand, { ...options, env: { CI: 'true', ...CONTAINER_COMMAND_ENV } }),
         onProcess: async (startedProcess) => {
           process = startedProcess;
           this.setProcessForRole(TRANSIENT_COMMAND_PROCESS_ROLE, startedProcess.id);
@@ -2659,7 +2767,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     ]);
     // Workspace.close() invalidates transport handles but intentionally retains its serialized mutation queues.
     // A fresh coordinator prevents an interrupted sync from blocking the replacement container indefinitely.
-    this.#workspace = new Workspace(this.createComputerWorkspaceOptions(this.#syncRetries));
+    this.#workspace = new Workspace(this.createComputerWorkspaceOptions());
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_sandbox_processes');
     });
@@ -2979,13 +3087,26 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         // Workspace reconnects lazily, so the following pull is proof from a
         // fresh backend handle rather than another attempt on the failed one.
         await this.#workspace.close();
-        await this.#workspace.pull(backend);
+        await pullFromOriginRuntime(this.syncPullTarget(), backend, this.#syncRetries.state(backend)?.runtimeId);
         this.#toolOperations.completePending(backend);
         await this.#syncRetries.clear(backend);
         await this.cleanupReadinessRoot().catch(() => undefined);
         this.#syncRecoveryFailures.delete(backend);
         return true;
       } catch (error) {
+        if (error instanceof WorkspaceSyncRuntimeLostError) {
+          // The container that ran the command is gone, recycled by an earlier round or replaced
+          // by the platform, so its changes never reached the durable VFS. That ends the recovery:
+          // the command fails, and nothing is reported as saved that was not.
+          this.#toolOperations.failPending(
+            backend,
+            'The workspace command cannot be confirmed: the container that ran it was replaced before its changes were saved.',
+          );
+          await this.#syncRetries.clear(backend);
+          await this.cleanupReadinessRoot().catch(() => undefined);
+          this.#syncRecoveryFailures.delete(backend);
+          return true;
+        }
         const failures = (this.#syncRecoveryFailures.get(backend) ?? 0) + 1;
         this.#syncRecoveryFailures.set(backend, failures);
         if (failures >= SYNC_RECOVERY_CONTAINER_RECYCLE_THRESHOLD) {
@@ -3025,9 +3146,18 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
   }
 
-  private registerPendingCommand(args: { backend: string; toolCallId: string; result: unknown }): void {
-    this.#toolOperations.registerPending(args);
-    this.ctx.waitUntil(this.reconcilePendingCommands());
+  private registerPendingCommand(args: {
+    backend: string;
+    toolCallId: string;
+    result: unknown;
+    runtimeId?: string | null;
+  }): void {
+    this.#toolOperations.registerPending({ backend: args.backend, toolCallId: args.toolCallId, result: args.result });
+    // The retry intent names the runtime that ran the command, so recovery never takes a pull from
+    // a replacement container as proof. Its row is written before this returns.
+    const runtimeId = args.runtimeId === undefined ? this.currentContainerRuntimeId() : args.runtimeId;
+    const scheduled = this.#syncRetries.schedulePending(args.backend, runtimeId ?? undefined, null);
+    this.ctx.waitUntil(scheduled.catch(() => undefined).then(() => this.reconcilePendingCommands()));
   }
 
   private async schedulePendingCommandRecovery(delayMs: number): Promise<void> {
@@ -3211,17 +3341,6 @@ async function handleUserRequest(
   return withCors(response, capability.origin);
 }
 
-type TerminalSize = { cols: number; rows: number };
-
-/** The terminal's size as the page asks for it, within what a screen can show. */
-function terminalSize(url: URL): TerminalSize {
-  const read = (name: string, min: number, max: number, fallback: number) => {
-    const value = Number(url.searchParams.get(name));
-    return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
-  };
-  return { cols: read('cols', 20, 500, 80), rows: read('rows', 5, 200, 24) };
-}
-
 /**
  * `POST /v1/workspaces/forget-saved-branches`: before CloudChef deletes this runtime (its person left the team), each
  * of their team-project workspaces deletes the branches it saved in the team's repositories, which outlive it.
@@ -3266,14 +3385,11 @@ async function userRuntimeTerminalAction(
   const stub = env.PROJECT_WORKSPACE.get(env.PROJECT_WORKSPACE.idFromName(projectId));
   await stub.initializeProjectIdentity({ projectId, userId });
   const size = terminalSize(url);
-  const terminal = await stub.openTerminal(size);
-  const headers = new Headers(request.headers);
-  headers.set('x-sandbox-port-route-token', await terminal.capability.authorizeConnection());
-  return proxyTerminal(stub, terminal.snapshot.id, new Request(request, { headers }), {
-    ...size,
-    cursor: url.searchParams.get('cursor') ?? undefined,
-    runtimeIncarnationID: terminal.runtimeIncarnationID,
-  });
+  // Only the size crosses: the page's own address carries its runtime capability, which the workspace never needs.
+  const target = new URL(TERMINAL_PATH, 'https://workspace.internal');
+  target.searchParams.set('cols', String(size.cols));
+  target.searchParams.set('rows', String(size.rows));
+  return stub.fetch(new Request(target, { headers: { Upgrade: 'websocket' } }));
 }
 
 async function projectRootExists(workspace: WorkspaceClient): Promise<boolean> {
@@ -3474,7 +3590,8 @@ async function openCommandHandle(
     cwd: string;
     backend: 'container-shell';
     timeoutMs: number;
-    onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>) => void;
+    onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>, runtimeId: string | null) => void;
+    runtimeId?: () => string | null;
   },
 ): Promise<WorkspaceRuntimeExecHandle<'utf8'>> {
   if (options.resume) {
@@ -3496,7 +3613,7 @@ async function openCommandHandle(
       const result = await terminateWorkspaceCommand(workspace.runtime, options.id, options.backend);
       const pending = pendingWorkspaceRuntimeResult(result);
       if (pending) {
-        options.onSyncPending?.(pending);
+        options.onSyncPending?.(pending, options.runtimeId?.() ?? null);
       }
     }
     throw error;
@@ -3517,17 +3634,20 @@ async function openTerminableCommand(
   },
 ): Promise<{
   handle: WorkspaceRuntimeExecHandle<'utf8'>;
+  /** The container runtime the command runs on: connected before the handle was returned. */
+  runtimeId: string | null;
   terminate: () => Promise<boolean>;
   dispose: (description: string) => Promise<void>;
 }> {
   options.beforeExec?.();
   const handle = await openCommandHandle(workspace, command, options);
+  const runtimeId = options.runtimeId?.() ?? null;
   let cancellation: Promise<boolean> | undefined;
   const terminate = () => {
     cancellation ??= terminateWorkspaceCommand(workspace.runtime, handle.id, options.backend).then((result) => {
       const pending = pendingWorkspaceRuntimeResult(result);
       if (pending) {
-        options.onSyncPending?.(pending);
+        options.onSyncPending?.(pending, runtimeId);
       }
       return pending !== null;
     });
@@ -3547,7 +3667,7 @@ async function openTerminableCommand(
       ).catch(() => undefined);
     }
   };
-  return { handle, terminate, dispose };
+  return { handle, runtimeId, terminate, dispose };
 }
 
 async function streamCommand(
@@ -3562,10 +3682,13 @@ async function streamCommand(
     beforeExec?: () => void;
     emit: (event: StreamCommandEvent) => void;
     onHandle?: (kill: () => Promise<void>) => void;
-    onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>) => void;
+    onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>, runtimeId: string | null) => void;
+    runtimeId?: () => string | null;
+    /** Confirm the finished command's changes are durable; Computer's stream cannot say. */
+    confirmSync?: (runtimeId: string | null) => Promise<WorkspaceRuntimeResult<'utf8'>['sync']>;
   },
 ): Promise<WorkspaceRuntimeResult<'utf8'>> {
-  const { handle, terminate, dispose } = await openTerminableCommand(workspace, command, options);
+  const { handle, runtimeId, terminate, dispose } = await openTerminableCommand(workspace, command, options);
   let stdout = '';
   let stderr = '';
   let stdoutBytes = 0;
@@ -3625,7 +3748,7 @@ async function streamCommand(
         },
       };
       if (!terminationObservedPending) {
-        options.onSyncPending?.(pending);
+        options.onSyncPending?.(pending, runtimeId);
       }
       return requireDurableCommandResult(pending, options.backend);
     }
@@ -3638,8 +3761,12 @@ async function streamCommand(
       pushed: 0,
       pulled: 0,
       skipped: [],
-      sync: { status: 'complete', applied: 0, skipped: [] },
+      sync: (await options.confirmSync?.(runtimeId)) ?? { status: 'complete', applied: 0, skipped: [] },
     };
+    if (result.sync.status === 'pending') {
+      options.onSyncPending?.(result, runtimeId);
+      return requireDurableCommandResult(result, options.backend);
+    }
     options.emit({ type: 'result', result, streamTruncated });
     return result;
   } finally {
@@ -3689,14 +3816,17 @@ async function runCommand(
     timeoutMs: number;
     beforeExec?: () => void;
     onHandle?: (kill: () => Promise<void>) => void;
-    onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>) => void;
+    onSyncPending?: (result: WorkspaceRuntimeResult<'utf8'>, runtimeId: string | null) => void;
+    runtimeId?: () => string | null;
   },
 ): Promise<WorkspaceRuntimeResult<'utf8'>> {
-  const { handle, terminate, dispose } = await openTerminableCommand(workspace, command, options);
+  const { handle, runtimeId, terminate, dispose } = await openTerminableCommand(workspace, command, options);
   try {
+    // Computer's own post-command pull, which refuses a runtime other than the one that ran the
+    // command, and reports itself complete or pending here.
     const result = await handle.result();
     if (result.sync.status === 'pending') {
-      options.onSyncPending?.(result);
+      options.onSyncPending?.(result, runtimeId);
     }
     return requireDurableCommandResult(result, options.backend);
   } catch (error) {
@@ -3704,6 +3834,13 @@ async function runCommand(
     throw error;
   } finally {
     await dispose('command disposal');
+  }
+}
+
+/** Computer 0.3 and later sync in blocks; a pull or push is complete only once every block is. */
+async function drainSync(progress: AsyncIterable<unknown>): Promise<void> {
+  for await (const _block of progress) {
+    // Each block is applied and acknowledged as it is read; nothing to keep.
   }
 }
 
@@ -4040,10 +4177,6 @@ function assertDeploymentSessionIdentity(
   ) {
     throw new Error('A deployment operation identifier was reused for a different workspace revision.');
   }
-}
-
-function sandboxShellCommand(command: string): SandboxCommand {
-  return ['/bin/bash', '-lc', command];
 }
 
 export { ConversationAgent };

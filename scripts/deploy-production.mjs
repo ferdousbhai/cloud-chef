@@ -286,6 +286,9 @@ export const CF_DEPLOY_ARGS = Object.freeze(['exec', 'cf', 'deploy', '--prebuilt
  * every step after the account check waits for.
  */
 export const WORKERS_BUILDS_PRE_DEPLOY_STEPS = Object.freeze([
+  // A release whose runtime needs CloudChef's own workspace image deploys only once that image is published and
+  // pinned: without it, every workspace it prepared or upgraded would fail (DEVELOPMENT.md, User Workspace Image).
+  'verify:workspace-image',
   'provision:production:check',
   'd1:bookmark:production',
   'd1:migrations:apply:production',

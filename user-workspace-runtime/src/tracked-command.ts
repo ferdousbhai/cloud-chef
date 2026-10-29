@@ -1,4 +1,25 @@
-import type { ExecOptions, ProcessExit, ProcessOutput, ProcessStatus, SandboxCommand } from '@cloudflare/sandbox';
+/** An argv vector, run without a shell unless its first element is one. */
+export type SandboxCommand = readonly [executable: string, ...args: string[]];
+
+/** Terminal outcome of a container process. `timedOut` marks one its own deadline ended. */
+export type ProcessExit = { code: number; signal?: number; timedOut: boolean };
+
+type ProcessStatusBase = { id: string; pid: number; command: SandboxCommand; startedAt: string };
+
+/** Lifecycle state of a container process and the process group it leads. */
+export type ProcessStatus =
+  | (ProcessStatusBase & { state: 'running' })
+  | (ProcessStatusBase & { state: 'exited'; exit: ProcessExit; endedAt: string })
+  | (ProcessStatusBase & { state: 'error'; error: { code: string; message: string }; endedAt: string });
+
+/** A finished process's output, bounded to one combined head budget. */
+export type ProcessOutput<T> = { stdout: T; stderr: T; exitCode: number; timedOut: boolean; truncated: boolean };
+
+export type ExecOptions = {
+  /** The process's whole-lifetime deadline, enforced in the container. */
+  timeout: number;
+  env?: Record<string, string>;
+};
 
 const MAX_SANDBOX_FAILURE_MESSAGE_LENGTH = 4_000;
 const SANDBOX_OUTPUT_BYTES = MAX_SANDBOX_FAILURE_MESSAGE_LENGTH * 2;

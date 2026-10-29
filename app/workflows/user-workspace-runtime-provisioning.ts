@@ -30,8 +30,7 @@ import { sha256Hex } from '~/lib/hex-digest';
 import { z } from 'zod';
 import { missingCoreOAuthScopes } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
 
-export const USER_WORKSPACE_SANDBOX_BASE_IMAGE =
-  'docker.io/cloudflare/sandbox:0.13.0-next.724.1@sha256:d5856e09ccb02c2cd00f73946360369d5655faa9b67b156e0d8627bf143619f1';
+import { isUserWorkspaceImagePublished, USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 
 type ProvisioningParams = {
   userId: string;
@@ -133,6 +132,8 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
   findRuntime: typeof findUserWorkspaceRuntime;
   claimUpgradeWindow: typeof claimUserWorkspaceRuntimeUpgradeWindow;
   changeUpgradeWindow: typeof changeUserWorkspaceRuntimeUpgradeWindow;
+  /** Whether this release pins a published workspace image; nothing is prepared without one. */
+  imagePublished: () => boolean;
 };
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
@@ -144,6 +145,7 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   findRuntime: findUserWorkspaceRuntime,
   claimUpgradeWindow: claimUserWorkspaceRuntimeUpgradeWindow,
   changeUpgradeWindow: changeUserWorkspaceRuntimeUpgradeWindow,
+  imagePublished: isUserWorkspaceImagePublished,
 };
 
 /**
@@ -240,7 +242,7 @@ async function createOrGetProvisioningInstance(args: {
  */
 async function provisioningInstanceId(params: ProvisioningParams): Promise<string> {
   return `workspace-${await sha256Hex(
-    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_SANDBOX_BASE_IMAGE}`,
+    `${params.userId}\0${params.connectionId}\0${params.connectionGeneration}\0${USER_WORKSPACE_RUNTIME_SHA256}\0${USER_WORKSPACE_IMAGE}`,
   )}`;
 }
 
@@ -311,7 +313,7 @@ export class UserWorkspaceRuntimeProvisioningWorkflow extends WorkflowEntrypoint
   }
 }
 
-/** Provision the user-owned D1, Worker, and Sandbox container as one durable sequence. */
+/** Provision the user-owned D1, Worker, and workspace containers as one durable sequence. */
 export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   env: Env;
   /** `instanceId` names this upgrade to the runtime, as the holder of the window it claims. */
@@ -323,6 +325,12 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   try {
     const dependencies = args.dependencies ?? provisioningDependencies;
     const params = args.event.payload;
+    if (!dependencies.imagePublished()) {
+      // Fail closed before anything in the account changes: the Worker this release uploads needs CloudChef's own
+      // image (computerd, sandbox-shim), and the pin is empty until it is published (DEVELOPMENT.md).
+      console.error({ event: 'workspace_image_unpublished' });
+      return { status: 'error', errorCode: 'workspace_preparation_failed', upgradeUrl: null };
+    }
     const connection = await expectedConnection(args.env, params, dependencies.requireConnection);
     const accountApi = await dependencies.openAccountApi(args.env, connection);
     const { workerName, databaseName } = await workspaceRuntimeNames(connection, params.userId);
@@ -488,11 +496,11 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.enableWorkerSubdomain(workerName);
       },
     );
-    await heldStep('deploy Sandbox container', LONG_STEP_CONFIG, async () => {
+    await heldStep('deploy workspace container', LONG_STEP_CONFIG, async () => {
       await accountApi.ensureWorkspaceRuntimeContainer({
         applicationName: workerName,
         namespaceId,
-        image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+        image: USER_WORKSPACE_IMAGE,
       });
     });
     const builderNamespace = builderNamespaceId;
@@ -502,7 +510,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         await accountApi.ensureWorkspaceRuntimeContainer({
           applicationName: `${workerName}-builder`,
           namespaceId: builderNamespace,
-          image: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+          image: USER_WORKSPACE_IMAGE,
         });
       });
     }
@@ -531,7 +539,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         workerName,
         endpoint,
         runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
-        imageDigest: USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+        imageDigest: USER_WORKSPACE_IMAGE,
         protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
       });
     });
@@ -682,10 +690,7 @@ export function connectionProvisionsWorkspace(
   );
 }
 
-/** Whether a ready runtime runs this release's build on its sandbox image, so speaks its protocol. */
+/** Whether a ready runtime runs this release's build on its workspace image, so speaks its protocol. */
 export function isCurrentUserWorkspaceRuntime(runtime: { runtimeVersion: string; imageDigest: string }): boolean {
-  return (
-    runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 &&
-    runtime.imageDigest === USER_WORKSPACE_SANDBOX_BASE_IMAGE
-  );
+  return runtime.runtimeVersion === USER_WORKSPACE_RUNTIME_SHA256 && runtime.imageDigest === USER_WORKSPACE_IMAGE;
 }

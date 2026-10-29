@@ -91,7 +91,9 @@ export function findSandboxRuntimePinErrors(packageSpec, installedVersion, provi
   const errors = [];
   const image = /docker\.io\/cloudflare\/sandbox:([^@'\s]+)@sha256:([a-f0-9]{64})/.exec(provisionerSource);
   if (!image) {
-    return ['user workspace runtime must pin a Cloudflare Sandbox image tag and SHA-256 digest.'];
+    return [
+      'user-workspace-image/Dockerfile must pin the Cloudflare Sandbox image (sandbox-shim) by tag and SHA-256 digest.',
+    ];
   }
   if (image[1] !== installedVersion) {
     errors.push(`Cloudflare Sandbox package ${installedVersion} must match container image tag ${image[1]}.`);
@@ -161,10 +163,10 @@ export function findRootWorkspacePolicyErrors(workspace) {
     generatedProjectPolicy = generatedProjectPolicy.replace(pattern, '');
   }
   const computerSqlPatch =
-    /^patchedDependencies:\n  '@cloudflare\/computer@0\.2\.1': patches\/@cloudflare__computer@0\.2\.1\.patch$/gm;
+    /^patchedDependencies:\n  '@cloudflare\/computer@0\.8\.0': patches\/@cloudflare__computer@0\.8\.0\.patch$/gm;
   const computerSqlPatchEntries = workspace.match(computerSqlPatch) ?? [];
   if (computerSqlPatchEntries.length !== 1) {
-    errors.push('pnpm-workspace.yaml must apply the reviewed Computer 0.2.1 SQL probe patch exactly once.');
+    errors.push('pnpm-workspace.yaml must apply the reviewed Computer 0.8.0 SQL patch exactly once.');
   }
   errors.push(...findBuildApprovalErrors(generatedProjectPolicy.replace(computerSqlPatch, ''), 'pnpm-workspace.yaml'));
   if (/set this to true or false/i.test(workspace)) {
@@ -213,7 +215,7 @@ export function verifyStackAlignment() {
     ...findSandboxRuntimePinErrors(
       rootPackage.dependencies?.['@cloudflare/sandbox'],
       sandboxPackage.version,
-      readFileSync(resolve(rootDir, 'app/workflows/user-workspace-runtime-provisioning.ts'), 'utf8'),
+      readFileSync(resolve(rootDir, 'user-workspace-image/Dockerfile'), 'utf8'),
     ),
   );
 

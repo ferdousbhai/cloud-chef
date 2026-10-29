@@ -21,7 +21,7 @@ overrides:
   'brace-expansion@>=2.0.0 <2.1.7': '2.1.7'
   'brace-expansion@>=4.0.0 <5.0.12': '5.0.12'
   # Reviewed security releases accepted by the existing transitive ranges.
-  '@hono/node-server@<2.0.10': '2.0.10'
+  '@hono/node-server@<2.1.3': '2.1.3'
   'browserslist@<=4.28.6': '4.28.8'
   'fast-uri@>=3.0.0 <3.1.9': '3.1.9'
   'hono@<4.13.11': '4.13.11'
@@ -59,7 +59,8 @@ peerDependencyRules:
     '@cloudflare/workers-types': '5'
     # @blitz/eslint-plugin is exercised by the repository's ESLint 9 validation.
     eslint: '9'
-# Computer 0.2.1 probes 100 blob hashes in one statement; Durable Object
-# SQLite accepts fewer bind variables. Remove this when upstream lowers it.
+# Computer 0.8.0 still probes 100 blob hashes in one statement (Durable Object SQLite accepts fewer
+# bind variables) and still issues raw SAVEPOINT for a nested transaction (a Durable Object refuses
+# it). Remove each hunk when upstream fixes it.
 patchedDependencies:
-  '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
+  '@cloudflare/computer@0.8.0': patches/@cloudflare__computer@0.8.0.patch

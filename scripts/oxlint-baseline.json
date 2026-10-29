@@ -1,5 +1,5 @@
 {
-  "total": 857,
+  "total": 849,
   "counts": {
     "app/agents/builder-deployment-command.test.ts": {
       "anti-slop/no-module-mocking": 1,
@@ -408,7 +408,7 @@
       "anti-slop/no-runtime-typeof": 1
     },
     "scripts/check-runtime-artifacts.mjs": {
-      "anti-slop/no-runtime-typeof": 3
+      "anti-slop/no-runtime-typeof": 2
     },
     "scripts/check-runtime-artifacts.spec.ts": {
       "anti-slop/no-runtime-typeof": 1
@@ -578,9 +578,6 @@
     },
     "user-workspace-runtime/src/workspace-operation-lane.test.ts": {
       "anti-slop/require-safety-comment-for-type-assertion": 8
-    },
-    "user-workspace-runtime/src/workspace-sync-retry.test.ts": {
-      "anti-slop/require-safety-comment-for-type-assertion": 7
     }
   }
 }

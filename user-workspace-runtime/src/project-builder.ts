@@ -1,6 +1,4 @@
-import { WorkerEntrypoint } from 'cloudflare:workers';
-import { Sandbox, type SandboxCommand } from '@cloudflare/sandbox';
-import { createExtensionProcessSandbox } from '@cloudflare/sandbox/extensions';
+import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
@@ -40,10 +38,17 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
-import { runTrackedSandboxCommand } from './tracked-command';
+import { runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
-import { CONTAINER_TOOL_ENV } from './computer-sandbox';
+import { CONTAINER_COMMAND_ENV } from './computer-sandbox';
+import { ContainerProcesses, waitForContainerExec } from './container-process';
+import { type ScheduledCallbackPayload, ScheduledCallbacks } from './scheduled-callbacks';
+
+/** Kept a while after a publish, so the project's next one finds its tools and package downloads in place. */
+const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 15 * 60_000;
+/** How long a fresh builder container gets to accept its first command. */
+const BUILDER_CONTAINER_START_TIMEOUT_MS = 2 * 60_000;
 
 /**
  * Builds and deploys a project CloudChef deploys itself (one uploaded as a ZIP), one commit at a time, in a container
@@ -195,10 +200,12 @@ class StepAbandoned extends Error {}
 const DEPLOY_REFUSED = (message: string) =>
   Response.json({ success: false, errors: [{ code: 10000, message }] }, { status: 403 });
 
-export class ProjectBuilder extends Sandbox<BuilderEnv> {
-  // Kept a while after a publish, so the project's next one finds its tools and package downloads in place.
-  override sleepAfter = '15m';
-  private readonly processes = createExtensionProcessSandbox(this);
+export class ProjectBuilder extends DurableObject<BuilderEnv> {
+  private readonly processes = new ContainerProcesses(
+    async () => this.requireContainer(),
+    () => null,
+  );
+  private readonly scheduledCallbacks: ScheduledCallbacks<'runNext'>;
   #deployToken: { deploymentId: string; token: string; at: number } | null = null;
   /** When the last step ended, so one scheduled call runs only one step even if several calls fall due at once. */
   #lastStepEndedAt = 0;
@@ -209,6 +216,14 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
 
   constructor(ctx: DurableObjectState<{}>, env: BuilderEnv) {
     super(ctx, env);
+    this.scheduledCallbacks = new ScheduledCallbacks(ctx.storage, 'builder_scheduled_callbacks');
+    this.scheduledCallbacks.initialize();
+    // The idle window does not survive a restart of this object, while its container can.
+    if (ctx.container?.running) {
+      void ctx.blockConcurrencyWhile(() =>
+        ctx.container!.setInactivityTimeout(BUILDER_CONTAINER_IDLE_TIMEOUT_MS).catch(() => undefined),
+      );
+    }
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS builder_jobs (
       deployment_id TEXT PRIMARY KEY,
       org_project_id TEXT NOT NULL,
@@ -246,6 +261,60 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
     )`);
     // A fresh instance runs no step yet, so a gate the last one left open is closed.
     ctx.storage.sql.exec('DELETE FROM builder_gate');
+  }
+
+  /**
+   * Runs `runNext` later, on this object's alarm, replacing any earlier schedule for it. An alarm a runtime from
+   * before Sandbox 1.0 armed finds no row here: then any unfinished job is picked up again.
+   */
+  private async schedule(delaySeconds: number, callback: 'runNext', payload: ScheduledCallbackPayload): Promise<void> {
+    await this.scheduledCallbacks.schedule(delaySeconds, callback, payload);
+  }
+
+  override async alarm(): Promise<void> {
+    let ran = false;
+    await this.scheduledCallbacks.runDue(async (callback) => {
+      if (callback === 'runNext') {
+        ran = true;
+        await this.runNext();
+      }
+    });
+    if (!ran && !this.scheduledCallbacks.has('runNext')) {
+      const unfinished = first(
+        this.ctx.storage.sql.exec<{ found: number }>(
+          "SELECT 1 AS found FROM builder_jobs WHERE status IN ('pending', 'running') LIMIT 1",
+        ),
+      );
+      if (unfinished) {
+        await this.runNext();
+      }
+    }
+  }
+
+  private requireContainer(): Container {
+    const container = this.ctx.container;
+    if (!container) {
+      throw new Error('The project builder has no container configured.');
+    }
+    return container;
+  }
+
+  /**
+   * A fresh container, its entrypoint replaced: the workspace image starts computerd, which a build has no use
+   * for. It reaches the internet for package downloads; Cloudflare's API only through the deploy proxy.
+   */
+  private async start(): Promise<void> {
+    const container = this.requireContainer();
+    container.start({ entrypoint: ['sleep', 'infinity'], enableInternet: true });
+    await container.setInactivityTimeout(BUILDER_CONTAINER_IDLE_TIMEOUT_MS);
+    await waitForContainerExec(container, BUILDER_CONTAINER_START_TIMEOUT_MS);
+  }
+
+  /** Stops the container, and with it whatever still runs there. */
+  private async destroy(): Promise<void> {
+    if (this.ctx.container?.running) {
+      await this.ctx.container.destroy();
+    }
   }
 
   /**
@@ -837,7 +906,7 @@ export class ProjectBuilder extends Sandbox<BuilderEnv> {
       command: argv,
       timeout,
       exec: (commandArgv, options) =>
-        this.processes.exec(commandArgv, { ...options, env: { ...CONTAINER_TOOL_ENV, ...env } }),
+        this.processes.exec(commandArgv, { ...options, env: { ...CONTAINER_COMMAND_ENV, ...env } }),
     });
   }
 

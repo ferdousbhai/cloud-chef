@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { cloudflareConnectMessageText } from '~/lib/cloudflare/authorization-recovery';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
@@ -857,7 +857,7 @@ function runtimeRow(
     worker_name: 'cloudchef-workspace-test',
     endpoint: 'https://workspace.example',
     runtime_version: overrides.runtimeVersion ?? USER_WORKSPACE_RUNTIME_SHA256,
-    image_digest: overrides.imageDigest ?? USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+    image_digest: overrides.imageDigest ?? USER_WORKSPACE_IMAGE,
     protocol_version: overrides.protocolVersion ?? USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     last_session_at: 100,
     created_at: 100,

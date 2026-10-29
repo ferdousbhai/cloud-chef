@@ -36,12 +36,6 @@
   },
   // As in knip.jsonc: a system tool, not an npm package.
   "ignoreBinaries": ["shellcheck"],
-  // `wrangler` and `@cloudflare/workers-types` are explained in knip.jsonc.
-  "ignoreDependencies": [
-    "@babel/core",
-    "@babel/plugin-proposal-decorators",
-    "cloudflare",
-    "wrangler",
-    "@cloudflare/workers-types",
-  ],
+  // `wrangler` is explained in knip.jsonc.
+  "ignoreDependencies": ["@babel/core", "@babel/plugin-proposal-decorators", "cloudflare", "wrangler"],
 }

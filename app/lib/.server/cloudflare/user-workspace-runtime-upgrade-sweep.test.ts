@@ -4,13 +4,16 @@ import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspa
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from './cloudflare-oauth-scope-manifest';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import {
   FAILED_UPGRADE_RESTART_EVERY_SWEEPS,
   sweepUserWorkspaceRuntimeUpgrades,
   UPGRADE_SWEEP_INTERVAL_MS,
   UPGRADE_SWEEP_MAX_LAUNCHES,
 } from './user-workspace-runtime-upgrade-sweep';
+
+/** The pin is empty until the image is published; these tests are about the sweep, so it is published here. */
+const imagePublished = () => true;
 
 type Status = InstanceStatus['status'];
 /** The object form of `createBatch`; the array form is deprecated. */
@@ -116,7 +119,7 @@ function controlPlane() {
             created_at, updated_at, image_digest, protocol_version)
          VALUES (?, ?, 1, 'worker', 'https://workspace.example', 'earlier', 'ready', 1, 1, ?, ?)`,
       )
-      .run(userId, id, USER_WORKSPACE_SANDBOX_BASE_IMAGE, USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION);
+      .run(userId, id, USER_WORKSPACE_IMAGE, USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION);
   };
   const makeCurrent = (id: string) =>
     database
@@ -127,8 +130,13 @@ function controlPlane() {
     database
       .prepare('UPDATE cloudflare_connections SET connection_generation = connection_generation + 2 WHERE id = ?')
       .run(id);
-  const env = (binding: Env['USER_WORKSPACE_RUNTIME_PROVISIONING']) =>
-    envWith({ DB: db, USER_WORKSPACE_RUNTIME_PROVISIONING: binding });
+  const env = (binding: Env['USER_WORKSPACE_RUNTIME_PROVISIONING'], canary = '') =>
+    envWith({
+      DB: db,
+      USER_WORKSPACE_RUNTIME_PROVISIONING: binding,
+      // SAFETY: the generated type is the committed value (none); a canary release commits user ids instead.
+      WORKSPACE_RUNTIME_UPGRADE_CANARY: canary as Env['WORKSPACE_RUNTIME_UPGRADE_CANARY'],
+    });
   return { add, makeCurrent, reconnect, env };
 }
 
@@ -142,9 +150,40 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     const workflow = workflows(() => null);
 
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ started: 2, skipped: 0 });
     expect(workflow.created).toEqual(['owner-of-a', 'owner-of-b']);
+  });
+
+  it('upgrades only the canary runtimes while a canary is named', async () => {
+    const plane = controlPlane();
+    plane.add('a');
+    plane.add('b');
+    const workflow = workflows(() => null);
+
+    await expect(
+      sweepUserWorkspaceRuntimeUpgrades({
+        env: plane.env(workflow.binding, ' owner-of-b ,'),
+        scheduledTime: 0,
+        imagePublished,
+      }),
+    ).resolves.toMatchObject({ started: 1, skipped: 1 });
+    expect(workflow.created).toEqual(['owner-of-b']);
+  });
+
+  it('starts nothing while this release pins no published workspace image', async () => {
+    const plane = controlPlane();
+    plane.add('a');
+    const workflow = workflows(() => null);
+
+    await expect(
+      sweepUserWorkspaceRuntimeUpgrades({
+        env: plane.env(workflow.binding),
+        scheduledTime: 0,
+        imagePublished: () => false,
+      }),
+    ).resolves.toMatchObject({ started: 0, restarted: 0, skipped: 0 });
+    expect(workflow.createBatch).not.toHaveBeenCalled();
   });
 
   it("prepares a runtime a reconnect left behind for the connection's new generation, even on this build", async () => {
@@ -155,7 +194,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     const workflow = workflows(() => null);
 
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ started: 1, skipped: 0 });
     expect(workflow.createBatch.mock.calls[0][0].instances?.[0]?.params).toMatchObject({
       userId: 'owner-of-reconnected',
@@ -172,7 +211,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     const workflow = workflows((userId) => (userId === 'owner-of-c0' || userId === 'owner-of-c1' ? 'running' : null));
 
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ running: 2, started: UPGRADE_SWEEP_MAX_LAUNCHES });
     expect(workflow.createBatch).toHaveBeenCalledTimes(UPGRADE_SWEEP_MAX_LAUNCHES + 2);
   });
@@ -185,7 +224,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     const workflow = workflows(() => null);
 
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ started: 0, skipped: 3 });
     expect(workflow.createBatch).not.toHaveBeenCalled();
   });
@@ -201,6 +240,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
       await sweepUserWorkspaceRuntimeUpgrades({
         env: plane.env(failed.binding),
         scheduledTime: sweep * UPGRADE_SWEEP_INTERVAL_MS,
+        imagePublished,
       });
       warn.mockRestore();
       if (failed.restarts.length > before) {
@@ -220,7 +260,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: other.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: other.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ started: 1, skipped: 1 });
     expect(warn).toHaveBeenCalledWith({
       event: 'runtime_upgrade_sweep_failed',
@@ -237,7 +277,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     const workflow = workflows(() => 'complete');
 
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ restarted: 1, left: 0 });
     expect(workflow.restarts).toEqual(['owner-of-reconnected']);
   });
@@ -252,7 +292,7 @@ describe('scheduled workspace runtime upgrade sweep', () => {
     });
 
     await expect(
-      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0 }),
+      sweepUserWorkspaceRuntimeUpgrades({ env: plane.env(workflow.binding), scheduledTime: 0, imagePublished }),
     ).resolves.toMatchObject({ left: 1 });
     expect(workflow.restarts).toEqual([]);
   });

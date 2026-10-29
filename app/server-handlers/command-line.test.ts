@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
-import { USER_WORKSPACE_SANDBOX_BASE_IMAGE } from '~/workflows/user-workspace-runtime-provisioning';
+import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
@@ -399,7 +399,7 @@ describe('copying a public project', () => {
     );
     const current = [
       USER_WORKSPACE_RUNTIME_SHA256,
-      USER_WORKSPACE_SANDBOX_BASE_IMAGE,
+      USER_WORKSPACE_IMAGE,
       USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     ] as const;
     runtime.run('ada', 'ada-own', 'ada-runtime', 'https://ada.runtime.test', ...current);

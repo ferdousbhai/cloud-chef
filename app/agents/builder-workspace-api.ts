@@ -1,6 +1,6 @@
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { RefUpdate } from '~/lib/.server/cloudflare/git-proxy';
-import type { CreateAIToolsOptions } from '@cloudflare/computer/tools';
+import type { CreateAIToolsOptions } from '@cloudflare/computer/tools/ai-sdk';
 import type { DeploymentProjectProfile } from '~/lib/.server/cloudflare/deployment-project-profile';
 import type { PreparedDeploymentArtifact } from '~/lib/.server/cloudflare/deployment-artifact';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';

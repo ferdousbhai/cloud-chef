@@ -13,99 +13,81 @@ const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const REGISTRY_TIMEOUT_MS = 30_000;
 
-export function parseRuntimeArtifactPins({ packageJson, provisionerSource, toolchainSource }) {
+const REGISTRIES = {
+  'docker.io': {
+    registry: 'https://registry-1.docker.io',
+    tokenUrl: (repository) =>
+      `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repository}:pull`,
+  },
+  'ghcr.io': {
+    registry: 'https://ghcr.io',
+    tokenUrl: (repository) => `https://ghcr.io/token?service=ghcr.io&scope=repository:${repository}:pull`,
+  },
+};
+
+/**
+ * The bases the workspace image is built from (user-workspace-image/Dockerfile), each pinned by tag and digest.
+ * computerd and sandbox-shim must carry the exact versions of the packages that speak their protocols.
+ */
+export function parseRuntimeArtifactPins({ packageJson, dockerfile }) {
   const manifest = JSON.parse(packageJson);
-  const sandboxVersion = exactDependencyVersion(manifest, '@cloudflare/sandbox');
   const computerVersion = exactDependencyVersion(manifest, '@cloudflare/computer');
-  const sandboxMatch = /docker\.io\/cloudflare\/sandbox:([^@'"\s]+)@(sha256:[a-f0-9]{64})/.exec(provisionerSource);
-  const computerdMatch = /COMPUTERD_LAYER_DIGEST\s*=\s*'(sha256:[a-f0-9]{64})'/.exec(toolchainSource);
-
-  if (!sandboxMatch) {
-    throw new Error('Could not find the pinned Cloudflare Sandbox image.');
-  }
-  if (!EXACT_VERSION.test(sandboxMatch[1])) {
-    throw new Error('The pinned Cloudflare Sandbox image must use an exact version tag.');
-  }
-  if (!computerdMatch) {
-    throw new Error('Could not find the pinned computerd layer digest.');
-  }
-
-  return {
-    sandbox: {
-      name: 'Cloudflare Sandbox image',
-      repository: 'cloudflare/sandbox',
-      tag: sandboxVersion,
-      configuredTag: sandboxMatch[1],
-      pinnedDigest: sandboxMatch[2],
-    },
-    computerd: {
-      name: 'Cloudflare computerd layer',
-      repository: 'cloudflare/computer-computerd-linux-x64',
-      tag: computerVersion,
-      pinnedDigest: computerdMatch[1],
-    },
+  const sandboxVersion = exactDependencyVersion(manifest, '@cloudflare/sandbox');
+  const base = (arg, name, expectedTag) => {
+    const match = new RegExp(`^ARG ${arg}=([a-z0-9.]+)/([^:@\\s]+):([^@\\s]+)@(sha256:[a-f0-9]{64})\\s*$`, 'm').exec(
+      dockerfile,
+    );
+    if (!match || !Object.hasOwn(REGISTRIES, match[1])) {
+      throw new Error(`Could not find the pinned ${name}.`);
+    }
+    return {
+      name,
+      host: match[1],
+      repository: match[2],
+      tag: expectedTag ?? match[3],
+      configuredTag: match[3],
+      pinnedDigest: match[4],
+    };
   };
+  return [
+    base('COMPUTERD_IMAGE', 'Cloudflare computerd image', computerVersion),
+    base('SANDBOX_SHIM_IMAGE', 'Cloudflare Sandbox image (sandbox-shim)', sandboxVersion),
+    base('NODE_IMAGE', 'Node.js base image'),
+  ];
 }
 
 export async function checkRuntimeArtifacts(pins, fetchImpl = fetch) {
   const results = [];
-
-  if (pins.sandbox.configuredTag !== pins.sandbox.tag) {
-    results.push({
-      ...pins.sandbox,
-      status: 'drift',
-      detail: `image tag ${pins.sandbox.configuredTag} does not match @cloudflare/sandbox ${pins.sandbox.tag}`,
-    });
-  } else {
+  for (const pin of pins) {
+    if (pin.configuredTag !== pin.tag) {
+      results.push({
+        ...pin,
+        status: 'drift',
+        detail: `image tag ${pin.configuredTag} does not match the package ${pin.tag}`,
+      });
+      continue;
+    }
+    const registry = REGISTRIES[pin.host];
     const manifest = await fetchManifest(
       {
-        registry: 'https://registry-1.docker.io',
-        tokenUrl: `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${pins.sandbox.repository}:pull`,
-        repository: pins.sandbox.repository,
-        reference: pins.sandbox.tag,
+        registry: registry.registry,
+        tokenUrl: registry.tokenUrl(pin.repository),
+        repository: pin.repository,
+        reference: pin.tag,
       },
       fetchImpl,
     );
-    const remoteDigest = requiredDigestHeader(manifest.response, pins.sandbox.name);
+    const remoteDigest = requiredDigestHeader(manifest.response, pin.name);
     results.push({
-      ...pins.sandbox,
+      ...pin,
       remoteDigest,
-      status: remoteDigest === pins.sandbox.pinnedDigest ? 'current' : 'drift',
+      status: remoteDigest === pin.pinnedDigest ? 'current' : 'drift',
       detail:
-        remoteDigest === pins.sandbox.pinnedDigest
+        remoteDigest === pin.pinnedDigest
           ? 'immutable image digest matches the published tag'
           : 'published tag resolves to a different image digest',
     });
   }
-
-  const manifest = await fetchManifest(
-    {
-      registry: 'https://ghcr.io',
-      tokenUrl: `https://ghcr.io/token?service=ghcr.io&scope=repository:${pins.computerd.repository}:pull`,
-      repository: pins.computerd.repository,
-      reference: pins.computerd.tag,
-    },
-    fetchImpl,
-  );
-  const layers = Array.isArray(manifest.body.layers) ? manifest.body.layers : [];
-  const candidateDigest = layers.length === 1 ? layers[0]?.digest : undefined;
-  const remoteDigest =
-    typeof candidateDigest === 'string' && SHA256_DIGEST.test(candidateDigest) ? candidateDigest : undefined;
-  const computerdCurrent = remoteDigest === pins.computerd.pinnedDigest;
-  results.push({
-    ...pins.computerd,
-    remoteDigest,
-    status: computerdCurrent ? 'current' : 'drift',
-    detail:
-      layers.length !== 1
-        ? `published image has ${layers.length} layers; review its layout before changing the bootstrap`
-        : remoteDigest
-          ? computerdCurrent
-            ? 'immutable layer digest matches the published tag'
-            : 'published tag resolves to a different layer digest'
-          : 'published image has an invalid layer digest; review it before changing the bootstrap',
-  });
-
   return report(results);
 }
 
@@ -193,10 +175,9 @@ function renderMarkdown(status, results) {
     '| --- | --- | --- | --- | --- |',
     rows,
     '',
-    '- Sandbox image: `app/workflows/user-workspace-runtime-provisioning.ts`',
-    '- computerd layer: `user-workspace-runtime/src/container-toolchain.ts`',
+    '- Every base: `user-workspace-image/Dockerfile`',
     '',
-    'Keep the immutable digest pin, then run `pnpm run validate`.',
+    'Keep the immutable digest pin, rebuild and publish the image (`pnpm run workspace-image:publish`), then run `pnpm run validate`.',
     '',
   ].join('\n');
 }
@@ -204,12 +185,11 @@ function renderMarkdown(status, results) {
 async function main() {
   let result;
   try {
-    const [packageJson, provisionerSource, toolchainSource] = await Promise.all([
+    const [packageJson, dockerfile] = await Promise.all([
       readFile(new URL('../package.json', import.meta.url), 'utf8'),
-      readFile(new URL('../app/workflows/user-workspace-runtime-provisioning.ts', import.meta.url), 'utf8'),
-      readFile(new URL('../user-workspace-runtime/src/container-toolchain.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../user-workspace-image/Dockerfile', import.meta.url), 'utf8'),
     ]);
-    result = await checkRuntimeArtifacts(parseRuntimeArtifactPins({ packageJson, provisionerSource, toolchainSource }));
+    result = await checkRuntimeArtifacts(parseRuntimeArtifactPins({ packageJson, dockerfile }));
   } catch (error) {
     result = errorReport(error);
   }
