@@ -9,6 +9,7 @@ import {
   type SerializedMessage,
   type TranscriptRequest,
 } from '~/lib/cloudflare/chat-transcript-db';
+import { cloudflareReauthorizationRequiredStore } from '~/lib/cloudflare/runtime-session';
 import { description } from '~/lib/stores/description';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { subchatIndexStore } from '~/lib/stores/subchats';
@@ -94,8 +95,12 @@ export function useInitialMessagesState(workspaceId: string | undefined): Initia
     if (!cached.error) {
       return;
     }
-    toast.error('Failed to refresh chat messages from storage. Try reloading the page.');
     logger.error('Error refreshing initial messages:', cached.error);
+    // Cloudflare permissions to approve again have their own prompt where the project would be.
+    if (cloudflareReauthorizationRequiredStore.get()) {
+      return;
+    }
+    toast.error('Failed to refresh chat messages from storage. Try reloading the page.');
   }, [cached.error]);
 
   const initialMessages = useMemo<InitialMessages | null | undefined>(() => {

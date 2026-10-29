@@ -40,6 +40,7 @@ import {
 } from '~/components/WorkspacePreparing';
 import { Button } from '@ui/Button';
 import { Loading } from '~/components/Loading';
+import { CloudflareReauthorizePanel } from '~/components/CloudflareReauthorizePrompt';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { workbenchStore } from '~/lib/stores/workbench.client';
@@ -147,8 +148,7 @@ export function WorkspaceRuntimeConnectionError({
   onRetry: () => void;
 }) {
   const planRequired = code === 'workspace_plan_required';
-  const reauthorizationRequired = code === 'cloudflare_reauthorization_required';
-  // An organization's connection is reauthorized by its admins, from its settings.
+  // An organization's connection is managed by its admins, from its settings.
   const { data: session } = authClient.useSession();
   const organization = session?.context?.kind === 'organization' ? session.context : null;
   // Preparation that outran the readiness deadline is still preparation, not a refusal.
@@ -158,6 +158,10 @@ export function WorkspaceRuntimeConnectionError({
         <WorkspacePreparingPanel onKeepWaiting={onRetry} />
       </div>
     );
+  }
+  // Permissions to approve again are one quiet prompt with its one button, not a failure to read.
+  if (code === 'cloudflare_reauthorization_required') {
+    return <CloudflareReauthorizePanel />;
   }
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-y-auto p-5">
@@ -178,23 +182,6 @@ export function WorkspaceRuntimeConnectionError({
             <li>Select “Try again” to finish creating the workspace.</li>
           </ol>
         ) : null}
-        {reauthorizationRequired && organization && organization.role !== 'admin' ? (
-          <p className="mx-auto mt-5 max-w-md text-sm text-content-secondary">
-            Ask an admin of {organization.orgName} to reconnect its Cloudflare account, then select “Try again”.
-          </p>
-        ) : reauthorizationRequired && organization ? (
-          <ol className="mx-auto mt-5 max-w-md list-decimal space-y-2 pl-5 text-left text-sm text-content-secondary">
-            <li>Open {organization.orgName}&apos;s settings below and reconnect its Cloudflare account.</li>
-            <li>Approve the updated permissions.</li>
-            <li>Return to the builder and select “Try again”.</li>
-          </ol>
-        ) : reauthorizationRequired ? (
-          <ol className="mx-auto mt-5 max-w-md list-decimal space-y-2 pl-5 text-left text-sm text-content-secondary">
-            <li>Open your Cloudflare account settings below.</li>
-            <li>Reauthorize CloudChef and approve the updated permissions.</li>
-            <li>Return to the builder and select “Try again”.</li>
-          </ol>
-        ) : null}
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           {planRequired ? (
             <a
@@ -211,13 +198,13 @@ export function WorkspaceRuntimeConnectionError({
           </Button>
           {organization ? (
             organization.role === 'admin' ? (
-              <LinkButton to="/settings" hash="organizations" variant={reauthorizationRequired ? 'primary' : 'neutral'}>
-                {reauthorizationRequired ? 'Open team settings' : 'Team settings'}
+              <LinkButton to="/settings" hash="organizations" variant="neutral">
+                Team settings
               </LinkButton>
             ) : null
           ) : (
-            <LinkButton to="/settings" hash="cloudflare" variant={reauthorizationRequired ? 'primary' : 'neutral'}>
-              {reauthorizationRequired ? 'Reauthorize Cloudflare' : 'Cloudflare account'}
+            <LinkButton to="/settings" hash="cloudflare" variant="neutral">
+              Cloudflare account
             </LinkButton>
           )}
         </div>

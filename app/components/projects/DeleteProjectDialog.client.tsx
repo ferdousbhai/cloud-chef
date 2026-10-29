@@ -6,6 +6,7 @@ import { Spinner } from '@ui/Spinner';
 import { TextInput } from '@ui/TextInput';
 import type { ProjectDeletionPreview } from '~/lib/cloudflare/org-projects.client';
 import { messageOf } from '~/lib/json-request';
+import { CloudflareReauthorizePrompt, needsCloudflareReauthorization } from '~/components/CloudflareReauthorizePrompt';
 
 /**
  * Deletes a project for good, after saying what goes with it and having the person type its name. With `preview`,
@@ -35,6 +36,8 @@ export function DeleteProjectDialog({
   const [typed, setTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Deleting what a project made in Cloudflare can need permissions to approve again first.
+  const [reauthorize, setReauthorize] = useState(false);
 
   // Read once per try: the parent may render again (its list refreshes) with a new function for the same project.
   const previewRef = useRef(preview);
@@ -69,6 +72,7 @@ export function DeleteProjectDialog({
       await onDelete();
       onDeleted();
     } catch (cause) {
+      setReauthorize(cause instanceof Error && needsCloudflareReauthorization(cause));
       setError(messageOf(cause, `${name} couldn’t be deleted. Try again.`));
       setDeleting(false);
     }
@@ -110,7 +114,9 @@ export function DeleteProjectDialog({
             onChange={(event) => setTyped(event.target.value)}
           />
         </label>
-        {error !== null ? (
+        {reauthorize ? (
+          <CloudflareReauthorizePrompt blocked={`delete ${name}`} />
+        ) : error !== null ? (
           <p role="alert" className="text-bolt-elements-icon-error wrap-anywhere">
             {error}
           </p>

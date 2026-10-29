@@ -70,7 +70,7 @@ test('explains the Cloudflare action each typed workspace failure needs', async 
     'href',
     'https://dash.cloudflare.com/?to=/:account/workers/plans',
   );
-  await expect(page.getByRole('link', { name: 'Reauthorize Cloudflare' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reauthorize Cloudflare' })).toHaveCount(0);
 
   // An eligibility answer CloudChef could not read must not be dressed up as a plan refusal.
   await page.unroute(RUNTIME_SESSION_ROUTE);
@@ -101,8 +101,52 @@ test('explains the Cloudflare action each typed workspace failure needs', async 
   );
   await page.getByRole('button', { name: 'Try again' }).click();
 
-  await expect(page.getByRole('alert')).toContainText('updated Cloudflare permissions');
-  await expect(page.getByRole('link', { name: 'Reauthorize Cloudflare' })).toBeVisible();
+  // One plain prompt with its one button, not the refusal's own words.
+  await expect(
+    page.getByText('CloudChef needs a few more Cloudflare permissions before it can open your workspace.'),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Reauthorize Cloudflare' })).toBeVisible();
+  await expect(page.getByText('updated Cloudflare permissions')).toHaveCount(0);
+  await assertClean();
+});
+
+test('asks on the home to reauthorize Cloudflare, and its button starts reauthorizing', async ({ page }, testInfo) => {
+  const assertClean = collectBrowserDiagnostics(page, testInfo, [/status of 409/]);
+  await stubConnectedSession(page);
+  await page.route(RUNTIME_SESSION_ROUTE, (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        code: 'cloudflare_reauthorization_required',
+        error:
+          'CloudChef needs updated Cloudflare permissions for this workspace. Reauthorize Cloudflare, approve the requested permissions, then try again.',
+      },
+    }),
+  );
+  const starts: unknown[] = [];
+  await page.route('**/api/cloudflare/connection/start', (route) => {
+    starts.push(route.request().postDataJSON());
+    return route.fulfill({ json: { authorizationUrl: `${RUNTIME_ORIGIN}/cloudflare-authorization` } });
+  });
+  await page.route(`${RUNTIME_ORIGIN}/cloudflare-authorization`, (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<title>Cloudflare authorization</title>' }),
+  );
+
+  await page.goto('/');
+
+  const myProjects = page.getByRole('region', { name: 'My projects' });
+  await expect(
+    myProjects.getByText(
+      'CloudChef needs a few more Cloudflare permissions before it can open your workspace. Reauthorize Cloudflare to approve them.',
+    ),
+  ).toBeVisible();
+  await expect(page.getByText('Projects could not be loaded.')).toHaveCount(0);
+  await expect(page.getByText('updated Cloudflare permissions')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Reauthorize Cloudflare' })).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Reauthorize Cloudflare' }).click();
+  await expect(page).toHaveURL(`${RUNTIME_ORIGIN}/cloudflare-authorization`);
+  expect(starts).toEqual([{ callbackURL: expect.stringMatching(/^http:\/\/127\.0\.0\.1:4173\/$/) }]);
   await assertClean();
 });
 

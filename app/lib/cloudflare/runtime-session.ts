@@ -86,6 +86,13 @@ export const userWorkspaceUpgradingStore = atom<boolean>(false);
  * telemetry reads this module and the reverse edge would close an import cycle.
  */
 export const telemetryCorrelationIdStore = atom<string | null>(null);
+
+/**
+ * Whether the control plane last refused a session because the Cloudflare connection lacks permissions a
+ * release added. Every surface that waits on the workspace reads it, so the one prompt to approve them shows
+ * wherever the refusal lands instead of a generic failure.
+ */
+export const cloudflareReauthorizationRequiredStore = atom<boolean>(false);
 let current: UserRuntimeSession | null = null;
 let generation = 0;
 
@@ -246,12 +253,14 @@ async function pollUserRuntimeSession(
       new URL(payload.endpoint).protocol !== 'https:'
     ) {
       const code = userRuntimeErrorCodeSchema.safeParse(payload?.code);
+      cloudflareReauthorizationRequiredStore.set(code.success && code.data === 'cloudflare_reauthorization_required');
       throw new UserRuntimeSessionError(
         payload?.error ?? 'CloudChef could not reach your workspace. Try again in a moment.',
         code.success ? code.data : null,
         cloudflareDashboardUrl(payload?.upgradeUrl),
       );
     }
+    cloudflareReauthorizationRequiredStore.set(false);
     const session: UserRuntimeSession = {
       endpoint: new URL(payload.endpoint).origin,
       token: payload.token,

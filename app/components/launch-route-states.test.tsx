@@ -36,7 +36,7 @@ describe('launch route states', () => {
     expect(html).not.toContain('Loading project');
   });
 
-  it('gives a project that needs Cloudflare approved again the button that does it', () => {
+  it('gives a project that needs Cloudflare approved again one plain prompt with the button that does it', () => {
     const html = renderToStaticMarkup(
       <ProjectLoadError
         error={
@@ -49,9 +49,13 @@ describe('launch route states', () => {
       />,
     );
 
-    expect(html).toContain('Reauthorize Cloudflare');
-    expect(html).toContain('href="/settings#cloudflare"');
-    expect(html).toContain('Try again');
+    expect(html).toContain(
+      'CloudChef needs a few more Cloudflare permissions before it can open your workspace. Reauthorize Cloudflare to approve them.',
+    );
+    expect(html).toContain('>Reauthorize Cloudflare</button>');
+    // The refusal's own words and the generic failure are not shown beside it.
+    expect(html).not.toContain('updated Cloudflare permissions');
+    expect(html).not.toContain('could not');
   });
 
   it('tells a workspace that is still being prepared apart from a project that failed to load', () => {
