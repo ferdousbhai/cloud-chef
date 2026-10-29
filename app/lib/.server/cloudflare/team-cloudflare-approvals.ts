@@ -6,9 +6,11 @@ import { postRuntimeRoute } from './user-workspace-cloudflare-credential';
 
 /**
  * Where a team member's change came from, as the team's admins see it: a command the member's agent ran (its result
- * is written back to that command in the chat), or the member's own terminal.
+ * is written back to that command in the chat; `changeNumber` is which of its changes, from 1), or the member's own
+ * terminal.
  */
-export type TeamChangeSource = { source: 'agent'; agentName: string; toolCallId: string } | { source: 'terminal' };
+export type TeamChangeSource =
+  { source: 'agent'; agentName: string; toolCallId: string; changeNumber: number } | { source: 'terminal' };
 
 export type TeamChangeFiling =
   | { kind: 'filed'; approvalId: string; expiresAt: number; warning: string | null }

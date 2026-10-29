@@ -364,7 +364,9 @@ command that ends first withdraws whatever change of it still waits, so a late a
 interrupted approved request is marked indeterminate rather than replayed. A team member's change is filed for the
 team's admins instead (`runtime-projects/approvals/file`, `source` 'agent') and `cf` is answered at once that it was
 sent to them; the command's output keeps each filed change (`cloudflareChanges`), and the admins' decision replaces
-it there.
+it there. Each change of a command is filed under its own `change_number`: the first keeps the command's tool call id
+as its key, a later one is keyed `<tool call id>#<n>`, so `UNIQUE (agent_name, tool_call_id)` still makes filing the
+same change twice answer the one already filed.
 
 A change asked for with no agent command running came from the person's own terminal, typed by them, so it needs no
 approval: when they may change the account (its owner, or one of a team's admins, the same check a read makes) the
@@ -372,7 +374,7 @@ proxy sends it at once with the account's credential, with the same account and 
 header stripping as any request, answers with Cloudflare's answer, and logs it to the workspace runtime's log
 (`cloudflare_change_from_terminal`: who, which account, method, path, status and ray id), since no approval records
 it. A team member's terminal change is filed for the team's admins as the agent's are, recorded with `source`
-'terminal' and no conversation (`approval_requests`, migration 0051); the Approvals page says the member typed it,
+'terminal' and no conversation (`approval_requests`, migration 0051, which only adds columns); the Approvals page says the member typed it,
 and its result is shown there rather than in a chat. The proxy tells the terminal from the agent only by whether an
 agent command is running at that moment: a process the agent starts in the background and leaves running after its
 command ends has no command any more, so a change it asks for later is treated as typed in the terminal and is sent

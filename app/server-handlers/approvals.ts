@@ -187,6 +187,8 @@ const fileSchema = z.union([
       source: z.literal('agent').optional(),
       agentName: z.string().min(1).max(256),
       toolCallId: z.string().min(1).max(256),
+      // Which of the command's changes this is, from 1 (a runtime that predates several changes sends none).
+      changeNumber: z.number().int().min(1).max(1000).optional(),
       requestJson: z.string().max(MAX_FILED_REQUEST_BYTES),
     })
     .strict(),
@@ -247,7 +249,12 @@ export async function runtimeFileApprovalAction(args: { request: Request; env: E
     from:
       body.source === 'terminal'
         ? { source: 'terminal' }
-        : { source: 'agent', agentName: body.agentName, toolCallId: body.toolCallId },
+        : {
+            source: 'agent',
+            agentName: body.agentName,
+            toolCallId: body.toolCallId,
+            changeNumber: body.changeNumber ?? 1,
+          },
     request,
     requestSha256: await sha256Hex(JSON.stringify(request)),
     warning: review.warning ?? null,

@@ -67,7 +67,7 @@ const migrationPolicies = [
       '0049_drop_connection_authorization_copies.sql':
         '6ce622590c9dc91b2871ed7eb244c73ca4d2dd94252c54947348df4446f40c42',
       '0050_main_rewrites.sql': '3d88d56295630ab8a5fdfbc87e5f27d155353d9881d3397ab80bfa5bc030f2de',
-      '0051_approval_request_sources.sql': '33383bf1ef3f449d475e6001e90e94df8ec1947d386c1911ff13b386601f9af2',
+      '0051_approval_request_sources.sql': 'bc4c7b8122fbf412874fa9315bbfb8fb3be087f38d22e9a3db3895ce53afbe46',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -121,11 +121,6 @@ const migrationPolicies = [
       '0048_drop_unused_request_storage.sql',
       // The connection's copies of its account's authorization and their rollout triggers, unread since 0035/0037.
       '0049_drop_connection_authorization_copies.sql',
-      // A change can come from a member's terminal (`source`, with no conversation) and a command can file several:
-      // SQLite can't relax NOT NULL or drop a UNIQUE in place, so approval_requests is rebuilt with every row copied.
-      // A Worker still serving the earlier code fails a member's filing while this release goes live (its
-      // ON CONFLICT names the dropped constraint); the member is told to try again.
-      '0051_approval_request_sources.sql',
     ],
   },
   {

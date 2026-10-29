@@ -40,6 +40,11 @@ type ClaimedRequest = {
   request: CloudflareApiRequest;
 };
 
+/** The conversation a request's result goes back to, or null for one typed in a terminal. */
+function conversationOf(row: { source: ApprovalSource; agent_name: string }): string | null {
+  return row.source === 'agent' ? row.agent_name : null;
+}
+
 type ApprovalRow = {
   id: string;
   org_id: string;
@@ -83,9 +88,27 @@ const ACTOR_IS_ADMIN = (actor: string) => `EXISTS (
     AND admins.paused_at IS NULL
 )`;
 
+/** Which change of its command a filing is, from 1. */
+type ChangeNumber = number;
+
 /**
- * Files a member's change for the team's admins: one their agent's command asked for (a command may file several),
- * or one they typed in their own workspace terminal.
+ * The key a change of a command is filed under: the command's tool call id for its first change, and
+ * `<tool call id>#<change number>` for each later one, so UNIQUE (agent_name, tool_call_id) keeps each its own.
+ */
+function changeKey(toolCallId: string, changeNumber: ChangeNumber): string {
+  return changeNumber === 1 ? toolCallId : `${toolCallId}#${changeNumber}`;
+}
+
+/** The command's tool call id a change was filed under `key` for, as `changeKey` made it. */
+function commandToolCallId(key: string, changeNumber: ChangeNumber): string {
+  const suffix = `#${changeNumber}`;
+  return changeNumber > 1 && key.endsWith(suffix) ? key.slice(0, -suffix.length) : key;
+}
+
+/**
+ * Files a member's change for the team's admins: one their agent's command asked for (a command may file several,
+ * each under its own change number; filing the same one again answers the request already filed), or one they typed
+ * in their own workspace terminal, which goes back to no conversation.
  */
 export async function fileCloudflareChange(
   db: D1Database,
@@ -93,7 +116,8 @@ export async function fileCloudflareChange(
     orgId: string;
     connectionId: string;
     userId: string;
-    from: { source: 'agent'; agentName: string; toolCallId: string } | { source: 'terminal' };
+    from:
+      { source: 'agent'; agentName: string; toolCallId: string; changeNumber: ChangeNumber } | { source: 'terminal' };
     request: CloudflareApiRequest;
     requestSha256: string;
     warning: string | null;
@@ -101,12 +125,17 @@ export async function fileCloudflareChange(
   },
 ): Promise<{ id: string; expiresAt: number }> {
   const id = crypto.randomUUID();
-  const command = args.from.source === 'agent' ? args.from : null;
+  // A terminal's change names no conversation: it is keyed by its own id, so it never meets another.
+  const [agentName, key, changeNumber] =
+    args.from.source === 'agent'
+      ? [args.from.agentName, changeKey(args.from.toolCallId, args.from.changeNumber), args.from.changeNumber]
+      : ['', id, 1];
   await db
     .prepare(
-      `INSERT INTO approval_requests (id, org_id, connection_id, requested_by, kind, source, agent_name, tool_call_id,
-         request_json, request_sha256, warning, status, created_at, expires_at)
-       VALUES (?, ?, ?, ?, 'cloudflare_change', ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      `INSERT INTO approval_requests (id, org_id, connection_id, requested_by, kind, source, change_number, agent_name,
+         tool_call_id, request_json, request_sha256, warning, status, created_at, expires_at)
+       VALUES (?, ?, ?, ?, 'cloudflare_change', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+       ON CONFLICT (agent_name, tool_call_id) DO NOTHING`,
     )
     .bind(
       id,
@@ -114,8 +143,9 @@ export async function fileCloudflareChange(
       args.connectionId,
       args.userId,
       args.from.source,
-      command?.agentName ?? null,
-      command?.toolCallId ?? null,
+      changeNumber,
+      agentName,
+      key,
       JSON.stringify(args.request),
       args.requestSha256,
       args.warning,
@@ -123,7 +153,16 @@ export async function fileCloudflareChange(
       args.expiresAt,
     )
     .run();
-  return { id, expiresAt: args.expiresAt };
+  const filed = await db
+    .prepare(
+      'SELECT id, expires_at FROM approval_requests WHERE agent_name = ? AND tool_call_id = ? AND requested_by = ?',
+    )
+    .bind(agentName, key, args.userId)
+    .first<{ id: string; expires_at: number }>();
+  if (!filed) {
+    throw new Error('The approval request was not filed.');
+  }
+  return { id: filed.id, expiresAt: filed.expires_at };
 }
 
 /** Requests whose time ran out while waiting are expired, whoever looks first. */
@@ -176,7 +215,7 @@ export async function claimApproval(db: D1Database, id: string, actorId: string)
     .prepare(
       `UPDATE approval_requests SET status = 'sending', decided_by = ?2, decided_at = ?3
        WHERE id = ?1 AND status = 'pending' AND expires_at > ?3 AND ${ACTOR_IS_ADMIN('?2')} AND ${REQUESTER_IS_MEMBER}
-       RETURNING id, org_id, connection_id, requested_by, agent_name, request_json`,
+       RETURNING id, org_id, connection_id, requested_by, source, agent_name, request_json`,
     )
     .bind(id, actorId, now)
     .first<{
@@ -184,7 +223,8 @@ export async function claimApproval(db: D1Database, id: string, actorId: string)
       org_id: string;
       connection_id: string;
       requested_by: string;
-      agent_name: string | null;
+      source: ApprovalSource;
+      agent_name: string;
       request_json: string;
     }>();
   return row
@@ -193,7 +233,7 @@ export async function claimApproval(db: D1Database, id: string, actorId: string)
         orgId: row.org_id,
         connectionId: row.connection_id,
         requestedBy: row.requested_by,
-        agentName: row.agent_name,
+        agentName: conversationOf(row),
         request: cloudflareApiRequestSchema.parse(JSON.parse(row.request_json)),
       }
     : null;
@@ -226,11 +266,13 @@ export async function rejectApproval(
     .prepare(
       `UPDATE approval_requests SET status = 'rejected', decided_by = ?2, decided_at = ?3, outcome_json = ?4
        WHERE id = ?1 AND status = 'pending' AND ${ACTOR_IS_ADMIN('?2')}
-       RETURNING requested_by, connection_id, agent_name`,
+       RETURNING requested_by, connection_id, source, agent_name`,
     )
     .bind(id, actorId, now, JSON.stringify(denied))
-    .first<{ requested_by: string; connection_id: string; agent_name: string | null }>();
-  return row ? { requestedBy: row.requested_by, connectionId: row.connection_id, agentName: row.agent_name } : null;
+    .first<{ requested_by: string; connection_id: string; source: ApprovalSource; agent_name: string }>();
+  return row
+    ? { requestedBy: row.requested_by, connectionId: row.connection_id, agentName: conversationOf(row) }
+    : null;
 }
 
 /**
@@ -251,22 +293,24 @@ export async function approvalOutcomeFor(
   await expireWaiting(db);
   const row = await db
     .prepare(
-      `SELECT agent_name, tool_call_id, request_sha256, status, result, outcome_json FROM approval_requests
+      `SELECT agent_name, tool_call_id, change_number, request_sha256, status, result, outcome_json
+       FROM approval_requests
        WHERE id = ? AND requested_by = ? AND connection_id = ? AND source = 'agent'`,
     )
     .bind(args.id, args.userId, args.connectionId)
     .first<{
-      agent_name: string | null;
-      tool_call_id: string | null;
+      agent_name: string;
+      tool_call_id: string;
+      change_number: number;
       request_sha256: string;
       status: ApprovalStatus;
       result: ApprovalResult | null;
       outcome_json: string | null;
     }>();
-  return row?.agent_name && row.tool_call_id
+  return row
     ? {
         agentName: row.agent_name,
-        toolCallId: row.tool_call_id,
+        toolCallId: commandToolCallId(row.tool_call_id, row.change_number),
         requestSha256: row.request_sha256,
         status: row.status,
         result: row.result,

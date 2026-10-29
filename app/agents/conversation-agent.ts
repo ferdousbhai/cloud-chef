@@ -2246,16 +2246,16 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     identity: RuntimeConnectionIdentity,
     transcript: BuilderTranscriptBinding,
   ): Promise<CloudflareChangeAnswer> {
+    const changes = this.filedCloudflareChanges.get(toolCallId) ?? [];
     const filed = await fileTeamCloudflareChange(
       this.env,
       identity,
-      { source: 'agent', agentName: transcript.agentName, toolCallId },
+      { source: 'agent', agentName: transcript.agentName, toolCallId, changeNumber: changes.length + 1 },
       request,
     );
     if (filed.kind === 'refused') {
       return filed.answer;
     }
-    const changes = this.filedCloudflareChanges.get(toolCallId) ?? [];
     changes.push({
       kind: 'cloudflare_request_filed',
       status: 'awaiting_team_admin',
