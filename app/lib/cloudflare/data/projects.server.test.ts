@@ -660,7 +660,7 @@ describe('rewriting main', () => {
         },
         store,
       );
-    return { artifacts, calls, enqueued, rewrite, main, slim };
+    return { artifacts, calls, enqueued, rewrite, main, slim, store };
   }
 
   it('moves main to the branch for the project’s owner, records it, and publishes it', async () => {
@@ -748,5 +748,50 @@ describe('rewriting main', () => {
     expect(answer.status).toBe(422);
     expect(JSON.stringify(await answer.json())).toContain('.env holds secrets and can');
     expect(await artifacts.head('t-storefront')).toBe(main);
+  });
+
+  it('checks every commit the new history brings, and keeps a secret main already held from staying', async () => {
+    const { artifacts, rewrite, main } = await world();
+    // The secret is only in an older commit of the new history: its last commit holds none.
+    await artifacts.commitDirect('t-storefront', 'buried', { 'index.html': 'v2', 'api/.dev.vars': 'KEY=1' }, 'Oops');
+    const buried = await artifacts.commitDirect('t-storefront', 'buried', { 'index.html': 'v2' }, 'Removed');
+
+    const older = await rewrite({ branch: 'buried', commit: buried });
+    expect(older.status).toBe(422);
+    expect(JSON.stringify(await older.json())).toContain('api/.dev.vars holds secrets');
+    expect(await artifacts.head('t-storefront')).toBe(main);
+
+    // main already holds a secret, and the new history keeps it in its last commit.
+    const held = await artifacts.commitDirect('t-storefront', 'main', { 'index.html': 'v3', '.env': 'KEY=1' }, 'Held');
+    const kept = await artifacts.commitDirect('t-storefront', 'kept', { 'index.html': 'v4', '.env': 'KEY=1' }, 'Kept');
+    const keeping = await rewrite({ branch: 'kept', commit: kept, expected: held });
+    expect(keeping.status).toBe(422);
+    expect(JSON.stringify(await keeping.json())).toContain('.env holds secrets');
+    expect(await artifacts.head('t-storefront')).toBe(held);
+  });
+
+  it('refuses a branch that only adds to main, which is pushed as usual and not recorded as a rewrite', async () => {
+    const { artifacts, calls, enqueued, rewrite, main, store } = await world();
+    const added = await store().commitFiles({
+      repo: 't-storefront',
+      branch: 'ahead',
+      parent: main,
+      replaces: null,
+      files: [{ path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('v3') }],
+      message: 'Ahead',
+      author,
+    });
+    const ahead = 'commit' in added ? added.commit : '';
+
+    const answer = await rewrite({ branch: 'ahead', commit: ahead });
+
+    expect(answer.status).toBe(409);
+    expect(await answer.json()).toEqual({
+      error:
+        'ahead only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ahead:main).',
+    });
+    expect(await artifacts.head('t-storefront')).toBe(main);
+    expect(calls.map((call) => call.route)).not.toContain('runtime-projects/main-rewritten');
+    expect(enqueued).toEqual([]);
   });
 });

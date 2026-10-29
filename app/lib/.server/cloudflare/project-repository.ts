@@ -281,6 +281,78 @@ export class ProjectRepositories {
       .map((file) => file.path);
   }
 
+  /**
+   * The local secret files a history brings that `old`'s history doesn't: every commit reachable from `commit` and
+   * not from `old` is read, and `commit` itself always, and the first secret file any of them holds is answered
+   * (none: `[]`), whether or not `old` held it too. For replacing main's history, where a secret already on main,
+   * or one only in an older commit of the new history, must not come along. Null when either history holds more
+   * than `limit` commits, so it couldn't be read in time.
+   */
+  async secretFilesIntroduced(repo: string, old: string, commit: string, limit = 5_000): Promise<string[] | null> {
+    return this.#withRepo(repo, async (handle) => {
+      const walk = async (from: string, skip: ReadonlySet<string>, visit: (read: ArtifactsCommitMetadata) => void) => {
+        const seen = new Set<string>();
+        const queue = [from];
+        for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+          if (seen.has(next) || skip.has(next)) {
+            continue;
+          }
+          seen.add(next);
+          if (seen.size > limit) {
+            return null;
+          }
+          const read = await handle.readCommit(next);
+          if (!read) {
+            throw new ProjectRepositoryError(`The repository has no commit ${next.slice(0, 64)}.`, 'not_found');
+          }
+          visit(read);
+          queue.push(...read.parents);
+        }
+        return seen;
+      };
+      const kept = await walk(old, new Set(), () => undefined);
+      if (!kept) {
+        return null;
+      }
+      const trees: string[] = [];
+      const tip = await handle.readCommit(commit);
+      if (!tip) {
+        throw new ProjectRepositoryError(`The repository has no commit ${commit.slice(0, 64)}.`, 'not_found');
+      }
+      trees.push(tip.treeHash);
+      if (!(await walk(commit, kept, (read) => trees.push(read.treeHash)))) {
+        return null;
+      }
+      // A folder already read and found clean is the same in every commit that holds it, so it's read once.
+      const clean = new Set<string>();
+      const secretIn = async (hash: string, prefix: string): Promise<string | null> => {
+        if (clean.has(hash)) {
+          return null;
+        }
+        const entries = await handle.readTree(hash);
+        if (!entries) {
+          throw new ProjectRepositoryError('A folder in the repository could not be read.', 'not_found');
+        }
+        for (const entry of entries) {
+          const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+          const found = entry.type === 'tree' ? await secretIn(entry.hash, path) : isSecretFilePath(path) ? path : null;
+          if (found) {
+            return found;
+          }
+        }
+        clean.add(hash);
+        return null;
+      };
+      for (const tree of trees) {
+        const found = await secretIn(tree, '');
+        if (found) {
+          return [found];
+        }
+      }
+      return [];
+    });
+  }
+
   /** Commits on `ref`'s first-parent chain, newest first. */
   async log(repo: string, options: { ref?: string; limit: number; offset?: number }): Promise<RepositoryCommit[]> {
     if (!(await this.exists(repo))) {

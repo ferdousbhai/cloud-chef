@@ -848,8 +848,10 @@ const rewriteMainSchema = z.strictObject({
 /**
  * `POST /v1/projects/rewrite-main`: main becomes `branch`'s commit even though it doesn't add to main's history, once
  * CloudChef says this person runs the project (its owner, or one of its team's admins). Only while main and the branch
- * are still where the person read them, and never with a secret file main didn't already hold. The change is recorded,
- * then published as a push to main is. main's old commits stay in the repository, unreachable from it.
+ * are still where the person read them; never for a branch that only adds to main, which is pushed as usual; and
+ * never with a secret file in any commit the new history brings, or in its last commit, even one main already held.
+ * The change is recorded, then published as a push to main is. main's old commits stay in the repository,
+ * unreachable from it.
  */
 export async function userRuntimeRewriteMainAction(
   args: { request: Request; env: Env },
@@ -889,7 +891,19 @@ export async function userRuntimeRewriteMainAction(
     if (commit === expected) {
       return refused(`main is already at ${commit.slice(0, 7)}.`);
     }
-    const secrets = await store.secretFilesChanged(target.repo, expected, commit);
+    // A branch that only adds to main is pushed to it, as any change is: that keeps it an ordinary push.
+    const fastForward = await store.isAncestor(target.repo, expected, commit);
+    if (fastForward) {
+      return refused(
+        `${branch} only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ${branch}:main).`,
+      );
+    }
+    // Every commit the new history brings, and its last one's files whole: a secret file main already held, or one
+    // only in an older commit of the new history, would otherwise come along.
+    const secrets = fastForward === null ? null : await store.secretFilesIntroduced(target.repo, expected, commit);
+    if (secrets === null) {
+      return refused(`${branch}’s history is too long for CloudChef to check, so main was left as it is.`, 422);
+    }
     if (secrets[0] !== undefined) {
       return refused(secretFileRefusal(secrets[0]), 422);
     }

@@ -253,7 +253,7 @@ adds or changes no `.env`/`.dev.vars` file compared with the branch's old commit
 nothing, for main's first push). A push moves main only as a fast-forward, so no push rewrites it. Replacing main's history on purpose (to drop large
 files from old commits) is the project owner's, or a team admin's, `cloudchef repo rewrite-main BRANCH`
 (`app/server-handlers/main-rewrite.ts`, then the runtime's `POST /v1/projects/rewrite-main`): main moves to the pushed
-branch's commit only from the commit the owner read, never with a secret file main didn't hold, is recorded in
+branch's commit only from the commit the owner read, never for a branch that only adds to main (that is pushed as usual), never with a secret file in any commit the new history brings or in its last commit (even one main already held), is recorded in
 `project_main_rewrites`, and publishes as a push to main does. A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
