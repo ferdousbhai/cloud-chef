@@ -45,6 +45,10 @@ revision, authorization, validation, recovery, and deployment-approval invariant
 
 ## Builder loop: Pi versus AI SDK
 
+Superseded on 2026-10-29: the builder runs on `@earendil-works/pi-durable` (hosted by the Agents SDK's `PiHarness`), whose
+durable inbox carries the steering this review kept Pi for, and `@earendil-works/pi-agent-core` is no longer a dependency.
+The review as it was:
+
 Reviewed on 2026-08-22 against the installed `@earendil-works/pi-agent-core` 0.83.0 and AI SDK 7.0.48. Keep Pi for the
 builder loop. AI SDK's `ToolLoopAgent` has step preparation, stop conditions, tool lifecycle callbacks, streaming, and
 abort support, so ordinary tool execution is close. It does not have Pi's `getSteeringMessages` contract: a committed

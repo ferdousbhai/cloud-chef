@@ -272,7 +272,7 @@ edit) for a team project.
 | Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
 | Projects, members' roles, GitHub installations, production requests                               | CloudChef control-plane D1                           |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
-| Agent messages, turn state, compaction, and resumable execution                                   | User-owned `ConversationAgent` DO SQLite             |
+| Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable)          | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
 | Dependency installation, validation, and deployable artifact preparation                          | User-owned `ProjectWorkspace` Container backend      |
 | Production-version upload and promotion                                                           | User's Cloudflare account APIs                       |
@@ -285,24 +285,40 @@ files; the browser editor and container mount are replicas of that state.
 
 ## Transcript Reconciliation
 
-`ConversationAgent` DO SQLite is the only authoritative message transcript and checkpoint store. Generation, reload,
-interrupted-turn recovery, and context compaction all read that Agent. User workspace D1 stores only routing and catalog
-facts: the Agent name, subchat index, branch ancestry, and whether the chat has accepted content. It stores
-no message positions, counts, digests, or browser-authored checkpoint. The browser's TanStack collection is a
-rebuildable in-memory view.
+Each `ConversationAgent` hosts one pi-durable conversation (`@earendil-works/pi-durable`, pinned exactly), opened by the
+Agents SDK's `PiHarness` over the object's own SQLite under the `pi_` table prefix. Its transcript is the only
+authoritative one: the model's context, the chat the person sees, reload, recovery and the handoff all read it. Every
+input, model response, tool call and tool result is committed before anything is shown, so a restarted object
+reopens pi and goes on where it stopped (`PiHarness`'s one Lifecycle job wakes it; pi's `onWake` drives that job, not
+the SDK's `schedule()`). A tool call a restart cut off reports `interrupted` to the model rather than running again,
+except `read`; pi parks a task that keeps crashing the object (`restartLimit`). User workspace D1 stores only routing and
+catalog facts: the Agent name, subchat index, branch ancestry, and whether the chat has accepted content.
 
-Reconciliation is deterministic:
+The browser never sends history. It sends a message (`sendMessage`), a message during a run (`steerActiveTurn`, which
+pi places after the current round of tool calls), or Stop (`cancelActiveTurn`, pi's `abort()`), and receives the chat
+over the Agent's socket: after each commit the agent derives the chat's messages from every entry of the transcript
+(not only the model's current context) and `pi.live` (`app/agents/builder-chat-view.ts`), and sends what changed as a
+`cloudchef_chat` frame (`cloudchef-agent/chat-frame.ts`); a connecting browser gets the whole chat. The browser's
+messages are a rebuildable view of that.
 
-1. Reload resolves the owner-scoped transcript identity from D1 and asks that exact `ConversationAgent` for its checkpoint
-   and messages. A mismatched Agent identity is a conflict, never a fallback to another history.
-2. Before send, the browser asks the Agent for its current checkpoint and compares it with the complete local view. A
-   mismatch blocks the send and requires a reload. The checkpoint rides with the message only as transient base
-   metadata, so the Agent rejects a stale client that races after the preflight; it is stripped before persistence.
-3. Once the Agent accepts the first user content, it marks the chat visible in D1 using its bound identity. This writes
-   one catalog boolean, not a transcript projection. D1 never receives the message body or checkpoint hash.
-4. A subchat records its parent subchat and revision. The runtime reads that revision directly from the
-   parent Agent before the D1 transition, then uses a unique token to recognize an exact commit whose acknowledgement
-   was lost.
+- A message is placed as a `cloudchef.user` entry: the model sees its text with the turn's workspace context, which is
+  what the transcript keeps; the chat shows the text.
+- Display-only entries change nothing the model sees: `cloudchef.handoff` (a handoff note), `cloudchef.tool-output` (a
+  finished command's output as it is now: a team build's result, or an admin's decision), and `cloudchef.legacy` (a
+  message of a chat from before pi-durable).
+- The agent keeps only the turn's own bookkeeping in its state: which pi operation the turn waits for, so a restarted
+  agent waits for it again and then publishes what the turn pushed.
+- A chat from before pi-durable is converted once when its agent starts: AI Chat's messages become `cloudchef.legacy`
+  entries and its tables are dropped. Such a chat goes on in a fresh context: the model does not see the old messages.
+- The checkpoint the data API returns for a transcript (reload, a subchat's branch point) is derived from the chat's
+  messages; it is not stored.
+
+The Agents SDK writes its own tables (state, schedules, fibers) straight to `ctx.storage.sql`, outside pi's operation
+queue, so the agent makes no SDK write inside a pi commit callback.
+
+pi-durable migrates its SQLite schema when it opens (1.4.0 writes schema version 2). A migrated object cannot be opened
+by an earlier pi-durable, so a deployment cannot roll back past the release that moved to 1.4.0, and a later pi-durable
+release that migrates again sets a new floor.
 
 ## Project Lifecycle
 
@@ -311,7 +327,7 @@ stores files directly in the Durable Object's SQLite VFS. Its container backend 
 Container through FUSE and reconciles changes back to the VFS.
 
 The model has four tools (`cloudchef-agent/model-tool-inputs.ts`, `app/lib/.server/llm/workers-ai-tools.ts`):
-`read`, `write`, `edit` and `exec`, plus `history` over the conversation itself (`context-window-tools.ts`). `read`
+`read`, `write`, `edit` and `exec`, run as pi-durable tools (`app/lib/.server/llm/builder-tools.ts`). `read`
 is answered from the Durable Object's SQLite VFS alone — no container, no sync barrier, and never the exclusive
 workspace operation lane, so it answers before the container is warm and stays available while a build command holds
 the lane. `write`, `edit` and `exec` change the project or run in its Container under that lane. All four are
@@ -696,30 +712,30 @@ survive both directions; the base snapshot row stays in D1, unused, until a rele
 
 ## Model Context and Prefix Caching
 
-The browser sends open, recently used, and locally modified file context as a bounded turn attachment. The server adds
-that attachment only to the current model view; it never persists the generated context as a transcript message.
-`history` searches and pages the current authenticated conversation, including earlier context windows. When the
-context reaches the rollover threshold, or a provider reports a context overflow, CloudChef starts a fresh window from
-a bounded deterministic recovery record of the user inputs and the latest tool batch. No separate summarizer model is
-called, and the model is not asked to hand off. The record is not a verified progress summary, and says so; history
-holds the details. Repeated rollovers do not nest records. The complete transcript remains in the owning Agent; live history ids are turn-local, so after a
-restart the builder searches again for durable message ids. Existing summary checkpoints remain readable, and anchor
-validation prevents applying a checkpoint after a rewind removed its source. Thresholds follow the selected model's
-window, including a smaller limit learned from the provider, with output and estimation headroom reserved.
+The browser sends open, recently used, and locally modified file context with each message. It goes into what the model
+is sent for that message (`app/lib/.server/llm/turn-context.ts`), marked as data, and so into the transcript as the model
+saw it; the chat shows only the person's text. The system prompt is one section describing the environment
+(`cloudchef-agent/prompts/system.ts`, with the skills catalog from `builder-skills.ts`), fixed for a conversation.
 
-Long before that threshold, old tool output is cleared from the model's view (`tool-result-clearing.ts`): once the
-context passes 64k tokens (or half the input budget of a smaller model), every large tool result except the six most
-recent is replaced by a fixed note, keeping each message and tool call in place, and only when that frees at least 12k
-tokens. Clearing is rare and step-wise, and the note is byte-identical each time, so the cached prefix holds up to the
-first newly cleared result. The transcript and `history` keep the original output.
+There is no compaction and no history tool: a context fills the model's window, and prompt caching covers the cost of
+the long prefix. Near the window's limit the builder hands off (`app/lib/.server/llm/handoff.ts`): the model is asked,
+after the conversation so far, for a note for whoever continues; the conversation is reset to that note
+(`Conversation.reset`); and the person's latest request is sent again, so the work goes on in a fresh context that starts
+from the system prompt, the note and that request, without the person doing anything. The threshold is pi-durable's own
+accounting: the newest response's reported usage and what came after it, against the window less what pi keeps for the
+answer (and, at a turn's start, a margin so the turn has room). A run hands off after a round of tool calls that passed
+it, a turn starts by handing off when it begins past it, and a provider's context overflow hands off and sends the
+request again once. The chat shows the note where the conversation went on from it, closed, and everything before it.
 
-The builder loop stays on Pi rather than AI SDK's `ToolLoopAgent`, which has no equivalent of Pi's steering queue; the
-review is in `docs/DECISIONS.md`.
+pi-durable sends each request with the conversation's own provider session id (`pi.provider`), which survives restarts
+and handoffs, as Workers AI's session affinity and providers' prompt-cache key, at pi's default cache retention. Claude's
+signed thinking is kept in the transcript and sent back verbatim; a request Claude refuses for a thinking signature is
+sent once more without thinking (`createGatewayFetch` in `pi-ai-models.ts`). Each response's token counts are logged,
+cache hits included, and reported for the organization's per-member usage. The evidence on cache savings is in
+`docs/DECISIONS.md`.
 
-Workers AI prefix caching is automatic for supported models. CloudChef sends an opaque, stable session-affinity value
-per transcript and model through the AI binding's `extraHeaders`, keeps system instructions at the front of the
-prompt, and leaves dynamic project context in the latest user turn; finish telemetry reports Pi's `usage.cacheRead` as
-hits or misses without logging prompt contents. The evidence on cache savings is in `docs/DECISIONS.md`.
+pi-durable bounds each model request (its stream timeout and retries); the agent keeps only a turn's overall time limit
+and a watch for a run that shows no progress between its tool calls (`builder-turn-limits.ts`).
 
 ## Trust Boundaries
 
