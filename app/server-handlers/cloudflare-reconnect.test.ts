@@ -16,6 +16,7 @@ import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtim
 import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { completeCloudflareConnectionAction, startCloudflareConnectionAction } from './cloudflare-integration';
+import type { startUserWorkspaceRuntimeProvisioning } from '~/workflows/user-workspace-runtime-provisioning';
 
 const ORIGIN = 'https://cloudchef.build';
 const HOUR = 60 * 60_000;
@@ -65,7 +66,10 @@ async function connect(
   env: Env,
   cookie: string,
   orchestrator: Pick<CloudflareOAuthOrchestrator, 'startConnection' | 'completeConnection'>,
-  { organizationId }: { organizationId?: string } = {},
+  {
+    organizationId,
+    provision = vi.fn().mockResolvedValue({ status: 'preparing' }),
+  }: { organizationId?: string; provision?: typeof startUserWorkspaceRuntimeProvisioning } = {},
 ) {
   const started = await startCloudflareConnectionAction({
     request: new Request(`${ORIGIN}/api/cloudflare/connection/start`, {
@@ -86,6 +90,7 @@ async function connect(
     }),
     env,
     orchestrator,
+    provision,
   });
 }
 
@@ -217,13 +222,19 @@ describe("one Cloudflare account shared by a person's own space and their team",
   }
 
   it('is reauthorized once, from the team, for both spaces, and only the team space prepares its workspaces again', async () => {
-    const { database, db, env, user, cookie } = await sharedAccount();
+    const { database, db, env, user, cookie, kim } = await sharedAccount();
     const before = await findCloudflareConnectionForUser(db, user.id);
     expect(missingCoreOAuthScopes(before?.grantedOAuthScopes ?? [])).not.toEqual([]);
 
-    const response = await connect(env, cookie, reauthorizedAs('cf-sam'), { organizationId: ORG });
+    const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
+    const response = await connect(env, cookie, reauthorizedAs('cf-sam'), { organizationId: ORG, provision });
     expect(response.status).toBe(303);
     expect(new URL(response.headers.get('location') ?? '').searchParams.get('cloudflare_message')).toBeNull();
+    // Every member's workspace in the team's account starts preparing at once, not only the admin's.
+    const teamConnection = await findCloudflareConnectionForOrganization(db, ORG);
+    expect(provision.mock.calls.map(([call]) => `${call.userId}@${call.connectionId}`).sort()).toEqual(
+      [`${user.id}@${teamConnection?.id}`, `${kim.id}@${teamConnection?.id}`].sort(),
+    );
 
     const own = await findCloudflareConnectionForUser(db, user.id);
     const team = await findCloudflareConnectionForOrganization(db, ORG);

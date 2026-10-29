@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
@@ -105,12 +105,16 @@ describe('organizations', () => {
     expect(sent[0]).toContain(invited.body?.inviteUrl ?? 'missing');
 
     const sam = await signIn('sam@acme.com');
+    const prepareWorkspace = vi.fn().mockResolvedValue(undefined);
     const accepted = await acceptInviteAction({
       request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
       env,
+      prepareWorkspace,
     });
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toEqual({ orgId, switched: true });
+    // Sam's workspace in Acme's account starts preparing at once, before they open a project.
+    expect(prepareWorkspace).toHaveBeenCalledWith(env, sam.userId, expect.objectContaining({ id: 'acme-connection' }));
 
     // Sam now works in Acme's account, as a member who may build new apps of their own (the invite's default).
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));

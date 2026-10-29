@@ -576,12 +576,7 @@ export async function completeCloudflareConnectionAction(args: {
       .bind(owner.kind === 'user' ? owner.userId : owner.orgId, sessionId)
       .run();
     await settleOAuthState(args.env.DB, state, 'completed', userId);
-    await prepareWorkspaceAfterConnecting(
-      args.env,
-      userId,
-      owner,
-      args.provision ?? startUserWorkspaceRuntimeProvisioning,
-    );
+    await prepareWorkspacesAfterConnecting(args.env, owner, args.provision ?? startUserWorkspaceRuntimeProvisioning);
     const headers = new Headers({
       Location: new URL(
         safeReturnTo(oauthState.return_to, new URL(args.request.url).origin),
@@ -611,25 +606,51 @@ export async function completeCloudflareConnectionAction(args: {
   }
 }
 
-/** The active admin of the team `orgId` who is connecting it; refuses anyone else. */
 /**
- * Starts preparing the connecting person's workspace as soon as the connection is saved, in the background, so
- * its first start (installing the container's tools and saving them as its snapshot, a few minutes) is done
- * before they open a project. Opening one later finds the same Workflow. A failure here is only logged: the
- * first session request starts or reports it as before.
+ * Starts preparing workspaces in a space as soon as its connection is saved, in the background, so each one's
+ * first start (installing the container's tools and saving them as its snapshot, a few minutes) is done before
+ * anyone opens a project: the person's own, or, for a team's account, every member's who may use it.
  */
-async function prepareWorkspaceAfterConnecting(
+async function prepareWorkspacesAfterConnecting(
   env: Env,
-  userId: string,
   owner: CloudflareConnectionOwner,
   provision: typeof startUserWorkspaceRuntimeProvisioning,
 ): Promise<void> {
   try {
     const connection = await findCloudflareConnectionForOwner(env.DB, owner);
-    if (!connection || missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
+    if (!connection) {
       return;
     }
-    if (isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection)) {
+    const userIds = owner.kind === 'user' ? [owner.userId] : await listOrganizationMemberIds(env.DB, owner.orgId);
+    for (const userId of userIds) {
+      await prepareWorkspaceInBackground(env, userId, connection, provision);
+    }
+  } catch (error) {
+    console.warn({
+      event: 'workspace_preparation_after_connect_failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+/**
+ * Starts preparing `userId`'s workspace in `connection`'s account, unless it is ready already or they may not use
+ * it. Opening a project later finds the same Workflow. A failure is only logged: the first session request
+ * starts or reports it as before.
+ */
+export async function prepareWorkspaceInBackground(
+  env: Env,
+  userId: string,
+  connection: CloudflareConnection,
+  provision: typeof startUserWorkspaceRuntimeProvisioning = startUserWorkspaceRuntimeProvisioning,
+): Promise<void> {
+  try {
+    if (
+      connection.status !== 'active' ||
+      missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0 ||
+      !(await canUseConnection(env.DB, userId, connection)) ||
+      isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection)
+    ) {
       return;
     }
     const started = await provision({
@@ -641,16 +662,25 @@ async function prepareWorkspaceAfterConnecting(
         isCurrentWorkspaceRuntime(await findUserWorkspaceRuntime(env.DB, userId, connection.id), connection),
     });
     if (started.status === 'error') {
-      console.warn({ event: 'workspace_preparation_after_connect_unavailable', errorCode: started.errorCode });
+      console.warn({ event: 'workspace_preparation_in_background_unavailable', errorCode: started.errorCode });
     }
   } catch (error) {
     console.warn({
-      event: 'workspace_preparation_after_connect_failed',
+      event: 'workspace_preparation_in_background_failed',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 }
 
+async function listOrganizationMemberIds(db: D1Database, orgId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare('SELECT user_id FROM organization_members WHERE org_id = ? ORDER BY joined_at')
+    .bind(orgId)
+    .all<{ user_id: string }>();
+  return results.map((row) => row.user_id);
+}
+
+/** The active admin of the team `orgId` who is connecting it; refuses anyone else. */
 async function requireTeamAdmin(db: D1Database, orgId: string, linkingUserId: string | null): Promise<string> {
   const membership = linkingUserId ? await findMembership(db, orgId, linkingUserId) : null;
   if (!linkingUserId || !isActiveAdmin(membership)) {
