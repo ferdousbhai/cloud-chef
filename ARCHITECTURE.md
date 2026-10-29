@@ -195,7 +195,10 @@ repository is imported by its address (its default branch read from the ref adve
 credentials, so no GitHub token is needed); a private one through CloudChef's GitHub App, which a team's admin, or a
 person for their own projects, installs on the GitHub account holding it (`app/server-handlers/github-projects.ts`).
 The installation is recorded for the connection only after the returning person's own GitHub authorization shows
-they control it: their own account, or a GitHub organization they own. No GitHub token is stored. Importing makes
+they control it: their own account, or a GitHub organization they own. An account that already has the App comes
+back from GitHub's "Configure" with no authorization, so CloudChef sends the person on to GitHub's user authorization
+(a new state that keeps the installation id, `github_install_states.installation_id`) and checks the code it returns
+the same way; no earlier proof is reused. No GitHub token is stored. Importing makes
 the project at once, with its source (`import_repo_full_name`, `import_branch`) and no repository; the first member
 who may edit it and opens it imports it: their workspace runtime asks the control plane
 (`/api/cloudflare/runtime-projects/open`), which answers with the source and, for a private repository, a fresh App
