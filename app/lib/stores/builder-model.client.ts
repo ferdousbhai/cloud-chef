@@ -20,7 +20,12 @@ import {
 } from '~/lib/workers-ai-model';
 import { fetchUserRuntime } from '~/lib/cloudflare/runtime-session';
 
-const BUILDER_MODEL_STORAGE_KEY = 'cloudchef_builder_model_v2';
+const BUILDER_MODEL_STORAGE_KEY = 'cloudchef_builder_model_v3';
+/**
+ * Where the choice was kept until 2026-10-29. Choosing the default used to save that model too, so a browser
+ * could stay on an old default after it changed; the new key starts everyone on the current default once.
+ */
+const RETIRED_BUILDER_MODEL_STORAGE_KEY = 'cloudchef_builder_model_v2';
 /** Namespaced beside the model preference: same owner, same lifetime, same browser-only scope. */
 const BUILDER_SEEN_MODELS_STORAGE_KEY = 'cloudchef_seen_builder_models_v1';
 /** The reasoning effort chosen for each model, so switching models never carries a level across. */
@@ -470,6 +475,7 @@ function writeSeenModelIds(modelIds: readonly string[]): void {
 
 function applyStoredModelPreference(): void {
   try {
+    localStorage.removeItem(RETIRED_BUILDER_MODEL_STORAGE_KEY);
     builderModelStore.set(savedModelOrDefault(localStorage.getItem(BUILDER_MODEL_STORAGE_KEY)));
   } catch {
     builderModelStore.set(builderDefaultModelStore.get());

@@ -52,7 +52,7 @@ const catalog: BuilderModelCatalogPayload = {
   models: [DEFAULT_WORKERS_AI_MODEL, alternativeModel],
 };
 
-const MODEL_KEY = 'cloudchef_builder_model_v2';
+const MODEL_KEY = 'cloudchef_builder_model_v3';
 const SEEN_KEY = 'cloudchef_seen_builder_models_v1';
 const RUNTIME_ENDPOINT = 'https://workspace.example';
 
@@ -109,6 +109,13 @@ describe('builder model preference', () => {
     localStorage.setItem(MODEL_KEY, '@cf/example/retired');
     loadBuilderModelPreference();
     expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+  });
+
+  it('forgets a choice saved before 2026-10-29, so every browser starts once on the current default', () => {
+    localStorage.setItem('cloudchef_builder_model_v2', alternativeModel.id);
+    installBuilderModelCatalog(catalog);
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    expect(localStorage.getItem('cloudchef_builder_model_v2')).toBeNull();
   });
 
   it("starts on the default the account's catalog names, and a saved model no longer offered falls back to it", () => {

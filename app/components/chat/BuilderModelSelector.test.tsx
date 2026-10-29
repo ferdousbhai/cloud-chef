@@ -78,7 +78,7 @@ describe('BuilderModelSelector', () => {
     await act(async () => alternative?.click());
 
     expect(builderModelStore.get()).toBe(alternativeModel.id);
-    expect(localStorage.getItem('cloudchef_builder_model_v2')).toBe(alternativeModel.id);
+    expect(localStorage.getItem('cloudchef_builder_model_v3')).toBe(alternativeModel.id);
   });
 
   it('badges an unseen model, dates it, and records the sighting when the picker opens', async () => {
@@ -130,7 +130,7 @@ describe('BuilderModelSelector', () => {
     await act(async () => item?.click());
 
     expect(builderModelStore.get()).toBe('anthropic/claude-opus-5-5');
-    expect(localStorage.getItem('cloudchef_builder_model_v2')).toBe('anthropic/claude-opus-5-5');
+    expect(localStorage.getItem('cloudchef_builder_model_v3')).toBe('anthropic/claude-opus-5-5');
   });
 
   it('shows the reasoning effort beside the model, offers the efforts the model lists, and keeps each per model', async () => {
@@ -188,7 +188,7 @@ describe('BuilderModelSelector', () => {
       id: `openai/model-${index}`,
       label: `Other ${'ABCDEF'.charAt(index)}`,
     }));
-    localStorage.setItem('cloudchef_builder_model_v2', claude.id);
+    localStorage.setItem('cloudchef_builder_model_v3', claude.id);
     await renderSelector({ ...catalog, models: [...catalog.models, claude, old, ...extras] });
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     expect(trigger?.textContent).toBe('AClaude Sonnet 4.6');
@@ -240,7 +240,7 @@ describe('BuilderModelSelector', () => {
       id: `openai/model-${index}`,
       label: `Other ${'ABCDEF'.charAt(index)}`,
     }));
-    localStorage.setItem('cloudchef_builder_model_v2', chosen.id);
+    localStorage.setItem('cloudchef_builder_model_v3', chosen.id);
     await renderSelector({ ...catalog, models: [...catalog.models, newest, chosen, superseded, ...extras] });
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label^="Builder model"]');
     expect(trigger?.title).toBe('Claude Opus 4.7 — anthropic/claude-opus-4-7');
@@ -358,7 +358,7 @@ describe('BuilderModelSelector without a catalog', () => {
     const fresh = await import('~/lib/stores/builder-model.client');
     const { BuilderModelSelector: FreshSelector } = await import('./BuilderModelSelector.client');
     const savedModel = 'anthropic/claude-opus-5-5';
-    localStorage.setItem('cloudchef_builder_model_v2', savedModel);
+    localStorage.setItem('cloudchef_builder_model_v3', savedModel);
     serveCatalog({ status: 503 });
 
     const container = document.createElement('div');
@@ -393,7 +393,7 @@ describe('BuilderModelSelector without a catalog', () => {
     } finally {
       await freshAct(async () => freshRoot.unmount());
       container.remove();
-      localStorage.removeItem('cloudchef_builder_model_v2');
+      localStorage.removeItem('cloudchef_builder_model_v3');
     }
   });
 });

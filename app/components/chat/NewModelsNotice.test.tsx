@@ -73,7 +73,7 @@ describe('NewModelsNotice', () => {
 
   it('says when the saved model is no longer offered and the default stands in, until dismissed', async () => {
     values.set(SEEN_KEY, JSON.stringify([CLOUDFLARE_WORKERS_AI_MODEL, deepseek.id]));
-    values.set('cloudchef_builder_model_v2', deepseek.id);
+    values.set('cloudchef_builder_model_v3', deepseek.id);
     installBuilderModelCatalog({
       defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
       models: [DEFAULT_WORKERS_AI_MODEL, deepseek],
@@ -94,7 +94,7 @@ describe('NewModelsNotice', () => {
     await act(async () => notice?.querySelector('button')?.click());
     expect(document.querySelector('[role="status"]')).toBeNull();
     // The default is now the choice, which saves no model of its own, so the next load says nothing.
-    expect(values.get('cloudchef_builder_model_v2')).toBeUndefined();
+    expect(values.get('cloudchef_builder_model_v3')).toBeUndefined();
     installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
     await act(async () => undefined);
     expect(document.querySelector('[role="status"]')).toBeNull();
