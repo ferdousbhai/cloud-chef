@@ -253,8 +253,15 @@ adds or changes no `.env`/`.dev.vars` file compared with the branch's old commit
 nothing, for main's first push). A push moves main only as a fast-forward, so no push rewrites it. Replacing main's history on purpose (to drop large
 files from old commits) is the project owner's, or a team admin's, `cloudchef repo rewrite-main BRANCH`
 (`app/server-handlers/main-rewrite.ts`, then the runtime's `POST /v1/projects/rewrite-main`): main moves to the pushed
-branch's commit only from the commit the owner read, never for a branch that only adds to main (that is pushed as usual), never with a secret file in any commit the new history brings or in its last commit (even one main already held), is recorded in
-`project_main_rewrites`, and publishes as a push to main does. A CloudChef app's
+branch's commit only from the commit the owner read, never for a branch that only adds to main (that is pushed as
+usual), never with a secret file in any commit the new history brings or in its last commit (even one main already
+held), is recorded in `project_main_rewrites`, and publishes as a push to main does. A push to a team project's main
+goes from the member's runtime straight to the repository, and Workers Builds reads main from there, so the control
+plane never sees it go by: the runtime's git proxy tells it once main has moved (`runtime-projects/main-pushed`), and
+it keeps who pushed, when, and main's commit before and after in `project_main_pushes`, for a member who may edit the
+project. The projects home shows the newest push or rewrite on the project's card ("Updated 2 hours ago by Sara"). A
+push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
+checked). A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
 change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication

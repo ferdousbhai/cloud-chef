@@ -4,11 +4,17 @@ import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/clou
 import {
   GIT_PROXY_HOST,
   handleGitProxyRequest,
+  mainPushReport,
   type RefUpdate,
   workspaceRefsPrefix,
 } from '../../app/lib/.server/cloudflare/git-proxy';
 import { appGitRefusal } from '../../app/lib/.server/cloudflare/app-git-access';
-import { commitAuthor, openProject, ProjectAccessError } from '../../app/lib/.server/cloudflare/linked-project-client';
+import {
+  commitAuthor,
+  openProject,
+  ProjectAccessError,
+  reportMainPushed,
+} from '../../app/lib/.server/cloudflare/linked-project-client';
 import { nativeProjectRepo, ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type { ProjectWorkspace } from './index';
 import type { ProjectBuilder } from './project-builder';
@@ -67,11 +73,14 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
     const repositories = new ProjectRepositories(this.env.ARTIFACTS);
     // A project CloudChef deploys itself builds each branch pushed to it: main to go live, another for a preview.
     let deployed: { orgProjectId: string } | null = null;
+    // The team project the workspace works on, once its access is checked; null for the person's own app.
+    let teamProject: string | null = null;
     return handleGitProxyRequest(request, {
       repository: () => workspace.gitRepository(),
       author: () => commitAuthor(this.env),
       refusal: (target, write) =>
         gitRefusal(this.env, target, write, (project) => {
+          teamProject = target.orgProjectId;
           deployed =
             project.deploysWith === 'cloudchef' && target.orgProjectId ? { orgProjectId: target.orgProjectId } : null;
         }),
@@ -83,6 +92,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
+        await recordMainPush(this.env, teamProject, update);
         await publishPush(this.env, deployed, update);
       },
       recordBase: (base) => workspace.setGitBase(base),
@@ -90,6 +100,22 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });
   }
+}
+
+/**
+ * A push to a team project's main is told to the control plane, which keeps who pushed it and when for the team:
+ * nothing else of it reaches CloudChef, as the push goes straight to the repository and Workers Builds reads main
+ * from there. One that can't be told is logged; the push stands.
+ */
+async function recordMainPush(env: GitProxyEnv, orgProjectId: string | null, update: RefUpdate): Promise<void> {
+  const identity = runtimeConnectionIdentity(env);
+  const push = mainPushReport(orgProjectId, update);
+  if (!identity || !push) {
+    return;
+  }
+  await reportMainPushed(env, identity, push).catch((error: Error) =>
+    console.warn({ event: 'main_push_not_recorded', orgProjectId, message: error.message }),
+  );
 }
 
 /** A branch pushed to a project CloudChef deploys itself is built: main to go live, another for a preview. */
@@ -149,7 +175,10 @@ export async function handleCommandLineGit(
     mainHead: (repo) => repositories.head(repo),
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
-    recordPush: (update) => publishPush(env, deployed, update),
+    recordPush: async (update) => {
+      await recordMainPush(env, orgProjectId, update);
+      await publishPush(env, deployed, update);
+    },
     recordBase: async () => undefined,
     fetch: (input, init) => fetch(input, init),
     waitUntil: (promise) => ctx.waitUntil(promise),

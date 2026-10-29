@@ -627,7 +627,26 @@ export function secretFileRefusal(path: string): string {
   return `${path} holds secrets and can't be pushed: remove it from your commits. Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf).`;
 }
 
-/** A pack with no objects: what a ref update the repository already has every object for sends. */
+/**
+ * What the control plane is told of a push a team project's main took (`runtime-projects/main-pushed`): main's
+ * commit before (null for its first push) and after. Null for anything else: another branch, a person's own app
+ * (no team project), or main's deletion, which is refused anyway.
+ */
+export function mainPushReport(
+  orgProjectId: string | null,
+  update: RefUpdate,
+): { orgProjectId: string; oldCommit: string | null; newCommit: string } | null {
+  if (!orgProjectId || update.ref !== MAIN_REF || update.newOid === ZERO_OID) {
+    return null;
+  }
+  return {
+    orgProjectId,
+    oldCommit: update.oldOid === ZERO_OID ? null : update.oldOid,
+    newCommit: update.newOid,
+  };
+}
+
+/** A pack with no objects:what a ref update the repository already has every object for sends. */
 async function emptyPack(): Promise<Uint8Array> {
   const header = concatBytes([new TextEncoder().encode('PACK'), Uint8Array.of(0, 0, 0, 2, 0, 0, 0, 0)]);
   return concatBytes([header, new Uint8Array(await crypto.subtle.digest('SHA-1', header))]);

@@ -161,6 +161,8 @@ describe('production requests', () => {
           siteUrl: null,
           siteFrameable: null,
           deploysWith: 'workers_builds',
+          // No one has pushed its main through CloudChef yet.
+          lastChange: null,
           deployment: null,
         },
       ],

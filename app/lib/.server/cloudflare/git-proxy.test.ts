@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fakeArtifacts } from '~/test/fake-artifacts';
-import { handleGitProxyRequest, type GitProxyDependencies } from './git-proxy';
+import { handleGitProxyRequest, mainPushReport, type GitProxyDependencies } from './git-proxy';
 import { ProjectRepositories } from './project-repository';
 import { concatBytes, pktLine, readPktLines, ZERO_OID } from './repository-wire';
 import type { RefUpdate } from './git-proxy';
@@ -462,6 +462,25 @@ describe('the workspace git proxy', () => {
 
     const fetching = harness({ answer });
     expect(await text(await handleGitProxyRequest(v2('fetch'), fetching.deps))).toContain('workspaces/w2');
+  });
+});
+
+describe('what the control plane is told of a push', () => {
+  it('is a team project’s main, from its old commit (none for the first) to its new one, and nothing else', () => {
+    const team = '11111111-1111-4111-8111-111111111111';
+    expect(mainPushReport(team, { ref: 'refs/heads/main', oldOid: OLD, newOid: NEW })).toEqual({
+      orgProjectId: team,
+      oldCommit: OLD,
+      newCommit: NEW,
+    });
+    expect(mainPushReport(team, { ref: 'refs/heads/main', oldOid: ZERO_OID, newOid: NEW })).toEqual({
+      orgProjectId: team,
+      oldCommit: null,
+      newCommit: NEW,
+    });
+    expect(mainPushReport(team, { ref: 'refs/heads/feature', oldOid: OLD, newOid: NEW })).toBeNull();
+    expect(mainPushReport(team, { ref: 'refs/heads/main', oldOid: OLD, newOid: ZERO_OID })).toBeNull();
+    expect(mainPushReport(null, { ref: 'refs/heads/main', oldOid: OLD, newOid: NEW })).toBeNull();
   });
 });
 

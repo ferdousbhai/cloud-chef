@@ -271,7 +271,8 @@ type RuntimeRoute =
   | 'runtime-projects/approvals/outcome'
   | 'runtime-projects/deletable'
   | 'runtime-projects/main-rewrite'
-  | 'runtime-projects/main-rewritten';
+  | 'runtime-projects/main-rewritten'
+  | 'runtime-projects/main-pushed';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;
