@@ -40,6 +40,7 @@ describe('builder system prompt', () => {
   it('asks for everyday words with the person in both kinds of project', () => {
     for (const prompt of [systemPrompt(''), systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' })]) {
       expect(prompt).toContain('use everyday words');
+      expect(prompt).toContain('The person may not know git, so tell them what happened in everyday terms');
       expect(prompt).toContain('Leave out terms such as main, branch, commit, merge, repository, pipeline');
     }
   });
