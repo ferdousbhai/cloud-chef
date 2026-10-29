@@ -509,13 +509,14 @@ export async function userRuntimeAppReadAccessAction(
 }
 
 const revokeReadAccessSchema = z.union([
-  z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().min(1).max(256) }),
-  z.strictObject({ appId: z.string().uuid(), tokenId: z.string().min(1).max(256) }),
+  z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().uuid() }),
+  z.strictObject({ appId: z.string().uuid(), tokenId: z.string().uuid() }),
 ]);
 
 /**
  * `POST /v1/read-access/revoke`: ends a read token `/v1/projects/read-access` or `/v1/apps/read-access` gave out, once
- * the copy it was for is made or has failed. One already gone is done.
+ * the copy it was for is made or has failed, by deleting the read-only fork it was made on (`endReadAccess`). One
+ * already gone is done.
  */
 export async function userRuntimeRevokeReadAccessAction(
   args: { request: Request; env: Env },
@@ -526,19 +527,9 @@ export async function userRuntimeRevokeReadAccessAction(
     return Response.json({ error: 'Name the token.' }, { status: 400 });
   }
   try {
-    let repo: string | null;
-    if ('appId' in parsed.data) {
-      repo = nativeProjectRepo(parsed.data.appId);
-    } else {
-      const identity = runtimeConnectionIdentity(args.env);
-      if (!identity) {
-        throw new ProjectForbiddenError('This workspace is not connected to CloudChef.');
-      }
-      repo = (await openProject(args.env, identity, parsed.data.orgProjectId)).repo;
-    }
-    if (repo) {
-      await repositories(args.env).revokeToken(repo, parsed.data.tokenId);
-    }
+    // The token is on a fork made for its one import, never on the project's own repository: ending it touches
+    // nothing of the project's.
+    await repositories(args.env).endReadAccess(parsed.data.tokenId);
     return new Response(null, { status: 204 });
   } catch (error) {
     return internalErrorResponse(error, 'The token could not be revoked. Try again.');

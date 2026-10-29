@@ -557,8 +557,10 @@ describe('copying an app into a new app of this person', () => {
       },
       store,
     );
-    const { tokenId } = z.object({ tokenId: z.string() }).parse(await answer.json());
-    expect(artifacts.tokens.find((token) => token.id === tokenId)).toMatchObject({ scope: 'read', ttl: 35 * 60 });
+    const { tokenId, url } = z.object({ tokenId: z.string(), url: z.string() }).parse(await answer.json());
+    // On a fork of main made for this one copy, not on the app's own repository.
+    expect(url).toBe(`https://artifacts.test/git/cloudchef/c-${tokenId}.git`);
+    expect(artifacts.tokens.at(-1)).toMatchObject({ repo: `c-${tokenId}`, scope: 'read', ttl: 35 * 60 });
 
     const revoked = await userRuntimeRevokeReadAccessAction(
       {
@@ -571,7 +573,8 @@ describe('copying an app into a new app of this person', () => {
       store,
     );
     expect(revoked.status).toBe(204);
-    expect(artifacts.revoked).toContain(tokenId);
+    expect(artifacts.repos.has(`c-${tokenId}`)).toBe(false);
+    expect(artifacts.repos.has(`p-${CHAT}`)).toBe(true);
   });
 });
 

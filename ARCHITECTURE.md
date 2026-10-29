@@ -269,7 +269,12 @@ production serves main: a turn that pushed main publishes it, with its exact-rev
 workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
 change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication
 follows. A fork copies the repository to the new chat's own `p-<id>` (main moved back to the chosen commit) and the
-new chat's workspace seeds from it. A team project's workspace seeds from its main (importing it first, when the
+new chat's workspace seeds from it. A copy of a project or app (from the browser or the command line, into the
+copier's own account) imports it over git with a 35-minute read token, and Artifacts scopes a token to a repository, not to
+refs: so the source's runtime first forks the project's main alone into a read-only `c-<id>` repository, mints the
+token there, and deletes that fork once the copy is made or has failed (`ProjectRepositories.readAccess`,
+`endReadAccess`), so the token never reads the project's other branches or CloudChef's `refs/cloudchef/*`. A fork never
+ended is deleted by the next `readAccess` once its token has expired. A team project's workspace seeds from its main (importing it first, when the
 control plane gives an import source); a push of a branch makes a preview and a push of main publishes, each shown
 in the pushing command's card while a background watch reads Workers Builds' status for the commit from the control
 plane (`runtime-projects/status`). The browser
