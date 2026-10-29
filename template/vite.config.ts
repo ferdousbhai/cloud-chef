@@ -19,14 +19,19 @@ const baseAlias = {
 
 /**
  * Add framework plugins (React, TanStack Start, React Router, ...) to `frameworkPlugins`; keep the
- * module-security plugin first and the Cloudflare plugin last.
+ * module-security plugin first and the Cloudflare plugin last. `llmsTxtPlugin` writes /llms.txt from the
+ * built pages' titles and descriptions unless `public/llms.txt` replaces it.
  */
 async function productionPlugins(): Promise<PluginOption[]> {
-  const [{ cloudflare }, { productionModuleSecurityPlugin }] =
-    await Promise.all([
-      import("@cloudflare/vite-plugin"),
-      import("./scripts/lib/runtime-module-security.ts"),
-    ]);
+  const [
+    { cloudflare },
+    { productionModuleSecurityPlugin },
+    { llmsTxtPlugin },
+  ] = await Promise.all([
+    import("@cloudflare/vite-plugin"),
+    import("./scripts/lib/runtime-module-security.ts"),
+    import("./scripts/lib/llms-txt.ts"),
+  ]);
   const agentPlugins: PluginOption[] = [];
   if (agentCapabilityEnabled) {
     const { default: agents } = await import(agentsViteModule);
@@ -37,6 +42,7 @@ async function productionPlugins(): Promise<PluginOption[]> {
     productionModuleSecurityPlugin(projectDir),
     ...agentPlugins,
     ...frameworkPlugins,
+    llmsTxtPlugin(projectDir),
     cloudflare({
       // Runtime types come from @cloudflare/workers-types; generating them would start workerd.
       types: { includeRuntime: false },

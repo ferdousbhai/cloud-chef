@@ -22,7 +22,7 @@
     "verify:licenses:built": "node scripts/verify-production-licenses.mjs --built",
     "licenses:generate": "node scripts/verify-production-licenses.mjs --write-notices",
     "verify:production-config": "node scripts/verify-production-config.mjs",
-    "lint": "eslint src vite.config.ts scripts/verify-production-licenses.mjs scripts/lib/runtime-module-security.ts scripts/lib/production-license-artifact.mjs --max-warnings=0"
+    "lint": "eslint src vite.config.ts scripts/verify-production-licenses.mjs scripts/lib/runtime-module-security.ts scripts/lib/llms-txt.ts scripts/lib/production-license-artifact.mjs --max-warnings=0"
   },
   "dependencies": {},
   "devDependencies": {
