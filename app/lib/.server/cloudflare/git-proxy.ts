@@ -24,8 +24,8 @@ const WORKSPACE_PATH = '/_cloudchef/workspace';
 export const GIT_BASE_PATH = '/_cloudchef/base';
 const MAIN_REF = 'refs/heads/main';
 /**
- * Where a push's new commit for main lands first, one ref per push: main moves to it only when that is a
- * fast-forward (see `handleGitProxyRequest`), and the ref is deleted either way. No push may name these.
+ * Where a push's new commit for each branch lands first, one ref per branch a push sets: the branch moves to it
+ * only once it is checked (see `stagedPush`), and the ref is deleted either way. No push may name these.
  */
 const INCOMING_REFS_ROOT = 'refs/cloudchef/incoming';
 /** Said, in git's push report, of a push that would rewrite main rather than add to it. */
@@ -156,17 +156,21 @@ function parseCommands(bytes: Uint8Array): { updates: RefUpdate[]; capabilities:
   return null;
 }
 
+/** A branch a push sets, and the ref its new commit lands on first instead. */
+type StagedUpdate = { update: RefUpdate; staged: RefUpdate };
+
 /**
- * The push's request with `from`'s command made `to` instead: each other command, and the capabilities the
- * first one carries, as git sent them, and the pack after them untouched.
+ * The push's request with each staged branch's command made its staged ref's instead: each other command, and
+ * the capabilities the first one carries, as git sent them, and the pack after them untouched.
  */
-function rewrittenPush(commands: ReceivePackCommands, from: RefUpdate, to: RefUpdate): ReadableStream<Uint8Array> {
+function rewrittenPush(commands: ReceivePackCommands, staged: readonly StagedUpdate[]): ReadableStream<Uint8Array> {
   const lines: Uint8Array[] = [];
   for (const line of readPktLines(commands.head.subarray(0, commands.end))) {
     const text = new TextDecoder().decode(line);
     const [command = '', offered] = text.replace(/\n$/, '').split('\0');
+    const to = staged.find(({ update }) => command === `${update.oldOid} ${update.newOid} ${update.ref}`)?.staged;
     lines.push(
-      command === `${from.oldOid} ${from.newOid} ${from.ref}`
+      to
         ? pktLine(`${to.oldOid} ${to.newOid} ${to.ref}${offered === undefined ? '' : `\0${offered}`}\n`)
         : pktLine(text),
     );
@@ -370,8 +374,13 @@ export type GitProxyDependencies = {
    * (the walk ran too long): a push moves main only when its old commit is one.
    */
   isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean | null>;
-  /** The local secret files `commit` adds or changes compared with `base` (`ProjectRepositories.secretFilesChanged`). */
-  secretFilesChanged(repo: string, base: string, commit: string): Promise<string[]>;
+  /**
+   * The local secret files `commit` adds or changes compared with `base`, or holds at all when `base` is null
+   * (`ProjectRepositories.secretFilesChanged`).
+   */
+  secretFilesChanged(repo: string, base: string | null, commit: string): Promise<string[]>;
+  /** The commit main is at, or null when there is no main yet: what a new branch is checked against. */
+  mainHead(repo: string): Promise<string | null>;
   /** The workspace's saved branches' prefix (`workspaceRefsPrefix`): the only refs besides branches and tags it may write or see. */
   workspaceRefs: string;
   /** A branch or tag a push updated; never one of the workspace's saved branches. */
@@ -408,9 +417,9 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
   let body: { stream: ReadableStream<Uint8Array>; decoded: boolean } | null = null;
   let updates: RefUpdate[] = [];
   let capabilities = new Set<string>();
-  // A push moving main from a commit it has: main's new commit goes to its own ref instead (`staged`), and main
-  // moves to it afterwards only if that adds to main's history (`moveMain`).
-  let main: { update: RefUpdate; staged: RefUpdate } | null = null;
+  // Each branch a push sets: its new commit goes to a ref of its own instead (`staged`), and the branch moves to it
+  // afterwards only once that is checked (`moveStaged`): main only forward, and no branch onto a secret file.
+  let staged: StagedUpdate[] = [];
   // An advertisement, or protocol v2's ls-refs, lists refs: other workspaces' are left out of it.
   let listsRefs = route.advertisement;
   if (write && !route.advertisement) {
@@ -427,15 +436,14 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
         await commands.reader.cancel().catch(() => undefined);
         return gitRefusalReport(updates, commands.capabilities, refused);
       }
-      const update = updates.find((candidate) => candidate.ref === MAIN_REF && candidate.oldOid !== ZERO_OID);
-      if (update) {
-        main = {
+      staged = updates
+        .filter((update) => update.ref.startsWith('refs/heads/') && update.newOid !== ZERO_OID)
+        .map((update) => ({
           update,
           staged: { ref: `${INCOMING_REFS_ROOT}/${crypto.randomUUID()}`, oldOid: ZERO_OID, newOid: update.newOid },
-        };
-      }
+        }));
       body = {
-        stream: main ? rewrittenPush(commands, main.update, main.staged) : prefixed(commands.head, commands.reader),
+        stream: staged.length > 0 ? rewrittenPush(commands, staged) : prefixed(commands.head, commands.reader),
         decoded: true,
       };
     } catch (error) {
@@ -477,9 +485,9 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
       deps.waitUntil(revoke());
     }
   }
-  if (main) {
+  if (staged.length > 0) {
     try {
-      return await stagedMainPush({ deps, repo, remote, response, updates, capabilities, main });
+      return await stagedPush({ deps, repo, remote, response, updates, capabilities, staged });
     } finally {
       deps.waitUntil(revoke());
     }
@@ -507,44 +515,52 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
 }
 
 /**
- * Finishes a push whose update of main went to `main.staged` instead: once the repository has the new commit,
- * main moves to it only when its old commit is in the new one's history, and only from that old commit (a
- * push in between is not overwritten). The staged ref is then deleted. Main is never pointed at a rewritten
- * history, even for a moment, so nothing that builds from main ever sees one. git is answered with each ref
- * as it ended, main's under its own name.
+ * Finishes a push whose branches went to staged refs instead: once the repository has their new commits, each
+ * branch moves to its own only once that is checked (`moveStaged`), and only from the commit git read (a push in
+ * between is not overwritten). The staged refs are then deleted. A branch is never pointed at a commit that
+ * fails the checks, even for a moment, so nothing that builds from one ever sees it. git is answered with each
+ * ref as it ended, under its own name.
  */
-async function stagedMainPush(args: {
+async function stagedPush(args: {
   deps: GitProxyDependencies;
   repo: string;
   remote: GitRemote;
   response: Response;
   updates: readonly RefUpdate[];
   capabilities: Set<string>;
-  main: { update: RefUpdate; staged: RefUpdate };
+  staged: readonly StagedUpdate[];
 }): Promise<Response> {
-  const { deps, repo, remote, response, updates, main } = args;
+  const { deps, repo, remote, response, updates, staged } = args;
   if (!response.ok) {
     return response;
   }
   const report = readPushReport(await boundedBytes(response, MAX_REPORT_BYTES));
   const unpacked = report.unpack === 'ok';
-  const staged = report.refs.get(main.staged.ref);
-  let mainRefused: string | null = staged?.ok ? null : staged?.reason || 'not updated';
-  if (unpacked && staged?.ok) {
-    mainRefused = await moveMain(deps, repo, remote, main.update);
-    const removed = await updateRemoteRef(
-      deps.fetch,
-      remote,
-      { ref: main.staged.ref, oldOid: main.staged.newOid, newOid: ZERO_OID },
-      new Uint8Array(),
-    ).catch(() => null);
-    if (!removed?.ok) {
-      console.error('Unable to delete a push’s staged ref for main');
+  const moves = new Map<RefUpdate, string | null>();
+  // The first reason CloudChef itself gave, said again as a line git prints.
+  let note: string | null = null;
+  for (const { update, staged: landed } of staged) {
+    const result = report.refs.get(landed.ref);
+    let refused: string | null = result?.ok ? null : result?.reason || 'not updated';
+    if (unpacked && result?.ok) {
+      refused = await moveStaged(deps, repo, remote, update);
+      note ??= refused;
+      const removed = await updateRemoteRef(
+        deps.fetch,
+        remote,
+        { ref: landed.ref, oldOid: landed.newOid, newOid: ZERO_OID },
+        new Uint8Array(),
+      ).catch(() => null);
+      if (!removed?.ok) {
+        console.error('Unable to delete a push’s staged ref');
+      }
     }
+    moves.set(update, refused);
   }
   const refs = updates.map((update) => {
-    if (update === main.update) {
-      return { ref: update.ref, refused: unpacked ? mainRefused : 'unpacker error' };
+    const moved = moves.get(update);
+    if (moved !== undefined) {
+      return { ref: update.ref, refused: unpacked ? moved : 'unpacker error' };
     }
     const result = report.refs.get(update.ref);
     if (!result) {
@@ -562,47 +578,53 @@ async function stagedMainPush(args: {
   } catch (error) {
     console.error('Unable to record a git push', error);
   }
-  return gitPushReport(
-    report.unpack ?? 'error',
-    refs,
-    args.capabilities,
-    unpacked && mainRefused === MAIN_REWRITE_REFUSAL ? MAIN_REWRITE_REFUSAL : null,
-  );
+  return gitPushReport(report.unpack ?? 'error', refs, args.capabilities, unpacked ? note : null);
 }
 
 /**
- * Moves main from `update`'s old commit to its new one, once the repository has the new one: only when that
- * adds to main's history. Why it wasn't moved, or null when it was.
+ * Moves a branch from `update`'s old commit to its new one, once the repository has the new one: main only when
+ * that adds to main's history, and any branch only when its new commit adds or changes no secret file compared with
+ * the branch's old commit, or, for a new branch, with main (with nothing at all, for main's own first push). Why it
+ * wasn't moved, or null when it was.
  */
-async function moveMain(
+async function moveStaged(
   deps: GitProxyDependencies,
   repo: string,
   remote: GitRemote,
   update: RefUpdate,
 ): Promise<string | null> {
-  const fastForward = await deps.isAncestor(repo, update.oldOid, update.newOid).catch(() => null);
-  if (fastForward === null) {
-    return 'CloudChef couldn’t check this push against main. Try again.';
+  const created = update.oldOid === ZERO_OID;
+  const isMain = update.ref === MAIN_REF;
+  if (isMain && !created) {
+    const fastForward = await deps.isAncestor(repo, update.oldOid, update.newOid).catch(() => null);
+    if (fastForward === null) {
+      return 'CloudChef couldn’t check this push against main. Try again.';
+    }
+    if (!fastForward) {
+      return MAIN_REWRITE_REFUSAL;
+    }
   }
-  if (!fastForward) {
-    return MAIN_REWRITE_REFUSAL;
-  }
-  // Main is what gets published, so a secret file never reaches it, whichever computer the push came from.
-  const secrets = await deps.secretFilesChanged(repo, update.oldOid, update.newOid).catch(() => null);
+  // A secret file reaches no branch, whichever computer the push came from: every branch is the project's, shared
+  // with everyone on it, and main is what gets published.
+  const base = created ? (isMain ? null : await deps.mainHead(repo).catch(() => undefined)) : update.oldOid;
+  const secrets =
+    base === undefined ? null : await deps.secretFilesChanged(repo, base, update.newOid).catch(() => null);
   if (secrets === null) {
-    return 'CloudChef couldn’t check this push against main. Try again.';
+    return isMain
+      ? 'CloudChef couldn’t check this push against main. Try again.'
+      : 'CloudChef couldn’t check this push. Try again.';
   }
   if (secrets[0] !== undefined) {
     return secretFileRefusal(secrets[0]);
   }
-  // From `oldOid` only: if main moved since git read it, the repository refuses this, as it would git's own push.
+  // From `oldOid` only: if the branch moved since git read it, the repository refuses this, as it would git's own push.
   const moved = await updateRemoteRef(deps.fetch, remote, update, await emptyPack()).catch(() => null);
-  return moved?.ok ? null : (moved?.reason ?? 'main could not be updated. Try again.');
+  return moved?.ok ? null : (moved?.reason ?? 'The branch could not be updated. Try again.');
 }
 
 /** Why main can't take a commit holding the secret file `path`, whichever way it would get there. */
 export function secretFileRefusal(path: string): string {
-  return `${path} holds secrets and can't go on main: remove it from your commits. Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf).`;
+  return `${path} holds secrets and can't be pushed: remove it from your commits. Secrets belong in Cloudflare (the Worker's secrets or Secrets Store, set with cf).`;
 }
 
 /** A pack with no objects: what a ref update the repository already has every object for sends. */

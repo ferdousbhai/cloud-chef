@@ -40,6 +40,7 @@ function harness(
     },
     isAncestor: async (_repo, ancestor, commit) => (options.isAncestor ? options.isAncestor(ancestor, commit) : true),
     secretFilesChanged: async () => [],
+    mainHead: async () => null,
     recordPush: async (update) => {
       recorded.push(update);
     },
@@ -262,7 +263,7 @@ describe('the workspace git proxy', () => {
     expect(raced.recorded).toEqual([]);
   });
 
-  it('still lets any other branch be rewritten, and main be created, as git sent them', async () => {
+  it('still lets any other branch be rewritten, and main be created, each from the commit git read', async () => {
     const { deps, sent, recorded } = harness({ answer: repository(), isAncestor: () => false });
     await (
       await handleGitProxyRequest(
@@ -270,9 +271,58 @@ describe('the workspace git proxy', () => {
         deps,
       )
     ).arrayBuffer();
-    expect(commandsOf(sent[0])).toEqual(['refs/heads/feature', 'refs/heads/main']);
-    expect(sent).toHaveLength(1);
+    // Both land on refs of their own first, then each branch moves, and its staged ref goes.
+    expect(commandsOf(sent[0])).toEqual([
+      expect.stringMatching(/^refs\/cloudchef\/incoming\//),
+      expect.stringMatching(/^refs\/cloudchef\/incoming\//),
+    ]);
+    const moved = sent.slice(1).map((request) => new TextDecoder().decode(request.body ?? new Uint8Array()));
+    expect(moved.filter((body) => body.includes(`${OLD} ${NEW} refs/heads/feature`))).toHaveLength(1);
+    expect(moved.filter((body) => body.includes(`${ZERO_OID} ${NEW} refs/heads/main`))).toHaveLength(1);
     expect(recorded.map((update) => update.ref)).toEqual(['refs/heads/feature', 'refs/heads/main']);
+  });
+
+  it('checks every branch a push sets for secret files: against its old commit, main, or nothing', async () => {
+    const MAIN = 'c'.repeat(40);
+    const checked: { base: string | null; commit: string }[] = [];
+    const { deps, recorded } = harness({ answer: repository() });
+    deps.mainHead = async () => MAIN;
+    deps.secretFilesChanged = async (_repo, base, commit) => {
+      checked.push({ base, commit });
+      return commit === NEW ? ['.env'] : [];
+    };
+    const answer = await text(
+      await handleGitProxyRequest(
+        push([
+          `${OLD} ${NEW} refs/heads/feature`,
+          `${ZERO_OID} ${NEW} refs/heads/fresh`,
+          `${ZERO_OID} ${OLD} refs/heads/clean`,
+          `${ZERO_OID} ${NEW} refs/heads/main`,
+        ]),
+        deps,
+      ),
+    );
+    expect(checked).toEqual([
+      { base: OLD, commit: NEW },
+      { base: MAIN, commit: NEW },
+      { base: MAIN, commit: OLD },
+      { base: null, commit: NEW },
+    ]);
+    for (const ref of ['feature', 'fresh', 'main']) {
+      expect(answer).toContain(`ng refs/heads/${ref} .env holds secrets and can't be pushed`);
+    }
+    expect(answer).toContain('ok refs/heads/clean');
+    expect(recorded.map((update) => update.ref)).toEqual(['refs/heads/clean']);
+
+    // A branch that can't be checked isn't moved.
+    const unchecked = harness({ answer: repository() });
+    unchecked.deps.mainHead = async () => {
+      throw new Error('unavailable');
+    };
+    expect(
+      await text(await handleGitProxyRequest(push([`${ZERO_OID} ${NEW} refs/heads/fresh`]), unchecked.deps)),
+    ).toContain('ng refs/heads/fresh CloudChef couldn’t check this push');
+    expect(unchecked.recorded).toEqual([]);
   });
 
   it('records a push before git has read the whole answer, so the command that pushed sees it', async () => {
@@ -292,7 +342,10 @@ describe('the workspace git proxy', () => {
     await response.arrayBuffer();
     await settled();
     expect(sent[0]?.headers.get('content-encoding')).toBeNull();
-    expect(new TextDecoder().decode(sent[0]?.body ?? new Uint8Array())).toContain(`${OLD} ${NEW} refs/heads/feature`);
+    expect(new TextDecoder().decode(sent[0]?.body ?? new Uint8Array())).toContain(
+      `${ZERO_OID} ${NEW} refs/cloudchef/incoming/`,
+    );
+    expect(new TextDecoder().decode(sent[1]?.body ?? new Uint8Array())).toContain(`${OLD} ${NEW} refs/heads/feature`);
     expect(recorded).toHaveLength(1);
   });
 
@@ -432,6 +485,7 @@ describe("main's history in the repository itself", () => {
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
       isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
       secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+      mainHead: (repo) => repositories.head(repo),
       recordPush: async (update) => {
         recorded.push(update);
       },
@@ -480,6 +534,28 @@ describe("main's history in the repository itself", () => {
     await repositories.resetMain('p-site', first);
     const allowed = await text(await handleGitProxyRequest(push([`${first} ${example} refs/heads/main`]), deps));
     expect(allowed).toContain('ok refs/heads/main');
+  });
+
+  it('keeps a secret file off a new branch, compared with main, and off main’s first push', async () => {
+    const { artifacts, deps, recorded, first } = await project();
+    const secret = await artifacts.commitDirect('p-site', 'elsewhere', { 'index.html': 'one', '.env.local': 'KEY=1' });
+
+    const branch = await text(await handleGitProxyRequest(push([`${ZERO_OID} ${secret} refs/heads/fresh`]), deps));
+    expect(branch).toContain('ng refs/heads/fresh .env.local holds secrets');
+    expect(await artifacts.head('p-site', 'fresh')).toBeNull();
+
+    // A new branch holding only what main already holds is let through.
+    const same = await text(await handleGitProxyRequest(push([`${ZERO_OID} ${first} refs/heads/copy`]), deps));
+    expect(same).toContain('ok refs/heads/copy');
+    expect(recorded).toEqual([{ ref: 'refs/heads/copy', oldOid: ZERO_OID, newOid: first }]);
+
+    // main's first push, in a repository with no main yet, is checked against nothing.
+    await artifacts.create('p-empty');
+    const lone = await artifacts.commitDirect('p-empty', 'elsewhere', { '.dev.vars': 'KEY=1' });
+    deps.repository = async () => ({ repo: 'p-empty', orgProjectId: null, base: { branch: 'main', commit: null } });
+    const main = await text(await handleGitProxyRequest(push([`${ZERO_OID} ${lone} refs/heads/main`]), deps));
+    expect(main).toContain('ng refs/heads/main .dev.vars holds secrets');
+    expect(await artifacts.head('p-empty')).toBeNull();
   });
 
   it('lets another branch be rewritten', async () => {

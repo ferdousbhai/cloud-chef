@@ -267,10 +267,14 @@ export class ProjectRepositories {
 
   /**
    * The local secret files (`.env`, `.dev.vars` and their variants, not `.env.example` and the like) `commit` adds
-   * or changes compared with `base`: what the workspace's own commit hook refuses, for a push from anywhere.
+   * or changes compared with `base` (every one it holds, when `base` is null: nothing to compare with): what the
+   * workspace's own commit hook refuses, for a push from anywhere.
    */
-  async secretFilesChanged(repo: string, base: string, commit: string): Promise<string[]> {
-    const [before, after] = await Promise.all([this.readTreeAt(repo, base), this.readTreeAt(repo, commit)]);
+  async secretFilesChanged(repo: string, base: string | null, commit: string): Promise<string[]> {
+    const [before, after] = await Promise.all([
+      base === null ? { files: [] } : this.readTreeAt(repo, base),
+      this.readTreeAt(repo, commit),
+    ]);
     const earlier = new Map(before.files.map((file) => [file.path, file.oid]));
     return after.files
       .filter((file) => isSecretFilePath(file.path) && earlier.get(file.path) !== file.oid)

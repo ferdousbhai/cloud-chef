@@ -79,6 +79,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
       isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
       secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+      mainHead: (repo) => repositories.head(repo),
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
@@ -145,6 +146,7 @@ export async function handleCommandLineGit(
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
     isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
     secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+    mainHead: (repo) => repositories.head(repo),
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: (update) => publishPush(env, deployed, update),
@@ -189,6 +191,7 @@ export async function handleCommandLineAppGit(
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
     isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
     secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+    mainHead: (repo) => repositories.head(repo),
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: async () => undefined,
     recordBase: async () => undefined,
