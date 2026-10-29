@@ -33,10 +33,10 @@ export type BuilderOperationContext = {
    */
   pushResult?: (toolCallId: string) => Promise<CloudChefToolResult | undefined>;
   /**
-   * Settles a Cloudflare change the finished command asked for: one still waiting for approval is withdrawn,
-   * and one filed for a team's admins is given for the command's output, where their decision later lands.
+   * Settles the Cloudflare changes the finished command asked for: one still waiting for approval is withdrawn,
+   * and those filed for a team's admins are given for the command's output, where their decisions later land.
    */
-  cloudflareChange?: (toolCallId: string) => Promise<CloudflareRequestFiled | undefined>;
+  cloudflareChanges?: (toolCallId: string) => Promise<CloudflareRequestFiled[]>;
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
 };
 
@@ -142,8 +142,8 @@ type ExecToolReport = {
   error?: string;
   /** What the command pushed to the project's repository, and its build: the chat shows it as a publish. */
   push?: CloudChefToolResult;
-  /** A change to the team's Cloudflare account the command filed for its admins, then what they decided. */
-  cloudflareChange?: CloudflareRequestFiled;
+  /** The changes to the team's Cloudflare account the command filed for its admins, then what they decided. */
+  cloudflareChanges?: CloudflareRequestFiled[];
 };
 
 const EXEC_TOOL_DESCRIPTION =
@@ -170,7 +170,7 @@ function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOpera
         });
       } catch (error) {
         // A command that stopped leaves no change of its own waiting: nothing would read its answer.
-        await context.cloudflareChange?.(options.toolCallId).catch(() => undefined);
+        await context.cloudflareChanges?.(options.toolCallId).catch(() => undefined);
         throw error;
       }
       // A stop mid-run rejects the command above; a result here is a command that ran to completion.
@@ -187,9 +187,9 @@ function streamingExecTool(workspace: BuilderWorkspaceApi, context: BuilderOpera
       if (push) {
         report.push = push;
       }
-      const cloudflareChange = await context.cloudflareChange?.(options.toolCallId);
-      if (cloudflareChange) {
-        report.cloudflareChange = cloudflareChange;
+      const cloudflareChanges = (await context.cloudflareChanges?.(options.toolCallId)) ?? [];
+      if (cloudflareChanges.length > 0) {
+        report.cloudflareChanges = cloudflareChanges;
       }
       return report;
     },

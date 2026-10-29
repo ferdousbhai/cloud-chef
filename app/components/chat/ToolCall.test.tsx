@@ -50,17 +50,18 @@ describe('ToolCall', () => {
     riskNote: 'This may delete an externally visible resource.',
     ...overrides,
   });
-  /** What a finished command reports, with a change it filed for a team's admins, or what they decided. */
+  /** What a finished command reports, with the changes it filed for a team's admins, or what they decided. */
   type CommandReport = {
     command: string;
     exitCode: number;
     stdout: string;
     stderr: string;
-    cloudflareChange?:
+    cloudflareChanges?: (
       | CloudflareRequestFiled
       | (Omit<CloudflareRequestFinalResult, 'outcome'> & {
           outcome: { status: 'denied'; summary: string };
-        });
+        })
+    )[];
   };
   const command = (toolCallId: string, output?: CommandReport): CloudChefToolInvocation =>
     output === undefined
@@ -105,6 +106,42 @@ describe('ToolCall', () => {
     expect(decide).toHaveBeenCalledWith('execution-1', 'approve');
   });
 
+  it("shows each of a command's changes in its card, in the order it asked, the waiting one to decide", async () => {
+    const decide = vi.fn(async () => ({ execution: execution({ status: 'succeeded' }) }));
+    const later = execution({
+      executionId: 'execution-2',
+      status: 'awaiting_approval',
+      createdAt: Date.now() + 1_000,
+      request: { method: 'DELETE', url: 'https://api.cloudflare.com/client/v4/zones/zone-2' },
+    });
+    toolActivityStore.activities.set({});
+
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-4', 0)}
+          invocation={command('exec-1')}
+          cloudflareExecutions={[
+            later,
+            execution({ status: 'succeeded' }),
+            execution({ executionId: 'other', toolCallId: 'exec-9', status: 'awaiting_approval' }),
+          ]}
+          onCloudflareExecutionDecision={decide}
+        />,
+      ),
+    );
+
+    const text = container.textContent ?? '';
+    expect(text.indexOf('zones/zone-1')).toBeGreaterThan(-1);
+    expect(text.indexOf('zones/zone-1')).toBeLessThan(text.indexOf('zones/zone-2'));
+    expect(text).toContain('Cloudflare made the change.');
+    expect(container.querySelectorAll('[data-testid="cloudflare-request-approval"]')).toHaveLength(2);
+    const approve = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('Approve'));
+    await act(async () => approve?.click());
+
+    expect(decide).toHaveBeenCalledWith('execution-2', 'approve');
+  });
+
   it('shows an indeterminate change as something to check, with nothing left to approve', async () => {
     await act(async () =>
       root.render(
@@ -141,16 +178,18 @@ describe('ToolCall', () => {
           partId={makePartId('message-3', 0)}
           invocation={command('exec-3', {
             ...ran,
-            cloudflareChange: {
-              kind: 'cloudflare_request_filed',
-              status: 'awaiting_team_admin',
-              approvalId: 'approval-1',
-              accountId: 'a',
-              request,
-              riskNote: 'One of the team’s admins approves or rejects it.',
-              expiresAt: Date.now() + 60_000,
-              note: 'Filed.',
-            },
+            cloudflareChanges: [
+              {
+                kind: 'cloudflare_request_filed',
+                status: 'awaiting_team_admin',
+                approvalId: 'approval-1',
+                accountId: 'a',
+                request,
+                riskNote: 'One of the team’s admins approves or rejects it.',
+                expiresAt: Date.now() + 60_000,
+                note: 'Filed.',
+              },
+            ],
           })}
           onCloudflareExecutionDecision={vi.fn()}
         />,
@@ -170,14 +209,16 @@ describe('ToolCall', () => {
           partId={makePartId('message-3', 0)}
           invocation={command('exec-3', {
             ...ran,
-            cloudflareChange: {
-              kind: 'cloudflare_request_final_result',
-              executionId: 'approval-1',
-              accountId: 'a',
-              proposalSha256: 'c'.repeat(64),
-              status: 'rejected',
-              outcome: { status: 'denied', summary: 'A team admin rejected this change.' },
-            },
+            cloudflareChanges: [
+              {
+                kind: 'cloudflare_request_final_result',
+                executionId: 'approval-1',
+                accountId: 'a',
+                proposalSha256: 'c'.repeat(64),
+                status: 'rejected',
+                outcome: { status: 'denied', summary: 'A team admin rejected this change.' },
+              },
+            ],
           })}
         />,
       ),

@@ -9,6 +9,8 @@ const approvalSchema = z.object({
   orgId: z.string(),
   orgName: z.string(),
   kind: z.literal('cloudflare_change'),
+  /** Asked for by a command the member's agent ran, or typed by the member in their own workspace terminal. */
+  source: z.enum(['agent', 'terminal']),
   requester: z.object({ name: z.string(), email: z.string() }),
   request: z.object({ method: z.string(), url: z.string(), body: z.unknown().optional() }),
   warning: z.string().nullable(),
