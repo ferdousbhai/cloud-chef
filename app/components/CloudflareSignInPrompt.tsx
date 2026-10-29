@@ -1,5 +1,4 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeftIcon } from '@radix-ui/react-icons';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
@@ -19,9 +18,10 @@ import { ReauthenticatePrompt } from '~/components/settings/ReauthenticatePrompt
 import { classNames } from '~/utils/classNames';
 
 /**
- * What someone sees when a page needs a Cloudflare account to build in. Signed out, they can sign in
- * with Cloudflare (to build in their own account), or with Google or an emailed link (people without a
- * Cloudflare login). Signed in without one, they can connect Cloudflare to their CloudChef account.
+ * What someone sees when a page needs a Cloudflare account to build in. Signed out, they continue with
+ * Cloudflare (which makes a CloudChef account if they have none), or sign in to the CloudChef account
+ * they already have with Google or an emailed link. Signed in without one, they can connect Cloudflare
+ * to their CloudChef account.
  */
 export function CloudflareSignInPrompt({
   title,
@@ -106,12 +106,12 @@ export function CloudflareSignInPrompt({
           {error}
         </p>
       )}
-      <div className="mt-4 flex flex-wrap gap-2">
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <Button
           loading={busy === 'cloudflare'}
           onClick={() => void run('cloudflare', () => signInWithCloudflare(returnURL()))}
         >
-          Connect Cloudflare
+          {session ? 'Connect Cloudflare' : 'Continue with Cloudflare'}
         </Button>
         {session ? (
           <>
@@ -126,15 +126,14 @@ export function CloudflareSignInPrompt({
               Sign out
             </Button>
           </>
-        ) : (
-          <LinkButton to="/" variant="neutral" icon={<ArrowLeftIcon aria-hidden />}>
-            Back to CloudChef
-          </LinkButton>
-        )}
+        ) : null}
+        <span className="text-xs text-content-secondary">Needs Cloudflare&apos;s Workers Paid plan.</span>
       </div>
       {session ? null : (
         <div className="mt-6 border-t border-bolt-elements-borderColor pt-4">
-          <p className="text-sm text-content-secondary">No Cloudflare login? Sign in to join your team.</p>
+          <p className="wrap-break-word text-sm text-content-secondary">
+            Already have a CloudChef account? Sign in with Google or an emailed link.
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button
               variant="neutral"
@@ -147,8 +146,8 @@ export function CloudflareSignInPrompt({
           {emailSentTo ? (
             <>
               <p className="mt-3 wrap-break-word text-sm text-content-secondary" role="status">
-                Check <span className="break-all">{emailSentTo}</span> for a sign-in link, and open it in this browser.
-                It works once, for 15 minutes.
+                We sent an email to <span className="break-all">{emailSentTo}</span>. Open its sign-in link in this
+                browser; it works once, for 15 minutes.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
@@ -186,7 +185,7 @@ export function CloudflareSignInPrompt({
           )}
         </div>
       )}
-      <CloudflareConnectLegalNotice className="mt-4" />
+      <CloudflareConnectLegalNotice className="mt-6" planNote={false} />
     </PromptCard>
   );
 }

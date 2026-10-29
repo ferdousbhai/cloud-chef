@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
-import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { controlPlaneDatabase, createProvenEmailUser, envWith } from '~/test/control-plane-d1';
+import { createAuthSession } from '~/lib/.server/auth';
 import { createOrganization } from '~/lib/cloudflare/data/organizations.server';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
@@ -249,7 +249,7 @@ async function setup({
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_KEY });
   const signIn = async (email: string) => {
-    const user = await upsertVerifiedEmailUser(db, { email });
+    const user = await createProvenEmailUser(db, email);
     const cookie =
       (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(';')[0] ?? '';
     return { userId: user.id, cookie };

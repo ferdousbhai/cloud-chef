@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { controlPlaneDatabase, envWith, sessionCookieSignedInBefore, withStatementHook } from '~/test/control-plane-d1';
-import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import {
+  controlPlaneDatabase,
+  createProvenEmailUser,
+  envWith,
+  sessionCookieSignedInBefore,
+  withStatementHook,
+} from '~/test/control-plane-d1';
+import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloudflare-oauth-orchestrator';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import {
@@ -55,7 +61,7 @@ async function setup() {
     CLOUDFLARE_OAUTH_CLIENT_SECRET: 'client-secret',
     CLOUDFLARE_OAUTH_START_RATE_LIMITER: { limit: async () => ({ success: true }) },
   });
-  const user = await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' });
+  const user = await createProvenEmailUser(db, 'sam@corp.com');
   // Signed in an hour ago: too long ago for export or erasure.
   const cookie = await sessionCookieSignedInBefore(env, user.id, HOUR);
   return { database, db, env, user, cookie };
@@ -153,7 +159,7 @@ describe('connecting Cloudflare while signed in', () => {
 
   it("names a Cloudflare login that is someone else's by a code, not by the error's own words", async () => {
     const { database, db, env, user } = await setup();
-    const other = await upsertVerifiedEmailUser(db, { email: 'kim@corp.com' });
+    const other = await createProvenEmailUser(db, 'kim@corp.com');
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', other.id);
     const recent = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
       ';',
@@ -176,7 +182,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
     const fixture = await setup();
     const { database, db, user } = fixture;
     database.prepare('UPDATE "user" SET cloudflare_subject = ? WHERE id = ?').run('cf-sam', user.id);
-    const kim = await upsertVerifiedEmailUser(db, { email: 'kim@corp.com' });
+    const kim = await createProvenEmailUser(db, 'kim@corp.com');
     database.exec(`
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('${ORG}', 'Sites', 1, 1);
       INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('old', 'x', 'y', 1);

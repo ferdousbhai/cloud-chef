@@ -1,12 +1,19 @@
 import { Link } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 
-export function CloudflareConnectLegalNotice({ className = '' }: { className?: string }) {
+/** The terms a person agrees to by continuing, with the plan Cloudflare needs unless the page says so already. */
+export function CloudflareConnectLegalNotice({
+  className = '',
+  planNote = true,
+}: {
+  className?: string;
+  planNote?: boolean;
+}) {
   return (
     <div className={classNames('cloudchef-connect-note', className)} data-testid="cloudflare-connect-legal-notice">
-      <span>Workers Paid required.</span>
+      {planNote ? <span>Workers Paid required.</span> : null}
       <p>
-        By connecting, you agree to the <Link to="/terms">Terms</Link>. <Link to="/privacy">Privacy</Link>
+        By continuing, you agree to the <Link to="/terms">Terms</Link> and <Link to="/privacy">Privacy notice</Link>.
       </p>
     </div>
   );

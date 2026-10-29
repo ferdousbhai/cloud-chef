@@ -1,7 +1,7 @@
-import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { createAuthSession } from '~/lib/.server/auth';
 import { runtimeIdentityHeaders } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
-import { controlPlaneDatabase, envWith } from './control-plane-d1';
+import { controlPlaneDatabase, createProvenEmailUser, envWith } from './control-plane-d1';
 
 export const ORIGIN = 'https://cloudchef.build';
 export const ORG = '33333333-3333-4333-8333-333333333333';
@@ -19,7 +19,7 @@ export async function teamFixture() {
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: ENCRYPTION_KEY });
   const signIn = async (email: string) => {
-    const user = await upsertVerifiedEmailUser(db, { email });
+    const user = await createProvenEmailUser(db, email);
     const cookie = (await createAuthSession(env, user.id, new Request(`${ORIGIN}/`))).cookie.split(';')[0];
     return { userId: user.id, cookie };
   };

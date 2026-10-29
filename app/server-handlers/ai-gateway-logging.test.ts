@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
-import { createAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { controlPlaneDatabase, createProvenEmailUser, envWith } from '~/test/control-plane-d1';
+import { createAuthSession } from '~/lib/.server/auth';
 import { aiGatewayLoggingAction, updateAiGatewayLoggingAction } from './ai-gateway-logging';
 
 const ORIGIN = 'https://cloudchef.build';
@@ -9,7 +9,7 @@ async function setup() {
   const { database, db } = controlPlaneDatabase();
   const env = envWith({ DB: db });
   const signIn = async (email: string) => {
-    const user = await upsertVerifiedEmailUser(db, { email });
+    const user = await createProvenEmailUser(db, email);
     const cookie = (await createAuthSession(env, user.id, new Request('https://cloudchef.build/'))).cookie.split(
       ';',
     )[0];

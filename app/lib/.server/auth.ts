@@ -1,6 +1,7 @@
 const SESSION_COOKIE = 'cloudchef_session';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
+import { NO_ACCOUNT_MESSAGE } from '~/lib/sign-in-refusal';
 import { readCookie, serializeCookie } from '~/lib/.server/request-guards';
 import { listWorkspaceContexts, type WorkspaceContextOption } from '~/lib/cloudflare/data/organization-access.server';
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
@@ -193,9 +194,85 @@ export async function upsertCloudflareUser(
 }
 
 /**
+ * Refused: proving an email signs in to the CloudChef account that has it, and makes a new one only for
+ * an address a team has invited. Anyone else starts by connecting Cloudflare.
+ */
+export class NoAccountError extends Error {
+  constructor() {
+    super(NO_ACCOUNT_MESSAGE);
+  }
+}
+
+type ProvenEmailOwner = CloudflareAuthUser & {
+  google_subject: string | null;
+  cloudflare_subject: string | null;
+  email_proven_at: number | null;
+};
+
+/**
+ * Who proving `email` signs in as: the user with that email, whichever way they first signed in, or no
+ * one. A user known only through Cloudflare carries an email CloudChef never checked (anyone can make
+ * their Cloudflare login report someone else's), so proving it doesn't sign into them unless they are
+ * the one signed in and proving it now; that user is `unchecked`, and gives the email up.
+ */
+async function findProvenEmailOwner(
+  db: D1Database,
+  email: string,
+  signedInUserId: string | null,
+): Promise<{ owner: ProvenEmailOwner | null; unchecked: ProvenEmailOwner | null }> {
+  const found = await db
+    .prepare(
+      `SELECT id, name, email, image, google_subject, cloudflare_subject, email_proven_at
+       FROM "user" WHERE email = ? COLLATE NOCASE`,
+    )
+    .bind(email)
+    .first<ProvenEmailOwner>();
+  if (found && found.cloudflare_subject !== null && found.email_proven_at === null && found.id !== signedInUserId) {
+    return { owner: null, unchecked: found };
+  }
+  return { owner: found, unchecked: null };
+}
+
+/**
+ * Whether a team invite is waiting for `email`: unused, unexpired, and from someone still an admin of the
+ * team, as accepting it requires.
+ */
+async function hasPendingInvite(db: D1Database, email: string, now: number): Promise<boolean> {
+  const invite = await db
+    .prepare(
+      `SELECT 1 AS pending FROM organization_invites AS invites
+       WHERE invites.email = ? COLLATE NOCASE AND invites.accepted_at IS NULL AND invites.expires_at > ?
+         AND EXISTS (
+           SELECT 1 FROM organization_members AS inviter
+           WHERE inviter.org_id = invites.org_id AND inviter.user_id = invites.invited_by
+             AND inviter.role = 'admin' AND inviter.paused_at IS NULL
+         )
+       LIMIT 1`,
+    )
+    .bind(email, now)
+    .first<{ pending: number }>();
+  return invite !== null;
+}
+
+/**
+ * Whether proving `email` (by an emailed link) would sign in: a CloudChef account has it, or a team has
+ * invited it. Nothing is written.
+ */
+export async function provenEmailCanSignIn(
+  db: D1Database,
+  email: string,
+  signedInUserId: string | null,
+): Promise<boolean> {
+  const normalized = normalizeEmail(email);
+  const { owner } = await findProvenEmailOwner(db, normalized, signedInUserId);
+  return owner !== null || (await hasPendingInvite(db, normalized, Date.now()));
+}
+
+/**
  * The user for an email address its holder just proved (an emailed link, or Google with a verified
- * email): the user with that email, whichever way they first signed in, or a new one. A Google
- * sign-in also records the Google account, so a later change of email at Google finds the same user.
+ * email): the user with that email, whichever way they first signed in, or a new one when a team has
+ * invited the address. Otherwise it throws `NoAccountError` and writes nothing. A Google sign-in also
+ * records the Google account, so a later change of email at Google finds the same user.
  */
 export async function upsertVerifiedEmailUser(
   db: D1Database,
@@ -215,30 +292,16 @@ export async function upsertVerifiedEmailUser(
       return byGoogle;
     }
   }
-  const found = await db
-    .prepare(
-      `SELECT id, name, email, image, google_subject, cloudflare_subject, email_proven_at
-       FROM "user" WHERE email = ? COLLATE NOCASE`,
-    )
-    .bind(email)
-    .first<
-      CloudflareAuthUser & {
-        google_subject: string | null;
-        cloudflare_subject: string | null;
-        email_proven_at: number | null;
-      }
-    >();
-  // A user known only through Cloudflare carries an email CloudChef never checked: anyone can make
-  // their Cloudflare login report someone else's. Proving that email doesn't sign into that user,
-  // unless they are the one signed in and proving it now. Otherwise the unchecked email is taken off
-  // them and the person who proved it gets their own account.
-  let byEmail = found;
-  if (found && found.cloudflare_subject !== null && found.email_proven_at === null && found.id !== signedInUserId) {
+  const { owner: byEmail, unchecked } = await findProvenEmailOwner(db, email, signedInUserId);
+  if (!byEmail && !(await hasPendingInvite(db, email, now))) {
+    throw new NoAccountError();
+  }
+  // The unchecked email is taken off the Cloudflare user, and the person who proved it gets their own account.
+  if (unchecked) {
     await db
       .prepare('UPDATE "user" SET email = ?, emailVerified = 0, updatedAt = ? WHERE id = ? AND email_proven_at IS NULL')
-      .bind(`${found.cloudflare_subject}@users.cloudflare.invalid`, now, found.id)
+      .bind(`${unchecked.cloudflare_subject}@users.cloudflare.invalid`, now, unchecked.id)
       .run();
-    byEmail = null;
   }
   if (byEmail) {
     if (googleSubject && byEmail.google_subject !== null && byEmail.google_subject !== googleSubject) {
