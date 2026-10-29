@@ -161,15 +161,12 @@ import { reviewDomainChange } from './cloudflare-domain-review';
 import {
   BuilderCloudflareExecutionRepository,
   cloudflareChangeAnswer,
-  CloudflareExecutionDecisionError,
   cloudflareExecutionStatusForOutcome,
   isCloudflareExecutionTerminal,
-  ONE_CHANGE_PER_COMMAND,
   publicExecutionState,
   safeCloudflareExecutionOutcome,
   sameCloudflareConnectionIdentity,
   type CloudflareExecutionBinding,
-  type CloudflareExecutionRecord,
 } from './builder-cloudflare-execution';
 import {
   cloudflareApiRequestIsRead,
@@ -184,6 +181,7 @@ import {
   type CloudflareRequestFinalResult,
 } from 'cloudchef-agent/cloudflare-api';
 import { cloudflareApiErrorBody, type CloudflareChangeAnswer } from '~/lib/.server/cloudflare/cloudflare-api-proxy';
+import { fileTeamCloudflareChange, TEAM_FILED_ANSWER } from '~/lib/.server/cloudflare/team-cloudflare-approvals';
 import {
   readCloudflareApiRuntimeIdentity,
   type RuntimeConnectionIdentity,
@@ -313,18 +311,11 @@ const CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS = 15_000;
 const TEAM_APPROVAL_NOTE =
   'This changes the team’s Cloudflare account. One of the team’s admins approves or rejects it on their Approvals ' +
   'page; approving sends this exact request once.';
-const filedApprovalSchema = z.object({
-  approvalId: z.string(),
-  expiresAt: z.number(),
-  warning: z.string().nullable(),
-});
-const refusalSchema = z.object({ error: z.string() });
-/** A command whose change still waits for the team's admins. */
-const filedToolPartSchema = z.object({
-  output: z.object({
-    cloudflareChange: z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() }),
-  }),
-});
+/** The changes a command filed for the team's admins, in its output: each one waiting, or what they decided. */
+const commandChangesSchema = z.looseObject({ cloudflareChanges: z.array(z.unknown()) });
+/** One of them still waiting for the team's admins. */
+const filedChangeSchema = z.object({ kind: z.literal('cloudflare_request_filed'), approvalId: z.string() });
+const commandOutputPartSchema = z.object({ output: commandChangesSchema });
 const approvalOutcomeSchema = z.object({
   agentName: z.string(),
   toolCallId: z.string(),
@@ -503,8 +494,8 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   private readonly contextCompaction = new DurableObjectContextCompactionRepository(this);
   private readonly identityRepository: ConversationAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
-  /** Changes a running command filed for the team's admins, until that command's output takes them. */
-  private readonly filedCloudflareChanges = new Map<string, CloudflareRequestFiled>();
+  /** Changes each running command filed for the team's admins, in order, until that command's output takes them. */
+  private readonly filedCloudflareChanges = new Map<string, CloudflareRequestFiled[]>();
   /** When the proxy holding each waiting change last asked about it, by execution: a change no one waits for is not sent. */
   private readonly waitingCloudflareChanges = new Map<string, number>();
   private readonly workspace: BuilderWorkspaceApi;
@@ -886,7 +877,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
         linkedProject,
         onValidationStage: (toolCallId, stage) => this.setValidationProgress(toolCallId, stage),
         pushResult: (toolCallId) => this.gitPushResult(toolCallId),
-        cloudflareChange: async (toolCallId) => this.settleCommandCloudflareChange(toolCallId),
+        cloudflareChanges: async (toolCallId) => this.settleCommandCloudflareChanges(toolCallId),
         runWithKeepAlive: (operation) => this.keepAliveWhile(operation),
         steering,
         onSettled: () => {
@@ -1084,7 +1075,7 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     // Sent only while the command that asked still waits for it: its proxy asks again every few seconds.
     const asked = this.waitingCloudflareChanges.get(proposal.executionId);
     if (asked === undefined || Date.now() - asked > CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS) {
-      this.cloudflareExecutions.withdraw(proposal.toolCallId);
+      this.cloudflareExecutions.withdraw(proposal.toolCallId, proposal.executionId);
       this.refreshCloudflareExecutionState();
       throw new Response('The command that asked for this change has stopped, so it wasn’t sent.', { status: 409 });
     }
@@ -2180,19 +2171,15 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     if ('refusal' in review) {
       return refusedChange(403, review.refusal);
     }
-    let record: CloudflareExecutionRecord;
-    try {
-      record = await this.cloudflareExecutions.createProposal({
-        toolCallId,
-        binding: { ...identity, transcript },
-        request,
-        warning: review.warning,
-      });
-    } catch (error) {
-      if (error instanceof CloudflareExecutionDecisionError) {
-        return refusedChange(409, error.message);
-      }
-      throw error;
+    const record = await this.cloudflareExecutions.createProposal({
+      toolCallId,
+      binding: { ...identity, transcript },
+      request,
+      warning: review.warning,
+    });
+    if (!record) {
+      // An earlier change of the same command still waits: this one is asked for again once that one is settled.
+      return { kind: 'queued' };
     }
     this.refreshCloudflareExecutionState();
     return this.answerWaitingChange(record);
@@ -2228,27 +2215,30 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
   /** The command that asked for a change stopped while it waited: it is never sent. */
   async withdrawWorkspaceCloudflareChange(input: { toolCallId: string; executionId: string }): Promise<void> {
     const record = this.cloudflareExecutions.get(input.executionId);
-    if (record?.toolCallId === input.toolCallId && this.cloudflareExecutions.withdraw(input.toolCallId)) {
+    if (
+      record?.toolCallId === input.toolCallId &&
+      this.cloudflareExecutions.withdraw(input.toolCallId, input.executionId)
+    ) {
       this.refreshCloudflareExecutionState();
     }
   }
 
   /**
    * After a command ends: a change it left waiting is withdrawn, since nothing waits for its answer any more, and
-   * a change it filed for the team's admins is given for its output, where their decision later lands.
+   * the changes it filed for the team's admins are given for its output, where their decisions later land.
    */
-  private settleCommandCloudflareChange(toolCallId: string): CloudflareRequestFiled | undefined {
+  private settleCommandCloudflareChanges(toolCallId: string): CloudflareRequestFiled[] {
     if (this.cloudflareExecutions.withdraw(toolCallId)) {
       this.refreshCloudflareExecutionState();
     }
-    const filed = this.filedCloudflareChanges.get(toolCallId);
+    const filed = this.filedCloudflareChanges.get(toolCallId) ?? [];
     this.filedCloudflareChanges.delete(toolCallId);
     return filed;
   }
 
   /**
    * A team member's change, filed for the team's admins. The member's workspace never holds the team account's
-   * authorization: a change is checked and sent by CloudChef once an admin approves it.
+   * authorization: a change is checked and sent by CloudChef once an admin approves it. A command may file several.
    */
   private async fileTeamCloudflareChange(
     toolCallId: string,
@@ -2256,39 +2246,30 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     identity: RuntimeConnectionIdentity,
     transcript: BuilderTranscriptBinding,
   ): Promise<CloudflareChangeAnswer> {
-    if (this.filedCloudflareChanges.has(toolCallId)) {
-      return refusedChange(409, ONE_CHANGE_PER_COMMAND);
+    const filed = await fileTeamCloudflareChange(
+      this.env,
+      identity,
+      { source: 'agent', agentName: transcript.agentName, toolCallId },
+      request,
+    );
+    if (filed.kind === 'refused') {
+      return filed.answer;
     }
-    const answer = await postRuntimeRoute(this.env, identity, 'runtime-projects/approvals/file', {
-      agentName: transcript.agentName,
-      toolCallId,
-      requestJson: JSON.stringify(request),
-    });
-    const body: unknown = await answer.json().catch(() => null);
-    const filed = filedApprovalSchema.safeParse(body);
-    if (!answer.ok || !filed.success) {
-      return refusedChange(
-        answer.status === 403 ? 403 : 502,
-        refusalSchema.safeParse(body).data?.error ?? 'The change couldn’t be sent to the team’s admins. Try again.',
-      );
-    }
-    this.filedCloudflareChanges.set(toolCallId, {
+    const changes = this.filedCloudflareChanges.get(toolCallId) ?? [];
+    changes.push({
       kind: 'cloudflare_request_filed',
       status: 'awaiting_team_admin',
-      approvalId: filed.data.approvalId,
+      approvalId: filed.approvalId,
       accountId: identity.accountId,
       request,
-      riskNote: filed.data.warning ? `${filed.data.warning} ${TEAM_APPROVAL_NOTE}` : TEAM_APPROVAL_NOTE,
-      expiresAt: filed.data.expiresAt,
+      riskNote: filed.warning ? `${filed.warning} ${TEAM_APPROVAL_NOTE}` : TEAM_APPROVAL_NOTE,
+      expiresAt: filed.expiresAt,
       note:
         'Filed for the team’s admins, who approve or reject it on their Approvals page; CloudChef then sends it once. ' +
         'Its result replaces this one when they decide.',
     });
-    return refusedChange(
-      202,
-      'Not changed yet: this was sent to the team’s admins to approve. CloudChef makes the change once one of ' +
-        'them approves it, and its result shows in the chat.',
-    );
+    this.filedCloudflareChanges.set(toolCallId, changes);
+    return TEAM_FILED_ANSWER;
   }
 
   /** Reads back every change this conversation filed for the team's admins that still shows as waiting. */
@@ -2299,8 +2280,11 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
     }
     const waiting = this.messages.flatMap((message) =>
       message.parts.flatMap((part) => {
-        const filed = filedToolPartSchema.safeParse(part);
-        return filed.success ? [filed.data.output.cloudflareChange.approvalId] : [];
+        const changes = commandOutputPartSchema.safeParse(part).data?.output.cloudflareChanges ?? [];
+        return changes.flatMap((change) => {
+          const filed = filedChangeSchema.safeParse(change);
+          return filed.success ? [filed.data.approvalId] : [];
+        });
       }),
     );
     for (const approvalId of waiting) {
@@ -2345,11 +2329,19 @@ export class ConversationAgent extends AIChatAgent<Env, ConversationAgentState, 
       status: final,
       outcome: outcome ?? { status: 'denied', summary: 'No team admin decided before the request expired.' },
     };
-    const messages = replaceToolCallPart(this.messages, toolCallId, (part, invocation) =>
-      invocation.toolName === 'exec' && invocation.state === 'output-available' && isRecord(invocation.output)
-        ? { ...part, output: { ...invocation.output, cloudflareChange: decision } }
-        : null,
-    );
+    const messages = replaceToolCallPart(this.messages, toolCallId, (part, invocation) => {
+      if (invocation.toolName !== 'exec' || invocation.state !== 'output-available' || !isRecord(invocation.output)) {
+        return null;
+      }
+      const changes = commandChangesSchema.safeParse(invocation.output).data?.cloudflareChanges;
+      const at = changes?.findIndex(
+        (change) => filedChangeSchema.safeParse(change).data?.approvalId === input.approvalId,
+      );
+      if (!changes || at === undefined || at < 0) {
+        return null;
+      }
+      return { ...part, output: { ...invocation.output, cloudflareChanges: changes.with(at, decision) } };
+    });
     if (messages) {
       await this.persistReplacedToolOutput(messages);
     }

@@ -412,7 +412,7 @@ describe('minimal Workers AI tool surface', () => {
     );
   });
 
-  it("settles a finished command's Cloudflare change and keeps one filed for a team's admins in its output", async () => {
+  it("settles a finished command's Cloudflare changes and keeps each one filed for a team's admins in its output", async () => {
     const workspace = workspaceStub();
     const filed = {
       kind: 'cloudflare_request_filed' as const,
@@ -427,13 +427,14 @@ describe('minimal Workers AI tool surface', () => {
       expiresAt: 1,
       note: 'Filed.',
     };
-    const cloudflareChange = vi.fn(async () => filed);
-    const tools = createWorkersAiTools(workspace, { ...operationContext(), cloudflareChange }, NO_SKILLS);
+    const second = { ...filed, approvalId: 'approval-2' };
+    const cloudflareChanges = vi.fn(async () => [filed, second]);
+    const tools = createWorkersAiTools(workspace, { ...operationContext(), cloudflareChanges }, NO_SKILLS);
 
     await expect(executeTool(tools.exec, { command: 'cf workers domains create' })).resolves.toMatchObject({
-      cloudflareChange: filed,
+      cloudflareChanges: [filed, second],
     });
-    expect(cloudflareChange).toHaveBeenCalledWith('tool-call');
+    expect(cloudflareChanges).toHaveBeenCalledWith('tool-call');
   });
 
   it('offers the model exactly read, write, edit and exec', () => {

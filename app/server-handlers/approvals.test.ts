@@ -57,11 +57,16 @@ async function world() {
     }),
   );
 
-  const file = async (request: FiledRequest, as: { connection?: 'team' | 'own'; toolCallId?: string } = {}) =>
+  const file = async (
+    request: FiledRequest,
+    as: { connection?: 'team' | 'own'; toolCallId?: string; terminal?: boolean } = {},
+  ) =>
     runtimeFileApprovalAction({
       request: await team.runtime(
         '/api/cloudflare/runtime-projects/approvals/file',
-        { agentName: 'chat-1', toolCallId: as.toolCallId ?? 'call-1', requestJson: JSON.stringify(request) },
+        as.terminal
+          ? { source: 'terminal', requestJson: JSON.stringify(request) }
+          : { agentName: 'chat-1', toolCallId: as.toolCallId ?? 'call-1', requestJson: JSON.stringify(request) },
         { connection: as.connection },
       ),
       env,
@@ -140,11 +145,12 @@ describe('a member’s change to the team’s account', () => {
     expect(await outcome(approvalId)).toMatchObject({ status: 'expired' });
   });
 
-  it('is filed once per step, and only for changes in the team’s own account', async () => {
+  it('files each change a command asks for, and only changes in the team’s own account', async () => {
     const { file, list, admin } = await world();
 
     const first = await filedId(await file(change));
-    expect(await filedId(await file(change))).toBe(first);
+    // A command can ask for several changes: each is its own request for the admins.
+    expect(await filedId(await file(change))).not.toBe(first);
 
     expect((await file({ method: 'GET', url: DOMAIN_LIST }, { toolCallId: 'call-2' })).status).toBe(400);
     expect(
@@ -157,6 +163,23 @@ describe('a member’s change to the team’s account', () => {
     ).toBe(400);
     // Sara's own account has no team admins to ask.
     expect((await file(change, { connection: 'own', toolCallId: 'call-4' })).status).toBe(403);
-    expect((await list(admin.cookie)).waiting).toHaveLength(1);
+    expect((await list(admin.cookie)).waiting).toHaveLength(2);
+  });
+
+  it('files a change the member typed in their terminal, which goes back to no conversation', async () => {
+    const { admin, database, sent, file, list, decide, outcome } = await world();
+
+    const filed = await file(change, { terminal: true });
+    expect(filed.status).toBe(201);
+    const approvalId = await filedId(filed);
+    expect(database.prepare('SELECT source, agent_name, tool_call_id FROM approval_requests').all()).toEqual([
+      { source: 'terminal', agent_name: null, tool_call_id: null },
+    ]);
+    expect(await list(admin.cookie)).toMatchObject({ waiting: [{ id: approvalId, status: 'pending' }] });
+
+    expect(await (await decide(admin.cookie, approvalId, 'approve')).json()).toMatchObject({ status: 'done' });
+    expect(sent.filter((request) => request.url === DOMAIN_LIST)).toHaveLength(1);
+    // No conversation asked, so none reads it back.
+    expect(await outcome(approvalId)).toMatchObject({ error: 'Not found.' });
   });
 });

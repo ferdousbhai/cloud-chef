@@ -8,6 +8,8 @@ import {
 /** What became of a sent change. */
 type ApprovalResult = 'succeeded' | 'failed' | 'indeterminate';
 type ApprovalStatus = 'pending' | 'sending' | 'done' | 'rejected' | 'expired';
+/** Where a change came from: a command the member's agent ran, or the member's own workspace terminal. */
+type ApprovalSource = 'agent' | 'terminal';
 
 /** A request as the team's admins see it on the Approvals page. */
 type ApprovalRequest = {
@@ -15,6 +17,7 @@ type ApprovalRequest = {
   orgId: string;
   orgName: string;
   kind: 'cloudflare_change';
+  source: ApprovalSource;
   requester: { name: string; email: string };
   request: CloudflareApiRequest;
   warning: string | null;
@@ -27,13 +30,13 @@ type ApprovalRequest = {
   expiresAt: number;
 };
 
-/** A request as CloudChef sends it, and where its result goes back to. */
+/** A request as CloudChef sends it, and where its result goes back to (no conversation, for one from a terminal). */
 type ClaimedRequest = {
   id: string;
   orgId: string;
   connectionId: string;
   requestedBy: string;
-  agentName: string;
+  agentName: string | null;
   request: CloudflareApiRequest;
 };
 
@@ -42,6 +45,7 @@ type ApprovalRow = {
   org_id: string;
   org_name: string;
   kind: 'cloudflare_change';
+  source: ApprovalSource;
   requester_name: string;
   requester_email: string;
   request_json: string;
@@ -80,8 +84,8 @@ const ACTOR_IS_ADMIN = (actor: string) => `EXISTS (
 )`;
 
 /**
- * Files a member's change for the team's admins. Filing the same step of the same conversation again answers the
- * request already filed.
+ * Files a member's change for the team's admins: one their agent's command asked for (a command may file several),
+ * or one they typed in their own workspace terminal.
  */
 export async function fileCloudflareChange(
   db: D1Database,
@@ -89,28 +93,29 @@ export async function fileCloudflareChange(
     orgId: string;
     connectionId: string;
     userId: string;
-    agentName: string;
-    toolCallId: string;
+    from: { source: 'agent'; agentName: string; toolCallId: string } | { source: 'terminal' };
     request: CloudflareApiRequest;
     requestSha256: string;
     warning: string | null;
     expiresAt: number;
   },
 ): Promise<{ id: string; expiresAt: number }> {
+  const id = crypto.randomUUID();
+  const command = args.from.source === 'agent' ? args.from : null;
   await db
     .prepare(
-      `INSERT INTO approval_requests (id, org_id, connection_id, requested_by, kind, agent_name, tool_call_id,
+      `INSERT INTO approval_requests (id, org_id, connection_id, requested_by, kind, source, agent_name, tool_call_id,
          request_json, request_sha256, warning, status, created_at, expires_at)
-       VALUES (?, ?, ?, ?, 'cloudflare_change', ?, ?, ?, ?, ?, 'pending', ?, ?)
-       ON CONFLICT (agent_name, tool_call_id) DO NOTHING`,
+       VALUES (?, ?, ?, ?, 'cloudflare_change', ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .bind(
-      crypto.randomUUID(),
+      id,
       args.orgId,
       args.connectionId,
       args.userId,
-      args.agentName,
-      args.toolCallId,
+      args.from.source,
+      command?.agentName ?? null,
+      command?.toolCallId ?? null,
       JSON.stringify(args.request),
       args.requestSha256,
       args.warning,
@@ -118,16 +123,7 @@ export async function fileCloudflareChange(
       args.expiresAt,
     )
     .run();
-  const filed = await db
-    .prepare(
-      'SELECT id, expires_at FROM approval_requests WHERE agent_name = ? AND tool_call_id = ? AND requested_by = ?',
-    )
-    .bind(args.agentName, args.toolCallId, args.userId)
-    .first<{ id: string; expires_at: number }>();
-  if (!filed) {
-    throw new Error('The approval request was not filed.');
-  }
-  return { id: filed.id, expiresAt: filed.expires_at };
+  return { id, expiresAt: args.expiresAt };
 }
 
 /** Requests whose time ran out while waiting are expired, whoever looks first. */
@@ -149,7 +145,7 @@ export async function listApprovals(
   const { results } = await db
     .prepare(
       `SELECT approval_requests.id, approval_requests.org_id, organizations.name AS org_name, approval_requests.kind,
-              requester.name AS requester_name, requester.email AS requester_email, approval_requests.request_json,
+              approval_requests.source, requester.name AS requester_name, requester.email AS requester_email, approval_requests.request_json,
               approval_requests.warning, approval_requests.status, approval_requests.result,
               approval_requests.outcome_json, decider.name AS decider_name, approval_requests.decided_at,
               approval_requests.created_at, approval_requests.expires_at
@@ -188,7 +184,7 @@ export async function claimApproval(db: D1Database, id: string, actorId: string)
       org_id: string;
       connection_id: string;
       requested_by: string;
-      agent_name: string;
+      agent_name: string | null;
       request_json: string;
     }>();
   return row
@@ -223,7 +219,7 @@ export async function rejectApproval(
   db: D1Database,
   id: string,
   actorId: string,
-): Promise<{ requestedBy: string; connectionId: string; agentName: string } | null> {
+): Promise<{ requestedBy: string; connectionId: string; agentName: string | null } | null> {
   const now = Date.now();
   const denied: CloudflareExecutionSafeOutcome = { status: 'denied', summary: 'A team admin rejected this change.' };
   const row = await db
@@ -233,11 +229,14 @@ export async function rejectApproval(
        RETURNING requested_by, connection_id, agent_name`,
     )
     .bind(id, actorId, now, JSON.stringify(denied))
-    .first<{ requested_by: string; connection_id: string; agent_name: string }>();
+    .first<{ requested_by: string; connection_id: string; agent_name: string | null }>();
   return row ? { requestedBy: row.requested_by, connectionId: row.connection_id, agentName: row.agent_name } : null;
 }
 
-/** A filed request as its own requester's workspace reads it back: where it goes, and what became of it. */
+/**
+ * A request a member's agent filed, as their workspace reads it back: which command it goes back to, and what
+ * became of it. One typed in a terminal goes back to no conversation.
+ */
 export async function approvalOutcomeFor(
   db: D1Database,
   args: { id: string; userId: string; connectionId: string },
@@ -253,18 +252,18 @@ export async function approvalOutcomeFor(
   const row = await db
     .prepare(
       `SELECT agent_name, tool_call_id, request_sha256, status, result, outcome_json FROM approval_requests
-       WHERE id = ? AND requested_by = ? AND connection_id = ?`,
+       WHERE id = ? AND requested_by = ? AND connection_id = ? AND source = 'agent'`,
     )
     .bind(args.id, args.userId, args.connectionId)
     .first<{
-      agent_name: string;
-      tool_call_id: string;
+      agent_name: string | null;
+      tool_call_id: string | null;
       request_sha256: string;
       status: ApprovalStatus;
       result: ApprovalResult | null;
       outcome_json: string | null;
     }>();
-  return row
+  return row?.agent_name && row.tool_call_id
     ? {
         agentName: row.agent_name,
         toolCallId: row.tool_call_id,
@@ -282,6 +281,7 @@ function approvalFromRow(row: ApprovalRow): ApprovalRequest {
     orgId: row.org_id,
     orgName: row.org_name,
     kind: row.kind,
+    source: row.source,
     requester: { name: row.requester_name, email: row.requester_email },
     request: cloudflareApiRequestSchema.parse(JSON.parse(row.request_json)),
     warning: row.warning,

@@ -20,14 +20,15 @@ export const ToolUseContents = memo(function ToolUseContents({
   invocation,
   status,
   progress,
-  cloudflareExecution,
+  cloudflareExecutions,
   onCloudflareExecutionDecision,
   publish,
 }: {
   invocation: CloudChefToolInvocation;
   status: ToolActivityStatus;
   progress?: unknown;
-  cloudflareExecution?: CloudflareExecutionPublicState;
+  /** The changes to the Cloudflare account this command asked for, in the order it asked. */
+  cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
   /** A team project's publish, as of now (useLinkedPublishView), or null for any other call. */
   publish: LinkedPublishView | null;
@@ -36,12 +37,12 @@ export const ToolUseContents = memo(function ToolUseContents({
   // invocation alone cannot say whether work is still happening. The card's own status can, and a
   // tool that is no longer running must never show the running placeholder.
   const running = isToolInvocationInProgress(invocation) && isToolActivityStatusActive(status);
-  // A change to the Cloudflare account the command asked for: waiting for the person in its place, or decided.
+  // The changes to the Cloudflare account the command asked for: each waiting for the person in its place, or decided.
   const change =
     invocation.toolName === 'exec' ? (
       <CloudflareChangeContents
         invocation={invocation}
-        execution={cloudflareExecution}
+        executions={cloudflareExecutions ?? []}
         onDecision={onCloudflareExecutionDecision}
       />
     ) : null;
@@ -143,7 +144,7 @@ const cloudflareRequestFinalResultSchema = z.object({
   }),
 });
 
-const commandChangeSchema = z.looseObject({ cloudflareChange: z.unknown().optional() });
+const commandChangesSchema = z.looseObject({ cloudflareChanges: z.array(z.unknown()).optional() });
 
 function CloudflareRequestLine({ request }: { request: CloudflareApiRequestDisplay }) {
   return (
@@ -155,24 +156,38 @@ function CloudflareRequestLine({ request }: { request: CloudflareApiRequestDispl
 }
 
 /**
- * The change to the Cloudflare account a command asked for, if it asked for one: in the person's own account (or a
- * team's, for its admins) it waits here for their approval while the command waits; a team member's shows that it
- * went to the team's admins, then what they decided.
+ * The changes to the Cloudflare account a command asked for, if it asked for any: in the person's own account (or a
+ * team's, for its admins) each waits here for their approval in turn while the command waits; a team member's show
+ * that they went to the team's admins, then what they decided.
  */
 function CloudflareChangeContents({
   invocation,
-  execution,
+  executions,
   onDecision,
 }: {
   invocation: CloudChefToolInvocation;
-  execution?: CloudflareExecutionPublicState;
+  executions: readonly CloudflareExecutionPublicState[];
   onDecision?: CloudflareExecutionDecisionHandler;
 }) {
-  if (execution) {
-    return <CloudflareApprovalContents execution={execution} onDecision={onDecision} />;
-  }
   const output = invocation.state === 'output-available' ? invocation.output : undefined;
-  const change = commandChangeSchema.safeParse(output).data?.cloudflareChange;
+  const filed = commandChangesSchema.safeParse(output).data?.cloudflareChanges ?? [];
+  if (executions.length === 0 && filed.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {executions.map((execution) => (
+        <CloudflareApprovalContents key={execution.executionId} execution={execution} onDecision={onDecision} />
+      ))}
+      {filed.map((change, index) => (
+        <TeamChangeContents key={index} change={change} />
+      ))}
+    </>
+  );
+}
+
+/** One change a team member's command filed for the team's admins: waiting for them, or what they decided. */
+function TeamChangeContents({ change }: { change: unknown }) {
   const filed = cloudflareRequestFiledSchema.safeParse(change).data;
   const final = cloudflareRequestFinalResultSchema.safeParse(change).data;
   if (!filed && !final) {

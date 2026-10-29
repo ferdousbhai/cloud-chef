@@ -128,23 +128,44 @@ describe("a change cf asks for in the person's own account", () => {
 
     // What the exec tool does once its command ends, however it ended.
     // eslint-disable-next-line dot-notation
-    harness.agent['settleCommandCloudflareChange'](COMMAND);
+    harness.agent['settleCommandCloudflareChanges'](COMMAND);
 
     const answer = await harness.agent.workspaceCloudflareChangeOutcome({ toolCallId: COMMAND, executionId });
     expect(errorMessage(answer)).toContain('The command ended before anyone approved the change');
     await expect(harness.agent.approveCloudflareExecution({ executionId })).rejects.toMatchObject({ status: 409 });
   });
 
-  it('keeps one change waiting per command, and refuses another account outright', async () => {
+  it('lets a command ask for several changes, each waiting in its card in turn, and refuses another account', async () => {
     const harness = await conversationAgentHarness({ cloudflareIdentity: true });
-    await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
-
-    const second = await harness.agent.proposeWorkspaceCloudflareChange({
-      toolCallId: COMMAND,
-      request: { ...DELETE_SCRIPT, url: DELETE_SCRIPT.url.replace('/old', '/older') },
+    const sent = sentRequests(harness, {
+      status: 'success',
+      content: '{"success":true,"result":null}',
+      requestId: null,
+      httpStatus: 200,
+      truncated: false,
     });
-    expect(second).toMatchObject({ kind: 'answer', status: 409 });
-    expect(errorMessage(second)).toContain('Run each change as its own command');
+    const older = { ...DELETE_SCRIPT, url: DELETE_SCRIPT.url.replace('/old', '/older') };
+    const first = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: DELETE_SCRIPT });
+    const firstId = first.kind === 'waiting' ? first.executionId : '';
+
+    // The next change of the same command waits its turn behind the first.
+    await expect(
+      harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: older }),
+    ).resolves.toEqual({ kind: 'queued' });
+
+    await harness.agent.approveCloudflareExecution({ executionId: firstId });
+    const second = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request: older });
+    expect(second.kind).toBe('waiting');
+    const secondId = second.kind === 'waiting' ? second.executionId : '';
+    // Both are in the command's card: the first made, the second waiting for its own decision.
+    expect(harness.agent.state.cloudflareExecutions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ executionId: firstId, toolCallId: COMMAND, status: 'succeeded' }),
+        expect.objectContaining({ executionId: secondId, toolCallId: COMMAND, status: 'awaiting_approval' }),
+      ]),
+    );
+    await harness.agent.approveCloudflareExecution({ executionId: secondId });
+    expect(sent).toEqual([DELETE_SCRIPT, older]);
 
     const elsewhere = await harness.agent.proposeWorkspaceCloudflareChange({
       toolCallId: 'exec-2',
@@ -164,5 +185,38 @@ describe("a change cf asks for in the person's own account", () => {
 
     expect(answer).toMatchObject({ kind: 'answer', status: 403 });
     expect(harness.agent.state.cloudflareExecutions ?? []).toEqual([]);
+  });
+});
+
+describe("a team member's changes in the team's account", () => {
+  it("files each change a command asks for with the team's admins, and gives them all to the command's output", async () => {
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
+    Object.assign(harness.env, { CLOUDCHEF_SHARED_ACCOUNT: '1' });
+    const filed: unknown[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!String(input).endsWith('/runtime-projects/approvals/file')) {
+        // Not one of the team's admins.
+        return new Response('unavailable', { status: 503 });
+      }
+      filed.push(JSON.parse(String(init?.body)));
+      return Response.json({ approvalId: `approval-${filed.length}`, expiresAt: 1, warning: null }, { status: 201 });
+    });
+    const older = { ...DELETE_SCRIPT, url: DELETE_SCRIPT.url.replace('/old', '/older') };
+
+    for (const request of [DELETE_SCRIPT, older]) {
+      const answer = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request });
+      expect(answer).toMatchObject({ kind: 'answer', status: 202 });
+      expect(errorMessage(answer)).toContain('sent to the team’s admins');
+    }
+
+    expect(filed).toEqual([
+      expect.objectContaining({ source: 'agent', toolCallId: COMMAND, requestJson: JSON.stringify(DELETE_SCRIPT) }),
+      expect.objectContaining({ source: 'agent', toolCallId: COMMAND, requestJson: JSON.stringify(older) }),
+    ]);
+    // eslint-disable-next-line dot-notation
+    expect(harness.agent['settleCommandCloudflareChanges'](COMMAND)).toEqual([
+      expect.objectContaining({ kind: 'cloudflare_request_filed', approvalId: 'approval-1', request: DELETE_SCRIPT }),
+      expect.objectContaining({ kind: 'cloudflare_request_filed', approvalId: 'approval-2', request: older }),
+    ]);
   });
 });

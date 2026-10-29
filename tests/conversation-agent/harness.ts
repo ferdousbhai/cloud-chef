@@ -332,7 +332,7 @@ export async function conversationAgentHarness(
     /** The redeploy happened (or the window lapsed): work waiting on it continues. */
     closeUpgradeWindow: () => database.prepare('DELETE FROM runtime_upgrade_window').run(),
     /** A Cloudflare write the model proposed in this transcript, awaiting the person's approval. */
-    proposeCloudflareRequest: () => {
+    proposeCloudflareRequest: async () => {
       const binding: CloudflareExecutionBinding = {
         userId: OWNER_ID,
         accountId: ACCOUNT_ID,
@@ -345,7 +345,7 @@ export async function conversationAgentHarness(
           parentAgentName: null,
         },
       };
-      return executions.createProposal({
+      const proposal = await executions.createProposal({
         toolCallId: 'tool-call-1',
         binding,
         request: {
@@ -353,6 +353,10 @@ export async function conversationAgentHarness(
           url: `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/old`,
         },
       });
+      if (!proposal) {
+        throw new Error('The command already has a change waiting.');
+      }
+      return proposal;
     },
     cloudflareExecution: (executionId: string) => executions.get(executionId),
     /** A turn is running, as `onChatMessage` records it before any model work. */

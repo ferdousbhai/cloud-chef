@@ -8,8 +8,9 @@ import { readBodyTextPrefix } from '~/lib/bounded-body';
 /**
  * `cf` in the workspace container sends its Cloudflare API requests to this address (its
  * `CLOUDFLARE_API_BASE_URL`), and the runtime's CloudflareApiProxy answers them. The container holds no
- * credential: the proxy puts the account's own in place of the stand-in token `cf` sends, reads pass, and
- * every change waits for the person's approval in the chat (a team member's goes to the team's admins).
+ * credential: the proxy puts the account's own in place of the stand-in token `cf` sends, and reads pass. A change
+ * the agent's command asks for waits for the person's approval in the chat; one typed in the person's own terminal
+ * is theirs and is sent at once. A team member's changes, from either, go to the team's admins.
  */
 export const CLOUDFLARE_API_PROXY_HOST = 'cloudflare-api.internal';
 export const CLOUDFLARE_API_PROXY_BASE_URL = `http://${CLOUDFLARE_API_PROXY_HOST}/client/v4`;
@@ -31,22 +32,43 @@ const CLOUDFLARE_CHANGE_POLL_MS = 1_500;
 /** The agent's command running in the container: a change is approved in that command's place in the chat. */
 export type WorkspaceAgentCommand = { agentName: string; toolCallId: string };
 
-/** What the agent says of a change: its answer for `cf`, or that it still waits for a decision. */
+/**
+ * What the agent says of a change: its answer for `cf`, that it still waits for a decision, or that it is queued
+ * behind an earlier change of the same command that is still waiting, to be asked for again.
+ */
 export type CloudflareChangeAnswer =
-  { kind: 'answer'; status: number; body: string } | { kind: 'waiting'; executionId: string };
+  { kind: 'answer'; status: number; body: string } | { kind: 'waiting'; executionId: string } | { kind: 'queued' };
+
+/**
+ * Who the person is to the account, asked afresh for each request: its owner or one of a team's admins (who read it
+ * and change it), one of a team's other members (whose changes go to the team's admins), or someone this
+ * workspace can't act for.
+ */
+export type CloudflareAccountAccess =
+  { kind: 'account' } | { kind: 'team_member' } | { kind: 'refused'; reason: string };
+
+/** A change typed in the person's own terminal and sent at once, for the workspace's log of what it changed. */
+type TerminalCloudflareChange = {
+  request: CloudflareApiRequest;
+  status: number;
+  rayId: string | null;
+};
 
 export type CloudflareApiProxyDependencies = {
   accountId: string;
-  /** Why this person may not read the account directly, or null when they may (its owner, or a team's admin). */
-  readRefusal(): Promise<string | null>;
-  /** Sends a read with the account's credential, which stays outside the container. */
-  read(request: CloudflareApiRequest, signal: AbortSignal): Promise<Response>;
+  access(): Promise<CloudflareAccountAccess>;
+  /** Sends a request with the account's credential, which stays outside the container. */
+  send(request: CloudflareApiRequest, signal: AbortSignal): Promise<Response>;
   /** The agent's command running in the container now, if one is. */
   command(): Promise<WorkspaceAgentCommand | null>;
   propose(command: WorkspaceAgentCommand, request: CloudflareApiRequest): Promise<CloudflareChangeAnswer>;
   outcome(command: WorkspaceAgentCommand, executionId: string): Promise<CloudflareChangeAnswer>;
   /** The command stopped while its change waited: nothing is sent. */
   withdraw(command: WorkspaceAgentCommand, executionId: string): Promise<void>;
+  /** A team member's change typed in the terminal, filed for the team's admins as the agent's are. */
+  fileForTeamAdmins(request: CloudflareApiRequest): Promise<CloudflareChangeAnswer>;
+  /** Notes a change typed in the terminal and sent at once, so what changed the account can be traced. */
+  recordTerminalChange(change: TerminalCloudflareChange): void;
   sleep(ms: number): Promise<void>;
 };
 
@@ -62,8 +84,10 @@ export function cloudflareApiErrorBody(message: string): string {
   return JSON.stringify({ success: false, errors: [{ code: 10000, message }], messages: [], result: null });
 }
 
-const NOT_FROM_AGENT =
-  'Changes to the Cloudflare account are made only from a command the agent runs, after the person approves them.';
+/** In a team's account only its admins read it directly: its authorization reaches every member's work. */
+const TEAM_READ_REFUSAL =
+  'In a team’s account only its admins read the account directly. Make the change itself: it goes to the ' +
+  'team’s admins to approve.';
 
 /** One request `cf` (or anything else in the container) sends to the Cloudflare API address. */
 export async function handleCloudflareApiProxyRequest(
@@ -96,42 +120,101 @@ export async function handleCloudflareApiProxyRequest(
     throw error;
   }
 
+  const access = await deps.access();
+  if (access.kind === 'refused') {
+    return cloudflareApiError(403, access.reason);
+  }
   if (method === 'GET') {
-    const refusal = await deps.readRefusal();
-    if (refusal) {
-      return cloudflareApiError(403, refusal);
-    }
-    return passThrough(await deps.read(canonical, request.signal));
+    return access.kind === 'account'
+      ? passThrough(await deps.send(canonical, request.signal))
+      : cloudflareApiError(403, TEAM_READ_REFUSAL);
   }
 
   const command = await deps.command();
   if (!command) {
-    return cloudflareApiError(403, NOT_FROM_AGENT);
+    // No agent command is running, so the person typed this in their own terminal: it is theirs to make.
+    return access.kind === 'account'
+      ? sendTerminalChange(canonical, request.signal, deps)
+      : answerFor(await deps.fileForTeamAdmins(canonical));
   }
+  return answerFor(await waitForDecision(command, canonical, request.signal, deps));
+}
+
+/**
+ * A change the agent's command asked for, held while the person decides: each change of a command waits in that
+ * command's card in turn, so one asked for while an earlier one still waits is queued behind it.
+ */
+async function waitForDecision(
+  command: WorkspaceAgentCommand,
+  canonical: CloudflareApiRequest,
+  signal: AbortSignal,
+  deps: CloudflareApiProxyDependencies,
+): Promise<CloudflareChangeAnswer> {
   let answer = await deps.propose(command, canonical);
-  while (answer.kind === 'waiting') {
-    if (request.signal.aborted) {
-      await deps.withdraw(command, answer.executionId);
-      return cloudflareApiError(499, 'The command stopped before the change was approved, so nothing was sent.');
+  while (answer.kind !== 'answer') {
+    if (signal.aborted) {
+      if (answer.kind === 'waiting') {
+        await deps.withdraw(command, answer.executionId);
+      }
+      return refused(499, 'The command stopped before the change was approved, so nothing was sent.');
     }
     await deps.sleep(CLOUDFLARE_CHANGE_POLL_MS);
-    answer = await deps.outcome(command, answer.executionId);
+    if (answer.kind === 'waiting') {
+      answer = await deps.outcome(command, answer.executionId);
+      continue;
+    }
+    // Its turn comes once the change before it is decided, provided the command that asked still runs.
+    const running = await deps.command();
+    if (running?.agentName !== command.agentName || running.toolCallId !== command.toolCallId) {
+      return refused(403, 'The command ended before this change could be approved, so nothing was sent.');
+    }
+    answer = await deps.propose(command, canonical);
+  }
+  return answer;
+}
+
+/** A change typed in the person's own terminal, sent at once with the account's credential and noted. */
+async function sendTerminalChange(
+  canonical: CloudflareApiRequest,
+  signal: AbortSignal,
+  deps: CloudflareApiProxyDependencies,
+): Promise<Response> {
+  const response = passThrough(await deps.send(canonical, signal));
+  deps.recordTerminalChange({
+    request: canonical,
+    status: response.status,
+    rayId: response.headers.get('cf-ray'),
+  });
+  return response;
+}
+
+function refused(status: number, message: string): CloudflareChangeAnswer {
+  return { kind: 'answer', status, body: cloudflareApiErrorBody(message) };
+}
+
+function answerFor(answer: CloudflareChangeAnswer): Response {
+  if (answer.kind !== 'answer') {
+    return cloudflareApiError(502, 'The change was not settled, so nothing was sent.');
   }
   return new Response(answer.body, { status: answer.status, headers: { 'content-type': 'application/json' } });
 }
 
-/** A change's body: JSON, as every change CloudChef records for approval is, and no larger than one may be. */
+/**
+ * A change's body: JSON, as every change CloudChef records for approval is, and no larger than one may be. The
+ * same rule holds for a change typed in the terminal, so what reaches the account is always a request CloudChef
+ * can show and record.
+ */
 async function changeBody(request: Request): Promise<{ value: unknown } | { refusal: string }> {
   const { text, truncated } = await readBodyTextPrefix(request, MAX_CHANGE_BODY_BYTES + 1);
   if (truncated || new TextEncoder().encode(text).byteLength > MAX_CHANGE_BODY_BYTES) {
-    return { refusal: 'The change is too large to send for approval.' };
+    return { refusal: 'The change is too large: CloudChef sends changes of up to 60 KiB.' };
   }
   if (text.trim() === '') {
     return { value: undefined };
   }
   const type = request.headers.get('content-type') ?? '';
   if (type !== '' && !/^application\/(?:[\w.+-]+\+)?json\b/i.test(type)) {
-    return { refusal: `A ${type.split(';')[0]} request body can't be sent for approval; only JSON can.` };
+    return { refusal: `A ${type.split(';')[0]} request body isn't sent from the workspace; only JSON can be.` };
   }
   try {
     return { value: JSON.parse(text) };
@@ -140,7 +223,7 @@ async function changeBody(request: Request): Promise<{ value: unknown } | { refu
   }
 }
 
-/** Cloudflare's answer to a read, with only the headers `cf` reads: nothing of the account's session reaches it. */
+/** Cloudflare's answer, with only the headers `cf` reads: nothing of the account's session reaches it. */
 function passThrough(response: Response): Response {
   if (response.status >= 300 && response.status < 400) {
     void response.body?.cancel().catch(() => undefined);
@@ -157,22 +240,24 @@ function passThrough(response: Response): Response {
 }
 
 /**
- * Sends a read with a fresh access token, asking for a new one once if Cloudflare refuses it. The token never
- * leaves this Worker: it is not in the answer, and redirects are not followed.
+ * Sends a request with a fresh access token, asking for a new one once if Cloudflare refuses it (a refused token
+ * changes nothing, so the request is sent again as it was). The token never leaves this Worker: it is not in the
+ * answer, and redirects are not followed.
  */
-export async function sendCloudflareRead(
+export async function sendCloudflareRequest(
   request: CloudflareApiRequest,
   signal: AbortSignal,
   accessToken: (options?: { forceRefresh?: boolean }) => Promise<string>,
   fetcher: typeof fetch = fetch,
 ): Promise<Response> {
-  const send = async (token: string) =>
-    fetcher(request.url, {
-      method: 'GET',
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
-      redirect: 'manual',
-      signal,
-    });
+  const body = request.body === undefined ? undefined : JSON.stringify(request.body);
+  const send = async (token: string) => {
+    const headers = new Headers({ authorization: `Bearer ${token}`, accept: 'application/json' });
+    if (body !== undefined) {
+      headers.set('content-type', 'application/json');
+    }
+    return fetcher(request.url, { method: request.method, headers, body, redirect: 'manual', signal });
+  };
   let token: string;
   try {
     token = await accessToken();

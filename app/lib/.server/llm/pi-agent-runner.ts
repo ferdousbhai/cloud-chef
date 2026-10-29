@@ -105,7 +105,7 @@ export interface PiAgentOptions {
   linkedProject?: { repository: string; defaultBranch: string };
   onValidationStage?: (toolCallId: string, stage: BuilderValidationStage | null) => void;
   pushResult?: BuilderOperationContext['pushResult'];
-  cloudflareChange?: BuilderOperationContext['cloudflareChange'];
+  cloudflareChanges?: BuilderOperationContext['cloudflareChanges'];
   runWithKeepAlive: <T>(operation: () => Promise<T>) => Promise<T>;
   steering: PiSteeringQueue;
   onSettled: (report: BuilderTurnReport) => void;
@@ -183,7 +183,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
     linkedProject,
     onValidationStage,
     pushResult,
-    cloudflareChange,
+    cloudflareChanges,
     runWithKeepAlive,
     steering,
     onSettled,
@@ -223,7 +223,7 @@ async function startPiAgent(options: PiAgentOptions): Promise<ReadableStream<UIM
       skillContext,
       piTools: createPiToolBundle(
         workspace,
-        { onValidationStage, pushResult, cloudflareChange, runWithKeepAlive },
+        { onValidationStage, pushResult, cloudflareChanges, runWithKeepAlive },
         skillContext.reader,
       ),
     };
