@@ -13,7 +13,7 @@ import { getChatRetryState, MAX_CHAT_RETRIES } from './chat-retry';
 import { clearPromptIfUnchanged } from './useMessageInputController';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
-import { builderModelStore } from '~/lib/stores/builder-model.client';
+import { builderModelForNextMessage } from '~/lib/stores/builder-model.client';
 import type { BuilderModelId } from '~/lib/workers-ai-model';
 import { messageOf } from '~/lib/json-request';
 
@@ -93,7 +93,6 @@ export function useChatMessageSubmission(args: {
         onAccepted();
         return true;
       }
-      const modelId = builderModelStore.get();
       if (!args.messages.some((message) => message.role === 'user')) {
         args.onFirstPrompt(messageInput);
       }
@@ -105,8 +104,7 @@ export function useChatMessageSubmission(args: {
           args.onBuilderRequestStart();
           onAccepted();
         },
-        submit: (onRequestStart) =>
-          submitMessage(messageInput, args.chatStarted, modelId, args.sendChatMessage, onRequestStart),
+        submit: (onRequestStart) => submitMessage(messageInput, args.chatStarted, args.sendChatMessage, onRequestStart),
       });
       return true;
     } catch (error) {
@@ -237,11 +235,13 @@ export async function runChatSubmissionLifecycle(args: {
 async function submitMessage(
   messageInput: string,
   chatStarted: boolean,
-  modelId: BuilderModelId,
   sendChatMessage: SendChatMessage,
   onRequestStart: () => void,
 ): Promise<void> {
   const { turnContext, modifiedFiles } = await prepareTurnContext(chatStarted);
+  // Read as the message is sent, after the workspace is ready and any catalog on its way has settled the
+  // picker: the turn runs the model the picker shows now, not one it showed when the message was typed.
+  const modelId = await builderModelForNextMessage();
 
   toolActivityStore.startTurn();
   chatStore.setKey('aborted', false);

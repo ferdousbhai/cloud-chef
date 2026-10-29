@@ -11,6 +11,7 @@ import {
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import {
   builderModelCatalogStatusStore,
+  builderModelForNextMessage,
   builderProviderStore,
   builderRecentModelsStore,
   setBuilderProvider,
@@ -215,6 +216,61 @@ describe('builder model preference', () => {
     await afterChange;
     await beforeChange;
     expect(builderModelsStore.get()).toEqual(catalog.models);
+  });
+});
+
+describe('the model the next message runs on', () => {
+  const glm: BuilderModel = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/zai-org/glm-5.3-flash', label: 'GLM 5.3 Flash' };
+
+  beforeEach(() => {
+    installBuilderModelCatalog({ defaultModelId: glm.id, models: [glm, DEFAULT_WORKERS_AI_MODEL] });
+  });
+
+  it("follows the account's default when it moves, once the default was chosen", () => {
+    // Chosen while GLM was the default: nothing of its own is saved.
+    setBuilderModel(glm.id);
+    expect(localStorage.getItem(MODEL_KEY)).toBeNull();
+
+    // CloudChef's default moves on: the picker, and so the next message, move with it.
+    installBuilderModelCatalog({
+      defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL,
+      models: [DEFAULT_WORKERS_AI_MODEL, glm],
+    });
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    expect(builderModelRequestFields().modelId).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+  });
+
+  it('keeps a model chosen other than the default when the default moves', () => {
+    setBuilderModel(DEFAULT_WORKERS_AI_MODEL.id);
+    expect(localStorage.getItem(MODEL_KEY)).toBe(DEFAULT_WORKERS_AI_MODEL.id);
+
+    installBuilderModelCatalog({
+      defaultModelId: alternativeModel.id,
+      models: [alternativeModel, ...catalog.models, glm],
+    });
+    expect(builderModelStore.get()).toBe(DEFAULT_WORKERS_AI_MODEL.id);
+  });
+
+  it('is the one the picker shows once the catalog on its way arrives, not the one it showed before', async () => {
+    // The picker shows GLM, the default this page last knew; the account's default has since moved on.
+    expect(builderModelStore.get()).toBe(glm.id);
+    let answer: (response: Response) => void = () => undefined;
+    const requests = serveCatalog(() => new Promise<Response>((resolve) => (answer = resolve)));
+    void reloadBuilderModelCatalog();
+
+    const next = builderModelForNextMessage();
+    await vi.waitFor(() => expect(requests).toHaveLength(1));
+    answer(Response.json(catalog));
+
+    await expect(next).resolves.toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    expect(builderModelStore.get()).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+  });
+
+  it('is sent without waiting longer for a catalog that does not answer', async () => {
+    serveCatalog(() => new Promise<Response>(() => undefined));
+    void reloadBuilderModelCatalog();
+
+    await expect(builderModelForNextMessage(10)).resolves.toBe(glm.id);
   });
 });
 

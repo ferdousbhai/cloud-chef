@@ -28,6 +28,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', {
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => void values.set(key, value),
+    removeItem: (key: string) => void values.delete(key),
   });
   builderNewModelsStore.set([]);
 });
@@ -92,8 +93,8 @@ describe('NewModelsNotice', () => {
 
     await act(async () => notice?.querySelector('button')?.click());
     expect(document.querySelector('[role="status"]')).toBeNull();
-    // The default is now the saved model, so the next load says nothing.
-    expect(values.get('cloudchef_builder_model_v2')).toBe(CLOUDFLARE_WORKERS_AI_MODEL);
+    // The default is now the choice, which saves no model of its own, so the next load says nothing.
+    expect(values.get('cloudchef_builder_model_v2')).toBeUndefined();
     installBuilderModelCatalog({ defaultModelId: CLOUDFLARE_WORKERS_AI_MODEL, models: [DEFAULT_WORKERS_AI_MODEL] });
     await act(async () => undefined);
     expect(document.querySelector('[role="status"]')).toBeNull();
