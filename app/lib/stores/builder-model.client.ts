@@ -274,7 +274,10 @@ function applyUnavailableModelNotice(saved: string | null, previousModels: reado
   });
 }
 
-/** The person has read the notice: the model now in use becomes the saved one, so it is not said again. */
+/**
+ * The person has read the notice: the model now in use becomes their choice (the account's default, which then
+ * saves none), so it is not said again.
+ */
 export function dismissUnavailableBuilderModel(): void {
   builderModelUnavailableStore.set(null);
   setBuilderModel(builderModelStore.get());
@@ -325,10 +328,38 @@ export function orderBuilderModelsForDisplay(
   return [...models].sort((left, right) => Number(right.id === defaultModelId) - Number(left.id === defaultModelId));
 }
 
+/**
+ * The model the next message runs on: the one the picker shows once the account's catalog, if one is on its
+ * way, has arrived and settled it. Read when the message is sent, so the turn runs exactly what the picker then
+ * shows. A catalog that takes longer than `waitMs` is not waited for further; the server checks the model anyway.
+ */
+export async function builderModelForNextMessage(waitMs = CATALOG_WAIT_BEFORE_SEND_MS): Promise<BuilderModelId> {
+  if (pendingCatalog) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      pendingCatalog,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, waitMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+  return builderModelStore.get();
+}
+
+/** How long a message waits for a catalog on its way before it is sent. */
+const CATALOG_WAIT_BEFORE_SEND_MS = 10_000;
+
+/**
+ * Chooses the model new messages run on. Choosing the account's default saves no model of its own: this
+ * browser then follows the default wherever it moves (an admin choosing another, or CloudChef's own changing),
+ * rather than staying on the model that happened to be the default when it was chosen.
+ */
 export function setBuilderModel(modelId: BuilderModelId): void {
   if (!builderModelsStore.get().some(({ id }) => id === modelId)) {
     return;
   }
+  const followsDefault = catalogInstalled && modelId === builderDefaultModelStore.get();
   if (modelId !== builderDefaultModelStore.get()) {
     builderRecentModelsStore.set(
       [
@@ -340,7 +371,11 @@ export function setBuilderModel(modelId: BuilderModelId): void {
   builderModelStore.set(modelId);
   builderModelUnavailableStore.set(null);
   try {
-    localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, modelId);
+    if (followsDefault) {
+      localStorage.removeItem(BUILDER_MODEL_STORAGE_KEY);
+    } else {
+      localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, modelId);
+    }
     localStorage.setItem(BUILDER_RECENTS_STORAGE_KEY, JSON.stringify(builderRecentModelsStore.get()));
   } catch {
     // The in-memory preference still applies when browser storage is unavailable.

@@ -1,13 +1,44 @@
 import type { BuilderWorkspaceFileInput } from '@cloudchef/user-workspace-runtime/protocol';
-import { BUILDER_TEMPLATE_GZIP_BASE64, BUILDER_TEMPLATE_SOURCE_SHA256 } from './builder-template.generated';
+import { WORK_DIR } from 'cloudchef-agent/constants';
+import { BUILDER_TEMPLATE_GZIP_BASE64 } from './builder-template.generated';
 import type { WorkspaceSeedExpectation } from './builder-workspace-api';
 import { z } from 'zod';
 import { base64ToBytes } from '~/lib/hex-digest';
+import {
+  MAIN_BRANCH,
+  type ProjectRepositories,
+  type RepositoryAuthor,
+} from '~/lib/.server/cloudflare/project-repository';
 
 let cachedTemplate: Promise<BuilderWorkspaceFileInput[]> | undefined;
 
-export function builderTemplateSeedId(): string {
-  return `template_${BUILDER_TEMPLATE_SOURCE_SHA256}`;
+/** The message of a new project's first commit, which people see as its first version. */
+export const STARTING_PROJECT_MESSAGE = 'The starting project';
+
+/**
+ * Makes the first commit on main of a new project's repository: the whole template its workspace is seeded
+ * with, so the history starts from the project as it began and every later commit holds only what changed.
+ * A repository whose main already exists (a fork, or this ran before) is left as it is.
+ */
+export async function commitBuilderTemplate(
+  repositories: ProjectRepositories,
+  repo: string,
+  author: RepositoryAuthor,
+): Promise<void> {
+  const template = await loadBuilderTemplate();
+  const encoder = new TextEncoder();
+  await repositories.commitFiles({
+    repo,
+    branch: MAIN_BRANCH,
+    parent: null,
+    files: template.map((entry) => ({
+      path: entry.path.slice(`${WORK_DIR}/`.length),
+      mode: entry.mode ?? 0o644,
+      bytes: (entry.encoding ?? 'utf8') === 'utf8' ? encoder.encode(entry.content) : base64ToBytes(entry.content),
+    })),
+    message: STARTING_PROJECT_MESSAGE,
+    author,
+  });
 }
 
 export function loadBuilderTemplate(): Promise<BuilderWorkspaceFileInput[]> {

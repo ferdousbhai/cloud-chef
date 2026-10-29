@@ -1,8 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import type { Volume } from 'memfs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { commitBuilderTemplate, loadBuilderTemplate } from '../../app/agents/builder-template';
+import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
+import { fakeArtifacts } from '../../app/test/fake-artifacts';
 import {
   GIT_SAVE_HOOKS,
   gitPreCommitHook,
@@ -75,6 +79,19 @@ afterEach(() => {
   // A save still running in the background gives up once its folders are gone.
   rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
+
+/** Copies the in-memory bare repository at `from` in `volume` to `to` on disk, byte for byte. */
+function copyVolume(volume: InstanceType<typeof Volume>, from: string, to: string): void {
+  mkdirSync(to, { recursive: true });
+  for (const entry of volume.readdirSync(from)) {
+    const name = String(entry);
+    if (volume.statSync(`${from}/${name}`).isDirectory()) {
+      copyVolume(volume, `${from}/${name}`, join(to, name));
+    } else {
+      writeFileSync(join(to, name), volume.readFileSync(`${from}/${name}`));
+    }
+  }
+}
 
 /** A remote whose main has moved past `base`, the commit the workspace's files match. */
 function remoteAheadOfWorkspace() {
@@ -161,6 +178,41 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     expect(run(join(root, 'bin', 'git'), ['rev-parse', '--git-dir'], join(project)).stdout).toBe(
       join(root, 'git', 'project.git'),
     );
+  });
+
+  it("starts a new project's history from its whole template, so a commit of one changed file pushes only that change", async () => {
+    // The new project's repository as CloudChef makes it, copied to disk as the stand-in remote, and the
+    // workspace seeded from it as the agent seeds one.
+    const artifacts = fakeArtifacts();
+    const repositories = new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
+    await commitBuilderTemplate(repositories, 'p-new', { name: 'Ada Lovelace', email: 'ada@example.com' });
+    const created = artifacts.repos.get('p-new');
+    if (!created) {
+      throw new Error('The new project has no repository.');
+    }
+    copyVolume(created.volume, created.gitdir, join(root, 'remote.git'));
+    const { commit: start, files } = await repositories.readFilesAt('p-new', 'main');
+    const project = join(root, 'project');
+    for (const file of files) {
+      mkdirSync(dirname(join(project, file.path)), { recursive: true });
+      writeFileSync(join(project, file.path), file.bytes);
+    }
+    answerWith(null);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const wrapped = join(root, 'bin', 'git');
+    expect(run(wrapped, ['status', '--porcelain'], project).stdout).toBe('');
+
+    write(join(project, 'index.html'), '<h1>Canary OK</h1>\n');
+    run(wrapped, ['add', 'index.html'], project);
+    expect(run(wrapped, ['commit', '-q', '-m', 'Canary page'], project).status).toBe(0);
+    expect(run(wrapped, ['push', '-q', 'origin', 'main'], project).status).toBe(0);
+
+    const remote = (...args: string[]) => git(root, '--git-dir', join(root, 'remote.git'), ...args);
+    const template = (await loadBuilderTemplate()).map((entry) => entry.path.slice('/home/project/'.length));
+    expect(remote('ls-tree', '-r', '--name-only', 'main').split('\n').sort()).toEqual(template.sort());
+    expect(remote('rev-parse', 'main~1')).toBe(start.hash);
+    expect(remote('diff', '--name-only', 'main~1', 'main')).toBe('index.html');
+    expect(remote('show', 'main:index.html')).toBe('<h1>Canary OK</h1>');
   });
 
   it("leaves a symbolic link the workspace can't hold as it is, rather than showing it removed", () => {

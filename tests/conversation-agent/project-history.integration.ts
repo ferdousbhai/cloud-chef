@@ -10,6 +10,7 @@ import type {
   BuilderWorkspaceSyncEntry,
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
+import { loadBuilderTemplate, STARTING_PROJECT_MESSAGE } from '~/agents/builder-template';
 import { sha256Hex } from '~/lib/hex-digest';
 import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
 import { conversationAgentHarness, CHAT_INITIAL_ID, eventually, type ConversationAgentHarness } from './harness';
@@ -178,6 +179,45 @@ describe("a CloudChef app's history", () => {
       ['/home/project/run.sh', 0o755],
     ]);
     expect(atob(appended[0]?.content ?? '')).toBe('<h1>Forked</h1>');
+  });
+
+  it("starts a new app's repository with the whole template as its first commit, and seeds the workspace from it", async () => {
+    noControlPlane();
+    const appended: BuilderWorkspaceFileInput[] = [];
+    let initialized = false;
+    let seededAs = '';
+    const harness = await conversationAgentHarness({
+      workspace: {
+        refresh: async () => ({ ...READY, initialized }),
+        beginSeed: async (seedId) => {
+          seededAs = seedId;
+          return { status: 'started', seedId, state: READY };
+        },
+        appendSeed: async (_seedId, entries) => {
+          appended.push(...entries);
+          return READY;
+        },
+        commitSeed: async () => {
+          initialized = true;
+          return READY;
+        },
+      },
+    });
+    await harness.agent.prepareWorkspace();
+
+    const template = await loadBuilderTemplate();
+    const history = await repositories(harness.artifacts).log(REPO, { limit: 5 });
+    expect(history.map((commit) => [commit.message, commit.parents])).toEqual([[STARTING_PROJECT_MESSAGE, []]]);
+    const committed = await harness.artifacts.filesAt(REPO, 'main');
+    expect(Object.keys(committed).sort()).toEqual(
+      template.map((entry) => entry.path.slice('/home/project/'.length)).sort(),
+    );
+    expect(committed['package.json']).toBe(
+      template.find((entry) => entry.path === '/home/project/package.json')?.content,
+    );
+    // The workspace holds exactly that commit.
+    expect(seededAs).toBe(`repository_${history[0]?.hash}`);
+    expect(appended.map((entry) => entry.path).sort()).toEqual(template.map((entry) => entry.path).sort());
   });
 });
 
