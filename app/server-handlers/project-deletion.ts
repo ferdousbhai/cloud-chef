@@ -13,6 +13,7 @@ import { readJsonRequest } from '~/lib/.server/request-guards';
 import { deleteProjectRecord, requireManagedProject, type Project } from '~/lib/cloudflare/data/org-projects.server';
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { projectWorkerNames } from '~/lib/cloudflare/data/project-deployments.server';
+import { cloudflareReauthorizationRequired } from './cloudflare-integration';
 import { runtimeFor } from './command-line';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { json } from './runtime-projects';
@@ -34,6 +35,8 @@ export type DeleteProjectRepository = (args: {
 const previewSchema = z.strictObject({ projectId: z.string().uuid() });
 const deleteSchema = z.strictObject({ projectId: z.string().uuid(), confirm: z.string().max(200) });
 
+const WORKERS_BUILDS_WRITE_SCOPE = 'workers-ci.write';
+
 const NO_STORE = { 'Cache-Control': 'private, no-store' };
 
 /** The project, if this person manages it, and what deleting it would remove from its account now. */
@@ -45,7 +48,7 @@ async function readPlan(env: Env, userId: string, projectId: string, openAccount
   }
   const api = await openAccount(env, connection);
   const plan = await planProjectDeletion(api, project, await projectWorkerNames(env.DB, project.id));
-  return { project, api, plan };
+  return { project, connection, api, plan };
 }
 
 function accountUnreadable(error: CloudflareAccountApiError): Response {
@@ -81,7 +84,7 @@ export function projectDeletionPreviewAction({
 
 /**
  * `POST /api/projects/delete`: deletes a project for good, with `confirm` its exact name. What it removes is read
- * again here, never taken from the browser. Its Workers go first, then the databases and storage only they used,
+ * again here, never taken from the browser. Its builds triggers and Workers go first, then the databases and storage only they used,
  * then its code, then CloudChef's record; a step that fails stops it there and the record stays, so deleting again
  * finishes the job.
  */
@@ -102,9 +105,13 @@ export function deleteProjectAction({
       return body.response;
     }
     try {
-      const { project, api, plan } = await readPlan(env, session.user.id, body.data.projectId, openAccount);
+      const { project, connection, api, plan } = await readPlan(env, session.user.id, body.data.projectId, openAccount);
       if (body.data.confirm !== project.name) {
         return Response.json({ error: `Type ${project.name} to confirm.` }, { status: 400 });
+      }
+      // Removing its builds takes a permission connections authorized before it was asked for don't hold yet.
+      if (plan.buildTriggers.length > 0 && !connection.grantedOAuthScopes.includes(WORKERS_BUILDS_WRITE_SCOPE)) {
+        return cloudflareReauthorizationRequired();
       }
       const result = await deleteProjectResources(api, plan, () =>
         deleteRepository({ request, env, userId: session.user.id, project }),

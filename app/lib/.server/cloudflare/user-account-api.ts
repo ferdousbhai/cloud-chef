@@ -1552,6 +1552,15 @@ export class UserCloudflareAccountApi {
   }
 
   /**
+   * Remove a Workers Builds trigger, so pushes to its repository build nothing more. Deleting a Worker isn't
+   * documented to remove its triggers, so a project's are removed before its Worker. Already gone is done.
+   */
+  async deleteWorkersBuildTrigger(triggerId: string): Promise<void> {
+    requireProviderResourceId(triggerId);
+    await this.deleteOptional(`/builds/triggers/${encodeURIComponent(triggerId)}`);
+  }
+
+  /**
    * The https URLs of a Worker's Previews, by the Preview's name and branch where Workers Builds gives them.
    * Workers Builds documents no shape for these yet, so each item is read for whatever URL it carries.
    */

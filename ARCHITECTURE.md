@@ -213,7 +213,10 @@ deploys `main` (the only production branch Artifacts supports) and builds other 
 control plane reads what it reports with the connection's own authorization (`workers-ci.read`), never handing
 a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
 repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
-its builds are switched) and remembered (`workers_builds_script_tag`); `/runtime-projects/status` matches a
+its builds are switched) and remembered (`workers_builds_script_tag`). The one change CloudChef makes to a
+project's builds is removing its triggers when the project is deleted, before its Worker (`workers-ci.write`):
+Cloudflare doesn't document that deleting a Worker removes them, and keeps `cf builds workers delete` apart from
+the Worker's own deletion. A connection authorized before that scope is asked to reauthorize. `/runtime-projects/status` matches a
 commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, which each
 turn's context names so the agent knows where the live site is (it reads it with `curl`, like any address). Workers Builds' API names no Artifacts provider for a repository
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;

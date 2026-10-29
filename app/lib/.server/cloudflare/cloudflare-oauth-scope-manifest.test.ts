@@ -24,13 +24,13 @@ describe('cloudflare-oauth-scope-manifest', () => {
     expect(missingCoreOAuthScopes([...CORE_CLOUDFLARE_OAUTH_SCOPES])).toEqual([]);
   });
 
-  test('reads Workers Builds, and never changes it', () => {
-    // A connection authorized before this scope was added reauthorizes before it is used again.
+  test('reads Workers Builds, and can remove a deleted project’s triggers', () => {
+    // A connection authorized before a scope was added reauthorizes before it is used again.
     expect(CORE_CLOUDFLARE_OAUTH_SCOPES).toContain('workers-ci.read');
-    expect(CORE_CLOUDFLARE_OAUTH_SCOPES).not.toContain('workers-ci.write');
-    expect(missingCoreOAuthScopes(CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'workers-ci.read'))).toEqual(
-      ['workers-ci.read'],
-    );
+    expect(CORE_CLOUDFLARE_OAUTH_SCOPES).toContain('workers-ci.write');
+    expect(
+      missingCoreOAuthScopes(CORE_CLOUDFLARE_OAUTH_SCOPES.filter((scope) => scope !== 'workers-ci.write')),
+    ).toEqual(['workers-ci.write']);
   });
 
   test('every manifest scope exists in the checked-in provider catalog', () => {
