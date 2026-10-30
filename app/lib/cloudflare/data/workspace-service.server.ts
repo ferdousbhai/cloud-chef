@@ -159,7 +159,7 @@ export async function setGeneratedConversationDescription(
   args: {
     sessionId: string;
     id: string;
-    subchatIndex: number;
+    conversationIndex: number;
     description: string;
     promptGeneration: number;
   },
@@ -179,14 +179,21 @@ export async function setGeneratedConversationDescription(
            OR (description_source IS NULL AND description IS NULL)
          )`,
     )
-    .bind(args.description, args.promptGeneration, args.sessionId, args.id, args.subchatIndex, args.promptGeneration)
+    .bind(
+      args.description,
+      args.promptGeneration,
+      args.sessionId,
+      args.id,
+      args.conversationIndex,
+      args.promptGeneration,
+    )
     .run();
   return result.meta.changes > 0;
 }
 
 export async function setHeuristicConversationDescriptionIfMissing(
   db: D1Database,
-  args: { sessionId: string; id: string; subchatIndex: number; description: string; promptGeneration: number },
+  args: { sessionId: string; id: string; conversationIndex: number; description: string; promptGeneration: number },
 ): Promise<boolean> {
   const result = await db
     .prepare(
@@ -200,14 +207,14 @@ export async function setHeuristicConversationDescriptionIfMissing(
          AND description_source IS NULL
          AND description IS NULL`,
     )
-    .bind(args.description, args.promptGeneration, args.sessionId, args.id, args.subchatIndex)
+    .bind(args.description, args.promptGeneration, args.sessionId, args.id, args.conversationIndex)
     .run();
   return result.meta.changes > 0;
 }
 
 export async function setConversationDescription(
   db: D1Database,
-  args: { sessionId: string; chatId: string; subchatIndex: number; description: string },
+  args: { sessionId: string; workspaceId: string; conversationIndex: number; description: string },
 ): Promise<null> {
   const result = await db
     .prepare(
@@ -219,7 +226,7 @@ export async function setConversationDescription(
        )
          AND conversation_index = ?`,
     )
-    .bind(args.description, args.sessionId, args.chatId, args.subchatIndex)
+    .bind(args.description, args.sessionId, args.workspaceId, args.conversationIndex)
     .run();
   if (result.meta.changes === 0) {
     throw new DataNotFoundError('Chat not found');
@@ -242,8 +249,8 @@ export async function removeWorkspace(db: D1Database, args: { sessionId: string;
   return { kind: 'success' } as const;
 }
 
-export async function getConversations(db: D1Database, args: { sessionId: string; chatId: string }) {
-  const workspace = await requireWorkspace(db, { id: args.chatId, sessionId: args.sessionId });
+export async function getConversations(db: D1Database, args: { sessionId: string; workspaceId: string }) {
+  const workspace = await requireWorkspace(db, { id: args.workspaceId, sessionId: args.sessionId });
   const { results } = await db
     .prepare(
       `SELECT conversation_index, description, updated_at, agent_name
@@ -259,10 +266,10 @@ export async function getConversations(db: D1Database, args: { sessionId: string
       agent_name: string;
     }>();
   return results.map((row) => ({
-    subchatIndex: row.conversation_index,
+    conversationIndex: row.conversation_index,
     description: row.description ?? undefined,
     updatedAt: row.updated_at,
-    transcript: { agentName: row.agent_name, subchatIndex: row.conversation_index },
+    transcript: { agentName: row.agent_name, conversationIndex: row.conversation_index },
   }));
 }
 

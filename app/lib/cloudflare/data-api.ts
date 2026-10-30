@@ -38,7 +38,7 @@ export type ProjectImportResult = {
 };
 
 export type ConversationSummary = {
-  subchatIndex: number;
+  conversationIndex: number;
   description?: string;
   updatedAt: number;
   transcript: TranscriptIdentity;

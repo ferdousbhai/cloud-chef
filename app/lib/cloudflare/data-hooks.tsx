@@ -27,7 +27,7 @@ export function useMutation<Path extends DataOperationPath>(path: Path) {
 }
 
 const conversationSummarySchema = z.object({
-  subchatIndex: z.number().int().nonnegative(),
+  conversationIndex: z.number().int().nonnegative(),
   description: z.string().optional(),
   updatedAt: z.number().int(),
   transcript: transcriptIdentitySchema,
@@ -43,9 +43,9 @@ function createSubchatCollection(args: ConversationQueryArgs) {
       id: `conversations:${args.workspaceId}`,
       schema: conversationSummarySchema,
       queryKey: conversationsQueryKey(args),
-      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, { chatId: args.workspaceId }, { signal }),
+      queryFn: ({ signal }) => executeDataOperation(api.subchats.get, { workspaceId: args.workspaceId }, { signal }),
       queryClient,
-      getKey: (item) => item.subchatIndex,
+      getKey: (item) => item.conversationIndex,
     }),
   );
 }

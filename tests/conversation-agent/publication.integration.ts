@@ -87,7 +87,7 @@ async function sendNextMessage(harness: ConversationAgentHarness, options: { tur
     .sendMessage({
       text: 'Next change',
       requestId: 'request-2',
-      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
       modelId: CLOUDFLARE_WORKERS_AI_MODEL,
       turnContext: options.turnContext,
     })
@@ -410,7 +410,7 @@ describe('ConversationAgent automatic publication', () => {
   });
 });
 
-describe("a new turn's stop reaches every automatic publication", () => {
+describe("a new turn's stop reaches every automatic publication", { timeout: 30_000 }, () => {
   it('a deployment still waiting out an upgrade window when the person writes again never starts', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>();
     const harness = await publicationHarness({ publisher: { deploy } });

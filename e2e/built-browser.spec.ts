@@ -247,7 +247,7 @@ test("says why a team project's workspace could not open, in the chat and the co
         version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
         initialId: 'team-project-chat',
         description: 'Ada site',
-        transcript: { agentName: 'agent-team-project', subchatIndex: 0 },
+        transcript: { agentName: 'agent-team-project', conversationIndex: 0 },
         checkpoint: null,
         messages: [],
       },

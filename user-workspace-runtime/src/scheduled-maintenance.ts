@@ -1,6 +1,7 @@
 import { USER_WORKSPACE_RUNTIME_GC_CRON } from '../../app/lib/.server/cloudflare/user-workspace-runtime-policy';
 import { sweepAgentGcCandidatesBestEffort } from '../../app/lib/cloudflare/data/agent-gc.server';
 import { sweepAppResourceGcCandidatesBestEffort } from '../../app/lib/cloudflare/data/app-resource-gc.server';
+import { sweepLegacyChatMovesBestEffort } from '../../app/lib/cloudflare/data/legacy-chat-moves.server';
 import { sweepDeletedProjectWorkspacesBestEffort } from '../../app/lib/cloudflare/data/projects.server';
 
 type RuntimeMaintenanceEnv = Parameters<typeof sweepAppResourceGcCandidatesBestEffort>[0] &
@@ -19,4 +20,5 @@ export function scheduleUserWorkspaceRuntimeMaintenance(
   ctx.waitUntil(sweepAgentGcCandidatesBestEffort(env));
   ctx.waitUntil(sweepAppResourceGcCandidatesBestEffort(env, { requeueRemovedChats: true }));
   ctx.waitUntil(sweepDeletedProjectWorkspacesBestEffort(env));
+  ctx.waitUntil(sweepLegacyChatMovesBestEffort(env));
 }

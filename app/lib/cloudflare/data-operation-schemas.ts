@@ -5,9 +5,9 @@ const MAX_IDENTIFIER_LENGTH = 512;
 const MAX_DESCRIPTION_LENGTH = 200;
 const identifierSchema = z.string().min(1).max(MAX_IDENTIFIER_LENGTH);
 const descriptionSchema = z.string().max(MAX_DESCRIPTION_LENGTH);
-const subchatIndexSchema = z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX);
+const conversationIndexSchema = z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX);
 const chatIdentityArgsSchema = z.object({ id: identifierSchema });
-const chatArgsSchema = z.object({ chatId: identifierSchema });
+const chatArgsSchema = z.object({ workspaceId: identifierSchema });
 const commitSchema = z.string().regex(/^[0-9a-f]{40}$/);
 /** A project by its chat (a CloudChef app, or the team project it works on) or by its team project id. */
 const projectTargetSchema = z.object({
@@ -30,7 +30,7 @@ export const dataOperationArgSchemas = {
   'subchats.get': chatArgsSchema,
   'subchats.create': chatArgsSchema,
   'subchats.setDescription': chatArgsSchema.extend({
-    subchatIndex: subchatIndexSchema,
+    conversationIndex: conversationIndexSchema,
     description: descriptionSchema.trim().min(1),
   }),
   'projects.history': projectTargetSchema

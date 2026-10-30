@@ -23,12 +23,12 @@ describe('data operation argument bounds', () => {
   });
 
   it('bounds the subchat index', () => {
-    const args = { chatId: 'chat-1', description: 'Title' };
+    const args = { workspaceId: 'chat-1', description: 'Title' };
     expect(
-      dataOperationArgSchemas['subchats.setDescription'].safeParse({ ...args, subchatIndex: 10_000 }).success,
+      dataOperationArgSchemas['subchats.setDescription'].safeParse({ ...args, conversationIndex: 10_000 }).success,
     ).toBe(true);
     expect(
-      dataOperationArgSchemas['subchats.setDescription'].safeParse({ ...args, subchatIndex: 10_001 }).success,
+      dataOperationArgSchemas['subchats.setDescription'].safeParse({ ...args, conversationIndex: 10_001 }).success,
     ).toBe(false);
   });
 });

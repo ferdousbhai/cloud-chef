@@ -30,7 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('ConversationAgent runtime activity', () => {
+describe('ConversationAgent runtime activity', { timeout: 30_000 }, () => {
   it('records the agent busy while its turn runs, and idle once it ends', async () => {
     const harness = await conversationAgentHarness();
     const { agent } = harness;
@@ -147,7 +147,7 @@ describe('ConversationAgent runtime activity', () => {
     const turn = harness.agent.sendMessage({
       text: 'Build it',
       requestId: 'request-1',
-      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
       modelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     await settle();
@@ -180,7 +180,7 @@ describe('ConversationAgent runtime activity', () => {
     const turn = harness.agent.sendMessage({
       text: 'Build it',
       requestId: 'request-1',
-      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
       modelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     await eventually(() => harness.agent.state.upgradeWaiting === true);

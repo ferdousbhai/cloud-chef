@@ -112,4 +112,4 @@ export const USER_WORKSPACE_RUNTIME_SERVICE = 'cloudchef-user-workspace-runtime'
  * the previous runtime cannot serve: a new route or callable the browser relies on, or one it changed
  * or removed.
  */
-export const USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION = 2;
+export const USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION = 3;

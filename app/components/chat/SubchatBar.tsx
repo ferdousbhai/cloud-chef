@@ -263,9 +263,9 @@ export function SubchatBar({
                   <DropdownMenu.RadioGroup
                     value={String(currentSubchatIndex)}
                     onValueChange={(value) => {
-                      const subchatIndex = Number(value);
-                      if (Number.isInteger(subchatIndex)) {
-                        handleNavigateToSubchat(subchatIndex);
+                      const conversationIndex = Number(value);
+                      if (Number.isInteger(conversationIndex)) {
+                        handleNavigateToSubchat(conversationIndex);
                       }
                     }}
                   >

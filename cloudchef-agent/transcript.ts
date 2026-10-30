@@ -4,7 +4,7 @@ export const TRANSCRIPT_HISTORY_FORMAT_VERSION = 2 as const;
 
 export const transcriptIdentitySchema = z.object({
   agentName: z.string().min(1).max(512),
-  subchatIndex: z.number().int().nonnegative(),
+  conversationIndex: z.number().int().nonnegative(),
 });
 
 export const transcriptCheckpointSchema = transcriptIdentitySchema.extend({
@@ -18,7 +18,7 @@ export type TranscriptCheckpoint = z.infer<typeof transcriptCheckpointSchema>;
 type TranscriptMessage = { id: string; role: string; parts: unknown[] };
 
 export function transcriptIdentitiesEqual(left: TranscriptIdentity, right: TranscriptIdentity): boolean {
-  return left.agentName === right.agentName && left.subchatIndex === right.subchatIndex;
+  return left.agentName === right.agentName && left.conversationIndex === right.conversationIndex;
 }
 
 export function transcriptCheckpointsEqual(
@@ -40,8 +40,8 @@ export function transcriptCheckpointsEqual(
  * A transcript's ConversationAgent name: the chat's initial id for its first subchat, and a fixed `-0` suffix for the
  * others, which existing Agents are named by.
  */
-export function transcriptAgentName(initialId: string, subchatIndex: number): string {
-  return subchatIndex === 0 ? initialId : `${initialId}--transcript-${subchatIndex}-0`;
+export function transcriptAgentName(initialId: string, conversationIndex: number): string {
+  return conversationIndex === 0 ? initialId : `${initialId}--transcript-${conversationIndex}-0`;
 }
 
 /** The chat a transcript's ConversationAgent belongs to, read back from its name (`transcriptAgentName`). */

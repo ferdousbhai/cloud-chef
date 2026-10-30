@@ -239,8 +239,8 @@ describe('public projects', () => {
         VALUES ('${SITE}', 'team-connection', 'team', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1, 'public');
       INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
         runtime_version, status, last_error, created_at, updated_at, protocol_version) VALUES
-        ('di', 'team-connection', 1, 'di-worker', 'https://di-runtime.test', 'old', 'ready', NULL, 1, 1, 2),
-        ('cy', 'team-connection', 1, 'cy-worker', 'https://cy-runtime.test', 'old', 'ready', NULL, 1, 1, 2);
+        ('di', 'team-connection', 1, 'di-worker', 'https://di-runtime.test', 'old', 'ready', NULL, 1, 1, ${USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION}),
+        ('cy', 'team-connection', 1, 'cy-worker', 'https://cy-runtime.test', 'old', 'ready', NULL, 1, 1, ${USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION});
     `);
     const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: btoa('k'.repeat(32)) });
     const bo = (await createCommandLineToken(db, 'bo', 'Laptop')).token;

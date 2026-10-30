@@ -196,7 +196,7 @@ const binding: CloudflareExecutionBinding = {
   transcript: {
     agentName: 'chat',
     chatInitialId: 'chat',
-    subchatIndex: 0,
+    conversationIndex: 0,
     parentAgentName: null,
   },
 };
@@ -257,7 +257,7 @@ describe('durable Cloudflare execution approval repository', () => {
     ['account', { accountId: 'account-2' }],
     ['connection', { connectionId: 'connection-2' }],
     ['generation', { connectionGeneration: 5 }],
-    ['transcript', { transcript: { ...binding.transcript, subchatIndex: 1 } }],
+    ['transcript', { transcript: { ...binding.transcript, conversationIndex: 1 } }],
   ])('rejects a %s identity mismatch', async (_label, changed) => {
     const { repository } = executionRepository();
     const proposal = await repository.createProposal({

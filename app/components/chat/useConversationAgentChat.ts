@@ -103,7 +103,7 @@ export function useConversationAgentChat(args: {
   accountId: string;
   chatInitialId: string;
   initialMessages: CloudChefMessage[];
-  onSubchatTitle: (subchatIndex: number, title: string) => void;
+  onSubchatTitle: (conversationIndex: number, title: string) => void;
   presentationId: string;
   transcript: TranscriptIdentity;
 }) {
@@ -117,8 +117,8 @@ export function useConversationAgentChat(args: {
     };
   }, [args.presentationId]);
   const transcript = useMemo<TranscriptIdentity>(
-    () => ({ agentName: args.transcript.agentName, subchatIndex: args.transcript.subchatIndex }),
-    [args.transcript.agentName, args.transcript.subchatIndex],
+    () => ({ agentName: args.transcript.agentName, conversationIndex: args.transcript.conversationIndex }),
+    [args.transcript.agentName, args.transcript.conversationIndex],
   );
   const currentSubchatIndex = useStore(subchatIndexStore) ?? 0;
   const previousSubchatIndexRef = useRef(currentSubchatIndex);
@@ -175,12 +175,12 @@ export function useConversationAgentChat(args: {
       }
       workbenchStore.conversationClosed.set(state.conversationClosed === true);
       workbenchStore.conversationAdopted.set(state.conversationAdopted === true);
-      const generatedTitle = state.generatedSubchatTitle;
+      const generatedTitle = state.generatedConversationTitle;
       if (!generatedTitle || generatedSubchatTitleUpdatedAtRef.current === generatedTitle.updatedAt) {
         return;
       }
       generatedSubchatTitleUpdatedAtRef.current = generatedTitle.updatedAt;
-      args.onSubchatTitle(generatedTitle.subchatIndex, generatedTitle.title);
+      args.onSubchatTitle(generatedTitle.conversationIndex, generatedTitle.title);
       const workspaceId = args.chatInitialId;
       if (workspaceId) {
         void queryClient.invalidateQueries({

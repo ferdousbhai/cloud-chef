@@ -173,8 +173,8 @@ class AgentGcDatabase {
 
   private run(query: string, values: unknown[]): D1Result {
     if (query.includes('DELETE FROM agent_gc_candidates')) {
-      const [chatId, subchatIndex, notBefore] = values as [string, number, number];
-      const index = this.find(chatId, subchatIndex, notBefore);
+      const [workspaceId, conversationIndex, notBefore] = values as [string, number, number];
+      const index = this.find(workspaceId, conversationIndex, notBefore);
       if (index < 0) {
         return changed(0);
       }
@@ -183,8 +183,8 @@ class AgentGcDatabase {
     }
 
     if (query.includes('attempts = attempts + 1')) {
-      const [retryAt, chatId, subchatIndex, notBefore] = values as [number, string, number, number];
-      const index = this.find(chatId, subchatIndex, notBefore);
+      const [retryAt, workspaceId, conversationIndex, notBefore] = values as [number, string, number, number];
+      const index = this.find(workspaceId, conversationIndex, notBefore);
       if (index < 0) {
         return changed(0);
       }
@@ -198,10 +198,12 @@ class AgentGcDatabase {
     return changed(0);
   }
 
-  private find(chatId: string, subchatIndex: number, notBefore: number): number {
+  private find(workspaceId: string, conversationIndex: number, notBefore: number): number {
     return this.candidates.findIndex(
       (item) =>
-        item.workspace_id === chatId && item.conversation_index === subchatIndex && item.not_before === notBefore,
+        item.workspace_id === workspaceId &&
+        item.conversation_index === conversationIndex &&
+        item.not_before === notBefore,
     );
   }
 }

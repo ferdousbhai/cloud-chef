@@ -5,8 +5,8 @@ export const subchatIndexStore = atom<number | undefined>(undefined);
 export const loadedSubchatIndexStore = atom<number | undefined>(undefined);
 
 export function useIsSubchatLoaded() {
-  const subchatIndex = useStore(subchatIndexStore);
-  const loadedSubchatIndex = useStore(loadedSubchatIndexStore);
+  const conversationIndex = useStore(subchatIndexStore);
+  const loadedConversationIndex = useStore(loadedSubchatIndexStore);
 
-  return loadedSubchatIndex === subchatIndex;
+  return loadedConversationIndex === conversationIndex;
 }

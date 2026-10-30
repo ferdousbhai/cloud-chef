@@ -55,7 +55,7 @@ export class ConversationAgentIdentityRepository {
         identity.userId,
         identity.transcript.agentName,
         identity.transcript.chatInitialId,
-        identity.transcript.subchatIndex,
+        identity.transcript.conversationIndex,
         identity.transcript.parentAgentName,
         new Date().toISOString(),
       );
@@ -84,7 +84,7 @@ function fromRow(row: BuilderIdentityRow): ConversationAgentDurableIdentity {
     transcript: {
       agentName: row.agent_name,
       chatInitialId: row.chat_initial_id,
-      subchatIndex: row.subchat_index,
+      conversationIndex: row.subchat_index,
       parentAgentName: row.parent_agent_name,
     },
   };

@@ -136,7 +136,7 @@ export class BuilderCloudflareExecutionRepository {
         args.binding.connectionGeneration,
         args.binding.transcript.agentName,
         args.binding.transcript.chatInitialId,
-        args.binding.transcript.subchatIndex,
+        args.binding.transcript.conversationIndex,
         args.binding.transcript.parentAgentName,
         inputJson,
         proposalSha256,
@@ -466,7 +466,7 @@ function recordFromRow(row: CloudflareExecutionRow): CloudflareExecutionRecord {
       transcript: {
         agentName: row.transcript_agent_name,
         chatInitialId: row.transcript_chat_initial_id,
-        subchatIndex: row.transcript_subchat_index,
+        conversationIndex: row.transcript_subchat_index,
         parentAgentName: row.transcript_parent_agent_name,
       },
     },

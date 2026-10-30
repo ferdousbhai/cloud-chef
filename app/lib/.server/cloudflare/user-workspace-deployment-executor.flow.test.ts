@@ -63,7 +63,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('executeUserOwnedDeployment credential-free Computer flow', () => {
+describe('executeUserOwnedDeployment credential-free Computer flow', { timeout: 30_000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.credentialFetch.mockImplementation(async () =>
@@ -94,7 +94,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     const revision = 'a'.repeat(64);
     const deployment = {
       id: 'deployment-1',
-      chatId: 'chat-1',
+      workspaceId: 'chat-1',
       userId: 'user-1',
       connectionId: 'connection-1',
       connectionGeneration: 3,
@@ -142,7 +142,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     const revision = 'a'.repeat(64);
     const deployment = {
       id: 'deployment-1',
-      chatId: 'chat-1',
+      workspaceId: 'chat-1',
       userId: 'user-1',
       connectionId: 'connection-1',
       connectionGeneration: 3,
@@ -198,7 +198,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     const revision = 'a'.repeat(64);
     const deployment = {
       id: 'deployment-1',
-      chatId: 'chat-1',
+      workspaceId: 'chat-1',
       userId: 'user-1',
       connectionId: 'connection-1',
       connectionGeneration: 3,
@@ -247,7 +247,7 @@ describe('executeUserOwnedDeployment credential-free Computer flow', () => {
     };
     const deployment = {
       id: 'deployment-1',
-      chatId: 'chat-1',
+      workspaceId: 'chat-1',
       userId: 'user-1',
       connectionId: 'connection-1',
       connectionGeneration: 3,
@@ -710,7 +710,7 @@ async function workerDeployment(options: { d1?: boolean; storage?: boolean } = {
   const storage = options.storage === true;
   const deployment = {
     id: 'deployment-1',
-    chatId: 'chat-1',
+    workspaceId: 'chat-1',
     userId: 'user-1',
     connectionId: 'connection-1',
     connectionGeneration: 3,

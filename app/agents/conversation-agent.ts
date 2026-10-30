@@ -404,14 +404,14 @@ const titleGenerationJobSchema = z.object({
   firstPrompt: z.boolean(),
   prompt: z.string().min(1).max(TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS),
   promptGeneration: z.number().int().min(1),
-  subchatIndex: z.number().int().min(0),
+  conversationIndex: z.number().int().min(0),
 });
 type TitleGenerationJob = z.infer<typeof titleGenerationJobSchema>;
 
 export type ConversationAgentState = {
   activeTurn?: BuilderTurnState | null;
-  generatedSubchatTitle?: {
-    subchatIndex: number;
+  generatedConversationTitle?: {
+    conversationIndex: number;
     title: string;
     updatedAt: string;
   } | null;
@@ -514,7 +514,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   initialState: ConversationAgentState = {
     activeTurn: null,
-    generatedSubchatTitle: null,
+    generatedConversationTitle: null,
     lastCompletedTurn: null,
     turnModel: null,
     turnError: null,
@@ -663,9 +663,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   /**
    * A chat from before pi-durable: its messages move once into the transcript, shown only, and the conversation
-   * goes on in a fresh context (`legacy-chat.ts`).
+   * goes on in a fresh context (`legacy-chat.ts`). Answers how many old messages the transcript shows.
    */
-  private async convertLegacyChat(): Promise<void> {
+  private async convertLegacyChat(): Promise<number> {
     const legacy = readLegacyMessages(this.ctx.storage.sql);
     if (legacy.length > 0) {
       const conversation = await this.piHarness.conversation(ROOT_SESSION);
@@ -678,6 +678,25 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         }, BACKGROUND_CONTEXT);
       }
     }
+    return legacy.length;
+  }
+
+  /**
+   * The runtime's one-time sweep of chats from before pi-durable (`legacy-chat-moves.server.ts`): reaching this
+   * starts an idle agent, and its old chat moves as on any start. Answers how many old messages the transcript
+   * shows; an old chat with no owner to move it for throws, so the sweep tries again.
+   */
+  async moveLegacyChat(): Promise<number> {
+    if (readLegacyMessages(this.ctx.storage.sql).length === 0) {
+      return 0;
+    }
+    if (!this.userId) {
+      await this.hydrateDurableIdentity();
+    }
+    if (!this.userId) {
+      throw new Error('The old chat has no owner to move it for.');
+    }
+    return this.convertLegacyChat();
   }
 
   /** A turn this instance recorded before it stopped: wait for its run again, or end it if it never reached pi. */
@@ -834,7 +853,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     // a team adopted as one of its projects.
     await this.learnAdoption();
     await this.refuseIfClosed();
-    const { chatInitialId, subchatIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
+    const { chatInitialId, conversationIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
       parsed.data,
       durableIdentity.transcript,
     );
@@ -858,7 +877,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await this.stopAutomaticPublications();
       await markWorkspaceStarted(this.env.DB, {
         sessionId: durableIdentity.userId,
-        chatId: chatInitialId,
+        workspaceId: chatInitialId,
         agentName: transcript.agentName,
       });
       turn = createBuilderTurn(parsed.data.requestId);
@@ -918,7 +937,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
             firstPrompt: userMessages === 1,
             prompt: text.slice(0, TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS),
             promptGeneration: userMessages,
-            subchatIndex,
+            conversationIndex,
           },
           accountCredentials,
           workersAiGatewayLogging(contentLogging),
@@ -1962,7 +1981,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         await this.generateTitlesForPrompt({ ...job, accountCredentials, gatewayLogging });
       },
       {
-        idempotencyKey: `${TITLE_GENERATION_FIBER}:${job.subchatIndex}:${job.promptGeneration}`,
+        idempotencyKey: `${TITLE_GENERATION_FIBER}:${job.conversationIndex}:${job.promptGeneration}`,
         metadata: job,
       },
     );
@@ -1988,7 +2007,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const conversationTitlePromise = generateTitle('conversation');
     // A team or imported project's workspace goes by the project's own name, so only an app of one's own is named.
     const namesProject =
-      args.firstPrompt && args.subchatIndex === 0 && !(await this.workspace.linkedProject().catch(() => null));
+      args.firstPrompt && args.conversationIndex === 0 && !(await this.workspace.linkedProject().catch(() => null));
     const projectTitlePromise = namesProject ? generateTitle('project') : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
@@ -2005,7 +2024,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           setHeuristicConversationDescriptionIfMissing(this.env.DB, {
             sessionId: ownerId,
             id: args.chatInitialId,
-            subchatIndex: args.subchatIndex,
+            conversationIndex: args.conversationIndex,
             description: provisionalTitle,
             promptGeneration: args.promptGeneration,
           }),
@@ -2014,7 +2033,11 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           const updatedAt = new Date().toISOString();
           this.setState({
             ...this.state,
-            generatedSubchatTitle: { subchatIndex: args.subchatIndex, title: provisionalTitle, updatedAt },
+            generatedConversationTitle: {
+              conversationIndex: args.conversationIndex,
+              title: provisionalTitle,
+              updatedAt,
+            },
           });
         }
       } catch {
@@ -2032,7 +2055,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         const savedSubchatTitle = await setGeneratedConversationDescription(this.env.DB, {
           sessionId: ownerId,
           id: args.chatInitialId,
-          subchatIndex: args.subchatIndex,
+          conversationIndex: args.conversationIndex,
           description: conversationResult.value,
           promptGeneration: args.promptGeneration,
         });
@@ -2040,7 +2063,11 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           const updatedAt = new Date().toISOString();
           this.setState({
             ...this.state,
-            generatedSubchatTitle: { subchatIndex: args.subchatIndex, title: conversationResult.value, updatedAt },
+            generatedConversationTitle: {
+              conversationIndex: args.conversationIndex,
+              title: conversationResult.value,
+              updatedAt,
+            },
           });
         }
       } catch {

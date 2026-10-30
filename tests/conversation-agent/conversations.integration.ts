@@ -157,12 +157,30 @@ describe('an app a team adopted as one of its projects', () => {
     expect((await harness.messages()).map((message) => message.id)).toEqual(['old-1', 'old-2']);
     // Started again on the same storage, it converts nothing twice; the table stays for a rollback.
     const restarted = await harness.restart();
-    const again = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, subchatIndex: 0 });
+    const again = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, conversationIndex: 0 });
     expect(again.messages.map((message) => message.id)).toEqual(['old-1', 'old-2']);
     expect(
       harness.ctx.storage.sql
         .exec(`SELECT name FROM sqlite_master WHERE name = 'cf_agents_session_messages'`)
         .toArray(),
     ).toHaveLength(1);
+  });
+
+  it("answers the runtime's sweep with how many old messages it shows, moving none twice", async () => {
+    const harness = await conversationAgentHarness({
+      legacyMessages: [
+        { id: 'old-1', role: 'user', parts: [{ type: 'text', text: 'Build a todo app' }] },
+        { id: 'old-2', role: 'assistant', parts: [{ type: 'text', text: 'Done.' }] },
+      ],
+    });
+
+    await expect(harness.agent.moveLegacyChat()).resolves.toBe(2);
+    const restarted = await harness.restart();
+    await expect(restarted.moveLegacyChat()).resolves.toBe(2);
+    const snapshot = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, conversationIndex: 0 });
+    expect(snapshot.messages.map((message) => message.id)).toEqual(['old-1', 'old-2']);
+
+    const fresh = await conversationAgentHarness();
+    await expect(fresh.agent.moveLegacyChat()).resolves.toBe(0);
   });
 });

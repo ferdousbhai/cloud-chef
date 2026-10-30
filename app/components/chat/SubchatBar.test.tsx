@@ -350,14 +350,14 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function subchat(subchatIndex: number, description: string) {
+function subchat(conversationIndex: number, description: string) {
   return {
-    subchatIndex,
+    conversationIndex,
     description,
-    updatedAt: subchatIndex,
+    updatedAt: conversationIndex,
     transcript: {
-      agentName: `chat-${subchatIndex}`,
-      subchatIndex,
+      agentName: `chat-${conversationIndex}`,
+      conversationIndex,
     },
   };
 }

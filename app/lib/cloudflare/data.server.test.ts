@@ -22,7 +22,7 @@ describe('a new conversation in a chat', () => {
       }),
     };
 
-    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { ConversationAgent });
+    const response = await dataAction(db, 'subchats.create', { workspaceId: 'chat' }, { ConversationAgent });
 
     expect(await response.json()).toEqual({ result: 1 });
     // Already closed when it is asked to stop, so it refuses new work whatever happens next.
@@ -44,7 +44,7 @@ describe('a new conversation in a chat', () => {
       }),
     };
 
-    const response = await dataAction(db, 'subchats.create', { chatId: 'chat' }, { ConversationAgent });
+    const response = await dataAction(db, 'subchats.create', { workspaceId: 'chat' }, { ConversationAgent });
 
     expect(await response.json()).toEqual({ result: 1 });
   });
@@ -55,8 +55,8 @@ describe('user runtime data refusals', () => {
     const { db } = userWorkspaceDatabase();
 
     const response = await dataAction(db, 'subchats.setDescription', {
-      chatId: 'missing',
-      subchatIndex: 0,
+      workspaceId: 'missing',
+      conversationIndex: 0,
       description: 'Title',
     });
 
@@ -72,7 +72,7 @@ describe('user runtime transcript reads', () => {
     const response = await userRuntimeInitialMessagesAction({
       request: new Request('https://runtime.example/v1/chats/messages', {
         method: 'POST',
-        body: JSON.stringify({ chatId: 'missing' }),
+        body: JSON.stringify({ workspaceId: 'missing' }),
       }),
       env: envWith({ DB: db }),
       userId: 'session',

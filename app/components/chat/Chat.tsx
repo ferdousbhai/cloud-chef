@@ -311,7 +311,7 @@ const AuthenticatedChat = memo(
     const hasMultipleSubchats = (subchats?.length ?? 0) > 1;
     const [liveSubchatTitle, setLiveSubchatTitle] = useState<LiveSubchatTitle | null>(null);
     const handleSubchatTitleChange = useCallback(
-      (subchatIndex: number, title: string) => setLiveSubchatTitle({ subchatIndex, title }),
+      (conversationIndex: number, title: string) => setLiveSubchatTitle({ conversationIndex, title }),
       [],
     );
     const [chatStartedHere, setChatStarted] = useState(

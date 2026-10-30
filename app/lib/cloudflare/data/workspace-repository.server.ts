@@ -165,7 +165,7 @@ export async function requireWorkspace(db: D1Database, args: { id: string; sessi
 /** Record only the catalog fact that an Agent accepted content; the Agent owns the checkpoint. */
 export async function markWorkspaceStarted(
   db: D1Database,
-  args: { sessionId: string; chatId: string; agentName: string },
+  args: { sessionId: string; workspaceId: string; agentName: string },
 ): Promise<void> {
   await db
     .prepare(
@@ -177,6 +177,6 @@ export async function markWorkspaceStarted(
            WHERE conversations.workspace_id = workspaces.id AND conversations.agent_name = ?
          )`,
     )
-    .bind(args.sessionId, args.chatId, args.agentName)
+    .bind(args.sessionId, args.workspaceId, args.agentName)
     .run();
 }

@@ -505,7 +505,7 @@ describe('useConversationAgentChat stale presentation operations', () => {
     expect(input).toMatchObject({
       text: 'build it',
       turnContext: { version: 1, content: 'src/app.ts' },
-      transcript: { agentName: 'agent-1', subchatIndex: 0 },
+      transcript: { agentName: 'agent-1', conversationIndex: 0 },
       modelId: expect.any(String),
     });
     expect(started).toHaveBeenCalledTimes(1);
@@ -587,7 +587,7 @@ function chatArgs(presentationId: string) {
     initialMessages: [],
     onSubchatTitle: vi.fn(),
     presentationId,
-    transcript: { agentName: 'agent-1', subchatIndex: 0 },
+    transcript: { agentName: 'agent-1', conversationIndex: 0 },
   };
 }
 

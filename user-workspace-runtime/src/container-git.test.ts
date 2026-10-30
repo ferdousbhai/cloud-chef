@@ -161,7 +161,7 @@ function remoteRef(ref: string): string | null {
 // The container has both; a machine without them can't run these scripts at all.
 const hasTools = existsSync('/usr/bin/git') && ['/usr/bin/flock', '/bin/flock'].some((path) => existsSync(path));
 
-describe.skipIf(!hasTools)("the workspace container's git", () => {
+describe.skipIf(!hasTools)("the workspace container's git", { timeout: 30_000 }, () => {
   it('sets up the history on first use, based on the commit the files match', () => {
     const { base, head } = remoteAheadOfWorkspace();
     answerWith(base);

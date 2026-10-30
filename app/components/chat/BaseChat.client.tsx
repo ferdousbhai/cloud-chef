@@ -63,7 +63,7 @@ interface BaseChatProps {
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 
   subchats?: ConversationSummary[];
-  onSubchatTitleChange?: (subchatIndex: number, title: string) => void;
+  onSubchatTitleChange?: (conversationIndex: number, title: string) => void;
 }
 
 export function BaseChat({
@@ -125,9 +125,9 @@ export function BaseChat({
     createSubchatPendingRef.current = attempt;
     const isActiveChat = () => activeChatContextRef.current === context;
     try {
-      let subchatIndex: number;
+      let conversationIndex: number;
       try {
-        subchatIndex = await createConversation({ chatId: workspaceId });
+        conversationIndex = await createConversation({ workspaceId });
       } catch (error) {
         if (isActiveChat()) {
           toast.error(messageOf(error, 'Unable to create a new chat.'));
@@ -152,7 +152,7 @@ export function BaseChat({
         }
         return true;
       }
-      subchatIndexStore.set(subchatIndex);
+      subchatIndexStore.set(conversationIndex);
       setMessageInput('');
       return true;
     } finally {
@@ -171,8 +171,8 @@ export function BaseChat({
         activeChatContextRef.current === context && (subchatIndexStore.get() ?? 0) === currentSubchatIndex;
       try {
         await setConversationDescription({
-          chatId: workspaceId,
-          subchatIndex: currentSubchatIndex,
+          workspaceId,
+          conversationIndex: currentSubchatIndex,
           description: title,
         });
       } catch (error) {
