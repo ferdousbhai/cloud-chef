@@ -28,15 +28,13 @@ import {
  * the project's configuration decides what is deployed or how.
  */
 
-export { CLOUDFLARE_PROJECT_FILE };
-
 /** Where the starter's build (`pnpm run build`, the Cloudflare Vite plugin) leaves the Worker and its assets. */
 export const APP_BUILT_WORKER_MODULE = CF_BUILT_WORKER_MODULE;
 const APP_BUILT_BUNDLE_DIR = CF_BUILT_WORKER_MODULE.slice(0, CF_BUILT_WORKER_MODULE.lastIndexOf('/'));
 const APP_BUILT_ASSETS_DIR = CF_BUILT_ASSETS_DIR;
 
 /** The folders whose `NNNN_name.sql` files are the app's D1 migrations, by binding. */
-export const APP_MIGRATION_DIRECTORIES = { DB: 'migrations', AGENT_SECURITY_DB: 'agent-security-migrations' } as const;
+const APP_MIGRATION_DIRECTORIES = { DB: 'migrations', AGENT_SECURITY_DB: 'agent-security-migrations' } as const;
 const MIGRATION_NAME = /^\d{4}_[a-zA-Z0-9._-]+\.sql$/;
 
 const APP_AGENT_CLASS_NAME = 'AppAgent';

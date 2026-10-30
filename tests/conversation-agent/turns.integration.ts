@@ -333,7 +333,7 @@ describe('a builder turn on pi-durable', () => {
   it('near the limit, writes a handoff note and carries on from it with the latest request, without the person', async () => {
     // A small window: the system prompt and the first round of work, as the provider counts them, already pass the
     // handoff point, which a turn's start, with no work yet, does not hand off at.
-    const faux = fauxProvider({ models: [{ id: 'small-window', contextWindow: 2_500 }] });
+    const faux = fauxProvider({ models: [{ id: 'small-window', contextWindow: 1_700 }] });
     const requests: string[][] = [];
     const record =
       (step: AssistantMessage): FauxResponseStep =>

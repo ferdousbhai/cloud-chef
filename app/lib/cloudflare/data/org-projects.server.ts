@@ -24,7 +24,7 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
-export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push';
+export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push' | 'chat';
 
 export type Project = {
   id: string;
@@ -478,7 +478,7 @@ export async function addUploadedProject(
     repo: string;
     /** For a copy, the project it copies; null otherwise. */
     copiedFrom: string | null;
-    createdFrom: Extract<ProjectCreatedFrom, 'zip' | 'copy' | 'push'>;
+    createdFrom: Extract<ProjectCreatedFrom, 'zip' | 'copy' | 'push' | 'chat'>;
   },
 ): Promise<void> {
   const inserted = await db
@@ -504,6 +504,36 @@ export async function addUploadedProject(
   if (inserted.meta.changes !== 1) {
     throw new OrganizationError('That project is here already.', 409);
   }
+  // A team member's own project (one made in a chat) is theirs to edit, as an admin's grant would make it.
+  if (args.scope.orgId) {
+    await db
+      .prepare(
+        `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
+         VALUES (?, ?, 'edit', ?, ?) ON CONFLICT(project_id, user_id) DO NOTHING`,
+      )
+      .bind(args.projectId, args.actorId, args.actorId, Date.now())
+      .run();
+  }
+}
+
+/**
+ * Names a project made in a chat, which starts out unnamed: only by the person who made it, and only a 'chat' one.
+ * Until it has been published its address name follows (its Worker is named after it at the first publish); after,
+ * the address stays, as it may be in use.
+ */
+export async function nameChatProject(
+  db: D1Database,
+  args: { projectId: string; actorId: string; name: string },
+): Promise<boolean> {
+  const slug = await freeSlug(db, args.actorId, args.name);
+  const named = await db
+    .prepare(
+      `UPDATE org_projects SET name = ?, slug = CASE WHEN deploy_worker_name IS NULL THEN ? ELSE slug END
+       WHERE id = ? AND created_by = ? AND created_from = 'chat'`,
+    )
+    .bind(args.name, slug, args.projectId, args.actorId)
+    .run();
+  return named.meta.changes === 1;
 }
 
 /** Deletes a project's record, once its repository and resources are gone; access grants and deployments go with it. */

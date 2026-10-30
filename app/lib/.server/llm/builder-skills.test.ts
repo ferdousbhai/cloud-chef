@@ -32,9 +32,9 @@ describe('builder skills', () => {
     await expect(reader.read('/__skills__/../home/project/package.json')).resolves.toBeNull();
   });
 
-  it("leaves CloudChef's starter-app skill out of a team project's catalog", async () => {
+  it("leaves CloudChef's starter-app skill out of a project not made from the starter", async () => {
     const app = createBuilderSkillContext();
-    const linked = createBuilderSkillContext({ linkedProject: true });
+    const linked = createBuilderSkillContext({ starterApp: false });
 
     expect(app.prompt).toContain('/__skills__/project-stack/SKILL.md');
     expect(linked.prompt).not.toContain('project-stack');

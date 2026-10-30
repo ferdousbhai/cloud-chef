@@ -55,9 +55,7 @@ import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-r
 import { generateModelTitle } from '~/lib/.server/llm/workers-ai-title';
 import { markWorkspaceStarted } from '~/lib/cloudflare/data/workspace-repository.server';
 import {
-  setGeneratedProjectDescription,
   setGeneratedConversationDescription,
-  setHeuristicProjectDescriptionIfMissing,
   setHeuristicConversationDescriptionIfMissing,
 } from '~/lib/cloudflare/data/workspace-service.server';
 import { getToolInvocation, replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
@@ -69,6 +67,7 @@ import {
 } from 'cloudchef-agent/transcript';
 import {
   loadBuilderTranscriptBinding,
+  linkWorkspaceToProject,
   loadConversationScope,
   recordAppAdoption,
   requireBuilderRequestScope,
@@ -96,14 +95,13 @@ import type {
 } from './builder-workspace-api';
 import { UserWorkspaceRuntimeClient } from '~/lib/.server/cloudflare/user-workspace-runtime-client';
 import type {
-  BuilderWorkspaceFileInput,
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { commitBuilderTemplate } from './builder-template';
-import { seedBuilderWorkspace, WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
+import { WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
 import {
   isExcludedProjectPath,
   revertChanges,
@@ -132,21 +130,22 @@ import {
   projectBuildStatus,
   projectSite,
   commitAuthor,
+  nameChatProject,
+  registerUploadedProject,
   requestProductionReview,
   type ProductionRequestOutcome,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
+  importedProjectRepo,
   MAIN_BRANCH,
   nativeProjectRepo,
   ProjectRepositories,
   ProjectRepositoryError,
   filesMatchTree,
-  workspaceFileMode,
   type RepositoryFileInput,
 } from '~/lib/.server/cloudflare/project-repository';
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
-import { bytesToBase64 } from '~/lib/hex-digest';
 import {
   BUILDER_TURN_INACTIVITY_MS,
   BUILDER_TURN_WALL_CLOCK_MS,
@@ -157,7 +156,7 @@ import { createWorkersAiTools } from '~/lib/.server/llm/workers-ai-tools';
 import { builderModels } from '~/lib/.server/llm/builder-models';
 import { getPiModel, type ModelHandle, type WorkersAiAccountCredentials } from '~/lib/.server/llm/pi-ai-models';
 import { createBuilderSkillContext } from '~/lib/.server/llm/builder-skills';
-import { systemPrompt } from 'cloudchef-agent/prompts/system';
+import { systemPrompt, type ProjectFacts } from 'cloudchef-agent/prompts/system';
 import {
   contextTokens,
   handoffOpening,
@@ -585,6 +584,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
   /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
   private workspaceSeed: Promise<BuilderWorkspaceState> | null = null;
+  /** What the prompt says about the project, read once the workspace is the project's. */
+  #projectFacts: ProjectFacts | null = null;
   /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
   private destroying = false;
   /** Set once a newer conversation took the project over from this one, which publishes from then on. */
@@ -1039,8 +1040,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           ),
         ),
         systemPrompt: async () => {
-          const linkedProject = await this.linkedProjectSummary();
-          return systemPrompt((await this.skillContext()).prompt, linkedProject);
+          return systemPrompt((await this.skillContext()).prompt, await this.projectFacts());
         },
         afterResponse: (message) => this.reportModelUsage(recordModelResponse(message)),
         afterTools: async () => {
@@ -1068,7 +1068,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   private async skillContext() {
-    return createBuilderSkillContext({ linkedProject: (await this.linkedProjectSummary()) !== undefined });
+    return createBuilderSkillContext({ starterApp: (await this.projectFacts()).starterApp });
   }
 
   protected useModel(turnModel: BuilderTurnModel, credentials: WorkersAiAccountCredentials, model: BuilderModel): void {
@@ -2014,22 +2014,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const generateTitle = (subject: TitleSubject) =>
       generateModelTitle(args.prompt, subject, args.accountCredentials, args.gatewayLogging, countUsage);
     const conversationTitlePromise = generateTitle('conversation');
-    // A team or imported project's workspace goes by the project's own name, so only an app of one's own is named.
-    const namesProject =
-      args.firstPrompt && args.conversationIndex === 0 && !(await this.workspace.linkedProject().catch(() => null));
+    // A project made in this chat is named after it; any other project keeps its own name, which the control plane
+    // alone tells apart, so naming one is refused there.
+    const namesProject = args.firstPrompt && args.conversationIndex === 0;
     const projectTitlePromise = namesProject ? generateTitle('project') : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
     if (provisionalTitle) {
       try {
         const [, savedHeuristicSubchat] = await Promise.all([
-          namesProject
-            ? setHeuristicProjectDescriptionIfMissing(this.env.DB, {
-                sessionId: ownerId,
-                id: args.chatInitialId,
-                description: provisionalTitle,
-              })
-            : Promise.resolve(false),
+          namesProject ? this.nameChatProject(provisionalTitle) : Promise.resolve(false),
           setHeuristicConversationDescriptionIfMissing(this.env.DB, {
             sessionId: ownerId,
             id: args.chatInitialId,
@@ -2087,15 +2081,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     }
 
     if (projectResult.status === 'fulfilled' && projectResult.value) {
-      try {
-        await setGeneratedProjectDescription(this.env.DB, {
-          sessionId: ownerId,
-          id: args.chatInitialId,
-          description: projectResult.value,
-        });
-      } catch {
-        logger.warn('Generated project title could not be saved');
-      }
+      await this.nameChatProject(projectResult.value);
     } else if (projectResult.status === 'rejected') {
       logger.warn('Project title generation failed; keeping the first-prompt title');
     }
@@ -2124,14 +2110,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
-    const { orgProjectId } = this.userId
-      ? await loadConversationScope(this.env.DB, { agentName: binding.agentName, ownerId: this.userId })
-      : { orgProjectId: null };
-    if (orgProjectId) {
-      const identity = runtimeConnectionIdentity(this.env);
-      if (!identity) {
-        throw new ProjectRefusalError('This workspace is not connected to CloudChef, so it cannot open the project.');
-      }
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity || !this.userId) {
+      throw new ProjectRefusalError('This workspace is not connected to CloudChef, so it cannot open the project.');
+    }
+    const { orgProjectId: opened } = await loadConversationScope(this.env.DB, {
+      agentName: binding.agentName,
+      ownerId: this.userId,
+    });
+    const orgProjectId = opened ?? (await this.createChatProject(identity, binding));
+    {
       const project = await openProject(this.env, identity, orgProjectId);
       if (project.role !== 'edit') {
         throw new ProjectRefusalError('You can view this project but not edit it.');
@@ -2142,28 +2130,60 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       const repo = await ensureProjectRepository(this.env, identity, repositories, project);
       return seedLinkedWorkspace(this.workspace, repositories, { orgProjectId, name: project.name, repo });
     }
-    // A fork starts from its own repository, which the fork made before the chat existed; a new app's starts
-    // with the template as its first commit, so the workspace and git in its container begin from that commit.
-    const repositories = this.repositories();
-    const own = nativeProjectRepo(binding.chatInitialId);
-    if (!(await repositories.head(own))) {
-      await commitBuilderTemplate(repositories, own, await commitAuthor(this.env));
+  }
+
+  /**
+   * Names the project this chat made after what it is about, once its workspace is the project's: the first prompt's
+   * words at once, the generated title after. A project the chat didn't make keeps its name (the control plane
+   * refuses), as does one whose workspace isn't seeded yet.
+   */
+  private async nameChatProject(name: string): Promise<boolean> {
+    const identity = runtimeConnectionIdentity(this.env);
+    const seeding = this.workspaceSeed;
+    if (seeding) {
+      await seeding.catch(() => undefined);
     }
-    const { commit, files } = await repositories.readFilesAt(own, MAIN_BRANCH, (path) => !isExcludedProjectPath(path));
-    const seeded = await seedBuilderWorkspace(
-      this.workspace,
-      `repository_${commit.hash}`,
-      files.map((file): BuilderWorkspaceFileInput => ({
-        path: `${WORK_DIR}/${file.path}`,
-        content: bytesToBase64(file.bytes),
-        encoding: 'base64',
-        mode: workspaceFileMode(file.mode),
-      })),
-    );
-    // The files are main's at that commit: what saving them to main later checks main hasn't moved past.
-    await this.workspace.setGitRepository({ repo: own, orgProjectId: null });
-    await this.workspace.setMainFetched(commit.hash);
-    return seeded;
+    const linked = await this.workspace.linkedProject().catch(() => null);
+    if (!identity || !linked) {
+      return false;
+    }
+    try {
+      await nameChatProject(this.env, identity, { orgProjectId: linked.orgProjectId, name });
+    } catch {
+      return false;
+    }
+    await this.workspace.setLinkedProject({ ...linked, name }).catch(() => undefined);
+    this.showLinkedProject({ repository: name, repo: linked.repository, defaultBranch: linked.defaultBranch });
+    return true;
+  }
+
+  /**
+   * A new chat's own project (`created_from = 'chat'`, a person's own or, in a team, the team's that its maker may
+   * edit): its repository starts with CloudChef's starter as its first commit, and the chat's workspace becomes the
+   * project's, so it is worked on and published as every project is, by pushing to main. Nothing is published until
+   * the first push.
+   */
+  private async createChatProject(identity: RuntimeConnectionIdentity, binding: BuilderTranscriptBinding) {
+    const orgProjectId = crypto.randomUUID();
+    const repo = importedProjectRepo(orgProjectId);
+    const repositories = this.repositories();
+    await commitBuilderTemplate(repositories, repo, await commitAuthor(this.env));
+    try {
+      await registerUploadedProject(this.env, identity, { orgProjectId, name: 'New project', repo, chat: true });
+    } catch (error) {
+      await repositories.deleteRepo(repo).catch(() => undefined);
+      throw error;
+    }
+    if (
+      !(await linkWorkspaceToProject(this.env.DB, {
+        agentName: binding.agentName,
+        ownerId: identity.userId,
+        orgProjectId,
+      }))
+    ) {
+      throw new ProjectRefusalError('This chat already has a project. Open it again.');
+    }
+    return orgProjectId;
   }
 
   /**
@@ -2180,9 +2200,28 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /** A team project's name and default branch, for the prompt; none for a CloudChef app. */
-  private async linkedProjectSummary(): Promise<{ repository: string; defaultBranch: string } | undefined> {
+  /**
+   * What the prompt says about the project: its name and main branch, and whether it is made from CloudChef's
+   * starter (it has the starter's `cloudflare.project.json`), read once the workspace is the project's.
+   */
+  private async projectFacts(): Promise<ProjectFacts> {
+    if (this.#projectFacts) {
+      return this.#projectFacts;
+    }
     const linked = await this.workspace.linkedProject();
-    return linked ? { repository: linked.name ?? linked.repository, defaultBranch: linked.defaultBranch } : undefined;
+    const starterApp = await this.workspace.readText(`${WORK_DIR}/cloudflare.project.json`).then(
+      () => true,
+      () => false,
+    );
+    const facts = {
+      name: linked?.name ?? linked?.repository ?? 'This project',
+      defaultBranch: linked?.defaultBranch ?? MAIN_BRANCH,
+      starterApp,
+    };
+    if (linked) {
+      this.#projectFacts = facts;
+    }
+    return facts;
   }
 
   /**

@@ -113,46 +113,6 @@ export async function setDescription(
   return null;
 }
 
-export async function setHeuristicProjectDescriptionIfMissing(
-  db: D1Database,
-  args: { sessionId: string; id: string; description: string },
-): Promise<boolean> {
-  const result = await db
-    .prepare(
-      `UPDATE workspaces
-       SET description = ?, description_source = 'heuristic'
-       WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
-         -- A team or imported project's workspace goes by the project's name, never its first message's.
-         AND org_project_id IS NULL
-         AND description_source IS NULL
-         AND NULLIF(TRIM(description), '') IS NULL`,
-    )
-    .bind(args.description, args.sessionId, args.id)
-    .run();
-  return result.meta.changes > 0;
-}
-
-/** Finalize the one automatic project title; later prompts never call this transition. */
-export async function setGeneratedProjectDescription(
-  db: D1Database,
-  args: { sessionId: string; id: string; description: string },
-): Promise<boolean> {
-  const result = await db
-    .prepare(
-      `UPDATE workspaces
-       SET description = ?, description_source = 'generated'
-       WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
-         AND org_project_id IS NULL
-         AND (
-           description_source = 'heuristic'
-           OR (description_source IS NULL AND NULLIF(TRIM(description), '') IS NULL)
-         )`,
-    )
-    .bind(args.description, args.sessionId, args.id)
-    .run();
-  return result.meta.changes > 0;
-}
-
 /** Apply an automatic conversation title unless a manual rename or newer prompt won. */
 export async function setGeneratedConversationDescription(
   db: D1Database,

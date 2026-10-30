@@ -1,44 +1,49 @@
 import { describe, expect, it } from 'vitest';
 import { systemPrompt } from './system.js';
 
+const APP = { name: 'Tip calculator', defaultBranch: 'main', starterApp: true };
+const SITE = { name: 'Ada site', defaultBranch: 'main', starterApp: false };
+
 describe('builder system prompt', () => {
-  it('starts with the same workspace description in both kinds of project, then the skills', () => {
-    const app = systemPrompt('<builder_skills/>');
-    const linked = systemPrompt('<builder_skills/>', { repository: 'ada/site', defaultBranch: 'main' });
+  it('starts with the same workspace description in every kind of project, then the skills', () => {
+    const app = systemPrompt('<builder_skills/>', APP);
+    const site = systemPrompt('<builder_skills/>', SITE);
     const shared = app.slice(0, app.indexOf('## This project'));
 
     expect(shared.length).toBeGreaterThan(0);
-    expect(linked.startsWith(shared)).toBe(true);
+    expect(site.startsWith(shared)).toBe(true);
     expect(app.endsWith('<builder_skills/>')).toBe(true);
   });
 
-  it("describes how a CloudChef app's changes reach production, its one site", () => {
-    const prompt = systemPrompt('');
-
-    expect(prompt).toContain('/home/project');
-    expect(prompt).toContain('deploys it to production in their account, the one site the person sees beside the chat');
-    expect(prompt).not.toContain('hosted preview');
-    expect(prompt).toContain('You do not deploy it yourself.');
-    expect(prompt).toContain('onto the same address and the resources cloudflare.project.json declares each time');
-    expect(prompt).toContain('Production serves main.');
-    expect(prompt).toContain('git push origin main');
-    expect(prompt).not.toContain('publish_preview');
+  it('describes one way to publish every project: a branch for a preview, main to go live', () => {
+    for (const prompt of [systemPrompt('', APP), systemPrompt('', SITE)]) {
+      expect(prompt).toContain('/home/project');
+      expect(prompt).toContain('you do not deploy anything yourself');
+      expect(prompt).toContain('commit and push a branch of your own');
+      expect(prompt).toContain('Pushing main puts the change live');
+      expect(prompt).toContain('only when the person wants the change live');
+      expect(prompt).toContain('by CloudChef, or by Workers Builds for a project connected to it');
+      expect(prompt).not.toContain('when your turn ends');
+      expect(prompt).not.toContain('publish_preview');
+      expect(prompt).not.toContain('GitHub');
+    }
   });
 
-  it("describes a team project's pipeline and keeps production behind the person's say-so", () => {
-    const prompt = systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' });
+  it("describes what CloudChef does for an app made from its starter, and a project's own conventions otherwise", () => {
+    const app = systemPrompt('', APP);
+    expect(app).toContain("Tip calculator, made from CloudChef's starter");
+    expect(app).toContain('The project-stack skill describes how it is wired');
+    expect(app).toContain('the resources its cloudflare.project.json declares');
+    expect(app).toContain('an applied migration never runs again');
 
-    expect(prompt).toContain('A copy of Ada site');
-    expect(prompt).toContain('commit and push a branch of your own');
-    expect(prompt).toContain('Pushing main puts the change live');
-    expect(prompt).toContain('only when the person wants the change live');
-    expect(prompt).toContain('Workers Builds deploys it to production');
-    expect(prompt).not.toContain('GitHub');
-    expect(prompt).not.toContain('CloudChef app');
+    const site = systemPrompt('', SITE);
+    expect(site).toContain('Ada site, kept in its own repository');
+    expect(site).toContain('Its own conventions');
+    expect(site).not.toContain('project-stack');
   });
 
-  it('asks for everyday words with the person in both kinds of project', () => {
-    for (const prompt of [systemPrompt(''), systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' })]) {
+  it('asks for everyday words with the person in every kind of project', () => {
+    for (const prompt of [systemPrompt('', APP), systemPrompt('', SITE)]) {
       expect(prompt).toContain('use everyday words');
       expect(prompt).toContain('The person may not know git, so tell them what happened in everyday terms');
       expect(prompt).toContain('Leave out terms such as main, branch, commit, merge, repository, pipeline');
@@ -46,7 +51,7 @@ describe('builder system prompt', () => {
   });
 
   it("has the work build on others' pushes, and leaves a real contradiction to the person", () => {
-    for (const prompt of [systemPrompt(''), systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' })]) {
+    for (const prompt of [systemPrompt('', APP), systemPrompt('', SITE)]) {
       expect(prompt).toContain('says when main took commits since git here last fetched it, and whose');
       expect(prompt).toContain('`git pull` before changing files');
       expect(prompt).toContain("Sara's latest changes are in your copy now");
@@ -56,7 +61,7 @@ describe('builder system prompt', () => {
   });
 
   it('describes the environment without coaching behaviour', () => {
-    const prompt = systemPrompt('');
+    const prompt = systemPrompt('', APP);
 
     expect(prompt).not.toContain('new_context');
     expect(prompt).not.toContain('ask one short question');

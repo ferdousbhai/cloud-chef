@@ -7,6 +7,8 @@
  * project's repository.
  */
 import { createRequire } from 'node:module';
+import { vi } from 'vitest';
+import type { BuilderWorkspaceLinkedProject } from '@cloudchef/user-workspace-runtime/protocol';
 import { transcriptAgentName } from 'cloudchef-agent/transcript';
 import type * as NodeSqlite from 'node:sqlite';
 import type { SQLInputValue } from 'node:sqlite';
@@ -199,11 +201,16 @@ export const VALIDATED_CHECKPOINT: BuilderWorkspaceCheckpoint = { workspaceRevis
 
 /** A ready, validated, unlinked ProjectWorkspace; each test overrides what its path reads. */
 function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<BuilderWorkspaceApi> {
+  let linked: BuilderWorkspaceLinkedProject | null = null;
   return {
     refresh: async () => READY_WORKSPACE,
     getState: () => READY_WORKSPACE,
     warmContainer: async () => undefined,
-    linkedProject: async () => null,
+    linkedProject: async () => linked,
+    setLinkedProject: async (project) => {
+      linked = project;
+    },
+    abortSeed: async () => READY_WORKSPACE,
     setGitRepository: async () => undefined,
     takeGitPushes: async () => [],
     knownMain: async () => null,
@@ -558,4 +565,46 @@ export function commandEntries(toolCallId: string, command: string, output: Json
       data: { diagnostics: [] },
     },
   ];
+}
+
+/** A project a new chat registered with the faked control plane (`runtime-projects/register-upload`). */
+type RegisteredChatProject = { orgProjectId: string; name: string; repo: string; chat?: true };
+
+/**
+ * The control plane as a new chat's seed reaches it: it keeps the project the chat registers and opens it for the
+ * chat's maker, and takes the names the chat gives it. Anything else is unavailable.
+ */
+export function chatProjectControlPlane() {
+  const registered: RegisteredChatProject[] = [];
+  const names: string[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    const request = new Request(input, init);
+    if (request.url.endsWith('/runtime-projects/register-upload')) {
+      const body: RegisteredChatProject = await request.json();
+      registered.push(body);
+      return Response.json({ projectId: body.orgProjectId }, { status: 201 });
+    }
+    if (request.url.endsWith('/runtime-projects/open')) {
+      const { orgProjectId }: { orgProjectId: string } = await request.json();
+      const project = registered.find((candidate) => candidate.orgProjectId === orgProjectId);
+      if (project) {
+        return Response.json({
+          orgProjectId,
+          name: names.at(-1) ?? project.name,
+          repo: project.repo,
+          defaultBranch: 'main',
+          role: 'edit',
+          deploysWith: 'cloudchef',
+          createdFrom: 'chat',
+        });
+      }
+    }
+    if (request.url.endsWith('/runtime-projects/name')) {
+      const { name }: { name: string } = await request.json();
+      names.push(name);
+      return Response.json({ name });
+    }
+    return new Response('unavailable', { status: 503 });
+  });
+  return { registered, names };
 }

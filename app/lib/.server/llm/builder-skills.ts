@@ -37,19 +37,19 @@ type BundledSkillSource = { name: string; files: ReadonlyMap<string, string> };
 
 type BundledSkill = { name: string; description: string; files: ReadonlyMap<string, string> };
 
-/** CloudChef's own skill, which describes its starter app and so means nothing in a team project. */
+/** CloudChef's own skill, which describes its starter app and so means nothing in a project not made from it. */
 const STARTER_APP_SKILL = 'project-stack';
 
 /**
- * Load the references bundled into this Worker. No network, no storage, no generation. A team
- * project is not a CloudChef starter app, so its catalog leaves out the starter app's skill.
+ * Load the references bundled into this Worker. No network, no storage, no generation. A project not
+ * made from CloudChef's starter leaves the starter app's skill out of its catalog.
  */
-export function createBuilderSkillContext(options: { linkedProject?: boolean } = {}): BuilderSkillContext {
-  const linkedProject = options.linkedProject === true;
-  const skills = BUNDLED_SKILLS.filter(({ name }) => !linkedProject || name !== STARTER_APP_SKILL).map(
-    ({ name, files }) => parseSkill(name, files),
+export function createBuilderSkillContext(options: { starterApp?: boolean } = {}): BuilderSkillContext {
+  const starterApp = options.starterApp !== false;
+  const skills = BUNDLED_SKILLS.filter(({ name }) => starterApp || name !== STARTER_APP_SKILL).map(({ name, files }) =>
+    parseSkill(name, files),
   );
-  return { prompt: renderPrompt(skills, linkedProject), reader: createReader(skills) };
+  return { prompt: renderPrompt(skills, starterApp), reader: createReader(skills) };
 }
 
 export function isBuilderSkillPath(path: string): boolean {
@@ -93,7 +93,7 @@ function parseSkill(name: string, files: ReadonlyMap<string, string>): BundledSk
   return { name, description: declared.description.trim(), files };
 }
 
-function renderPrompt(skills: readonly BundledSkill[], linkedProject: boolean): string {
+function renderPrompt(skills: readonly BundledSkill[], starterApp: boolean): string {
   const prompt = [
     '<builder_skills>',
     'Reference skills, read-only and outside the project. Read a SKILL.md when its topic matters to the work; it points to the files worth reading next.',
@@ -102,7 +102,7 @@ function renderPrompt(skills: readonly BundledSkill[], linkedProject: boolean): 
     '',
     'llms.txt and llms-full.txt files are too large to read whole; use `cf docs search "<question>"` instead.',
     "Where a skill's advice conflicts with this workspace, the workspace wins: `cf` is installed and signed in to this account by CloudChef outside the container, a change it makes waits for the person's approval, `cf auth` is refused, and nothing outside the container can reach a dev server" +
-      (linkedProject ? '.' : '; and project-stack describes this project.'),
+      (starterApp ? '; and project-stack describes this project.' : '.'),
     '</builder_skills>',
   ].join('\n');
   if (prompt.length > MAX_BUILDER_SKILL_PROMPT_CHARS) {

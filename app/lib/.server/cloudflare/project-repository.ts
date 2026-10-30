@@ -150,7 +150,7 @@ function gitFileMode(mode: number): string {
 }
 
 /** The workspace's mode for a file git holds. */
-export function workspaceFileMode(mode: string): number {
+function workspaceFileMode(mode: string): number {
   return mode === '100755' ? 0o755 : 0o644;
 }
 

@@ -11,6 +11,7 @@ import {
   runtimeProjectImportedAction,
   runtimeAbandonImportAction,
   runtimeRegisterImportAction,
+  runtimeNameProjectAction,
   runtimeRegisterUploadAction,
   runtimeRequestProductionAction,
   runtimeProjectSiteAction,
@@ -120,6 +121,7 @@ describe('a runtime opening a project', () => {
       role: 'edit',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
       deploysWith: 'workers_builds',
+      createdFrom: 'github',
       importSource: {
         url: 'https://github.com/ada/site.git',
         branch: 'master',
@@ -158,6 +160,7 @@ describe('a runtime opening a project', () => {
       role: 'view',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
       deploysWith: 'workers_builds',
+      createdFrom: 'github',
     });
     // Admins own every team project.
     const owned = await runtimeOpenProjectAction({
@@ -570,6 +573,48 @@ describe('a runtime adding a project uploaded as a ZIP', () => {
     });
     expect(asMember.status).toBe(403);
     expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects WHERE id = ?').get(UPLOADED)).toEqual({ n: 0 });
+  });
+
+  it("makes a team member's chat a team project they may edit, which the chat then names", async () => {
+    const { env, runtime, database, sara } = await setup();
+    database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.userId);
+    const added = await runtimeRegisterUploadAction({
+      request: await runtime('/api/cloudflare/runtime-projects/register-upload', {
+        orgProjectId: UPLOADED,
+        name: 'New project',
+        repo: `t-${UPLOADED}`,
+        chat: true,
+      }),
+      env,
+    });
+    expect(added.status).toBe(201);
+    expect(
+      database.prepare('SELECT org_id, created_from, deploys_with, slug FROM org_projects WHERE id = ?').get(UPLOADED),
+    ).toEqual({ org_id: expect.any(String), created_from: 'chat', deploys_with: 'cloudchef', slug: 'new-project' });
+    expect(
+      database
+        .prepare('SELECT role FROM org_project_access WHERE project_id = ? AND user_id = ?')
+        .get(UPLOADED, sara.userId),
+    ).toEqual({ role: 'edit' });
+
+    const named = await runtimeNameProjectAction({
+      request: await runtime('/api/cloudflare/runtime-projects/name', {
+        orgProjectId: UPLOADED,
+        name: 'Tip calculator',
+      }),
+      env,
+    });
+    expect(named.status).toBe(200);
+    expect(database.prepare('SELECT name, slug FROM org_projects WHERE id = ?').get(UPLOADED)).toEqual({
+      name: 'Tip calculator',
+      slug: 'tip-calculator',
+    });
+    // A project not made in a chat keeps its name.
+    const imported = await runtimeNameProjectAction({
+      request: await runtime('/api/cloudflare/runtime-projects/name', { orgProjectId: SITE, name: 'Renamed' }),
+      env,
+    });
+    expect(imported.status).toBe(409);
   });
 });
 
