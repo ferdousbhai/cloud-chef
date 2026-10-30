@@ -341,8 +341,6 @@ export async function conversationAgentHarness(
     workspaceMatchesMain?: boolean;
     /** The scripted model turns run on. */
     faux?: FauxProviderHandle;
-    /** Messages a chat from before pi-durable kept in AI Chat's session table. */
-    legacyMessages?: readonly object[];
   } = {},
 ) {
   const artifacts = options.artifacts ?? fakeArtifacts();
@@ -372,27 +370,7 @@ export async function conversationAgentHarness(
   });
   /** The ProjectWorkspace of each project id, as the namespace holds them. */
   const workspaces = new Map<string, Partial<BuilderWorkspaceApi>>();
-  const legacyState = () => {
-    const state = durableObjectState(AGENT_NAME);
-    if (options.legacyMessages) {
-      state.storage.sql.exec(`CREATE TABLE cf_agents_session_messages (
-        session_id TEXT NOT NULL, id TEXT NOT NULL, seq INTEGER NOT NULL, parent_id TEXT,
-        type TEXT NOT NULL DEFAULT 'message', role TEXT NOT NULL, content TEXT NOT NULL,
-        content_chunks INTEGER NOT NULL DEFAULT 0, token_estimate INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL, content_hash TEXT, PRIMARY KEY (session_id, id))`);
-      options.legacyMessages.forEach((message, index) => {
-        state.storage.sql.exec(
-          `INSERT INTO cf_agents_session_messages (session_id, id, seq, role, content, created_at)
-           VALUES ('', ?, ?, 'user', ?, 1)`,
-          `legacy-${index}`,
-          index,
-          JSON.stringify(message),
-        );
-      });
-    }
-    return state;
-  };
-  const startAgent = async (name: string, ctx = name === AGENT_NAME ? legacyState() : durableObjectState(name)) => {
+  const startAgent = async (name: string, ctx = durableObjectState(name)) => {
     // SAFETY: the agent and the Agents SDK read only the members `durableObjectState` implements.
     const agent = new HarnessConversationAgent(ctx as never, env);
     agent.faux = options.faux ?? null;

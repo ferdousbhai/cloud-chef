@@ -171,7 +171,6 @@ import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/li
 import { BUILDER_SETTINGS, BuilderChatStream, builderExtension } from './builder-pi';
 import { CHAT_ENTRY, toolOutputEntryData, userEntryData } from './builder-chat-view';
 import { mainMovedNote } from './main-moved-note';
-import { readLegacyMessages } from './legacy-chat';
 import type { BuilderModel, BuilderModelId, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
@@ -631,9 +630,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await this.hydrateDurableIdentity();
     }
     this.refreshCloudflareExecutionState();
-    if (this.userId) {
-      await this.convertLegacyChat();
-    }
     // A team admin may have decided a change this conversation filed while CloudChef couldn't reach it.
     if (this.userId) {
       this.ctx.waitUntil(
@@ -664,44 +660,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     } else {
       super.onError(args[0]);
     }
-  }
-
-  /**
-   * A chat from before pi-durable: its messages move once into the transcript, shown only, and the conversation
-   * goes on in a fresh context (`legacy-chat.ts`). Answers how many old messages the transcript shows.
-   */
-  private async convertLegacyChat(): Promise<number> {
-    const legacy = readLegacyMessages(this.ctx.storage.sql);
-    if (legacy.length > 0) {
-      const conversation = await this.piHarness.conversation(ROOT_SESSION);
-      const first = await conversation.entries({ order: 'ascending' }, 1, undefined, BACKGROUND_CONTEXT);
-      if (first.items[0]?.kind !== CHAT_ENTRY.legacy) {
-        await conversation.commit(async (tx) => {
-          for (const message of legacy) {
-            await tx.appendEntry(conversation.id, { kind: CHAT_ENTRY.legacy, data: { message } });
-          }
-        }, BACKGROUND_CONTEXT);
-      }
-    }
-    return legacy.length;
-  }
-
-  /**
-   * The runtime's one-time sweep of chats from before pi-durable (`legacy-chat-moves.server.ts`): reaching this
-   * starts an idle agent, and its old chat moves as on any start. Answers how many old messages the transcript
-   * shows; an old chat with no owner to move it for throws, so the sweep tries again.
-   */
-  async moveLegacyChat(): Promise<number> {
-    if (readLegacyMessages(this.ctx.storage.sql).length === 0) {
-      return 0;
-    }
-    if (!this.userId) {
-      await this.hydrateDurableIdentity();
-    }
-    if (!this.userId) {
-      throw new Error('The old chat has no owner to move it for.');
-    }
-    return this.convertLegacyChat();
   }
 
   /** A turn this instance recorded before it stopped: wait for its run again, or end it if it never reached pi. */
