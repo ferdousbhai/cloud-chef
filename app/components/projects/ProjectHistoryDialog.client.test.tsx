@@ -12,6 +12,7 @@ import { ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 const RUNTIME = 'https://runtime.example.workers.dev';
 const FIRST = 'a'.repeat(40);
 const SECOND = 'b'.repeat(40);
+const TEAM_PROJECT = '55555555-5555-4555-8555-555555555555';
 const commits: ProjectCommit[] = [
   {
     hash: FIRST,
@@ -43,9 +44,27 @@ async function runtime(input: RequestInfo | URL, init?: RequestInit): Promise<Re
     if (request.path === 'projects.history') {
       return Response.json({ result: commits });
     }
+    if (request.path === 'projects.gitAddress') {
+      return Response.json({ result: { projectId: TEAM_PROJECT } });
+    }
     if (request.path === 'projects.fork') {
       return Response.json({ result: { initialId: 'chat-2' } });
     }
+  }
+  if (url === `/api/projects/${TEAM_PROJECT}/main-changes?limit=100`) {
+    return Response.json({
+      changes: [
+        {
+          kind: 'push',
+          by: { id: 'u-sara', name: 'Sara' },
+          // Main's first push, which brought both versions.
+          oldCommit: null,
+          newCommit: FIRST,
+          at: Date.now() - 600_000,
+        },
+      ],
+      publishes: { [FIRST]: 'live' },
+    });
   }
   if (url.startsWith(`${RUNTIME}/v1/projects/archive?`)) {
     archiveRequests.push(url.slice(RUNTIME.length));
@@ -114,6 +133,18 @@ describe('ProjectHistoryDialog', () => {
     expect(text).toContain('Ada');
     expect(text).toContain('grace@example.com');
     expect(text).toContain('aaaaaaa');
+  });
+
+  it('says who published a version and which one is live, from the control plane', async () => {
+    await render({ canRevert: true, canFork: true });
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Published by Sara 10 minutes ago'));
+    const versions = [...document.querySelectorAll('li')].map((item) => item.textContent ?? '');
+    expect(versions[0]).toContain('Live');
+    // The older version reached main in the same push, as its earlier commit.
+    expect(versions[1]).not.toContain('Live');
+    expect(versions[1]).not.toContain('Published by');
+    expect(versions[1]).toContain('Went live with a later version');
   });
 
   it('reverts the open workspace only after confirming', async () => {

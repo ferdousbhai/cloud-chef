@@ -27,6 +27,7 @@ const controlPlaneTables = [
   'project_deployments',
   'project_main_pushes',
   'project_main_rewrites',
+  'project_visits',
   'user',
   'user_computer_runtimes',
 ];

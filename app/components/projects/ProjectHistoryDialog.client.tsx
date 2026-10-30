@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { toast } from 'sonner';
 import { Button } from '@ui/Button';
@@ -11,17 +11,24 @@ import {
   downloadProjectArchive,
   forkProject,
   HISTORY_PAGE_SIZE,
+  loadGitProjectId,
   loadProjectHistory,
   shortCommit,
   type ProjectRef,
 } from '~/lib/cloudflare/projects.client';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
+import {
+  carriedVersions,
+  loadMainPublishes,
+  type MainPublishes,
+  type PublishState,
+} from '~/lib/cloudflare/project-presence.client';
 import { messageOf } from '~/lib/json-request';
 import { projectRevertStore } from '~/lib/stores/project-actions.client';
 
 /**
- * A project's commits, newest first, with what can be done from each: revert the open workspace to it, fork
- * a new project from it, or download its files.
+ * A project's commits, newest first, with who published each and which is live where CloudChef knows, and what can
+ * be done from each: revert the open workspace to it, fork a new project from it, or download its files.
  */
 export function ProjectHistoryDialog({
   project,
@@ -52,6 +59,7 @@ export function ProjectHistoryDialog({
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<{ hash: string; action: 'revert' | 'fork' | 'download' } | null>(null);
   const [confirmingRevert, setConfirmingRevert] = useState<ProjectCommit | null>(null);
+  const [publishes, setPublishes] = useState<MainPublishes | null>(null);
   // Reverting goes through the open chat's builder agent; a project not open here has none.
   const revert = useStore(projectRevertStore);
   const ref = 'chatInitialId' in project ? project.chatInitialId : project.orgProjectId;
@@ -63,6 +71,7 @@ export function ProjectHistoryDialog({
     setShownRef(ref);
     setCommits(null);
     setLoadError(null);
+    setPublishes(null);
   }
   const retry = () => {
     setCommits(null);
@@ -86,6 +95,39 @@ export function ProjectHistoryDialog({
     // `project` is a fresh object each render; what it names is `ref`.
     // oxlint-disable-next-line react/exhaustive-deps
   }, [ref, attempt]);
+
+  // Who published each version and which is live, from the control plane, asked once the versions are here; they
+  // show without it.
+  const historyLoaded = commits !== null;
+  const carriedBy = useMemo(
+    () =>
+      commits && publishes
+        ? carriedVersions(
+            commits.map((commit) => commit.hash),
+            publishes,
+          )
+        : null,
+    [commits, publishes],
+  );
+  useEffect(() => {
+    if (!historyLoaded) {
+      return undefined;
+    }
+    const controller = new AbortController();
+    (async () => {
+      const projectId = 'orgProjectId' in project ? project.orgProjectId : await loadGitProjectId(project);
+      return loadMainPublishes(projectId, controller.signal);
+    })()
+      .then((loaded) => {
+        if (!controller.signal.aborted) {
+          setPublishes(loaded);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+    // As above, what `project` names is `ref`.
+    // oxlint-disable-next-line react/exhaustive-deps
+  }, [ref, historyLoaded]);
 
   const loadOlder = useCallback(async () => {
     if (!commits) {
@@ -177,13 +219,19 @@ export function ProjectHistoryDialog({
               {commits.map((commit) => {
                 const title = commitTitle(commit.message);
                 const pending = busy?.hash === commit.hash ? busy.action : null;
+                const publisher = publishes?.by.get(commit.hash) ?? null;
+                const state = publishes?.states.get(commit.hash) ?? null;
+                const carried = publisher ? null : (carriedBy?.get(commit.hash) ?? null);
                 return (
                   <li
                     key={commit.hash}
                     className="grid min-w-0 gap-2 rounded-lg border border-bolt-elements-borderColor p-3 text-sm"
                   >
                     <div className="min-w-0">
-                      <p className="font-medium text-content-primary wrap-anywhere">{title}</p>
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <p className="min-w-0 font-medium text-content-primary wrap-anywhere">{title}</p>
+                        {state ? <PublishBadge state={state} /> : null}
+                      </div>
                       <p className="text-xs text-content-tertiary wrap-anywhere">
                         {commit.author.name || commit.author.email} ·{' '}
                         <time dateTime={new Date(commit.committedAt * 1_000).toISOString()}>
@@ -191,6 +239,18 @@ export function ProjectHistoryDialog({
                         </time>{' '}
                         · <code className="font-mono">{shortCommit(commit.hash)}</code>
                       </p>
+                      {publisher ? (
+                        <p className="text-xs text-content-secondary wrap-anywhere">
+                          Published by {publisher.name ?? 'someone no longer on CloudChef'}{' '}
+                          <time dateTime={new Date(publisher.at).toISOString()}>
+                            {formatDistanceToNowStrict(publisher.at, { addSuffix: true })}
+                          </time>
+                        </p>
+                      ) : carried ? (
+                        <p className="text-xs text-content-tertiary">
+                          {carried === 'live' ? 'Went live with a later version' : 'Published with a later version'}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {canRevert && revert ? (
@@ -266,6 +326,24 @@ export function ProjectHistoryDialog({
       ) : null}
     </>
   );
+}
+
+const PUBLISH_BADGES = {
+  live: { label: 'Live', className: 'border-accent-500 text-content-primary' },
+  publishing: { label: 'Publishing…', className: 'border-bolt-elements-borderColor text-content-secondary' },
+  failed: { label: "Didn't publish", className: 'border-bolt-elements-borderColor text-bolt-elements-icon-error' },
+  // Live before a newer version: its "Published by" line says enough.
+  published: null,
+} satisfies Record<PublishState, { label: string; className: string } | null>;
+
+/** Beside a version's title, whether it is the one live now, on its way, or didn't publish. */
+function PublishBadge({ state }: { state: PublishState }) {
+  const badge = PUBLISH_BADGES[state];
+  return badge ? (
+    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium ${badge.className}`}>
+      {badge.label}
+    </span>
+  ) : null;
 }
 
 /** A file name from a project's name: lower case, with dashes for anything else. */

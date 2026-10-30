@@ -7,12 +7,16 @@ import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account
 import {
   ARTIFACTS_NAMESPACE,
   findProjectWorker,
+  foldPublishes,
+  mainBuilds,
   openWorkersBuildsAccountApi,
   PRODUCTION_BRANCH,
   projectWorkersBuildsConnection,
   recordProjectWorker,
   WORKERS_BUILDS_CONNECT_URL,
   type OpenWorkersBuildsAccountApi,
+  type PublishOutcome,
+  type PublishState,
 } from '~/lib/.server/cloudflare/workers-builds';
 import { readJsonRequest } from '~/lib/.server/request-guards';
 import {
@@ -289,6 +293,11 @@ export function projectRoute(pathname: string): string | null {
   return match ? `/api/projects/:projectId${match[2]}` : null;
 }
 
+/** The project a path naming one (`/api/projects/<id>/…`) names, or null for any other path. */
+export function projectIdOfPath(pathname: string): string | null {
+  return PROJECT_PATH.exec(pathname)?.[1] ?? null;
+}
+
 /**
  * Moves the project's Worker's builds to its Artifacts repository, for the person who runs the project (its
  * owner, or one of its team's admins). Workers Builds' API names no Artifacts provider for a repository
@@ -306,7 +315,7 @@ export function switchProjectWorkersBuildsAction({
   openAccount?: OpenWorkersBuildsAccountApi;
 }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const projectId = PROJECT_PATH.exec(new URL(request.url).pathname)?.[1] ?? '';
+    const projectId = projectIdOfPath(new URL(request.url).pathname) ?? '';
     const project = await requireManagedProject(env.DB, session.user.id, projectId);
     if (!project.repo) {
       return Response.json(
@@ -349,24 +358,92 @@ export const PROJECT_MAIN_CHANGES_ROUTE = '/api/projects/:projectId/main-changes
 
 /**
  * `GET /api/projects/<id>/main-changes[?before=<ms>&limit=<n>]`: who pushed or rewrote the project's main, from and
- * to which commit, and when, newest first (`listMainChanges`), for anyone who may view the project.
+ * to which commit, and when, newest first (`listMainChanges`), for anyone who may view the project. The first page
+ * also says what became of main's recent commits where that is known (`publishes`, by commit): which one is live,
+ * which were before it, and which are publishing or didn't go live.
  */
-export function listProjectMainChangesAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+export function listProjectMainChangesAction({
+  request,
+  env,
+  openAccount = openWorkersBuildsAccountApi,
+}: {
+  request: Request;
+  env: Env;
+  openAccount?: OpenWorkersBuildsAccountApi;
+}): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const url = new URL(request.url);
-    const projectId = PROJECT_PATH.exec(url.pathname)?.[1] ?? '';
+    const projectId = projectIdOfPath(url.pathname) ?? '';
     const project = await findAccessibleProject(env.DB, projectId, session.user.id);
     if (!project) {
       return Response.json({ error: 'Not found.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
     }
     const before = Number(url.searchParams.get('before'));
     const limit = Number(url.searchParams.get('limit'));
-    const changes = await listMainChanges(env.DB, project.id, {
-      limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50,
-      before: Number.isInteger(before) && before > 0 ? before : null,
-    });
-    return Response.json({ changes }, { headers: { 'Cache-Control': 'private, no-store' } });
+    const firstPage = !(Number.isInteger(before) && before > 0);
+    const [changes, publishes] = await Promise.all([
+      listMainChanges(env.DB, project.id, {
+        limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50,
+        before: firstPage ? null : before,
+      }),
+      firstPage ? mainPublishStates(env, openAccount, project) : new Map<string, PublishState>(),
+    ]);
+    return Response.json(
+      { changes, publishes: Object.fromEntries(publishes) },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    );
   });
+}
+
+/**
+ * What became of main's recent commits: CloudChef's own publishes of a project it deploys, or what Workers Builds
+ * reports for the project's Worker once it is known. Best effort: none when Workers Builds can't be read.
+ */
+async function mainPublishStates(
+  env: Env,
+  openAccount: OpenWorkersBuildsAccountApi,
+  project: Project,
+): Promise<Map<string, PublishState>> {
+  try {
+    if (project.deploysWith === 'cloudchef') {
+      const deployments = (await latestDeployments(env.DB, project.id, 20)).filter(
+        (deployment) => deployment.kind === 'production',
+      );
+      return foldPublishes(
+        deployments.map((deployment) => ({ commit: deployment.commit, outcome: deploymentOutcome(deployment.state) })),
+      );
+    }
+    const connection = project.workersBuildsScriptTag
+      ? await findActiveCloudflareConnection(env.DB, project.connectionId)
+      : null;
+    if (!connection || !project.workersBuildsScriptTag) {
+      return new Map();
+    }
+    const api = await openAccount(env, connection);
+    return foldPublishes(await mainBuilds(api, project.workersBuildsScriptTag));
+  } catch (error) {
+    console.warn({
+      event: 'project_publishes_unreadable',
+      message: error instanceof Error ? error.message : 'unknown',
+    });
+    return new Map();
+  }
+}
+
+function deploymentOutcome(state: string): PublishOutcome {
+  switch (state) {
+    case 'succeeded':
+      return 'succeeded';
+    case 'failed':
+      return 'failed';
+    case 'queued':
+    case 'building':
+    case 'deploying':
+      return 'running';
+    default:
+      // Superseded by a newer commit before it went live, or nothing to publish.
+      return 'none';
+  }
 }
 
 /** How to move a Worker's builds to the project's Artifacts repository in Cloudflare's dashboard. */

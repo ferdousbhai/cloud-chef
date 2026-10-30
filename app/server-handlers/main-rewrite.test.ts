@@ -231,7 +231,7 @@ describe('a runtime telling of a push to main', () => {
     database.prepare(`UPDATE org_project_access SET role = 'view' WHERE user_id = ?`).run(sara.userId);
     const viewed = await read(sara.cookie);
     expect(viewed.status).toBe(200);
-    expect(await viewed.json()).toEqual({ changes: changes.slice(0, 2) });
+    expect(await viewed.json()).toEqual({ changes: changes.slice(0, 2), publishes: {} });
     database.prepare('DELETE FROM org_project_access WHERE user_id = ?').run(sara.userId);
     expect((await read(sara.cookie)).status).toBe(404);
   });
