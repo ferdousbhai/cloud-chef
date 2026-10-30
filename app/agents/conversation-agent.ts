@@ -79,6 +79,7 @@ import type {
 import { commitBuilderTemplate } from './builder-template';
 import { WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
 import { isExcludedProjectPath, revertChanges, seedLinkedWorkspace } from './linked-project-workspace';
+import { SharedProjectRepositories } from '~/lib/.server/cloudflare/shared-project';
 import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
   linkedBuildSettledResult,
@@ -430,6 +431,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   /** The account's project repositories (Artifacts); the ConversationAgent harness replaces it with a fake. */
   private readonly repositories = (): ProjectRepositories => new ProjectRepositories(this.env.ARTIFACTS);
+  /** Whose each project this workspace opened is, when it was shared from another account, as the control plane said. */
+  readonly #sharedFrom = new Map<string, { ownerName: string | null } | null>();
   /** Chat requests between their checks and recording their turn as active: a restore waits for none. */
   private startingTurns = 0;
   /** Editor saves under way, from before their closed check: a closed conversation waits for them too. */
@@ -640,6 +643,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
     await this.settleChatCloudflareChanges();
     const siteNote = this.linkedSiteNote();
+    const sharedNote = this.sharedProjectNote();
     const mainNote = this.mainMovedTurnNote();
     // Until the turn is recorded active, a restore must not start: it would change the files this turn edits.
     this.startingTurns += 1;
@@ -659,7 +663,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (untoldChanges.length > 0) {
       this.setState({ ...this.state, untoldChanges: [] });
     }
-    const turnContext = withNotes(parsed.data.turnContext, [await siteNote, await mainNote, ...untoldChanges]);
+    const turnContext = withNotes(parsed.data.turnContext, [
+      await sharedNote,
+      await siteNote,
+      await mainNote,
+      ...untoldChanges,
+    ]);
     const shown = await this.chat.messages();
     const userMessages = shown.filter((message) => message.role === 'user').length + 1;
     console.info({ event: 'builder_chat_turn_started', firstUserMessage: userMessages === 1 });
@@ -1282,13 +1291,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const linked = await this.workspace.linkedProject();
     const identity = runtimeConnectionIdentity(this.env);
     const project = linked && identity ? await openProject(this.env, identity, linked.orgProjectId) : null;
-    if (!project?.repo || project.role !== 'edit') {
+    if (!linked || !project?.repo || project.role !== 'edit') {
       throw new AgentRefusal('You can view this project but not change it.', 403);
     }
     const repo = project.repo;
+    const repositories = this.projectRepositories(linked.orgProjectId, project);
     // Refused before the files change: what main took elsewhere would be undone by the restore once it is pushed.
-    await this.refuseIfMainMovedElsewhere(await this.repositories().head(repo));
-    const { files } = await this.repositories().readFilesAt(repo, parsed.data, (path) => !isExcludedProjectPath(path));
+    await this.refuseIfMainMovedElsewhere(await repositories.head(repo));
+    const { files } = await repositories.readFilesAt(repo, parsed.data, (path) => !isExcludedProjectPath(path));
     const { baseRevision, changes } = await revertChanges(this.workspace, files);
     const result = await this.applyWorkspaceClientChanges({ baseRevision, changes });
     if (!result.ok) {
@@ -1405,6 +1415,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         return;
       }
       const project = await openProject(this.env, identity, linked.orgProjectId);
+      // A project shared from another account is published there, by the push that changes it.
+      if (project.inAnotherAccount) {
+        return;
+      }
       // A push that lands after the head is read claims its own commit, and wins over this one.
       const headReadAt = Date.now();
       const head =
@@ -1705,6 +1719,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       }
       // Named to the browser at once, not minutes later when the workspace is seeded.
       this.showLinkedProject({ repository: project.name, defaultBranch: MAIN_BRANCH });
+      if (project.inAnotherAccount) {
+        // Shared from another account: read from there through CloudChef, and never imported from here.
+        if (!project.repo) {
+          throw new ProjectRefusalError(
+            `${project.ownerName ?? 'Its owner'} hasn’t opened this project in CloudChef yet. Ask them to open it once.`,
+          );
+        }
+        const shared = this.projectRepositories(orgProjectId, project);
+        return seedLinkedWorkspace(this.workspace, shared, { orgProjectId, name: project.name, repo: project.repo });
+      }
       const repositories = this.repositories();
       const repo = await ensureProjectRepository(this.env, identity, repositories, project);
       return seedLinkedWorkspace(this.workspace, repositories, { orgProjectId, name: project.name, repo });
@@ -1962,13 +1986,69 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /**
+   * The repositories a project this workspace opened is read from: this account's Artifacts, or, for a project shared
+   * from another account, CloudChef's forwarding to that account (`SharedProjectRepositories`). `opened` is the control
+   * plane's answer, remembered so later reads needn't ask again.
+   */
+  private projectRepositories(
+    orgProjectId: string,
+    opened: { inAnotherAccount?: boolean; ownerName?: string | null },
+  ): ProjectRepositories | SharedProjectRepositories {
+    this.#sharedFrom.set(orgProjectId, opened.inAnotherAccount ? { ownerName: opened.ownerName ?? null } : null);
+    const identity = runtimeConnectionIdentity(this.env);
+    return opened.inAnotherAccount && identity
+      ? new SharedProjectRepositories(this.env, identity, orgProjectId)
+      : this.repositories();
+  }
+
+  /** `projectRepositories` for the workspace's project, asking the control plane once whose it is. */
+  private async linkedRepositories(orgProjectId: string): Promise<ProjectRepositories | SharedProjectRepositories> {
+    const known = this.#sharedFrom.get(orgProjectId);
+    if (known !== undefined) {
+      return this.projectRepositories(orgProjectId, { inAnotherAccount: known !== null, ownerName: known?.ownerName });
+    }
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity) {
+      return this.repositories();
+    }
+    return this.projectRepositories(orgProjectId, await openProject(this.env, identity, orgProjectId));
+  }
+
+  /**
+   * For a project shared from another account, the turn's context says whose it is and where publishing it goes:
+   * pushing main puts it live on its owner's site. Null for a project of this account.
+   */
+  private async sharedProjectNote(): Promise<string | null> {
+    try {
+      const linked = await this.workspace.linkedProject();
+      if (!linked) {
+        return null;
+      }
+      await this.linkedRepositories(linked.orgProjectId);
+      const shared = this.#sharedFrom.get(linked.orgProjectId);
+      if (!shared) {
+        return null;
+      }
+      const owner = shared.ownerName ?? 'someone else';
+      return (
+        `This project is ${owner}'s, shared with the person you're working with. Its site and builds are in ` +
+        `${owner}'s Cloudflare account: publishing (pushing main) puts these changes live on ${owner}'s site.`
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * The commits main took since git in the workspace last fetched or pushed it, and who made them, for the turn's
    * context. Null when there are none, or they can't be learned quickly, so a turn never waits on it.
    */
   private async mainMovedTurnNote(): Promise<string | null> {
     const note = (async () => {
       const [linked, known] = await Promise.all([this.workspace.linkedProject(), this.workspace.knownMain()]);
-      return linked ? mainMovedNote(this.repositories(), linked.repository, known) : null;
+      return linked
+        ? mainMovedNote(await this.linkedRepositories(linked.orgProjectId), linked.repository, known)
+        : null;
     })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<null>((resolve) => {

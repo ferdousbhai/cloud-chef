@@ -405,6 +405,11 @@ export type GitProxyDependencies = {
   recordMainFetched(commit: string): Promise<void>;
   fetch: GitFetch;
   waitUntil(promise: Promise<unknown>): void;
+  /**
+   * Whether the repository is another account's, reached through CloudChef (a project shared with the person): the
+   * runtime there stages and checks every push, so here a push is sent on as git sent it. Asked once access is checked.
+   */
+  forwarded?(): boolean;
 };
 
 /**
@@ -452,12 +457,14 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
         await commands.reader.cancel().catch(() => undefined);
         return gitRefusalReport(updates, commands.capabilities, refused);
       }
-      staged = updates
-        .filter((update) => update.ref.startsWith('refs/heads/') && update.newOid !== ZERO_OID)
-        .map((update) => ({
-          update,
-          staged: { ref: `${INCOMING_REFS_ROOT}/${crypto.randomUUID()}`, oldOid: ZERO_OID, newOid: update.newOid },
-        }));
+      staged = deps.forwarded?.()
+        ? []
+        : updates
+            .filter((update) => update.ref.startsWith('refs/heads/') && update.newOid !== ZERO_OID)
+            .map((update) => ({
+              update,
+              staged: { ref: `${INCOMING_REFS_ROOT}/${crypto.randomUUID()}`, oldOid: ZERO_OID, newOid: update.newOid },
+            }));
       body = {
         stream: staged.length > 0 ? rewrittenPush(commands, staged) : prefixed(commands.head, commands.reader),
         decoded: true,

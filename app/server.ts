@@ -1,4 +1,18 @@
 import {
+  acceptProjectInvitationAction,
+  addProjectShareAction,
+  describeProjectInvitationAction,
+  PROJECT_SHARING_ADD_ROUTE,
+  PROJECT_SHARING_INVITATION_ROUTE,
+  PROJECT_SHARING_PERSON_ROUTE,
+  PROJECT_SHARING_ROUTE,
+  projectSharingAction,
+  setProjectInvitationAction,
+  setProjectPersonAction,
+  sharedWithMeAction,
+} from './server-handlers/project-shares';
+import { isRuntimeSharedPath, runtimeSharedAction } from './server-handlers/runtime-shared';
+import {
   commandLineCreateProjectAction,
   commandLineGitAction,
   commandLineLogAction,
@@ -199,6 +213,13 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
     [PROJECT_MAIN_CHANGES_ROUTE]: ['GET', listProjectMainChangesAction],
     [PROJECT_PRESENCE_ROUTE]: ['POST', projectPresenceAction],
+    [PROJECT_SHARING_ROUTE]: ['GET', projectSharingAction],
+    [PROJECT_SHARING_ADD_ROUTE]: ['POST', addProjectShareAction],
+    [PROJECT_SHARING_PERSON_ROUTE]: ['POST', setProjectPersonAction],
+    [PROJECT_SHARING_INVITATION_ROUTE]: ['POST', setProjectInvitationAction],
+    '/api/projects/shared': ['GET', sharedWithMeAction],
+    '/api/project-invitations/describe': ['POST', describeProjectInvitationAction],
+    '/api/project-invitations/accept': ['POST', acceptProjectInvitationAction],
     '/api/cloudflare/runtime-projects/open': ['POST', runtimeOpenProjectAction],
     '/api/cloudflare/runtime-projects/imported': ['POST', runtimeProjectImportedAction],
     '/api/cloudflare/runtime-projects/abandon-import': ['POST', runtimeAbandonImportAction],
@@ -362,6 +383,15 @@ async function routeApplicationRequest(request: Request, env: Env, nonce: string
     return (await runtimeRateLimited(request, env))
       ? new Response('Too many git requests. Try again shortly.\n', { status: 429, headers: { 'Retry-After': '60' } })
       : commandLineGitAction({ request, env });
+  }
+  // A workspace's reads and git for a project shared with its person from another account, limited as runtime calls are.
+  if (isRuntimeSharedPath(pathname)) {
+    return (await runtimeRateLimited(request, env))
+      ? Response.json(
+          { error: 'Too many requests from this workspace. Try again shortly.' },
+          { status: 429, headers: { 'Cache-Control': 'no-store', 'Retry-After': '60' } },
+        )
+      : runtimeSharedAction({ request, env });
   }
   // A path naming one project is routed by its pattern; the handler reads the project from the path.
   const route = exactRoutes.get(projectRoute(pathname) ?? pathname);

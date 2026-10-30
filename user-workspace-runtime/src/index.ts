@@ -141,7 +141,8 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
 export { CloudflareApiProxy } from './cloudflare-api-proxy';
-import { handleCommandLineGit } from './git-proxy';
+import { handleCommandLineGit, handleSharedProjectRequest } from './git-proxy';
+import { readSharedCapabilitySubject } from '../../app/lib/.server/cloudflare/shared-project';
 import type { WorkspaceAgentCommand } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';
 import type { ProjectBuilder } from './project-builder';
@@ -2567,6 +2568,12 @@ async function handleUserRequest(
   }
   const token = bearerToken(request) ?? url.searchParams.get('capability');
   const capability = token ? await verifyRuntimeCapability(env.CONTROL_PLANE_SECRET, token, { origin }) : null;
+  // A request of someone a project of this account is shared with, which only CloudChef signs: for that one project.
+  const sharedPath = /^\/v1\/shared\/([0-9a-f-]{36})\/(.+)$/.exec(url.pathname);
+  const shared = capability ? readSharedCapabilitySubject(capability.subject) : null;
+  if (sharedPath && shared && shared.projectId === sharedPath[1]) {
+    return handleSharedProjectRequest(request, env, ctx, { ...shared, op: sharedPath[2]! });
+  }
   if (!capability || capability.subject !== env.CLOUDCHEF_USER_ID) {
     return withCors(Response.json({ error: 'Unauthorized' }, { status: 401 }), origin);
   }

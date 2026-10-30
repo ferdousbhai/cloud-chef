@@ -356,7 +356,7 @@ export function switchContextAction({ request, env }: { request: Request; env: E
  * web or email address, since whoever chose the name could otherwise put their own link in an email
  * CloudChef sends.
  */
-function nameForEmail(name: string, fallback: string): string {
+export function nameForEmail(name: string, fallback: string): string {
   const plain = name.replace(CONTROL_CHARACTERS, ' ').replace(LINK_LIKE, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
   return /[\p{L}\p{N}]/u.test(plain) ? plain : fallback;
 }

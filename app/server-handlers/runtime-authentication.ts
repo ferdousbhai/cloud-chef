@@ -41,6 +41,22 @@ export async function readAuthenticatedRuntimeRequest<T>(
   return { body, identity, ...authenticated };
 }
 
+/**
+ * A runtime route's request whose body isn't JSON (git's, passed on as it is): the runtime proves who it is from its
+ * headers, and the body is left unread.
+ */
+export async function authenticateRuntimeRequest(
+  env: Env,
+  request: Request,
+): Promise<{ identity: RuntimeIdentity; connection: CloudflareConnection } | Response> {
+  const identity = readRuntimeIdentityHeaders(request.headers);
+  if (!identity) {
+    return credentialResponse({ error: 'Unauthorized.' }, 401);
+  }
+  const authenticated = await authenticateRuntime(env, request, identity);
+  return authenticated instanceof Response ? authenticated : { identity, connection: authenticated.connection };
+}
+
 async function readRuntimeBody<T>(
   request: Request,
   schema: z.ZodType<T>,
