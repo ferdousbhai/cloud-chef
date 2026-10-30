@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { toast } from 'sonner';
 import { Button } from '@ui/Button';
@@ -17,7 +17,12 @@ import {
   type ProjectRef,
 } from '~/lib/cloudflare/projects.client';
 import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
-import { loadMainPublishes, type MainPublishes, type PublishState } from '~/lib/cloudflare/project-presence.client';
+import {
+  carriedVersions,
+  loadMainPublishes,
+  type MainPublishes,
+  type PublishState,
+} from '~/lib/cloudflare/project-presence.client';
 import { messageOf } from '~/lib/json-request';
 import { projectRevertStore } from '~/lib/stores/project-actions.client';
 
@@ -94,6 +99,16 @@ export function ProjectHistoryDialog({
   // Who published each version and which is live, from the control plane, asked once the versions are here; they
   // show without it.
   const historyLoaded = commits !== null;
+  const carriedBy = useMemo(
+    () =>
+      commits && publishes
+        ? carriedVersions(
+            commits.map((commit) => commit.hash),
+            publishes,
+          )
+        : null,
+    [commits, publishes],
+  );
   useEffect(() => {
     if (!historyLoaded) {
       return undefined;
@@ -206,6 +221,7 @@ export function ProjectHistoryDialog({
                 const pending = busy?.hash === commit.hash ? busy.action : null;
                 const publisher = publishes?.by.get(commit.hash) ?? null;
                 const state = publishes?.states.get(commit.hash) ?? null;
+                const carried = publisher ? null : (carriedBy?.get(commit.hash) ?? null);
                 return (
                   <li
                     key={commit.hash}
@@ -229,6 +245,10 @@ export function ProjectHistoryDialog({
                           <time dateTime={new Date(publisher.at).toISOString()}>
                             {formatDistanceToNowStrict(publisher.at, { addSuffix: true })}
                           </time>
+                        </p>
+                      ) : carried ? (
+                        <p className="text-xs text-content-tertiary">
+                          {carried === 'live' ? 'Went live with a later version' : 'Published with a later version'}
                         </p>
                       ) : null}
                     </div>

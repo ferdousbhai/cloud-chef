@@ -57,12 +57,13 @@ async function runtime(input: RequestInfo | URL, init?: RequestInit): Promise<Re
         {
           kind: 'push',
           by: { id: 'u-sara', name: 'Sara' },
-          oldCommit: SECOND,
+          // Main's first push, which brought both versions.
+          oldCommit: null,
           newCommit: FIRST,
           at: Date.now() - 600_000,
         },
       ],
-      publishes: { [FIRST]: 'live', [SECOND]: 'published' },
+      publishes: { [FIRST]: 'live' },
     });
   }
   if (url.startsWith(`${RUNTIME}/v1/projects/archive?`)) {
@@ -140,9 +141,10 @@ describe('ProjectHistoryDialog', () => {
     await vi.waitFor(() => expect(document.body.textContent).toContain('Published by Sara 10 minutes ago'));
     const versions = [...document.querySelectorAll('li')].map((item) => item.textContent ?? '');
     expect(versions[0]).toContain('Live');
-    // The older version was live before; who published it isn't recorded, and it isn't marked.
+    // The older version reached main in the same push, as its earlier commit.
     expect(versions[1]).not.toContain('Live');
     expect(versions[1]).not.toContain('Published by');
+    expect(versions[1]).toContain('Went live with a later version');
   });
 
   it('reverts the open workspace only after confirming', async () => {

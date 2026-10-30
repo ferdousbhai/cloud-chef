@@ -149,7 +149,8 @@ const mainChangesSchema = z.object({
 
 /** Who published each version of main, and when, by commit, with what became of each where known. */
 export type MainPublishes = {
-  by: Map<string, { name: string | null; at: number }>;
+  /** By the commit a push moved main to: who, when, and main's commit before it (null for main's first). */
+  by: Map<string, { name: string | null; at: number; oldCommit: string | null }>;
   states: Map<string, PublishState>;
 };
 
@@ -165,11 +166,11 @@ export async function loadMainPublishes(projectId: string, signal?: AbortSignal)
       undefined,
       signal,
     );
-    const by = new Map<string, { name: string | null; at: number }>();
+    const by: MainPublishes['by'] = new Map();
     for (const change of answer.changes) {
       // Newest first: a commit pushed twice (after a rewrite away and back) goes by its newest.
       if (!by.has(change.newCommit)) {
-        by.set(change.newCommit, { name: change.by?.name ?? null, at: change.at });
+        by.set(change.newCommit, { name: change.by?.name ?? null, at: change.at, oldCommit: change.oldCommit });
       }
     }
     return { by, states: new Map(Object.entries(answer.publishes)) };
@@ -179,4 +180,33 @@ export async function loadMainPublishes(projectId: string, signal?: AbortSignal)
     }
     throw error;
   }
+}
+
+/**
+ * For each version that reached main inside a later push rather than as its last commit, how that push went: 'live'
+ * when it went live (now or before a newer one), otherwise 'published'. Read down the history, newest first: a push's
+ * last commit starts it, and it reaches back until main's commit before that push. A version no recorded push brought
+ * (older than the record, or a push made outside CloudChef) isn't in it.
+ */
+export function carriedVersions(
+  hashes: readonly string[],
+  publishes: MainPublishes,
+): Map<string, 'live' | 'published'> {
+  const carried = new Map<string, 'live' | 'published'>();
+  let push: { oldCommit: string | null; wentLive: boolean } | null = null;
+  for (const hash of hashes) {
+    const pushed = publishes.by.get(hash);
+    if (pushed) {
+      const state = publishes.states.get(hash);
+      push = { oldCommit: pushed.oldCommit, wentLive: state === 'live' || state === 'published' };
+      continue;
+    }
+    if (push && hash === push.oldCommit) {
+      push = null;
+    }
+    if (push) {
+      carried.set(hash, push.wentLive ? 'live' : 'published');
+    }
+  }
+  return carried;
 }

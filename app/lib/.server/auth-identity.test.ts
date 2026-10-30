@@ -125,6 +125,15 @@ describe('signing in with Google or an emailed link', () => {
     ).toEqual({ proven: 1 });
   });
 
+  it('names a new account without a name by its address before the @, as the person wrote it', async () => {
+    const { db } = controlPlaneDatabase();
+    await inviteToTeam(db, 'sara.ahmed@acme.com');
+    await expect(upsertVerifiedEmailUser(db, { email: 'Sara.Ahmed@Acme.com' })).resolves.toMatchObject({
+      email: 'sara.ahmed@acme.com',
+      name: 'Sara.Ahmed',
+    });
+  });
+
   it('makes no account for an address with neither an account nor a waiting invite, and changes nothing', async () => {
     const { database, db } = controlPlaneDatabase();
     // Someone's Cloudflare login reports the address; CloudChef never checked it.

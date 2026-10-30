@@ -1,3 +1,5 @@
+import { shownName } from '~/lib/shown-name';
+
 /**
  * Who has a project open right now, and what changed since someone last had it open. Only metadata is kept
  * (`project_visits`: a person, a project, when they were last seen, and whether their agent is working), never
@@ -58,7 +60,12 @@ export async function listVisitors(db: D1Database, projectId: string, now: numbe
     )
     .bind(projectId, now)
     .all<{ id: string; name: string; image: string | null; working: number }>();
-  return results.map((row) => ({ id: row.id, name: row.name, image: row.image, working: row.working === 1 }));
+  return results.map((row) => ({
+    id: row.id,
+    name: shownName(row.name),
+    image: row.image,
+    working: row.working === 1,
+  }));
 }
 
 /**
@@ -87,7 +94,7 @@ export async function changesSince(
   if (results.length === 0) {
     return null;
   }
-  const people = [...new Set(results.flatMap((row) => (row.name === null ? [] : [row.name])))];
+  const people = [...new Set(results.flatMap((row) => (row.name === null ? [] : [shownName(row.name)])))];
   return { count: results.length, people, latestAt: results[0].changed_at };
 }
 

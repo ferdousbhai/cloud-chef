@@ -8,6 +8,7 @@ import { hereSentence } from '~/components/header/ProjectPresence.client';
 import { resetUserRuntimeSession } from './runtime-session';
 import {
   agentWorkingStore,
+  carriedVersions,
   projectChangesNoticeStore,
   projectVisitorsStore,
   useProjectPresence,
@@ -91,6 +92,29 @@ describe('presence on an open project', () => {
     await act(async () => root?.unmount());
     root = undefined;
     expect(reports).toEqual([{ working: false }]);
+  });
+});
+
+describe('versions that reached main inside a later push', () => {
+  it('say how that push went, back to main as it was before it', () => {
+    const at = 1;
+    const publishes = {
+      by: new Map([
+        ['e', { name: 'Ada', at, oldCommit: 'c' }],
+        ['b', { name: 'Sara', at, oldCommit: null }],
+      ]),
+      states: new Map([
+        ['e', 'publishing' as const],
+        ['b', 'live' as const],
+      ]),
+    };
+    // e (pushed, publishing) brought d; c was main before it, pushed outside the record; b (live) brought a.
+    expect(carriedVersions(['e', 'd', 'c', 'b', 'a'], publishes)).toEqual(
+      new Map([
+        ['d', 'published'],
+        ['a', 'live'],
+      ]),
+    );
   });
 });
 

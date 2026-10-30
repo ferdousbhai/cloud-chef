@@ -2,6 +2,7 @@ import {
   findCloudflareConnectionForOrganization,
   findCloudflareConnectionForUser,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import { shownName } from '~/lib/shown-name';
 import { OrganizationError, requireAdmin } from './organizations.server';
 
 /** One GitHub account a connection's GitHub App is installed on, whose repositories it may import. */
@@ -626,7 +627,7 @@ export async function latestMainChanges(
     .bind(JSON.stringify(projectIds))
     .all<{ project_id: string; changed_at: number; name: string | null }>();
   for (const row of results) {
-    latest.set(row.project_id, { by: row.name, at: row.changed_at });
+    latest.set(row.project_id, { by: row.name === null ? null : shownName(row.name), at: row.changed_at });
   }
   return latest;
 }
@@ -679,7 +680,7 @@ export async function listMainChanges(
     }>();
   return results.map((row) => ({
     kind: row.kind,
-    by: row.changed_by && row.name !== null ? { id: row.changed_by, name: row.name } : null,
+    by: row.changed_by && row.name !== null ? { id: row.changed_by, name: shownName(row.name) } : null,
     oldCommit: row.old_commit,
     newCommit: row.new_commit,
     branch: row.branch,
