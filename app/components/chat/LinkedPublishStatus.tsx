@@ -13,7 +13,7 @@ export function LinkedPublishStatus({ messages }: { messages: readonly CloudChef
   if (!view) {
     return null;
   }
-  const failed = view.kind === 'failed' || view.kind === 'conflict';
+  const failed = view.kind === 'failed';
   return (
     <section
       data-testid="linked-publish-status"

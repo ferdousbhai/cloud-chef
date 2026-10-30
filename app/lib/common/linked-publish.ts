@@ -39,17 +39,9 @@ const linkedPublishDataSchema = z.looseObject({
 });
 export type LinkedPublishData = z.infer<typeof linkedPublishDataSchema>;
 
-/** A live publish whose merge overlapped newer work: the commit is on the conversation's branch, nothing went live. */
-const linkedPublishConflictDataSchema = z.looseObject({
-  branch: z.string(),
-  commit: z.string(),
-  conflict: z.literal(true),
-  defaultBranch: z.string().optional(),
-});
-
 export type LinkedPublishView = {
   /** `not_sent`: nothing reached the repository. Every other kind has a commit there. */
-  kind: 'not_sent' | 'building' | 'built' | 'failed' | 'conflict' | 'unknown';
+  kind: 'not_sent' | 'building' | 'built' | 'failed' | 'unknown';
   title: string;
   /** A sentence for the person, never the model's instructions. */
   detail: string;
@@ -99,21 +91,6 @@ export function linkedPublishView(invocation: CloudChefToolInvocation, now: numb
     return null;
   }
   const output = invocation.output;
-  const conflict = linkedPublishConflictDataSchema.safeParse(output.data).data;
-  if (conflict) {
-    return {
-      kind: 'conflict',
-      title: 'Not published',
-      detail:
-        'Someone else changed the same part of the live project after you started, so your change was not put ' +
-        "live. The live site keeps their change. Yours is saved, but CloudChef can't combine the two yet, so " +
-        "publishing again, from this chat or a new one, won't work.",
-      building: false,
-      followDeadline: null,
-      previewUrl: null,
-      detailsUrl: null,
-    };
-  }
   const data = linkedPublishDataSchema.safeParse(output.data).data;
   if (!data) {
     return output.ok

@@ -1437,6 +1437,7 @@ export class BuilderSourceProxy extends WorkerEntrypoint<BuilderEnv, BuilderProx
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.builderId),
       recordPush: async () => undefined,
       recordBase: async () => undefined,
+      recordMainFetched: async () => undefined,
       fetch: (input, init) => fetch(input, init),
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });

@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { Volume } from 'memfs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { commitBuilderTemplate, loadBuilderTemplate } from '../../app/agents/builder-template';
+import { GIT_SETUP_HEADER } from '../../app/lib/.server/cloudflare/git-proxy';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import { fakeArtifacts } from '../../app/test/fake-artifacts';
 import {
@@ -178,6 +179,8 @@ describe.skipIf(!hasTools)("the workspace container's git", { timeout: 30_000 },
     expect(run(join(root, 'bin', 'git'), ['rev-parse', '--git-dir'], join(project)).stdout).toBe(
       join(root, 'git', 'project.git'),
     );
+    // Its fetch says it is the setup's, so the proxy doesn't count origin/main as taken by the files.
+    expect(gitSetupScript()).toContain(`http.extraHeader='${GIT_SETUP_HEADER}: 1' fetch`);
   });
 
   it("starts a new project's history from its whole template, so a commit of one changed file pushes only that change", async () => {
@@ -369,6 +372,64 @@ describe.skipIf(!hasTools)("the workspace container's git", { timeout: 30_000 },
     ]);
     expect(run(wrapped, ['rev-parse', '--abbrev-ref', 'main@{upstream}'], project).stdout).toBe('origin/main');
     expect(run(wrapped, ['for-each-ref', 'refs/cloudchef'], project).stdout).toBe('');
+  });
+
+  it("builds on a teammate's push of main: a push behind it is turned away with git's advice to pull, and the pull puts this work on top", () => {
+    remoteAheadOfWorkspace();
+    answerWith(null);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    run(wrapped, ['status'], project);
+    // A teammate's workspace started from the same main, and pushed first.
+    const teammate = join(root, 'teammate');
+    git(root, 'clone', '-q', join(root, 'remote.git'), teammate);
+    write(join(teammate, 'c.txt'), 'theirs\n');
+    git(teammate, 'add', 'c.txt');
+    git(teammate, 'commit', '-q', '-m', 'Add c');
+    git(teammate, 'push', '-q', 'origin', 'main');
+
+    run(wrapped, ['add', 'b.txt'], project);
+    expect(run(wrapped, ['commit', '-q', '-m', 'Add b'], project).status).toBe(0);
+    const behind = run(wrapped, ['push', '-q', 'origin', 'main'], project);
+    expect(behind.status).not.toBe(0);
+    expect(behind.stderr).toContain('git pull');
+    expect(remoteRef('refs/heads/main')).toBe(git(teammate, 'rev-parse', 'HEAD'));
+
+    // An edit saved but not committed (the person's editor, say) is set aside for the pull and put back.
+    write(join(project, 'a.txt'), 'edited\n');
+    const pulled = run(wrapped, ['pull', '-q'], project);
+    expect(pulled.status).toBe(0);
+    expect(readFileSync(join(project, 'a.txt'), 'utf8')).toBe('edited\n');
+    expect(readFileSync(join(project, 'c.txt'), 'utf8')).toBe('theirs\n');
+    expect(run(wrapped, ['log', '--format=%s', '-3'], project).stdout.split('\n')).toEqual(['Add b', 'Add c', 'two']);
+    expect(run(wrapped, ['push', '-q', 'origin', 'main'], project).status).toBe(0);
+    expect(remoteRef('refs/heads/main')).toBe(run(wrapped, ['rev-parse', 'HEAD'], project).stdout);
+  });
+
+  it('stops a pull where a teammate changed the same lines differently, and puts everything back on abort', () => {
+    remoteAheadOfWorkspace();
+    answerWith(null);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    run(wrapped, ['status'], project);
+    const teammate = join(root, 'teammate');
+    git(root, 'clone', '-q', join(root, 'remote.git'), teammate);
+    write(join(teammate, 'a.txt'), 'theirs\n');
+    git(teammate, 'commit', '-q', '-am', 'Theirs');
+    git(teammate, 'push', '-q', 'origin', 'main');
+
+    write(join(project, 'a.txt'), 'mine\n');
+    expect(run(wrapped, ['commit', '-q', '-am', 'Mine'], project).status).toBe(0);
+    const mine = run(wrapped, ['rev-parse', 'HEAD'], project).stdout;
+    const pulled = run(wrapped, ['pull'], project);
+    expect(pulled.status).not.toBe(0);
+    expect(`${pulled.stdout}\n${pulled.stderr}`).toContain('CONFLICT');
+
+    expect(run(wrapped, ['rebase', '--abort'], project).status).toBe(0);
+    expect(run(wrapped, ['rev-parse', 'HEAD'], project).stdout).toBe(mine);
+    expect(readFileSync(join(project, 'a.txt'), 'utf8')).toBe('mine\n');
   });
 
   it('never fails or holds up a commit when its branches cannot be saved', () => {

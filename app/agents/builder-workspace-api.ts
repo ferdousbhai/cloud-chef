@@ -306,6 +306,8 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   takeGitPushes(): Promise<RefUpdate[]>;
+  knownMain(): Promise<string | null>;
+  setMainFetched(commit: string): Promise<void>;
 }
 
 /**
@@ -367,6 +369,13 @@ export interface BuilderWorkspaceApi {
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   /** The refs git in the workspace pushed since this was last asked, each given once. */
   takeGitPushes(): Promise<RefUpdate[]>;
+  /**
+   * The commit main was at when git in the workspace last fetched or pushed it, or CloudChef seeded or saved the
+   * workspace at; null when that isn't known.
+   */
+  knownMain(): Promise<string | null>;
+  /** Main is now at `commit` in the workspace too: seeded from it, or saved to it by CloudChef from the workspace. */
+  setMainFetched(commit: string): Promise<void>;
   prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
   deleteProject(): Promise<void>;
 }

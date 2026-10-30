@@ -215,9 +215,10 @@ const gitRepositorySchema = z.object({
   repo: z.string().min(1).max(256),
   orgProjectId: z.string().min(1).max(256).nullable(),
 });
+const gitCommitSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const gitBaseSchema = z.object({
   branch: z.string().regex(/^[A-Za-z0-9._/-]{1,255}$/),
-  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  commit: gitCommitSchema,
 });
 const gitPushSchema = z.object({
   ref: z.string().min(1).max(1024),
@@ -489,6 +490,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // container is based on, so others' later commits never show as changes undone here.
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'base_branch', 'TEXT');
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'base_commit', 'TEXT');
+    // The commit main was at when the workspace last took it: git in the container fetched or pushed it, or
+    // CloudChef seeded or saved the files at it.
+    addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'main_fetched', 'TEXT');
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_git_pushes (
          id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2334,6 +2338,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.ctx.storage.sql.exec(
       `INSERT INTO cloudchef_git_repository (singleton, repo, org_project_id, updated_at) VALUES (1, ?, ?, ?)
        ON CONFLICT(singleton) DO UPDATE SET repo = excluded.repo, org_project_id = excluded.org_project_id,
+         main_fetched = CASE WHEN repo = excluded.repo THEN main_fetched ELSE NULL END,
          updated_at = excluded.updated_at`,
       parsed.repo,
       parsed.orgProjectId,
@@ -2379,6 +2384,33 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       update.newOid,
       Date.now(),
     );
+    // git sets origin/main to what it pushed there.
+    if (update.ref === 'refs/heads/main' && !/^0{40}$/.test(update.newOid)) {
+      this.setMainFetched(update.newOid);
+    }
+  }
+
+  /** Main is at `commit` in the workspace now: git in the container fetched it, or CloudChef seeded or saved the files at it. */
+  setMainFetched(value: string): void {
+    const commit = gitCommitSchema.parse(value);
+    this.ctx.storage.sql.exec('UPDATE cloudchef_git_repository SET main_fetched = ? WHERE singleton = 1', commit);
+  }
+
+  /**
+   * The commit main was at when git in the container last fetched or pushed it, or, before it ever has, the
+   * commit a team project was opened at; null when neither is known.
+   */
+  knownMain(): string | null {
+    const row = first(
+      this.ctx.storage.sql.exec<{ repo: string; main_fetched: string | null }>(
+        'SELECT repo, main_fetched FROM cloudchef_git_repository WHERE singleton = 1',
+      ),
+    );
+    if (!row) {
+      return null;
+    }
+    const linked = row.main_fetched === null ? this.linkedProject() : null;
+    return row.main_fetched ?? (linked?.repository === row.repo ? linked.baseCommit : null);
   }
 
   /** The branch and commit git in the container has checked out, which the repository holds: the next one starts there. */

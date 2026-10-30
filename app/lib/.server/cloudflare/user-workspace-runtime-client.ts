@@ -690,6 +690,14 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     return (await this.#stub()).takeGitPushes();
   }
 
+  async knownMain(): Promise<string | null> {
+    return (await this.#stub()).knownMain();
+  }
+
+  async setMainFetched(commit: string): Promise<void> {
+    await (await this.#stub()).setMainFetched(commit);
+  }
+
   hasSuccessfulValidation(revision: string): Promise<boolean> {
     return this.#stub()
       .then((stub) => stub.validationStatus(revision))

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { fakeArtifacts } from '~/test/fake-artifacts';
-import { handleGitProxyRequest, mainPushReport, type GitProxyDependencies } from './git-proxy';
+import {
+  GIT_SETUP_HEADER,
+  handleGitProxyRequest,
+  MAIN_MOVED_REFUSAL,
+  mainPushReport,
+  type GitProxyDependencies,
+} from './git-proxy';
 import { ProjectRepositories } from './project-repository';
 import { concatBytes, pktLine, readPktLines, ZERO_OID } from './repository-wire';
 import type { RefUpdate } from './git-proxy';
@@ -24,6 +30,7 @@ function harness(
   const revoked: string[] = [];
   const recorded: RefUpdate[] = [];
   const bases: { branch: string; commit: string }[] = [];
+  const fetched: string[] = [];
   const pending: Promise<unknown>[] = [];
   const deps: GitProxyDependencies = {
     repository: async () => ({ repo: 'chat-1', orgProjectId: null, base: { branch: 'main', commit: OLD } }),
@@ -44,6 +51,9 @@ function harness(
     recordPush: async (update) => {
       recorded.push(update);
     },
+    recordMainFetched: async (commit) => {
+      fetched.push(commit);
+    },
     recordBase: async (base) => {
       bases.push(base);
     },
@@ -60,7 +70,7 @@ function harness(
   const settled = async () => {
     await Promise.all(pending);
   };
-  return { deps, sent, revoked, recorded, bases, settled };
+  return { deps, sent, revoked, recorded, bases, fetched, settled };
 }
 
 function push(commands: string[], init: { gzip?: boolean } = {}): Request {
@@ -437,6 +447,16 @@ describe('the workspace git proxy', () => {
     );
     await listed.settled();
     expect(listed.revoked).toEqual(['token-read']);
+    // What a fetch lists main at is what origin/main is in the workspace now; a push's list changes nothing there.
+    expect(listed.fetched).toEqual([OLD]);
+    const pushing = harness({ answer: () => refs([`${OLD} refs/heads/main\0report-status\n`]) });
+    await (
+      await handleGitProxyRequest(
+        new Request('http://git.internal/project.git/info/refs?service=git-receive-pack'),
+        pushing.deps,
+      )
+    ).arrayBuffer();
+    expect(pushing.fetched).toEqual([]);
 
     const hidden = harness({ answer: () => refs([`${OLD} refs/cloudchef/workspaces/w2/main\0multi_ack\n`]) });
     expect(await text(await handleGitProxyRequest(advertise, hidden.deps))).toContain(
@@ -466,6 +486,13 @@ describe('the workspace git proxy', () => {
     const listed = await text(await handleGitProxyRequest(v2('ls-refs'), listing.deps));
     expect(listed).not.toContain('workspaces/w2');
     expect(listed).toContain(`${OLD} refs/heads/main`);
+    expect(listing.fetched).toEqual([OLD]);
+    // The container's setup fetch after a restart moves no file: what it lists isn't taken.
+    const setup = harness({ answer });
+    const request = v2('ls-refs');
+    request.headers.set(GIT_SETUP_HEADER, '1');
+    expect(await text(await handleGitProxyRequest(request, setup.deps))).toContain(`${OLD} refs/heads/main`);
+    expect(setup.fetched).toEqual([]);
     expect(new TextDecoder().decode(listing.sent[0]?.body ?? new Uint8Array())).toContain('command=ls-refs');
 
     const fetching = harness({ answer });
@@ -517,6 +544,7 @@ describe("main's history in the repository itself", () => {
         recorded.push(update);
       },
       recordBase: async () => undefined,
+      recordMainFetched: async () => undefined,
       fetch: artifacts.fetch,
       waitUntil: () => undefined,
     };
@@ -534,6 +562,20 @@ describe("main's history in the repository itself", () => {
     // No ref is left behind for the commit it brought.
     const incoming = artifacts.pushes.filter((pushed) => pushed.ref.startsWith('refs/cloudchef/incoming/'));
     expect(incoming.map((pushed) => pushed.newOid)).toEqual([rewritten, ZERO_OID]);
+  });
+
+  it('says plainly that main moved when another push lands between git reading main and this push', async () => {
+    const { artifacts, repositories, deps, recorded, first, second } = await project();
+    // Both started from `first`; this one's commit is on top of it, and the other push took main to `second`.
+    const mine = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'mine' });
+    await repositories.resetMain('p-site', second);
+
+    const answer = await text(await handleGitProxyRequest(push([`${first} ${mine} refs/heads/main`]), deps));
+
+    expect(answer).toContain(`ng refs/heads/main ${MAIN_MOVED_REFUSAL}`);
+    expect(MAIN_MOVED_REFUSAL).toContain('git pull');
+    expect(await artifacts.head('p-site')).toBe(second);
+    expect(recorded).toEqual([]);
   });
 
   it('moves main for a push that adds to it', async () => {

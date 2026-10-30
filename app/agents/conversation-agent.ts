@@ -171,6 +171,7 @@ import { providerFailureText } from '~/lib/.server/llm/provider-failure-text';
 import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
 import { BUILDER_SETTINGS, BuilderChatStream, builderExtension } from './builder-pi';
 import { CHAT_ENTRY, toolOutputEntryData, userEntryData } from './builder-chat-view';
+import { mainMovedNote } from './main-moved-note';
 import { readLegacyMessages } from './legacy-chat';
 import type { BuilderModel, BuilderModelId, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
@@ -420,7 +421,10 @@ export type ConversationAgentState = {
   turnModel?: BuilderTurnModel | null;
   /** Why the last turn failed, in words for the person; cleared when the next one starts. */
   turnError?: string | null;
-  /** What became of changes commands left waiting in the chat, decided since the model last ran: told at its next turn. */
+  /**
+   * What became of changes commands left waiting in the chat, decided since the model last ran, and saves of the
+   * workspace to main CloudChef refused: told at its next turn.
+   */
   untoldChanges?: string[];
   validationProgress?: {
     toolCallId: string;
@@ -867,6 +871,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
     await this.settleChatCloudflareChanges();
     const siteNote = this.linkedSiteNote();
+    const mainNote = this.mainMovedTurnNote(chatInitialId);
     // From the stop until the turn is recorded active, no automatic publication may start: this turn's end publishes.
     this.startingTurns += 1;
     let turn: BuilderTurnState;
@@ -903,6 +908,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       publicationFailure &&
         `CloudChef publication status: ${publicationFailure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`,
       await siteNote,
+      await mainNote,
       ...untoldChanges,
     ]);
     const shown = await this.chat.messages();
@@ -1635,10 +1641,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const durableIdentity = await this.requireDurableIdentity('revert_to_commit');
     const parsed = revertRequestSchema.safeParse(commit);
     if (!parsed.success) {
-      throw new Response('Invalid commit.', { status: 400 });
+      throw new AgentRefusal('Invalid commit.', 400);
     }
     if (this.state.activeTurn || this.startingTurns > 0) {
-      throw new Response('Stop the agent before restoring a version.', { status: 409 });
+      throw new AgentRefusal('Stop the agent before restoring a version.', 409);
     }
     await this.learnAdoption();
     await this.refuseIfClosed();
@@ -1648,15 +1654,18 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       const identity = runtimeConnectionIdentity(this.env);
       const project = identity ? await openProject(this.env, identity, linked.orgProjectId) : null;
       if (!project?.repo || project.role !== 'edit') {
-        throw new Response('You can view this project but not change it.', { status: 403 });
+        throw new AgentRefusal('You can view this project but not change it.', 403);
       }
       repo = project.repo;
+    } else {
+      // Refused before the files change: the revert's commit would undo what main took elsewhere.
+      await this.refuseIfMainMovedElsewhere(await this.repositories().head(repo));
     }
     const { files } = await this.repositories().readFilesAt(repo, parsed.data, (path) => !isExcludedProjectPath(path));
     const { baseRevision, changes } = await revertChanges(this.workspace, files);
     const result = await this.applyWorkspaceClientChanges({ baseRevision, changes });
     if (!result.ok) {
-      throw new Response('The project changed while this version was being restored. Try again.', { status: 409 });
+      throw new AgentRefusal('The project changed while this version was being restored. Try again.', 409);
     }
     if (!linked && result.changedPaths.length > 0) {
       const checkpoint = await this.workspace.checkpoint();
@@ -2141,7 +2150,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await commitBuilderTemplate(repositories, own, await commitAuthor(this.env));
     }
     const { commit, files } = await repositories.readFilesAt(own, MAIN_BRANCH, (path) => !isExcludedProjectPath(path));
-    return seedBuilderWorkspace(
+    const seeded = await seedBuilderWorkspace(
       this.workspace,
       `repository_${commit.hash}`,
       files.map((file): BuilderWorkspaceFileInput => ({
@@ -2151,6 +2160,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         mode: workspaceFileMode(file.mode),
       })),
     );
+    // The files are main's at that commit: what saving them to main later checks main hasn't moved past.
+    await this.workspace.setGitRepository({ repo: own, orgProjectId: null });
+    await this.workspace.setMainFetched(commit.hash);
+    return seeded;
   }
 
   /**
@@ -2381,6 +2394,29 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       return origins.length > 0 ? `The project's live site and preview links: ${origins.join(', ')}` : null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * The commits main took since git in the workspace last fetched or pushed it, and who made them, for the turn's
+   * context. Null when there are none, or they can't be learned quickly, so a turn never waits on it.
+   */
+  private async mainMovedTurnNote(chatInitialId: string): Promise<string | null> {
+    const note = (async () => {
+      const [linked, known] = await Promise.all([this.workspace.linkedProject(), this.workspace.knownMain()]);
+      return mainMovedNote(this.repositories(), linked?.repository ?? nativeProjectRepo(chatInitialId), known);
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SITE_NOTE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([note, late]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      note.catch(() => undefined);
     }
   }
 
@@ -3370,6 +3406,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     // Two commits can race for main (a publish's and a production request's): the loser goes again on top.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const parent = await repositories.head(repo);
+      await this.refuseIfMainMovedElsewhere(parent);
       const result = await repositories.commitFiles({
         repo,
         branch: MAIN_BRANCH,
@@ -3379,10 +3416,39 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         author,
       });
       if ('commit' in result) {
+        await this.workspace.setMainFetched(result.commit);
         return { hash: result.commit, unchanged: result.unchanged === true };
       }
     }
     throw new Error('main of the project repository kept moving.');
+  }
+
+  /**
+   * Refuses saving the workspace over main (at `head`, null before main exists) when main took commits the
+   * workspace's files aren't based on, pushed from the person's computer or another chat: committing the files on
+   * top would silently undo them. The model is told at its next turn.
+   */
+  private async refuseIfMainMovedElsewhere(head: string | null): Promise<void> {
+    const known = head === null ? null : await this.workspace.knownMain();
+    if (head === null || head === known) {
+      return;
+    }
+    // Nothing recorded (a workspace from before this was kept, or whose git never fetched): main may not have moved
+    // at all, so the person is told only that the copy needs bringing up to date.
+    const why =
+      known === null
+        ? "which commit of main the workspace's files are based on isn't known, as git here hasn't fetched or " +
+          'pushed main yet.'
+        : "main has commits the workspace's files aren't based on, pushed from elsewhere since git here last fetched.";
+    this.setState({
+      ...this.state,
+      untoldChanges: [
+        ...(this.state.untoldChanges ?? []),
+        `CloudChef refused to save the workspace to main (to restore a version, or for a production request): ${why} ` +
+          '`git pull` brings it up to date.',
+      ],
+    });
+    throw new AgentRefusal(known === null ? MAIN_BASE_UNKNOWN : MAIN_MOVED_ELSEWHERE, 409);
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */
@@ -3572,12 +3638,32 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
-/** How long a turn's start waits for a team project's addresses before going on without them. */
+/**
+ * A callable's refusal, in words for the person: the Agents SDK sends a thrown Error's message to the browser,
+ * where a thrown Response would read only "Unknown error occurred".
+ */
+class AgentRefusal extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/** Why the workspace can't be saved over main that moved elsewhere, in words for the person. */
+const MAIN_MOVED_ELSEWHERE =
+  'This project changed somewhere else since your copy was last updated, from your computer or another chat. ' +
+  'Ask CloudChef to bring in the latest changes, then try again.';
+/** Why the workspace can't be saved over main when what its files are based on isn't known, in words for the person. */
+const MAIN_BASE_UNKNOWN =
+  'CloudChef needs to bring your copy up to date with the project first. Ask it to, then try again.';
+/** How long a turn's start waits for a team project's addresses, or what main took since git last fetched it. */
 const SITE_NOTE_TIMEOUT_MS = 5_000;
 
 /**
  * Puts CloudChef's own notes for this turn (the last automatic publication's failure, a team project's
- * addresses) ahead of the turn's workspace context.
+ * addresses, the commits main took since git last fetched it) ahead of the turn's workspace context.
  */
 function withNotes(
   turnContext: ChatTurnContext | undefined,

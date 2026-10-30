@@ -26,9 +26,9 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['commit', 'Saving stopped'],
 ]);
 
-/** A team project's publish that was not sent, or whose build failed or hit a conflict. */
+/** A team project's publish that was not sent, or whose build failed. */
 function publishFailed(publish: LinkedPublishView): boolean {
-  return publish.kind === 'not_sent' || publish.kind === 'failed' || publish.kind === 'conflict';
+  return publish.kind === 'not_sent' || publish.kind === 'failed';
 }
 
 /**

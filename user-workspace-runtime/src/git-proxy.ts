@@ -96,6 +96,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
         await publishPush(this.env, deployed, update);
       },
       recordBase: (base) => workspace.setGitBase(base),
+      recordMainFetched: (commit) => workspace.setMainFetched(commit),
       fetch: (input, init) => fetch(input, init),
       waitUntil: (promise) => this.ctx.waitUntil(promise),
     });
@@ -181,6 +182,7 @@ export async function handleCommandLineGit(
       await publishPush(env, deployed, update);
     },
     recordBase: async () => undefined,
+    recordMainFetched: async () => undefined,
     fetch: (input, init) => fetch(input, init),
     waitUntil: (promise) => ctx.waitUntil(promise),
   });
@@ -225,6 +227,7 @@ export async function handleCommandLineAppGit(
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: async () => undefined,
     recordBase: async () => undefined,
+    recordMainFetched: async () => undefined,
     fetch: (input, init) => fetch(input, init),
     waitUntil: (promise) => ctx.waitUntil(promise),
   });
