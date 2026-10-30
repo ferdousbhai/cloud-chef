@@ -10,7 +10,7 @@ import { MODEL_TOOL_INPUT_SCHEMAS } from 'cloudchef-agent/model-tool-inputs';
 import { VALIDATE_COMMAND } from 'cloudchef-agent/constants';
 import { formatStreamedSize, streamedToolInput } from './streaming-tool-input';
 import { z } from 'zod';
-import { isCloudChefToolResult, toolResultSucceeded } from 'cloudchef-agent/tool-result';
+import { toolResultSucceeded } from 'cloudchef-agent/tool-result';
 import type { LinkedPublishView } from '~/lib/common/linked-publish';
 import { attachedValidation, validationFailed } from './validation-verdict';
 
@@ -21,7 +21,6 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['write', 'File write stopped'],
   ['edit', 'File edit stopped'],
   ['exec', 'Command stopped'],
-  ['commit', 'Saving stopped'],
 ]);
 
 /** A push whose build failed. */
@@ -94,15 +93,6 @@ export function toolTitle(
         <FileIcon />,
       );
     }
-    case 'commit':
-      return isToolActivityStatusActive(status)
-        ? titleRow('Saving a version')
-        : isErrorResult(invocation)
-          ? titleRow('Version not saved', <Cross2Icon className="text-content-secondary" />)
-          : titleRow(
-              alreadySaved(invocation) ? 'Already saved' : 'Saved a version',
-              <CheckIcon className="text-content-secondary" />,
-            );
     default:
       // A tool no longer offered, kept in an old chat: shown by its name, with its result as it was saved.
       return invocation.toolName;
@@ -136,15 +126,6 @@ const editedPathSchema = z.looseObject({ path: z.string() });
 
 function icon(content: ReactNode, color: string): ReactNode {
   return <div className={classNames('text-base', color)}>{content}</div>;
-}
-
-/** A save that found the project's latest version already holds these files, so nothing new was saved. */
-function alreadySaved(invocation: CloudChefToolInvocation): boolean {
-  return (
-    invocation.state === 'output-available' &&
-    isCloudChefToolResult(invocation.output) &&
-    z.object({ unchanged: z.literal(true) }).safeParse(invocation.output.data).success
-  );
 }
 
 export function isErrorResult(invocation: CloudChefToolInvocation): boolean {

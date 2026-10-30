@@ -281,6 +281,7 @@ describe('ToolCall', () => {
     const invocation: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'input-available',
+      // A tool no longer offered, as an old chat kept it.
       toolCallId: 'commit-2',
       toolName: 'commit',
       input: { message: 'Add a pricing page' },
@@ -299,7 +300,7 @@ describe('ToolCall', () => {
 
     expect(container.textContent).not.toContain('Working…');
     expect(container.textContent).toContain('Stopped before this tool returned a result.');
-    expect(container.textContent).toContain('Saving stopped');
+    expect(container.textContent).toContain('Tool stopped');
   });
   it("titles a command's push by what happened to its build, and links what the build reported instead of dumping it", async () => {
     const push = (data: Partial<LinkedPublishData>, ok = true): CloudChefToolInvocation => ({

@@ -274,7 +274,7 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
 /**
  * The project repository git in the workspace reaches through its git proxy, with the project it belongs to.
  */
-export type BuilderWorkspaceGitRepository = { repo: string; orgProjectId: string | null };
+export type BuilderWorkspaceGitRepository = { repo: string; orgProjectId: string };
 
 /**
  * Project workspace operations available to the CloudChef control plane.

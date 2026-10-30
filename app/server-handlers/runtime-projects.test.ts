@@ -89,7 +89,7 @@ async function setup() {
     INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_full_name, import_branch, artifact_repo, created_from, created_at)
       VALUES ('${BLOG}', 'team-connection', '33333333-3333-4333-8333-333333333333', 'Blog', 'ada/blog', 'main', 't-${BLOG}', 'github', 1);
     INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
-      VALUES ('${PROMOTED}', 'team-connection', '33333333-3333-4333-8333-333333333333', 'Recipes', 'p-recipes', 'draft', 1);
+      VALUES ('${PROMOTED}', 'team-connection', '33333333-3333-4333-8333-333333333333', 'Recipes', 'p-recipes', 'chat', 1);
     INSERT INTO org_projects (id, connection_id, name, import_repo_full_name, import_branch, created_from, created_at)
       VALUES ('${OWN}', 'sara-own', 'Mine', 'sara/mine', 'main', 'github', 1);
   `);
