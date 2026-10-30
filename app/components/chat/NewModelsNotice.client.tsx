@@ -46,7 +46,8 @@ export function NewModelsNotice({ placement = 'above' }: { placement?: NoticePla
   );
 }
 
-function Notice({
+/** A closable tip beside the prompt box. */
+export function Notice({
   children,
   placement,
   onDismiss,

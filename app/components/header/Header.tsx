@@ -14,6 +14,9 @@ import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm.client'
 import { useWebMcpTools } from '~/lib/webmcp.client';
 
 const ProjectMenu = lazy(() => import('./ProjectMenu.client').then((module) => ({ default: module.ProjectMenu })));
+const ProjectPresence = lazy(() =>
+  import('./ProjectPresence.client').then((module) => ({ default: module.ProjectPresence })),
+);
 const ProjectDialogs = lazy(() =>
   import('./ProjectDialogs.client').then((module) => ({ default: module.ProjectDialogs })),
 );
@@ -84,10 +87,11 @@ export function Header() {
             nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
           />
         </div>
-        <div className="flex min-w-0 flex-1 px-2 sm:px-4">
+        <div className="flex min-w-0 flex-1 items-center gap-1 px-2 sm:px-4">
           {chat.started && (
             <Suspense fallback={null}>
               <ProjectMenu />
+              <ProjectPresence />
             </Suspense>
           )}
         </div>

@@ -20,6 +20,7 @@ import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { getMessageInputPrimaryActionLabel, useMessageInputController } from './useMessageInputController';
 import { BuilderModelSelector } from './BuilderModelSelector.client';
 import { NewModelsNotice } from './NewModelsNotice.client';
+import { ProjectChangesNotice } from './ProjectChangesNotice.client';
 import { PromptPrefillContext } from './prompt-prefill';
 import { adoptEarlyPrompt, PROMPT_TEXTAREA_CLASS } from './early-prompt';
 
@@ -112,6 +113,7 @@ export const MessageInput = memo(function MessageInput({
       >
         {/* In a chat the box sits at the bottom, so a notice above it moves nothing; on the home it goes below. */}
         {modelSelector && chatStarted ? <NewModelsNotice /> : null}
+        {chatStarted ? <ProjectChangesNotice /> : null}
         <div
           className={classNames(
             'cloudchef-message-input__surface rounded-lg bg-bolt-elements-background-depth-1 shadow-panel',

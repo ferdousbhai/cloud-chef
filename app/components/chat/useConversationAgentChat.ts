@@ -25,6 +25,7 @@ import type { BuilderWorkspaceAgent } from '~/lib/stores/builder-workspace-colle
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { toolProgressStore } from '~/lib/stores/tool-progress.client';
 import { projectRevertStore } from '~/lib/stores/project-actions.client';
+import { agentWorkingStore } from '~/lib/cloudflare/project-presence.client';
 import { useQueryClient } from '@tanstack/react-query';
 import { conversationsQueryKey } from '~/lib/cloudflare/data-hooks';
 import {
@@ -494,6 +495,12 @@ export function useConversationAgentChat(args: {
     },
     [conversationAgent],
   );
+
+  // The others on the project see when this person's agent is working: only that it is, nothing of what it does.
+  useEffect(() => {
+    agentWorkingStore.set(busy);
+  }, [busy]);
+  useEffect(() => () => agentWorkingStore.set(false), [conversationAgent]);
 
   // History reverts through this connection: the agent applies the commit's files as one change set, and
   // refuses while a turn runs.

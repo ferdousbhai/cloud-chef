@@ -136,6 +136,57 @@ export async function projectBuildStatus(
   return previewUrl ? { state, previewUrl, logUrl } : { state, logUrl };
 }
 
+/**
+ * What became of each recent commit of main a Worker built, newest build first, as `foldPublishes` reads them:
+ * the Worker's latest builds, of main only.
+ */
+export async function mainBuilds(
+  api: Pick<WorkersBuildsAccountApi, 'listWorkersBuilds'>,
+  tag: string,
+): Promise<{ commit: string; outcome: PublishOutcome }[]> {
+  const builds = await api.listWorkersBuilds(tag, BUILDS_SEARCHED);
+  return builds
+    .filter((build) => build.branch === PRODUCTION_BRANCH && build.commit !== null)
+    .sort((a, b) => Date.parse(b.createdOn ?? '') - Date.parse(a.createdOn ?? ''))
+    .map((build) => {
+      const state = buildState(build);
+      return {
+        commit: build.commit!,
+        outcome:
+          state === 'succeeded' ? 'succeeded' : state === 'failed' ? 'failed' : state === 'none' ? 'none' : 'running',
+      };
+    });
+}
+
+/** How one publish of a commit of main went, whoever ran it: still running, done, failed, or nothing built. */
+export type PublishOutcome = 'running' | 'succeeded' | 'failed' | 'none';
+
+/** Whether a commit of main is live now, was live before a newer one, is on its way, or didn't go live. */
+export type PublishState = 'live' | 'published' | 'publishing' | 'failed';
+
+/**
+ * Each commit's publish state from its publishes, newest first: the newest that succeeded is live, older ones that
+ * succeeded were published, and a commit's newest publish decides the rest. A commit nothing built is left out.
+ */
+export function foldPublishes(
+  publishes: readonly { commit: string; outcome: PublishOutcome }[],
+): Map<string, PublishState> {
+  const states = new Map<string, PublishState>();
+  let liveFound = false;
+  for (const { commit, outcome } of publishes) {
+    if (states.has(commit) || outcome === 'none') {
+      continue;
+    }
+    if (outcome === 'succeeded') {
+      states.set(commit, liveFound ? 'published' : 'live');
+      liveFound = true;
+    } else {
+      states.set(commit, outcome === 'running' ? 'publishing' : 'failed');
+    }
+  }
+  return states;
+}
+
 function buildState(build: WorkersBuild): ProjectBuildStatus['state'] {
   switch (build.status) {
     case 'queued':

@@ -269,7 +269,16 @@ Builds reads main from there, so the control plane never sees it go by: the runt
 moved (`runtime-projects/main-pushed`), and it keeps who pushed, when, and main's commit before and after in
 `project_main_pushes`, for a member who may edit the project. `listMainChanges` (and `GET /api/projects/<id>/main-changes`)
 reads a project's pushes and rewrites back, newest first. The projects home shows the newest push or rewrite on the
-project's card ("Updated 2 hours ago by Sara"). A
+project's card ("Updated 2 hours ago by Sara"); the History dialog names who published each version and, from
+the same route's `publishes` (CloudChef's own deployments of the project, or Workers Builds' latest builds of main for
+its recorded Worker, read with the connection's authorization), which version is live, publishing, or didn't publish.
+Who has a project open is kept beside it, as metadata only (`project_visits`, `app/server-handlers/project-presence.ts`):
+a browser with a project open reports every 30 seconds (`POST /api/projects/<id>/presence`, with whether that person's
+agent is running a turn, which their browser already knows), someone is shown beside the project's name while their
+last report is under 90 seconds old, and closing the project says so at once. The first report of a visit answers what
+others pushed or rewrote since the person's last one, said once as a closable tip. Only someone who may view the project
+(`findAccessibleProject`) reports or sees anyone, nothing anyone writes or says reaches the control plane, and scheduled
+maintenance forgets visits not made for 180 days. A
 push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
 checked). A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
