@@ -103,9 +103,10 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
 }
 
 /**
- * A push to a team project's main is told to the control plane, which keeps who pushed it and when for the team:
- * nothing else of it reaches CloudChef, as the push goes straight to the repository and Workers Builds reads main
- * from there. One that can't be told is logged; the push stands.
+ * A push to a project's main (a team's or a person's own, whoever publishes it) is told to the control plane, which
+ * keeps who pushed it, from and to which commit, and when (`listMainChanges`): nothing else of it reaches CloudChef,
+ * as the push goes straight to the repository and Workers Builds reads main from there. It is told again once if the first telling fails; one that still can't be told is logged, and the push
+ * stands.
  */
 async function recordMainPush(env: GitProxyEnv, orgProjectId: string | null, update: RefUpdate): Promise<void> {
   const identity = runtimeConnectionIdentity(env);
@@ -113,9 +114,9 @@ async function recordMainPush(env: GitProxyEnv, orgProjectId: string | null, upd
   if (!identity || !push) {
     return;
   }
-  await reportMainPushed(env, identity, push).catch((error: Error) =>
-    console.warn({ event: 'main_push_not_recorded', orgProjectId, message: error.message }),
-  );
+  await reportMainPushed(env, identity, push)
+    .catch(() => reportMainPushed(env, identity, push))
+    .catch((error: Error) => console.warn({ event: 'main_push_not_recorded', orgProjectId, message: error.message }));
 }
 
 /** A branch pushed to a project CloudChef deploys itself is built: main to go live, another for a preview. */

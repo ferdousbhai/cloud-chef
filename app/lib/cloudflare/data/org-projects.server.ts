@@ -631,6 +631,62 @@ export async function latestMainChanges(
   return latest;
 }
 
+/**
+ * One change of a project's main: a push (`project_main_pushes`, from a workspace, a person's own computer, or a
+ * `rewrite-main` of a branch that only added to main) or a rewrite (`project_main_rewrites`). `by` is null for
+ * someone no longer on CloudChef; `oldCommit` is null for main's first push; `branch` is the rewrite's, null for a push.
+ */
+export type MainChange = {
+  kind: 'push' | 'rewrite';
+  by: { id: string; name: string } | null;
+  oldCommit: string | null;
+  newCommit: string;
+  branch: string | null;
+  at: number;
+};
+
+/**
+ * The project's changes of main, newest first: who pushed or rewrote it, from and to which commit, and when, whoever
+ * publishes it (Workers Builds reads main by itself, so for its projects this is the only record of who published).
+ * At most `limit`; with `before`, only changes made before that time, for the next page.
+ */
+export async function listMainChanges(
+  db: D1Database,
+  projectId: string,
+  options: { limit: number; before?: number },
+): Promise<MainChange[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT changes.*, people.name FROM (
+         SELECT 'push' AS kind, pushed_by AS changed_by, old_commit, new_commit, NULL AS branch, pushed_at AS changed_at
+         FROM project_main_pushes WHERE project_id = ?1 AND pushed_at < ?2
+         UNION ALL
+         SELECT 'rewrite', rewritten_by, old_commit, new_commit, branch, rewritten_at
+         FROM project_main_rewrites WHERE project_id = ?1 AND rewritten_at < ?2
+       ) AS changes
+       LEFT JOIN "user" AS people ON people.id = changes.changed_by
+       ORDER BY changes.changed_at DESC LIMIT ?3`,
+    )
+    .bind(projectId, options.before ?? Number.MAX_SAFE_INTEGER, Math.max(0, Math.min(options.limit, 500)))
+    .all<{
+      kind: 'push' | 'rewrite';
+      changed_by: string | null;
+      old_commit: string | null;
+      new_commit: string;
+      branch: string | null;
+      changed_at: number;
+      name: string | null;
+    }>();
+  return results.map((row) => ({
+    kind: row.kind,
+    by: row.changed_by && row.name !== null ? { id: row.changed_by, name: row.name } : null,
+    oldCommit: row.old_commit,
+    newCommit: row.new_commit,
+    branch: row.branch,
+    at: row.changed_at,
+  }));
+}
+
 /** Gives a team member a role on one project, changes it, or (null) withdraws it. */
 export async function setProjectAccess(
   db: D1Database,

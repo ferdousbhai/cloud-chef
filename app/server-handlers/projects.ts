@@ -18,9 +18,11 @@ import { readJsonRequest } from '~/lib/.server/request-guards';
 import {
   approveProductionRequest,
   declineProductionRequest,
+  findAccessibleProject,
   importProject,
   latestMainChanges,
   listAccessibleProjects,
+  listMainChanges,
   recordWorkersBuildsScriptTag,
   requireManagedProject,
   setProjectAccess,
@@ -339,6 +341,31 @@ export function switchProjectWorkersBuildsAction({
       }
       throw error;
     }
+  });
+}
+
+/** The route of a project's record of who changed its main. */
+export const PROJECT_MAIN_CHANGES_ROUTE = '/api/projects/:projectId/main-changes';
+
+/**
+ * `GET /api/projects/<id>/main-changes[?before=<ms>&limit=<n>]`: who pushed or rewrote the project's main, from and
+ * to which commit, and when, newest first (`listMainChanges`), for anyone who may view the project.
+ */
+export function listProjectMainChangesAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const url = new URL(request.url);
+    const projectId = PROJECT_PATH.exec(url.pathname)?.[1] ?? '';
+    const project = await findAccessibleProject(env.DB, projectId, session.user.id);
+    if (!project) {
+      return Response.json({ error: 'Not found.' }, { status: 404, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+    const before = Number(url.searchParams.get('before'));
+    const limit = Number(url.searchParams.get('limit'));
+    const changes = await listMainChanges(env.DB, project.id, {
+      limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50,
+      ...(Number.isInteger(before) && before > 0 ? { before } : {}),
+    });
+    return Response.json({ changes }, { headers: { 'Cache-Control': 'private, no-store' } });
   });
 }
 

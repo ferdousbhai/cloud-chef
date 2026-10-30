@@ -5,9 +5,9 @@ import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-im
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { ORG, teamFixture } from '~/test/project-fixture';
 import { z } from 'zod';
-import { latestMainChanges, recordMainRewrite } from '~/lib/cloudflare/data/org-projects.server';
+import { latestMainChanges, listMainChanges, recordMainRewrite } from '~/lib/cloudflare/data/org-projects.server';
 import { commandLineRewriteMainAction, runtimeMainRewriteAction, runtimeMainRewrittenAction } from './main-rewrite';
-import { listMyProjectsAction } from './projects';
+import { listMyProjectsAction, listProjectMainChangesAction } from './projects';
 import { runtimeMainPushedAction } from './runtime-projects';
 
 const SITE = '55555555-5555-4555-8555-555555555555';
@@ -189,5 +189,50 @@ describe('a runtime telling of a push to main', () => {
       .object({ projects: z.array(z.object({ id: z.string(), lastChange: z.object({ by: z.string() }).nullable() })) })
       .parse(await list.json());
     expect(listed.projects.find((project) => project.id === SITE)?.lastChange?.by).toBe('sara.a');
+
+    // The whole record, newest first, pushes and rewrites alike, and a page of it before a time.
+    const changes = await listMainChanges(env.DB, SITE, { limit: 10 });
+    expect(changes).toEqual([
+      {
+        kind: 'rewrite',
+        by: { id: sara.userId, name: 'sara.a' },
+        oldCommit: SLIM,
+        newCommit: MAIN,
+        branch: 'slim',
+        at: 30_000,
+      },
+      {
+        kind: 'push',
+        by: { id: admin.userId, name: 'ada' },
+        oldCommit: MAIN,
+        newCommit: SLIM,
+        branch: null,
+        at: 20_000,
+      },
+      {
+        kind: 'push',
+        by: { id: sara.userId, name: 'sara.a' },
+        oldCommit: null,
+        newCommit: MAIN,
+        branch: null,
+        at: 10_000,
+      },
+    ]);
+    expect(await listMainChanges(env.DB, SITE, { limit: 1, before: 30_000 })).toEqual([changes[1]]);
+
+    // Anyone who may view the project reads it; anyone else is told there's no such project.
+    const read = (cookie: string) =>
+      listProjectMainChangesAction({
+        request: new Request(`https://cloudchef.build/api/projects/${SITE}/main-changes?limit=2`, {
+          headers: { cookie },
+        }),
+        env,
+      });
+    database.prepare(`UPDATE org_project_access SET role = 'view' WHERE user_id = ?`).run(sara.userId);
+    const viewed = await read(sara.cookie);
+    expect(viewed.status).toBe(200);
+    expect(await viewed.json()).toEqual({ changes: changes.slice(0, 2) });
+    database.prepare('DELETE FROM org_project_access WHERE user_id = ?').run(sara.userId);
+    expect((await read(sara.cookie)).status).toBe(404);
   });
 });
