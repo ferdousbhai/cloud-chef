@@ -363,7 +363,7 @@ export function listProjectMainChangesAction({ request, env }: { request: Reques
     const limit = Number(url.searchParams.get('limit'));
     const changes = await listMainChanges(env.DB, project.id, {
       limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50,
-      ...(Number.isInteger(before) && before > 0 ? { before } : {}),
+      before: Number.isInteger(before) && before > 0 ? before : null,
     });
     return Response.json({ changes }, { headers: { 'Cache-Control': 'private, no-store' } });
   });

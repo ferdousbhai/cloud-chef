@@ -663,7 +663,7 @@ describe('removing a deleted team project’s workspace', () => {
     let answer = (ids: string[]) => Response.json({ deleted: ids.filter((id) => id === TEAM_PROJECT) });
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       expect(String(input)).toBe('https://control-plane.test/api/cloudflare/runtime-projects/deleted');
-      const body = JSON.parse(String(init?.body)) as { orgProjectIds: string[] };
+      const body = z.object({ orgProjectIds: z.array(z.string()) }).parse(JSON.parse(String(init?.body)));
       asked.push(body);
       return answer(body.orgProjectIds);
     });

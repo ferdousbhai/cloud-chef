@@ -648,12 +648,12 @@ export type MainChange = {
 /**
  * The project's changes of main, newest first: who pushed or rewrote it, from and to which commit, and when, whoever
  * publishes it (Workers Builds reads main by itself, so for its projects this is the only record of who published).
- * At most `limit`; with `before`, only changes made before that time, for the next page.
+ * At most `limit`; with `before` (ms), only changes made before that time, for the next page.
  */
 export async function listMainChanges(
   db: D1Database,
   projectId: string,
-  options: { limit: number; before?: number },
+  options: { limit: number; before?: number | null },
 ): Promise<MainChange[]> {
   const { results } = await db
     .prepare(
