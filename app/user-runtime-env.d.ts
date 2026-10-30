@@ -10,6 +10,8 @@ declare global {
     PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilderRpc>;
     /** Every project's git repository, in this account's `cloudchef` namespace. */
     ARTIFACTS: Artifacts;
+    /** Workers AI in this account: the builder's models, and the spoken lines of a post's clip. */
+    AI: Ai;
     CLOUDCHEF_USER_RUNTIME: string;
     CLOUDCHEF_USER_ID: string;
     /** The SHA-256 of the runtime bundle this Worker runs. */

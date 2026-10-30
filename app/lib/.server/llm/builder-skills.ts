@@ -4,14 +4,15 @@ import { parse } from 'yaml';
  * text, and that module is bundled for the browser.
  */
 import projectStackSkill from '~/lib/guidance/project-stack/SKILL.md?raw';
+import postClipSkill from '~/lib/guidance/post-clip/SKILL.md?raw';
 import { CLOUDFLARE_SKILLS } from './skills/cloudflare-skills.vendored';
 
 const BUILDER_SKILL_ROOT = '/__skills__';
 const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;
 
 /**
- * References bundled into this Worker and served read-only under /__skills__/: CloudChef's own (only what
- * is specific to its starter app), and Cloudflare's official skills, vendored at a pinned commit by
+ * References bundled into this Worker and served read-only under /__skills__/: CloudChef's own (what is
+ * specific to its starter app, and making a clip for a project's post), and Cloudflare's official skills, vendored at a pinned commit by
  * scripts/sync-cloudflare-skills.mjs so they stay Cloudflare's current guidance. The rest of Cloudflare's
  * documentation is retrieved live with `cf docs search` in the workspace. The catalog must never point at
  * workspace files: the model reads them through the Computer VFS, which a fresh seed does not populate
@@ -19,6 +20,8 @@ const MAX_BUILDER_SKILL_PROMPT_CHARS = 16_000;
  */
 const BUNDLED_SKILLS: readonly BundledSkillSource[] = [
   { name: 'project-stack', files: new Map([['SKILL.md', projectStackSkill]]) },
+  // Any project's post can carry a clip, so this one is in every catalog.
+  { name: 'post-clip', files: new Map([['SKILL.md', postClipSkill]]) },
   ...CLOUDFLARE_SKILLS.map(({ name, files }) => ({ name, files: new Map(files) })),
 ];
 

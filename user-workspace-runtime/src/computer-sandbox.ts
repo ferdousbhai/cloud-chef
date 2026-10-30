@@ -21,6 +21,7 @@ import { first } from './sql-rows';
 import { runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
 import { CLOUDFLARE_API_PROXY_HOST } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
+import { REEL_PROXY_HOST } from '../../app/lib/reel';
 import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from '../../app/lib/.server/cloudflare/project-workspace-container-policy';
 import { base64ToBytes, sha256Hex } from '../../app/lib/hex-digest';
 
@@ -83,6 +84,7 @@ type WorkspaceRuntimeExports = {
   WorkspaceProxy(options: { props: WorkspaceRef }): Fetcher;
   GitProxy(options: { props: { workspaceId: string } }): Fetcher;
   CloudflareApiProxy(options: { props: { workspaceId: string } }): Fetcher;
+  ReelProxy(options: { props: { workspaceId: string } }): Fetcher;
 };
 
 /**
@@ -204,7 +206,8 @@ export abstract class ComputerSandboxBase<
    * Computer asks for its own host once each time the container starts; the hosts the container reaches
    * CloudChef through are intercepted with it. git reaches the project's repository only through the GitProxy,
    * and `cf` reaches Cloudflare's API only through the CloudflareApiProxy, which holds the account's
-   * authorization and asks the person before any change. One of those failing leaves that tool without its
+   * authorization and asks the person before any change; `cloudchef reel` hands a clip to the agent through the
+   * ReelProxy. One of those failing leaves that tool without its
    * service, never the workspace without its container.
    */
   async interceptWorkspaceOutbound(host: string, ref: WorkspaceRef): Promise<void> {
@@ -214,6 +217,7 @@ export abstract class ComputerSandboxBase<
     for (const [proxyHost, proxy] of [
       [GIT_PROXY_HOST, exports.GitProxy],
       [CLOUDFLARE_API_PROXY_HOST, exports.CloudflareApiProxy],
+      [REEL_PROXY_HOST, exports.ReelProxy],
     ] as const) {
       try {
         await this.ctx.container!.interceptOutboundHttp(proxyHost, proxy(props));
@@ -430,8 +434,15 @@ export abstract class ComputerSandboxBase<
 }
 
 function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeExports {
-  if (!('WorkspaceProxy' in exports) || !('GitProxy' in exports) || !('CloudflareApiProxy' in exports)) {
-    throw new Error('The workspace runtime is missing its WorkspaceProxy, GitProxy or CloudflareApiProxy export.');
+  if (
+    !('WorkspaceProxy' in exports) ||
+    !('GitProxy' in exports) ||
+    !('CloudflareApiProxy' in exports) ||
+    !('ReelProxy' in exports)
+  ) {
+    throw new Error(
+      'The workspace runtime is missing its WorkspaceProxy, GitProxy, CloudflareApiProxy or ReelProxy export.',
+    );
   }
   // `ctx.exports.WorkspaceProxy` is the loopback binding for the WorkspaceProxy WorkerEntrypoint,
   // which is callable as `WorkspaceProxy({ props })` to mint a Fetcher but is a native binding, not
@@ -443,6 +454,7 @@ function workspaceRuntimeExports(exports: Cloudflare.Exports): WorkspaceRuntimeE
     WorkspaceProxy: exports.WorkspaceProxy as WorkspaceRuntimeExports['WorkspaceProxy'],
     GitProxy: exports.GitProxy as WorkspaceRuntimeExports['GitProxy'],
     CloudflareApiProxy: exports.CloudflareApiProxy as WorkspaceRuntimeExports['CloudflareApiProxy'],
+    ReelProxy: exports.ReelProxy as WorkspaceRuntimeExports['ReelProxy'],
   };
 }
 

@@ -5,12 +5,13 @@ import {
   ExclamationTriangleIcon,
   EyeNoneIcon,
   Link2Icon,
+  MinusCircledIcon,
   Pencil1Icon,
   TrashIcon,
 } from '@radix-ui/react-icons';
 import { Menu, MenuItem, MenuSeparator } from '@ui/Menu';
 import { messageOf } from '~/lib/json-request';
-import { setPostShown } from '~/lib/showcase-api';
+import { removeReel, setPostShown } from '~/lib/showcase-api';
 import type { PostView } from '~/lib/showcase';
 import { CaptionDialog, DeletePostDialog, ReportDialog } from './PostDialogs';
 import { useShowcaseViewer } from './ViewerContext';
@@ -18,18 +19,21 @@ import { useShowcaseViewer } from './ViewerContext';
 type Dialog = 'caption' | 'delete' | 'report' | null;
 
 /**
- * A post's own menu. Its author (and a team project's admins) can edit the caption, hide it from their page,
- * or delete it; anyone can copy its link or report it.
+ * A post's own menu. Its author (and a team project's admins) can edit the caption, remove its clip, hide it from
+ * their page, or delete it; anyone can copy its link or report it.
  */
 export function PostMenu({
   post,
   onCaption,
   onGone,
+  onReelRemoved,
 }: {
   post: PostView;
   onCaption: (caption: string | null) => void;
   /** Hidden or deleted: gone from this page. */
   onGone: () => void;
+  /** Its clip was taken off; the post stays. */
+  onReelRemoved?: () => void;
 }) {
   const { manages } = useShowcaseViewer();
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -50,6 +54,15 @@ export function PostMenu({
       .catch((error) => toast.error(messageOf(error, 'The post couldn’t be hidden. Try again.')));
   };
 
+  const takeOffClip = () => {
+    removeReel(post.id)
+      .then(() => {
+        toast.success('The clip is off your post. Its picture stays.');
+        onReelRemoved?.();
+      })
+      .catch((error) => toast.error(messageOf(error, 'The clip couldn’t be removed. Try again.')));
+  };
+
   return (
     <>
       <Menu
@@ -67,6 +80,12 @@ export function PostMenu({
               <Pencil1Icon />
               Edit caption
             </MenuItem>
+            {post.reel ? (
+              <MenuItem action={takeOffClip}>
+                <MinusCircledIcon />
+                Remove clip
+              </MenuItem>
+            ) : null}
             <MenuItem action={hide}>
               <EyeNoneIcon />
               Hide from my page

@@ -11,6 +11,7 @@ import {
   CLOUDFLARE_API_PROXY_TOKEN,
 } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
+import { REEL_PROXY_HOST } from '../../app/lib/reel';
 
 /**
  * One content-addressed pnpm store for every install this container runs. Passed explicitly on the
@@ -392,13 +393,43 @@ export function cfCliLauncherScript(accountId: string): string {
 }
 
 /**
+ * `cloudchef reel [folder]`: sends the folder's `reel.json` and the pictures it names to the runtime's ReelProxy
+ * (`showcase.internal`), which hands them to the agent to make the clip and show it in the chat. Run by Node, which
+ * the base carries; it prints the agent's answer, and fails with its reason.
+ */
+const REEL_SENDER = [
+  "import { readFileSync } from 'node:fs';",
+  "import { basename, join, resolve } from 'node:path';",
+  "const dir = resolve(process.argv[1] || '.');",
+  'let script;',
+  "try { script = JSON.parse(readFileSync(join(dir, 'reel.json'), 'utf8')); }",
+  "catch (error) { console.error(`cloudchef reel: ${join(dir, 'reel.json')} can't be read: ${error.message}`); process.exit(2); }",
+  'const files = {};',
+  'for (const step of Array.isArray(script?.steps) ? script.steps : []) {',
+  '  const name = step?.still;',
+  "  if (typeof name !== 'string' || name !== basename(name) || name in files) continue;",
+  "  try { files[name] = readFileSync(join(dir, name)).toString('base64'); } catch {}",
+  '}',
+  `const response = await fetch(${JSON.stringify(`http://${REEL_PROXY_HOST}/reel`)}, {`,
+  "  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ script, files }),",
+  '});',
+  'const answer = await response.text();',
+  '(response.ok ? process.stdout : process.stderr).write(answer);',
+  'process.exit(response.ok ? 0 : 1);',
+].join('\n');
+
+/**
  * `cloudchef validate` is answered by the agent's exec tool itself, which runs the project's full validation (the
- * one a publish recognizes) when the command is exactly that. Reaching this script means it was run some other
- * way: inside a longer command line, or from the terminal.
+ * one a publish recognizes) when the command is exactly that. Reaching this script with it means it was run some
+ * other way: inside a longer command line, or from the terminal. `cloudchef reel` sends a clip to the agent.
  */
 export function cloudchefCommandScript(): string {
   return [
     '#!/bin/sh',
+    'if [ "${1:-}" = reel ]; then',
+    '  shift',
+    `  exec node --input-type=module -e ${shellQuote(REEL_SENDER)} -- "\${1:-.}"`,
+    'fi',
     `echo ${shellQuote(`${VALIDATE_COMMAND} runs the project's full checks when the agent runs it as a command of its own, exactly as written.`)} >&2`,
     'exit 2',
     '',

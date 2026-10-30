@@ -7,6 +7,7 @@ import {
 } from './cloudflare-api-runtime-identity';
 import { importedProjectRepo, type ProjectRepositories, type RepositoryAuthor } from './project-repository';
 import { postRuntimeRoute } from './user-workspace-cloudflare-credential';
+import type { ReelBundle } from '~/lib/reel';
 
 /**
  * A workspace runtime's side of working on a project the control plane keeps (a team's, or one imported
@@ -299,6 +300,47 @@ export async function nameChatProject(
 ): Promise<void> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/name', body, STATUS_TIMEOUT_MS);
   await readAnswer(response, z.object({ name: z.string() }), 'CloudChef could not name the project.');
+}
+
+/** The post a clip of the project would go on; a ProjectRefusalError when it has none the person may change. */
+export async function reelTarget(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+): Promise<{ postId: string; path: string; title: string }> {
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-projects/reel/target',
+    { orgProjectId },
+    STATUS_TIMEOUT_MS,
+  );
+  return readAnswer(
+    response,
+    z.object({ postId: z.string(), path: z.string().min(1).max(200), title: z.string() }),
+    'CloudChef could not find the project’s post.',
+  );
+}
+
+/** Puts a clip the person approved on the project's post: whether it shows at once, or waits for a review. */
+export async function postReel(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectId: string,
+  reel: ReelBundle,
+): Promise<{ path: string; shown: boolean }> {
+  const response = await postRuntimeRoute(
+    env,
+    identity,
+    'runtime-projects/reel',
+    { orgProjectId, reel },
+    OPEN_TIMEOUT_MS,
+  );
+  return readAnswer(
+    response,
+    z.object({ path: z.string(), shown: z.boolean() }),
+    'CloudChef could not put the clip on the post. Try again.',
+  );
 }
 
 /** What Workers Builds reports for a commit of the project so far. */

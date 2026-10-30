@@ -73,6 +73,27 @@ const SCHEMA_STATEMENTS: readonly string[] = [
     CREATE INDEX IF NOT EXISTS builder_cloudflare_executions_tool_call
     ON builder_cloudflare_executions (tool_call_id, created_at)
   `,
+  // A clip for the project's post the agent made (builder-reels.ts), waiting in the chat for the person to approve,
+  // and its files until it is posted or put aside.
+  `
+    CREATE TABLE IF NOT EXISTS builder_reels (
+      reel_id TEXT PRIMARY KEY,
+      tool_call_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('waiting', 'posting', 'posted', 'declined')),
+      post_path TEXT NOT NULL,
+      timeline_json TEXT NOT NULL,
+      note TEXT,
+      created_at INTEGER NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS builder_reel_files (
+      reel_id TEXT NOT NULL REFERENCES builder_reels (reel_id) ON DELETE CASCADE,
+      ref TEXT NOT NULL,
+      bytes BLOB NOT NULL,
+      PRIMARY KEY (reel_id, ref)
+    )
+  `,
 ];
 
 /**

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { isToolInvocationInProgress, type CloudChefToolInvocation } from 'cloudchef-agent/ai-compat';
 import { isCloudChefToolResult, toolResultSucceeded, toolResultSummary } from 'cloudchef-agent/tool-result';
 import { ToolResultFrame } from './ToolResultFrame';
+import { CommandReels } from './ChatReels';
 import { attachedValidation } from './validation-verdict';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
@@ -38,13 +39,17 @@ export const ToolUseContents = memo(function ToolUseContents({
   // tool that is no longer running must never show the running placeholder.
   const running = isToolInvocationInProgress(invocation) && isToolActivityStatusActive(status);
   // The changes to the Cloudflare account the command asked for: each waiting for the person in its place, or decided.
+  // And the clips it made for the project's post, each waiting for the person to approve or put aside.
   const change =
     invocation.toolName === 'exec' ? (
-      <CloudflareChangeContents
-        invocation={invocation}
-        executions={cloudflareExecutions ?? []}
-        onDecision={onCloudflareExecutionDecision}
-      />
+      <>
+        <CloudflareChangeContents
+          invocation={invocation}
+          executions={cloudflareExecutions ?? []}
+          onDecision={onCloudflareExecutionDecision}
+        />
+        <CommandReels toolCallId={invocation.toolCallId} />
+      </>
     ) : null;
   if (running) {
     return (

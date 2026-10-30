@@ -1,3 +1,4 @@
+import type { ReelBundle } from '~/lib/reel';
 import { z } from 'zod';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { CloudflareAccessTokenResolution } from './cloudflare-api-client';
@@ -213,10 +214,10 @@ export async function readAccountModelSettings(
 /** The fields a runtime route is sent. */
 type RuntimeRouteValue = string | number | boolean | null | undefined;
 /**
- * Plain values, a list of strings (such as project ids), or (for a list the runtime reports, such as its apps) a list
- * of records of them.
+ * Plain values, a list of strings (such as project ids), (for a list the runtime reports, such as its apps) a list
+ * of records of them, or a clip the person approved for their post.
  */
-type RuntimeRouteBody = Record<string, RuntimeRouteValue | string[] | Record<string, RuntimeRouteValue>[]>;
+type RuntimeRouteBody = Record<string, RuntimeRouteValue | string[] | Record<string, RuntimeRouteValue>[] | ReelBundle>;
 
 /**
  * A call to one of the control plane's runtime routes, as this runtime, carrying `body` as JSON (a field
@@ -274,7 +275,9 @@ type RuntimeRoute =
   | 'runtime-projects/main-rewrite'
   | 'runtime-projects/main-rewritten'
   | 'runtime-projects/main-pushed'
-  | 'runtime-projects/deleted';
+  | 'runtime-projects/deleted'
+  | 'runtime-projects/reel/target'
+  | 'runtime-projects/reel';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

@@ -74,6 +74,7 @@ const migrationPolicies = [
       '0055_chat_projects.sql': 'dad4c9ca3ee67540493c250868757259066241ab71febf77ec1ab350a3f9eb78',
       '0056_showcase.sql': '975bd7ccf50ae6ed0b7cfe88a7dd27d0dd943902a5b2816e380c936650549e03',
       '0057_drop_old_app_publishing.sql': 'e59a64acc113ed30450f371270832b99c7b013506408e89dd7f9d17fb2835455',
+      '0058_post_reels.sql': '63ce83c460a1a47e5723cb6a8c5d9d67b0e03da379b6fd68cc78d52f082016d3',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
