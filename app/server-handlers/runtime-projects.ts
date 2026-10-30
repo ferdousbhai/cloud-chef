@@ -25,6 +25,7 @@ import {
   recordMainPush,
   removeProject,
   nameChatProject,
+  recordProductionPublish,
   requireProjectScope,
   type ProjectScope,
   type Project,
@@ -548,11 +549,24 @@ export async function runtimeProjectStatusAction(args: {
   if (project.deploysWith === 'cloudchef') {
     return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
   }
-  return withWorkersBuilds(args, connection, project, async (api, worker) =>
-    worker
-      ? json(await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit }), 200)
-      : json({ state: 'none' }, 200),
-  );
+  return withWorkersBuilds(args, connection, project, async (api, worker) => {
+    if (!worker) {
+      return json({ state: 'none' }, 200);
+    }
+    const status = await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit });
+    // A production build of main's pushed commit is that push going live, recorded once.
+    if (status.state === 'succeeded' && status.url) {
+      await recordProductionPublish(args.env.DB, {
+        projectId: project.id,
+        commit: body.commit,
+        siteUrl: null,
+        siteFrameable: null,
+        publishedAt: Date.now(),
+        deployedBy: 'workers_builds',
+      });
+    }
+    return json(status, 200);
+  });
 }
 
 /**

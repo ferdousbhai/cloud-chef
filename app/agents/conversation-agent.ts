@@ -80,7 +80,7 @@ import {
   isConversationAgentBusy,
   RuntimeUpgradeWaitExceededError,
 } from './builder-runtime-activity';
-import { rethrowAgentRejection } from './conversation-agent-rejection';
+import { AgentRefusal, rethrowAgentRejection } from './conversation-agent-rejection';
 import {
   ConversationAgentIdentityMismatchError,
   ConversationAgentIdentityRepository,
@@ -747,10 +747,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   private async initializeGcIdentity(ownerId: string): Promise<void> {
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
-      throw new Response('Invalid transcript owner', { status: 400 });
+      throw new AgentRefusal('Invalid transcript owner', 400);
     }
     if (this.userId && this.userId !== ownerId) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     const owned = await this.env.DB.prepare(
       `SELECT 1 AS found
@@ -763,7 +763,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       .first<{ found: number }>();
     // Only a deleted chat's agent: one revived since its sweep read the outbox keeps its project.
     if (!owned) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     this.userId = ownerId;
   }
@@ -844,11 +844,11 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const durableIdentity = await this.requireDurableIdentity('chat_message');
     const parsed = builderMessageInputSchema.safeParse(input);
     if (!parsed.success) {
-      throw new Response('Invalid message', { status: 400 });
+      throw new AgentRefusal('Invalid message', 400);
     }
     const text = parsed.data.text.trim();
     if (!text || text.length > MAX_USER_MESSAGE_CHARACTERS) {
-      throw new Response('Invalid message', { status: 400 });
+      throw new AgentRefusal('Invalid message', 400);
     }
     if (this.state.activeTurn) {
       await this.steerActiveTurn({ text, turnContext: parsed.data.turnContext });
@@ -928,7 +928,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           onWaiting: (waiting) => this.setUpgradeWaiting(waiting),
         })
         .catch((error: Error) => {
-          throw error instanceof RuntimeUpgradeWaitExceededError ? new Response(error.message, { status: 503 }) : error;
+          throw error instanceof RuntimeUpgradeWaitExceededError ? new AgentRefusal(error.message, 503) : error;
         });
       // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this turn and
       // stopped it, or closed this one before this read.
@@ -1342,14 +1342,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.requireDurableIdentity('steer_active_turn');
     const steering = steeringRequestSchema.safeParse(input);
     if (!steering.success) {
-      throw new Response('Invalid steering message', { status: 400 });
+      throw new AgentRefusal('Invalid steering message', 400);
     }
     const text = steering.data.text.trim();
     if (!text || text.length > MAX_USER_MESSAGE_CHARACTERS) {
-      throw new Response('Invalid steering message', { status: 400 });
+      throw new AgentRefusal('Invalid steering message', 400);
     }
     if (!this.state.activeTurn) {
-      throw new Response('The builder is not currently running.', { status: 409 });
+      throw new AgentRefusal('The builder is not currently running.', 409);
     }
     await this.refuseIfClosed();
     await this.piHarness.submit(withTurnContext(text, steering.data.turnContext), {
@@ -1363,7 +1363,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   async approveCloudflareExecution(input: { executionId: string }): Promise<CloudflareExecutionDecisionResult> {
     const parsed = cloudflareExecutionDecisionSchema.safeParse(input);
     if (!parsed.success) {
-      throw new Response('Invalid Cloudflare execution decision.', { status: 400 });
+      throw new AgentRefusal('Invalid Cloudflare execution decision.', 400);
     }
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
     await this.refuseIfClosed();
@@ -1374,7 +1374,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       proposal.status === 'failed' ||
       proposal.status === 'indeterminate'
     ) {
-      throw new Response('This Cloudflare execution can no longer be approved.', { status: 409 });
+      throw new AgentRefusal('This Cloudflare execution can no longer be approved.', 409);
     }
     const job: CloudflareExecutionFiberJob = {
       executionId: proposal.executionId,
@@ -1414,7 +1414,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   async rejectCloudflareExecution(input: { executionId: string }): Promise<CloudflareExecutionDecisionResult> {
     const parsed = cloudflareExecutionDecisionSchema.safeParse(input);
     if (!parsed.success) {
-      throw new Response('Invalid Cloudflare execution decision.', { status: 400 });
+      throw new AgentRefusal('Invalid Cloudflare execution decision.', 400);
     }
     const binding = await this.requireCurrentCloudflareExecutionBinding('reject_cloudflare_execution');
     const { record } = await this.cloudflareExecutions.reject(parsed.data.executionId, binding);
@@ -1470,7 +1470,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
    */
   async settleForSuccessor(ownerId: string): Promise<BuilderPublicationHandover | null> {
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
-      throw new Response('Invalid transcript owner', { status: 400 });
+      throw new AgentRefusal('Invalid transcript owner', 400);
     }
     const identity = await this.hydrateDurableIdentity();
     if (!identity) {
@@ -1478,10 +1478,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       return null;
     }
     if (identity.userId !== ownerId) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     if (!(await loadConversationScope(this.env.DB, { agentName: this.name, ownerId })).closed) {
-      throw new Response('This conversation is still the newest one.', { status: 409 });
+      throw new AgentRefusal('This conversation is still the newest one.', 409);
     }
     this.closed = true;
     if (!this.state.conversationClosed) {
@@ -1545,7 +1545,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private async refuseIfClosed(): Promise<void> {
     const closed = await this.closedConversationMessage();
     if (closed) {
-      throw new Response(closed, { status: 409 });
+      throw new AgentRefusal(closed, 409);
     }
   }
 
@@ -1760,7 +1760,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   @callable()
   async prepareWorkspace(): Promise<BuilderWorkspaceState | WorkspaceSeedFailure> {
     if (!this.transcriptBinding) {
-      throw new Response('Agent authentication is required.', { status: 401 });
+      throw new AgentRefusal('Agent authentication is required.', 401);
     }
     let state: BuilderWorkspaceState;
     try {
@@ -1894,14 +1894,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   private async initializeIdentity(props: ConversationAgentProps): Promise<void> {
     if (!transcriptOwnerIdSchema.safeParse(props.userId).success) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     const transcriptBinding = await loadBuilderTranscriptBinding(this.env.DB, {
       agentName: this.name,
       ownerId: props.userId,
     });
     if (!transcriptBinding) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     const identity: ConversationAgentDurableIdentity = { userId: props.userId, transcript: transcriptBinding };
     try {
@@ -1976,7 +1976,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       incidentId,
       reason,
     });
-    throw new Response(status === 401 ? 'Agent authentication is required.' : 'Agent not found.', { status });
+    throw new AgentRefusal(status === 401 ? 'Agent authentication is required.' : 'Agent not found.', status);
   }
 
   protected async scheduleTitleGeneration(
@@ -2475,7 +2475,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   protected async requireModelAccess(): Promise<{ contentLogging: boolean }> {
     const access = await modelRequestAccess(this.env);
     if (!access.allowed) {
-      throw new Response("You no longer have access to this team's account.", { status: 403 });
+      throw new AgentRefusal("You no longer have access to this team's account.", 403);
     }
     return { contentLogging: access.contentLogging };
   }
@@ -2804,7 +2804,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const transcript = this.transcriptBinding;
     const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
     if (!transcript || !identity || identity.userId !== durableIdentity.userId) {
-      throw new Response('The Cloudflare execution identity is unavailable.', { status: 409 });
+      throw new AgentRefusal('The Cloudflare execution identity is unavailable.', 409);
     }
     return { ...identity, transcript };
   }
@@ -3121,7 +3121,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     };
     const refused = () => {
       if (this.destroying) {
-        throw new Response('This project is being deleted.', { status: 409 });
+        throw new AgentRefusal('This project is being deleted.', 409);
       }
       return inFlight() || (epoch !== undefined && this.automaticPublicationStopped(epoch));
     };
@@ -3422,7 +3422,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }): Promise<{ hash: string; unchanged: boolean } | null> {
     const transcript = this.transcriptBinding;
     if (!transcript) {
-      throw new Response('Agent authentication is required.', { status: 401 });
+      throw new AgentRefusal('Agent authentication is required.', 401);
     }
     const checkpoint = await this.workspace.checkpoint();
     if (checkpoint.revision !== args.revision) {
@@ -3500,7 +3500,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private requireDeploymentContext(): BuilderDeploymentContext {
     const context = this.deploymentContext();
     if (!context) {
-      throw new Response('Agent authentication is required.', { status: 401 });
+      throw new AgentRefusal('Agent authentication is required.', 401);
     }
     return context;
   }
@@ -3677,18 +3677,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
-/**
- * A callable's refusal, in words for the person: the Agents SDK sends a thrown Error's message to the browser,
- * where a thrown Response would read only "Unknown error occurred".
- */
-class AgentRefusal extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
 
 /** Why the workspace can't be saved over main that moved elsewhere, in words for the person. */
 const MAIN_MOVED_ELSEWHERE =

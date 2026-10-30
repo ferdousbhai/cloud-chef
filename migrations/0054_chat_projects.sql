@@ -2,6 +2,9 @@
 -- in an Artifacts repository, published by CloudChef (`deploys_with = 'cloudchef'`) when main is pushed. What it was
 -- made from is recorded as 'chat'.
 --
+-- A push to main also records when it went live (`project_main_pushes.published_at`), set once by
+-- `recordProductionPublish` when the push's commit is first seen deployed to production.
+--
 -- SQLite can't change `created_from`'s CHECK in place, so org_projects is rebuilt as 0045 did. Dropping org_projects
 -- would cascade to the tables naming it, so they step aside first and come back after, unchanged.
 CREATE TABLE org_project_access_previous AS SELECT * FROM org_project_access;
@@ -184,7 +187,9 @@ CREATE TABLE project_main_pushes (
   pushed_by TEXT REFERENCES "user"(id) ON DELETE SET NULL,
   old_commit TEXT,
   new_commit TEXT NOT NULL,
-  pushed_at INTEGER NOT NULL
+  pushed_at INTEGER NOT NULL,
+  -- When this commit was first seen live in production; NULL until then (or when it never was).
+  published_at INTEGER
 );
 INSERT INTO project_main_pushes (id, project_id, pushed_by, old_commit, new_commit, pushed_at)
 SELECT id, project_id, pushed_by, old_commit, new_commit, pushed_at FROM project_main_pushes_previous;

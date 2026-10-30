@@ -3,7 +3,7 @@ import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare
 import { isCloudChefWorkerName } from '~/lib/.server/cloudflare/project-build-plan';
 import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
 import { siteAllowsFraming } from '~/lib/.server/site-framing';
-import { recordProjectSiteUrl } from '~/lib/cloudflare/data/org-projects.server';
+import { recordProductionPublish } from '~/lib/cloudflare/data/org-projects.server';
 import {
   claimDeployment,
   DEPLOYMENT_LEASE_MS,
@@ -164,9 +164,11 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
     return opened;
   }
   const { project, body, identity } = opened;
-  const deployment = await args.env.DB.prepare('SELECT project_id, kind FROM project_deployments WHERE id = ?')
+  const deployment = await args.env.DB.prepare(
+    'SELECT project_id, kind, commit_sha FROM project_deployments WHERE id = ?',
+  )
     .bind(body.deploymentId)
-    .first<{ project_id: string; kind: 'production' | 'preview' }>();
+    .first<{ project_id: string; kind: 'production' | 'preview'; commit_sha: string }>();
   if (deployment?.project_id !== project.id) {
     return json({ error: 'That deployment is not this project’s.' }, 404);
   }
@@ -212,12 +214,14 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
     }
   }
   if (outcome === 'recorded' && body.state === 'succeeded' && deployment.kind === 'production') {
-    if (body.url) {
-      await recordProjectSiteUrl(args.env.DB, project.id, {
-        url: body.url,
-        frameable: await siteAllowsFraming(body.url, CANONICAL_ORIGIN),
-      });
-    }
+    await recordProductionPublish(args.env.DB, {
+      projectId: project.id,
+      commit: deployment.commit_sha,
+      siteUrl: body.url ?? null,
+      siteFrameable: body.url ? await siteAllowsFraming(body.url, CANONICAL_ORIGIN) : null,
+      publishedAt: Date.now(),
+      deployedBy: 'cloudchef',
+    });
   }
   // The Worker the project deploys as now, which a deploy that just started (or started over) uses.
   const held = await args.env.DB.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?')

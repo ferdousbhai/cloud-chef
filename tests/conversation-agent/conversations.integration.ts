@@ -132,7 +132,7 @@ describe('an app a team adopted as one of its projects', () => {
     // Restoring a version would commit this workspace over what the team has done since.
     const refused = harness.agent.revertToCommit('a'.repeat(40));
     await expect(refused).rejects.toMatchObject({ status: 409 });
-    expect(await refused.catch((error: Response) => error.text())).toBe(
+    expect(await refused.catch((error: Error) => error.message)).toBe(
       'This app is now one of your team’s projects. Open it from Team projects to keep working on it.',
     );
     expect(harness.database.prepare('SELECT adopted_by_org_project_id FROM workspaces').get()).toEqual({

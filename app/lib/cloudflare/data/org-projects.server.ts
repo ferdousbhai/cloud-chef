@@ -622,6 +622,55 @@ export async function recordMainPush(db: D1Database, push: MainPush): Promise<vo
     .run();
 }
 
+/** A commit of a project's main seen live in production: who pushed it (when CloudChef saw the push) and where. */
+export type ProductionPublish = {
+  projectId: string;
+  commit: string;
+  /** Who pushed the commit to main; null when its push wasn't made through CloudChef. */
+  pushedBy: string | null;
+  siteUrl: string | null;
+  siteFrameable: boolean | null;
+  publishedAt: number;
+  /** What deployed it: CloudChef's builder, or Workers Builds. */
+  deployedBy: 'cloudchef' | 'workers_builds';
+};
+
+/**
+ * The one place a project's successful production publish is recorded, whoever deployed it: CloudChef's own
+ * builder (its report that a deploy of main succeeded) or Workers Builds (a status read that finds main's pushed
+ * commit built). It keeps the live site's address, and marks the push of that commit as published, once. Answers
+ * the publish when this is the first time that commit was recorded live (so work hooked here, such as a public
+ * project's showcase post, runs once per published commit), and null when it was already recorded.
+ */
+export async function recordProductionPublish(
+  db: D1Database,
+  publish: Omit<ProductionPublish, 'pushedBy'>,
+): Promise<ProductionPublish | null> {
+  if (publish.siteUrl) {
+    await recordProjectSiteUrl(db, publish.projectId, { url: publish.siteUrl, frameable: publish.siteFrameable });
+  }
+  const pushed = await db
+    .prepare(
+      `UPDATE project_main_pushes SET published_at = ?
+       WHERE id = (
+         SELECT id FROM project_main_pushes WHERE project_id = ? AND new_commit = ? ORDER BY pushed_at DESC LIMIT 1
+       ) AND published_at IS NULL
+       RETURNING pushed_by`,
+    )
+    .bind(publish.publishedAt, publish.projectId, publish.commit)
+    .first<{ pushed_by: string | null }>();
+  if (pushed) {
+    return { ...publish, pushedBy: pushed.pushed_by };
+  }
+  const known = await db
+    .prepare('SELECT 1 FROM project_main_pushes WHERE project_id = ? AND new_commit = ?')
+    .bind(publish.projectId, publish.commit)
+    .first();
+  // A commit with no push recorded (a project's first upload or copy) is recorded once, as CloudChef's builder
+  // reports each deploy's success once; Workers Builds' status is read again and again, so only a pushed commit counts.
+  return known || publish.deployedBy === 'workers_builds' ? null : { ...publish, pushedBy: null };
+}
+
 /**
  * Who last changed each project's main and when, by project id: its newest recorded push, or rewrite
  * (`cloudchef repo rewrite-main`). The name is null for someone no longer on CloudChef; a project with neither
