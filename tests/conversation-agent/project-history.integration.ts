@@ -33,8 +33,13 @@ function noControlPlane() {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
 }
 
-/** A workspace holding `files` (project-relative path to text) at CHECKPOINT. */
-function holding(files: Record<string, string>, checkpoint: () => BuilderWorkspaceCheckpoint = () => CHECKPOINT) {
+/** A workspace holding `files` (project-relative path to text) at CHECKPOINT, based on main at `known`. */
+function holding(
+  files: Record<string, string>,
+  checkpoint: () => BuilderWorkspaceCheckpoint = () => CHECKPOINT,
+  known: string | null = null,
+) {
+  let main = known;
   const entries: BuilderWorkspaceSyncEntry[] = Object.entries(files).map(([path, content]) => ({
     kind: 'write',
     path: `/home/project/${path}`,
@@ -49,6 +54,10 @@ function holding(files: Record<string, string>, checkpoint: () => BuilderWorkspa
     linkedProject: async () => null,
     checkpoint: async () => checkpoint(),
     getSyncPage: async () => ({ state: READY, fromRevision: 0, targetRevision: 3, mode: 'snapshot', entries }),
+    knownMain: async () => main,
+    setMainFetched: async (commit) => {
+      main = commit;
+    },
   };
   return workspace;
 }
@@ -234,7 +243,7 @@ describe('reverting to a commit', () => {
       author: { name: 'Sara', email: 'sara@example.com' },
     });
     const old = 'commit' in first ? first.commit : '';
-    await repositories(artifacts).commitFiles({
+    const second = await repositories(artifacts).commitFiles({
       repo: REPO,
       branch: 'main',
       parent: old,
@@ -265,7 +274,7 @@ describe('reverting to a commit', () => {
       artifacts,
       cloudflareIdentity: true,
       workspace: {
-        ...holding({ 'index.html': 'old' }),
+        ...holding({ 'index.html': 'old' }, () => CHECKPOINT, 'commit' in second ? second.commit : null),
         listFiles: () => current,
         readFile: async (path) => ({
           path,
@@ -301,6 +310,30 @@ describe('reverting to a commit', () => {
     expect(harness.agent.state.publicationPending).toBe(true);
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
     expect(entry?.message).toBe(`Restore version ${old.slice(0, 7)}\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
+  });
+
+  it('is refused, changing nothing, when main took a push from elsewhere that the workspace never brought in', async () => {
+    const { harness, old, applied } = await revertHarness();
+    // Pushed from the person's computer after the workspace last took main.
+    const pushed = await harness.artifacts.commitDirect(REPO, 'main', { 'index.html': 'from my computer' });
+
+    let refused: Response | null = null;
+    try {
+      await harness.agent.revertToCommit(old);
+    } catch (error) {
+      refused = error instanceof Response ? error : null;
+    }
+    expect(refused?.status).toBe(409);
+    expect(await refused?.text()).toBe(
+      'This project changed somewhere else since your copy was last updated, from your computer or another chat. ' +
+        'Ask CloudChef to bring in the latest changes, then try again.',
+    );
+    expect(applied).toEqual([]);
+    expect(await harness.artifacts.head(REPO)).toBe(pushed);
+    expect(harness.agent.state.untoldChanges).toEqual([expect.stringContaining('`git pull` brings them in')]);
+    // Saving the workspace as a version, as a production request does, is refused the same way.
+    await expect(saveVersion(harness, 'Draft')).rejects.toMatchObject({ status: 409 });
+    expect(await harness.artifacts.head(REPO)).toBe(pushed);
   });
 
   it('is refused while a turn runs, and for a commit that is not one', async () => {

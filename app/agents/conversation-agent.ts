@@ -421,7 +421,10 @@ export type ConversationAgentState = {
   turnModel?: BuilderTurnModel | null;
   /** Why the last turn failed, in words for the person; cleared when the next one starts. */
   turnError?: string | null;
-  /** What became of changes commands left waiting in the chat, decided since the model last ran: told at its next turn. */
+  /**
+   * What became of changes commands left waiting in the chat, decided since the model last ran, and saves of the
+   * workspace to main CloudChef refused: told at its next turn.
+   */
   untoldChanges?: string[];
   validationProgress?: {
     toolCallId: string;
@@ -1635,6 +1638,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         throw new Response('You can view this project but not change it.', { status: 403 });
       }
       repo = project.repo;
+    } else {
+      // Refused before the files change: the revert's commit would undo what main took elsewhere.
+      await this.refuseIfMainMovedElsewhere(await this.repositories().head(repo));
     }
     const { files } = await this.repositories().readFilesAt(repo, parsed.data, (path) => !isExcludedProjectPath(path));
     const { baseRevision, changes } = await revertChanges(this.workspace, files);
@@ -2117,7 +2123,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await commitBuilderTemplate(repositories, own, await commitAuthor(this.env));
     }
     const { commit, files } = await repositories.readFilesAt(own, MAIN_BRANCH, (path) => !isExcludedProjectPath(path));
-    return seedBuilderWorkspace(
+    const seeded = await seedBuilderWorkspace(
       this.workspace,
       `repository_${commit.hash}`,
       files.map((file): BuilderWorkspaceFileInput => ({
@@ -2127,6 +2133,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         mode: workspaceFileMode(file.mode),
       })),
     );
+    // The files are main's at that commit: what saving them to main later checks main hasn't moved past.
+    await this.workspace.setGitRepository({ repo: own, orgProjectId: null });
+    await this.workspace.setMainFetched(commit.hash);
+    return seeded;
   }
 
   /**
@@ -3369,6 +3379,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     // Two commits can race for main (a publish's and a production request's): the loser goes again on top.
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const parent = await repositories.head(repo);
+      await this.refuseIfMainMovedElsewhere(parent);
       const result = await repositories.commitFiles({
         repo,
         branch: MAIN_BRANCH,
@@ -3378,10 +3389,32 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         author,
       });
       if ('commit' in result) {
+        await this.workspace.setMainFetched(result.commit);
         return { hash: result.commit, unchanged: result.unchanged === true };
       }
     }
     throw new Error('main of the project repository kept moving.');
+  }
+
+  /**
+   * Refuses saving the workspace over main (at `head`, null before main exists) when main took commits the
+   * workspace's files aren't based on, pushed from the person's computer or another chat: committing the files on
+   * top would silently undo them. The model is told at its next turn.
+   */
+  private async refuseIfMainMovedElsewhere(head: string | null): Promise<void> {
+    if (head === null || head === (await this.workspace.knownMain())) {
+      return;
+    }
+    this.setState({
+      ...this.state,
+      untoldChanges: [
+        ...(this.state.untoldChanges ?? []),
+        'CloudChef refused to save the workspace to main (to restore a version, or for a production request): main ' +
+          "has commits the workspace's files aren't based on, pushed from elsewhere since git here last fetched. " +
+          '`git pull` brings them in.',
+      ],
+    });
+    throw new Response(MAIN_MOVED_ELSEWHERE, { status: 409 });
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */
@@ -3571,6 +3604,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
+/** Why the workspace can't be saved over main that moved elsewhere, in words for the person. */
+const MAIN_MOVED_ELSEWHERE =
+  'This project changed somewhere else since your copy was last updated, from your computer or another chat. ' +
+  'Ask CloudChef to bring in the latest changes, then try again.';
 /** How long a turn's start waits for a team project's addresses, or what main took since git last fetched it. */
 const SITE_NOTE_TIMEOUT_MS = 5_000;
 

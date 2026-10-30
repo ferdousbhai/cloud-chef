@@ -490,7 +490,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     // container is based on, so others' later commits never show as changes undone here.
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'base_branch', 'TEXT');
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'base_commit', 'TEXT');
-    // The commit main was at when git in the container last fetched it or pushed it: what origin/main is there.
+    // The commit main was at when the workspace last took it: git in the container fetched or pushed it, or
+    // CloudChef seeded or saved the files at it.
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_git_repository', 'main_fetched', 'TEXT');
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_git_pushes (
@@ -2389,7 +2390,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     }
   }
 
-  /** The commit main was listed at when git in the container last fetched. */
+  /** Main is at `commit` in the workspace now: git in the container fetched it, or CloudChef seeded or saved the files at it. */
   setMainFetched(value: string): void {
     const commit = gitCommitSchema.parse(value);
     this.ctx.storage.sql.exec('UPDATE cloudchef_git_repository SET main_fetched = ? WHERE singleton = 1', commit);
