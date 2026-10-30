@@ -18,7 +18,7 @@ export function Preview({ site, reloadKey }: { site: BuilderLinkedSite | null; r
   return (
     <div className="flex size-full min-h-0 flex-col bg-bolt-elements-background-depth-1">
       <div className="flex items-center gap-2 border-b border-bolt-elements-borderColor px-3 py-1 text-xs text-content-tertiary">
-        <span className="font-medium text-content-secondary">{label}</span>
+        <span className="shrink-0 whitespace-nowrap font-medium text-content-secondary">{label}</span>
         <a className="min-w-0 truncate underline" href={site.url} target="_blank" rel="noreferrer">
           {new URL(site.url).host}
         </a>
