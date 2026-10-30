@@ -83,9 +83,10 @@ export default defineConfig({
       // dashboard.
       OPERATOR_USER_IDS: bindings.text('4128ec6e-8d8b-4c8a-8f93-ea2973525d00'),
       // Cloudflare's URL Scanner in CloudChef's own account, checking each posted site for phishing. Unset, sites are
-      // not scanned and reports alone hold a post. The token needs URL Scanner edit on that account.
+      // not scanned and reports alone hold a post. Its token (URL Scanner edit on that account) is not declared here:
+      // a declared secret must exist before every deploy. To turn scanning on, set `URL_SCANNER_API_TOKEN` with
+      // `cf workers secrets`, then declare it here as `bindings.secret()` in the same release as this account id.
       URL_SCANNER_ACCOUNT_ID: bindings.text(''),
-      URL_SCANNER_API_TOKEN: bindings.secret(),
     },
     exports: {
       UserWorkspaceRuntimeProvisioningWorkflow: exports.workflow({

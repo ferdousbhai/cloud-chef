@@ -15,7 +15,8 @@ const verdictSchema = z.looseObject({
 
 function scannerOf(env: Env): { accountId: string; token: string } | null {
   const accountId = env.URL_SCANNER_ACCOUNT_ID?.trim();
-  const token = env.URL_SCANNER_API_TOKEN?.trim();
+  // SAFETY: the token is a secret the config declares only once scanning is turned on (cloudflare.config.ts).
+  const token = (env as Env & { URL_SCANNER_API_TOKEN?: string }).URL_SCANNER_API_TOKEN?.trim();
   return accountId && token ? { accountId, token } : null;
 }
 
