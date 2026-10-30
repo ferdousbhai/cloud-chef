@@ -33,7 +33,9 @@ requires them. Cloudflare meters those resources to the user's account.
 
 Exception, showcase media only: a screenshot of a public project's live site, taken when it is posted or published
 again, is stored in CloudChef's own R2 and served by CloudChef, and it is taken by Browser Rendering in CloudChef's
-own account, which loads the site's public address as any visitor would. No project code, data, chat
+own account, which loads the site's public address as any visitor would. So is a post's clip once its author approved
+it in the chat: pictures of the live site the agent took in the author's own workspace, its timeline, and lines
+spoken by Workers AI in the author's own account, sent to CloudChef only on Approve. No project code, data, chat
 or build output is stored or run there. Removing a post, making its project private, or erasing the author's account
 deletes its media.
 
@@ -53,6 +55,21 @@ Browser Rendering (`BROWSER`), and each posted site is sent to Cloudflare's URL 
 (`post_media_deletions`) and the scheduled maintenance deletes them. Reports from three different people, or a
 malicious scan, hold a post or comment until an operator (`OPERATOR_USER_IDS`) decides at `/reports`; an author with
 two posts removed has their page paused.
+
+A post can also carry a clip ("stills with motion", `app/lib/reel.ts`): a few real pictures of the live site shown one
+after another with a slow pan or zoom, captions, tap marks and spoken lines. It is data, never a video file or code:
+a timeline (JSON) and its pictures and sound clips, played by CloudChef's own player
+(`app/components/showcase/ReelPlayer.tsx`, loaded only when a clip is played), so nothing of the project runs on
+cloudchef.build. The builder makes one only when asked (the `post-clip` skill, `app/lib/guidance/post-clip/SKILL.md`):
+it takes the pictures with Playwright's Chromium in the workspace container and runs `cloudchef reel <folder>`, which
+sends its script and pictures to the runtime's `ReelProxy` (`showcase.internal`); the `ConversationAgent` checks
+every picture by its bytes, speaks each line with `@cf/deepgram/aura-2-en` through the runtime's own `AI` binding,
+and keeps the clip in its own SQLite (`builder_reels`, `app/agents/builder-reels.ts`) while it plays in the chat with
+Approve and Not now (`app/components/chat/ChatReels.tsx`). Approve sends it to
+`/api/cloudflare/runtime-projects/reel` (`app/server-handlers/runtime-reels.ts`), which checks who may change the post
+(its author, or a team project's admin) and every file again before keeping it as `post_media` rows of kinds `reel`,
+`reel_still` and `reel_audio` (`migrations/0059_post_reels.sql`); a new clip replaces the one before and moves the
+post up feeds at most once a day. Remove clip on the post's menu takes it off.
 
 ## Runtime Upgrades
 
@@ -327,7 +344,8 @@ history, a clone command and a ZIP of any commit through the runtime (`projects.
 | Organizations, memberships, invites, per-member daily usage counts                           | CloudChef control-plane D1                           |
 | Projects, members' roles, GitHub installations, publishes of projects CloudChef deploys      | CloudChef control-plane D1                           |
 | Showcase posts, follows, likes, comments, notifications, reports, copies waiting for a space | CloudChef control-plane D1                           |
-| Showcase screenshots of public projects' live sites                                          | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
+| Showcase screenshots of public projects' live sites, and the clips their authors approved    | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
+| A clip the agent made, until its author approves it or puts it aside                         | User-owned `ConversationAgent` DO SQLite             |
 | Chat catalog, transcript identity, Agent garbage-collection queue                            | User workspace D1                                    |
 | Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable)     | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
 | Project bytes, numeric revision, change index, and tool journal                              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
