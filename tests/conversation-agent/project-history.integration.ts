@@ -231,7 +231,7 @@ describe("a CloudChef app's history", () => {
 });
 
 describe('reverting to a commit', () => {
-  async function revertHarness() {
+  async function revertHarness(options: { baseUnknown?: boolean } = {}) {
     noControlPlane();
     const artifacts = fakeArtifacts();
     const first = await repositories(artifacts).commitFiles({
@@ -274,7 +274,11 @@ describe('reverting to a commit', () => {
       artifacts,
       cloudflareIdentity: true,
       workspace: {
-        ...holding({ 'index.html': 'old' }, () => CHECKPOINT, 'commit' in second ? second.commit : null),
+        ...holding(
+          { 'index.html': 'old' },
+          () => CHECKPOINT,
+          options.baseUnknown || !('commit' in second) ? null : second.commit,
+        ),
         listFiles: () => current,
         readFile: async (path) => ({
           path,
@@ -317,23 +321,41 @@ describe('reverting to a commit', () => {
     // Pushed from the person's computer after the workspace last took main.
     const pushed = await harness.artifacts.commitDirect(REPO, 'main', { 'index.html': 'from my computer' });
 
-    let refused: Response | null = null;
+    let refused: (Error & { status?: number }) | null = null;
     try {
       await harness.agent.revertToCommit(old);
     } catch (error) {
-      refused = error instanceof Response ? error : null;
+      refused = error instanceof Error ? error : null;
     }
     expect(refused?.status).toBe(409);
-    expect(await refused?.text()).toBe(
+    expect(refused?.message).toBe(
       'This project changed somewhere else since your copy was last updated, from your computer or another chat. ' +
         'Ask CloudChef to bring in the latest changes, then try again.',
     );
     expect(applied).toEqual([]);
     expect(await harness.artifacts.head(REPO)).toBe(pushed);
-    expect(harness.agent.state.untoldChanges).toEqual([expect.stringContaining('`git pull` brings them in')]);
+    expect(harness.agent.state.untoldChanges).toEqual([
+      expect.stringContaining('pushed from elsewhere since git here last fetched'),
+    ]);
     // Saving the workspace as a version, as a production request does, is refused the same way.
     await expect(saveVersion(harness, 'Draft')).rejects.toMatchObject({ status: 409 });
     expect(await harness.artifacts.head(REPO)).toBe(pushed);
+  });
+
+  it("says only that the copy needs bringing up to date when what it's based on isn't known", async () => {
+    const { harness, old, applied } = await revertHarness({ baseUnknown: true });
+    let refused: (Error & { status?: number }) | null = null;
+    try {
+      await harness.agent.revertToCommit(old);
+    } catch (error) {
+      refused = error instanceof Error ? error : null;
+    }
+    expect(refused?.status).toBe(409);
+    expect(refused?.message).toBe(
+      'CloudChef needs to bring your copy up to date with the project first. Ask it to, then try again.',
+    );
+    expect(applied).toEqual([]);
+    expect(harness.agent.state.untoldChanges).toEqual([expect.stringContaining("hasn't fetched or pushed main yet")]);
   });
 
   it('is refused while a turn runs, and for a commit that is not one', async () => {

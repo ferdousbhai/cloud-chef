@@ -1622,10 +1622,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const durableIdentity = await this.requireDurableIdentity('revert_to_commit');
     const parsed = revertRequestSchema.safeParse(commit);
     if (!parsed.success) {
-      throw new Response('Invalid commit.', { status: 400 });
+      throw new AgentRefusal('Invalid commit.', 400);
     }
     if (this.state.activeTurn || this.startingTurns > 0) {
-      throw new Response('Stop the agent before restoring a version.', { status: 409 });
+      throw new AgentRefusal('Stop the agent before restoring a version.', 409);
     }
     await this.learnAdoption();
     await this.refuseIfClosed();
@@ -1635,7 +1635,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       const identity = runtimeConnectionIdentity(this.env);
       const project = identity ? await openProject(this.env, identity, linked.orgProjectId) : null;
       if (!project?.repo || project.role !== 'edit') {
-        throw new Response('You can view this project but not change it.', { status: 403 });
+        throw new AgentRefusal('You can view this project but not change it.', 403);
       }
       repo = project.repo;
     } else {
@@ -1646,7 +1646,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const { baseRevision, changes } = await revertChanges(this.workspace, files);
     const result = await this.applyWorkspaceClientChanges({ baseRevision, changes });
     if (!result.ok) {
-      throw new Response('The project changed while this version was being restored. Try again.', { status: 409 });
+      throw new AgentRefusal('The project changed while this version was being restored. Try again.', 409);
     }
     if (!linked && result.changedPaths.length > 0) {
       const checkpoint = await this.workspace.checkpoint();
@@ -3402,19 +3402,26 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
    * top would silently undo them. The model is told at its next turn.
    */
   private async refuseIfMainMovedElsewhere(head: string | null): Promise<void> {
-    if (head === null || head === (await this.workspace.knownMain())) {
+    const known = head === null ? null : await this.workspace.knownMain();
+    if (head === null || head === known) {
       return;
     }
+    // Nothing recorded (a workspace from before this was kept, or whose git never fetched): main may not have moved
+    // at all, so the person is told only that the copy needs bringing up to date.
+    const why =
+      known === null
+        ? "which commit of main the workspace's files are based on isn't known, as git here hasn't fetched or " +
+          'pushed main yet.'
+        : "main has commits the workspace's files aren't based on, pushed from elsewhere since git here last fetched.";
     this.setState({
       ...this.state,
       untoldChanges: [
         ...(this.state.untoldChanges ?? []),
-        'CloudChef refused to save the workspace to main (to restore a version, or for a production request): main ' +
-          "has commits the workspace's files aren't based on, pushed from elsewhere since git here last fetched. " +
-          '`git pull` brings them in.',
+        `CloudChef refused to save the workspace to main (to restore a version, or for a production request): ${why} ` +
+          '`git pull` brings it up to date.',
       ],
     });
-    throw new Response(MAIN_MOVED_ELSEWHERE, { status: 409 });
+    throw new AgentRefusal(known === null ? MAIN_BASE_UNKNOWN : MAIN_MOVED_ELSEWHERE, 409);
   }
 
   /** Who a publication runs for and the chat it records, once this agent knows its identity. */
@@ -3604,10 +3611,26 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
+/**
+ * A callable's refusal, in words for the person: the Agents SDK sends a thrown Error's message to the browser,
+ * where a thrown Response would read only "Unknown error occurred".
+ */
+class AgentRefusal extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
 /** Why the workspace can't be saved over main that moved elsewhere, in words for the person. */
 const MAIN_MOVED_ELSEWHERE =
   'This project changed somewhere else since your copy was last updated, from your computer or another chat. ' +
   'Ask CloudChef to bring in the latest changes, then try again.';
+/** Why the workspace can't be saved over main when what its files are based on isn't known, in words for the person. */
+const MAIN_BASE_UNKNOWN =
+  'CloudChef needs to bring your copy up to date with the project first. Ask it to, then try again.';
 /** How long a turn's start waits for a team project's addresses, or what main took since git last fetched it. */
 const SITE_NOTE_TIMEOUT_MS = 5_000;
 
