@@ -1,4 +1,6 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,6 +76,49 @@ describe('container toolchain bootstrap', () => {
     const run = spawnSync(command, ['validate'], { encoding: 'utf8' });
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('as a command of its own, exactly as written');
+  });
+
+  it('sends `cloudchef reel` a folder’s script and the pictures it names, and prints the answer', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-reel-'));
+    const folder = join(directory, 'reel');
+    mkdirSync(folder);
+    writeFileSync(join(folder, 'reel.json'), JSON.stringify({ steps: [{ still: 'home.webp', seconds: 2 }] }));
+    writeFileSync(join(folder, 'home.webp'), 'picture');
+    writeFileSync(join(directory, 'secret.txt'), 'not sent');
+    const received: { path: string | undefined; body: string }[] = [];
+    const server = createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk: Buffer) => (body += chunk.toString()));
+      request.on('end', () => {
+        received.push({ path: request.url, body });
+        response.end('In the chat.\n');
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    // SAFETY: a server listening on a TCP port has an AddressInfo address.
+    const { port } = server.address() as AddressInfo;
+    const command = join(directory, 'cloudchef');
+    writeFileSync(command, cloudchefCommandScript().replaceAll('showcase.internal', `127.0.0.1:${port}`), {
+      mode: 0o755,
+    });
+
+    const run = await new Promise<{ status: number | null; stdout: string }>((done) => {
+      const child = spawn(command, ['reel', folder], { env: { PATH: process.env.PATH } });
+      let stdout = '';
+      child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+      child.on('close', (status) => done({ status, stdout }));
+    });
+    server.close();
+    expect(run).toEqual({ status: 0, stdout: 'In the chat.\n' });
+    expect(received.map(({ path, body }) => ({ path, body: JSON.parse(body) }))).toEqual([
+      {
+        path: '/reel',
+        body: {
+          script: { steps: [{ still: 'home.webp', seconds: 2 }] },
+          files: { 'home.webp': Buffer.from('picture').toString('base64') },
+        },
+      },
+    ]);
   });
 
   it('runs the pinned cf, preferring the project copy, with the connected account', () => {

@@ -101,6 +101,8 @@ describe('ConversationAgent schema', () => {
       'builder_cloudflare_executions_status_expiry',
       'builder_cloudflare_executions_tool_call',
       'builder_identity',
+      'builder_reel_files',
+      'builder_reels',
     ]);
   });
 

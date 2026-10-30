@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { useAgent } from 'agents/react';
 import { useStore } from '@nanostores/react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ChatReels } from './ChatReels';
+import { reelBundleSchema } from '~/lib/reel';
 import type { ConversationAgent, ConversationAgentState, BuilderSteeringInput } from '~/agents/conversation-agent';
 import { applyChatFrame, chatFrameSchema } from 'cloudchef-agent/chat-frame';
 import type { ChatTurnContext } from 'cloudchef-agent/turn-context';
@@ -499,6 +501,28 @@ export function useConversationAgentChat(args: {
     [conversationAgent],
   );
 
+  // A clip the agent made for the project's post: played here from its files, posted only when the person approves.
+  const reelActions = useMemo<Omit<ChatReels, 'reels'>>(
+    () => ({
+      load: async (reelId) => {
+        await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
+        const parsed = reelBundleSchema.safeParse(
+          await conversationAgent.call('reelForChat', [{ reelId }], { timeout: 60_000 }),
+        );
+        return parsed.success ? parsed.data : null;
+      },
+      decide: async (reelId, decision) => {
+        await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
+        await conversationAgent.call(decision === 'approve' ? 'approveReel' : 'declineReel', [{ reelId }], {
+          timeout: 2 * 60_000,
+        });
+      },
+    }),
+    [conversationAgent],
+  );
+  const reelList = conversationAgent.state?.reels;
+  const reels = useMemo<ChatReels>(() => ({ reels: reelList ?? [], ...reelActions }), [reelList, reelActions]);
+
   // A change filed for the team's admins: once one of them decides it while this chat is open, the agent carries on
   // from the result. Only a decision seen arriving here does that, once.
   const filedApprovalsRef = useRef(new Set<string>());
@@ -566,6 +590,7 @@ export function useConversationAgentChat(args: {
     validationStage: conversationAgent.state?.validationProgress?.stage ?? null,
     cloudflareExecutions: conversationAgent.state?.cloudflareExecutions ?? [],
     decideCloudflareExecution,
+    reels,
     workspacePresentationState,
     workspaceFailure,
     retryWorkspacePresentation,

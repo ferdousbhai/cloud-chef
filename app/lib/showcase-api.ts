@@ -137,6 +137,11 @@ export async function deletePost(postId: string): Promise<void> {
   await postJson('/api/showcase/posts/delete', { postId }, z.unknown());
 }
 
+/** "Remove clip": the post keeps its screenshot. */
+export async function removeReel(postId: string): Promise<void> {
+  await postJson('/api/showcase/posts/clip/remove', { postId }, z.unknown());
+}
+
 export async function setBio(bio: string): Promise<string | null> {
   return (await postJson('/api/showcase/profile', { bio }, z.object({ bio: z.string().nullable() }))).bio;
 }

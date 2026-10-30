@@ -25,7 +25,7 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
-export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push' | 'chat';
+export type ProjectCreatedFrom = 'github' | 'zip' | 'copy' | 'push' | 'chat';
 
 export type Project = {
   id: string;
@@ -36,7 +36,7 @@ export type Project = {
   /** The Artifacts repository in the `cloudchef` namespace; null until it has been imported. */
   repo: string | null;
   defaultBranch: string;
-  /** What it was made from: a GitHub import, a ZIP upload, a copy, a push, a chat, or a team member's draft an admin approved (before chats made projects). */
+  /** What it was made from: a GitHub import, a ZIP upload, a copy, a push, or a chat. */
   createdFrom: ProjectCreatedFrom;
   /** The GitHub repository it was (or is still to be) imported from; null unless made from GitHub. */
   importSource: { repoId: number | null; fullName: string; branch: string } | null;

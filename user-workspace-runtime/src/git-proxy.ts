@@ -1,8 +1,8 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import type { BuilderWorkspaceGitRepository } from '../../app/agents/builder-workspace-api';
 import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import {
   GIT_PROXY_HOST,
+  type GitWorkspaceRepository,
   handleGitProxyRequest,
   mainPushReport,
   type RefUpdate,
@@ -48,7 +48,7 @@ type GitProxyEnv = Pick<
 /** Why the person may not use `target` now: a team project needs its edit role to push, a view to fetch. */
 async function gitRefusal(
   env: GitProxyEnv,
-  target: BuilderWorkspaceGitRepository,
+  target: GitWorkspaceRepository,
   write: boolean,
   onProject: (project: { deploysWith?: 'workers_builds' | 'cloudchef'; inAnotherAccount?: boolean }) => void = () =>
     undefined,

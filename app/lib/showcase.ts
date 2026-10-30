@@ -1,3 +1,5 @@
+import type { PostReel } from './reel';
+
 /**
  * Showcase pages and the feed, as the browser and the server both see them: a person's public page, their posts,
  * comments and notifications. Everything here may be shown to anyone who can see the post, signed in or not.
@@ -30,6 +32,8 @@ export type PostView = {
   author: { username: string; name: string; image: string | null };
   /** The live site as it looked at its last publish; null until the first screenshot is taken. */
   screenshot: { url: string; width: number; height: number } | null;
+  /** A short clip of the app being used, which its author approved in the chat (app/lib/reel.ts); null for none. */
+  reel: PostReel | null;
   /** Published again since it was first posted. */
   updated: boolean;
   shownAt: number;

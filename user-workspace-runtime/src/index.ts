@@ -115,7 +115,7 @@ import {
   requiredDirectories,
 } from './isolated-materialization';
 import { shellQuote } from './shell-quote';
-import { addMissingColumn, first } from './sql-rows';
+import { addMissingColumn, dropColumnIfPresent, first } from './sql-rows';
 import { base64ToBytes, bytesToBase64, sha256Hex } from '../../app/lib/hex-digest';
 import { stableWorkspaceRead } from './stable-workspace-read';
 import {
@@ -141,6 +141,7 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
 export { CloudflareApiProxy } from './cloudflare-api-proxy';
+export { ReelProxy } from './reel-proxy';
 import { handleCommandLineGit, handleSharedProjectRequest } from './git-proxy';
 import { readSharedCapabilitySubject } from '../../app/lib/.server/cloudflare/shared-project';
 import type { WorkspaceAgentCommand } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
@@ -175,7 +176,7 @@ const LINKED_PROJECT_SCRIPTS = ['typecheck', 'lint', 'test', 'build'] as const;
 const LINKED_PROJECT_SCRIPT_TIMEOUT_MS = 10 * 60_000;
 const gitRepositorySchema = z.object({
   repo: z.string().min(1).max(256),
-  orgProjectId: z.string().min(1).max(256).nullable(),
+  orgProjectId: z.string().min(1).max(256),
 });
 const gitCommitSchema = z.string().regex(/^[0-9a-f]{40}$/);
 const gitBaseSchema = z.object({
@@ -359,9 +360,19 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          updated_at INTEGER NOT NULL
        )`,
     );
-    addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'branch_key', 'TEXT');
-    addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'workspace_modes', 'INTEGER NOT NULL DEFAULT 0');
     addMissingColumn(this.ctx.storage.sql, 'cloudchef_linked_project', 'project_name', 'TEXT');
+    // What publishing kept before every project published by pushing to its repository, unnamed since the release
+    // before: the base commit's files and modes it diffed against, its validations, and its deployment sessions.
+    dropColumnIfPresent(this.ctx.storage.sql, 'cloudchef_linked_project', 'branch_key');
+    dropColumnIfPresent(this.ctx.storage.sql, 'cloudchef_linked_project', 'workspace_modes');
+    for (const table of [
+      'cloudchef_linked_manifest',
+      'cloudchef_validations',
+      'cloudchef_prepared_validation',
+      'cloudchef_deployment_sessions',
+    ]) {
+      this.ctx.storage.sql.exec(`DROP TABLE IF EXISTS ${table}`);
+    }
     // The repository git in the container reaches through the git proxy, and the pushes it has made there.
     this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_git_repository (
@@ -385,14 +396,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
          old_oid TEXT NOT NULL,
          new_oid TEXT NOT NULL,
          pushed_at INTEGER NOT NULL
-       )`,
-    );
-    // Its files at the base commit, a row each: a repository's whole list is too large for one value.
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS cloudchef_linked_manifest (
-         path TEXT PRIMARY KEY,
-         sha256 TEXT NOT NULL,
-         executable INTEGER NOT NULL DEFAULT 0
        )`,
     );
   }
@@ -1762,7 +1765,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await this.withStatefulOperation('delete', 'delete:project', async () => {
       await this.withComputer((workspace) => workspace.fs.rm(PROJECT_ROOT, { recursive: true, force: true }));
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_project');
-      this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_git_repository');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_git_pushes');
       this.ctx.storage.sql.exec(
@@ -1785,8 +1787,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (!/^[0-9a-f]{40}$/.test(value.baseCommit)) {
       throw new Error('Linked project state is invalid.');
     }
-    // branch_key, workspace_modes and cloudchef_linked_manifest held what publishing diffed against before
-    // git did; nothing writes them now.
     this.ctx.storage.sql.exec(
       `INSERT INTO cloudchef_linked_project
          (singleton, org_project_id, repository, default_branch, base_commit, project_name, updated_at)

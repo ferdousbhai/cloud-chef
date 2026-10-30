@@ -25,7 +25,7 @@ export const orgProjectSchema = z.object({
   name: z.string(),
   /** The project's Artifacts repository; null until the first person to open it has imported it. */
   repo: z.string().nullable(),
-  createdFrom: z.enum(['github', 'zip', 'draft', 'copy', 'push', 'chat']),
+  createdFrom: z.enum(['github', 'zip', 'copy', 'push', 'chat']),
   /** Who publishes it: Workers Builds, which an admin connects, or CloudChef itself. */
   deploysWith: z.enum(['workers_builds', 'cloudchef']),
   /** The GitHub repository it was imported from, for an imported project. */
@@ -41,7 +41,7 @@ const installStartedSchema = z.object({ installUrl: z.string() });
 
 /**
  * An admin's view of a team's projects: each one's repository and who may view or edit it, and the GitHub
- * accounts CloudChef's App reads when importing. Members' requests to make a draft a project are on Approvals.
+ * accounts CloudChef's App reads when importing.
  */
 export function OrgProjectsSection({
   orgId,
@@ -243,8 +243,8 @@ function projectSource(project: OrgProject): string | null {
 }
 
 /**
- * How an admin has Workers Builds deploy a project that didn't come from GitHub (an approved draft, or a ZIP
- * upload), so has no Worker building it yet: the dashboard does it, once.
+ * How an admin has Workers Builds deploy a project that didn't come from GitHub (a ZIP upload, say), so has no
+ * Worker building it yet: the dashboard does it, once.
  */
 function WorkersBuildsInstruction() {
   return (

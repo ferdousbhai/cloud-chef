@@ -52,15 +52,27 @@ export function PostCard({ post: initial, priority = false }: { post: PostView; 
             {post.title}
           </PostLink>
         </div>
-        <PostMenu post={post} onCaption={(caption) => setPost({ ...post, caption })} onGone={() => setGone(true)} />
+        <PostMenu
+          post={post}
+          onCaption={(caption) => setPost({ ...post, caption })}
+          onGone={() => setGone(true)}
+          onReelRemoved={() => setPost({ ...post, reel: null })}
+        />
       </header>
-      <PostLink
-        path={post.path}
-        className="block aspect-[16/10] overflow-hidden bg-[#0c0d12]"
-        label={`Open ${post.title}`}
-      >
-        <PostMedia post={post} variant="card" priority={priority} />
-      </PostLink>
+      {post.reel ? (
+        // A clip has its own play button, which a link around it would swallow.
+        <div className="aspect-[16/10] overflow-hidden bg-[#0c0d12]">
+          <PostMedia post={post} variant="card" priority={priority} />
+        </div>
+      ) : (
+        <PostLink
+          path={post.path}
+          className="block aspect-[16/10] overflow-hidden bg-[#0c0d12]"
+          label={`Open ${post.title}`}
+        >
+          <PostMedia post={post} variant="card" priority={priority} />
+        </PostLink>
+      )}
       <div className="grid gap-1.5 px-3 pb-3.5 pt-1.5">
         <PostActions
           post={post}

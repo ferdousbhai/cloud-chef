@@ -23,6 +23,7 @@ import {
   listPersonPosts,
   markNotificationsRead,
   removePendingCopy,
+  removeReel,
   setBio,
   setFollowing,
   setLiked,
@@ -331,6 +332,18 @@ export const deletePostAction: Handler = ({ request, env }) =>
     await deletePost(env.DB, { userId: session.user.id, postId: body.data.postId });
     await deleteGoneMediaBestEffort(env);
     return json({ deleted: true });
+  });
+
+/** `POST /api/showcase/posts/clip/remove`: "Remove clip", which leaves the post with its screenshot. */
+export const removeReelAction: Handler = ({ request, env }) =>
+  signedInShowcase(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, postIdSchema, 'Name the post.');
+    if ('response' in body) {
+      return body.response;
+    }
+    await removeReel(env.DB, { userId: session.user.id, postId: body.data.postId });
+    await deleteGoneMediaBestEffort(env);
+    return json({ removed: true });
   });
 
 /** `GET /api/showcase/posts/hidden`: the signed-in person's own hidden posts, for their page. */

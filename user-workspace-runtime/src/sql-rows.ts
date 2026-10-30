@@ -19,3 +19,10 @@ export function addMissingColumn(
     sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
+
+/** Drop a column a Durable Object's table may still have from before nothing named it. */
+export function dropColumnIfPresent(sql: Pick<SqlStorage, 'exec'>, table: string, column: string): void {
+  if ([...sql.exec<{ name: string }>(`PRAGMA table_info(${table})`)].some((row) => row.name === column)) {
+    sql.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+}

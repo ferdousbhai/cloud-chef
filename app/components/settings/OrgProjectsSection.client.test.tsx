@@ -91,7 +91,7 @@ describe('OrgProjectsSection', () => {
             {
               id: 'project-1',
               name: 'Storefront',
-              createdFrom: 'draft',
+              createdFrom: 'zip',
               deploysWith: 'workers_builds',
               repo: 'p-draft',
               importRepoFullName: null,
