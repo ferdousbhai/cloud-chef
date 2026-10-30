@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { AccountExportSectionName } from '~/lib/account-data';
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
+import { exportShowcase } from '~/lib/cloudflare/data/posts.server';
 import { findCloudflareConnectionForUser } from './cloudflare-connection-repository';
 import {
   draftsAllowed,
@@ -12,7 +13,7 @@ import {
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 8;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 9;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -34,6 +35,7 @@ const SECTION_NAMES = [
   'emailSignInLinks',
   'authSessions',
   'oauthStates',
+  'showcase',
 ] as const satisfies readonly AccountExportSectionName[];
 
 type SectionName = (typeof SECTION_NAMES)[number];
@@ -232,6 +234,7 @@ type ControlPlaneExport = {
     emailSignInLinks: ExportedSection<BoundedList<{ links: ExportedEmailSignInLink[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
+    showcase: ExportedSection<{ showcase: Awaited<ReturnType<typeof exportShowcase>> }>;
   };
 };
 
@@ -257,6 +260,7 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     emailSignInLinks: await exportSection('emailSignInLinks', () => readEmailSignInLinks(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
+    showcase: await exportSection('showcase', async () => ({ showcase: await exportShowcase(db, args.userId) })),
   };
   const unavailableSections = SECTION_NAMES.filter((name) => sections[name].status === 'unavailable');
 

@@ -13,6 +13,7 @@ import {
 } from '~/lib/cloudflare/data/project-deployments.server';
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { json, openProject } from './runtime-projects';
+import { projectPublished } from '~/lib/.server/showcase/jobs';
 
 /**
  * A member's workspace runtime building and deploying a project CloudChef deploys itself (one uploaded as a ZIP):
@@ -214,7 +215,7 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
     }
   }
   if (outcome === 'recorded' && body.state === 'succeeded' && deployment.kind === 'production') {
-    await recordProductionPublish(args.env.DB, {
+    const publish = await recordProductionPublish(args.env.DB, {
       projectId: project.id,
       commit: deployment.commit_sha,
       siteUrl: body.url ?? null,
@@ -222,6 +223,10 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
       publishedAt: Date.now(),
       deployedBy: 'cloudchef',
     });
+    // A public project's post is made or updated with it (app/lib/.server/showcase/jobs.ts).
+    if (publish) {
+      await projectPublished(args.env, publish);
+    }
   }
   // The Worker the project deploys as now, which a deploy that just started (or started over) uses.
   const held = await args.env.DB.prepare('SELECT deploy_worker_name FROM org_projects WHERE id = ?')

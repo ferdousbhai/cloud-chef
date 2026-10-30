@@ -23,6 +23,7 @@ const ACCOUNT_EXPORT_SECTION_LABELS = {
   emailSignInLinks: 'your emailed sign-in links',
   authSessions: 'your sign-in sessions',
   oauthStates: 'your Cloudflare authorizations in progress',
+  showcase: 'your page, posts, comments, follows and likes',
 } as const;
 
 export type AccountExportSectionName = keyof typeof ACCOUNT_EXPORT_SECTION_LABELS;

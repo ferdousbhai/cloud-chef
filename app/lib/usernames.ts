@@ -1,6 +1,7 @@
 /**
  * A person's username, as in their projects' addresses (`<username>/<project>`): 1 to 39 lowercase letters, digits
- * and single dashes, not starting or ending with one, as GitHub's. Names CloudChef's own pages use are kept back.
+ * and single dashes, not starting or ending with one, as GitHub's. Names CloudChef's own pages use are kept back: a
+ * person's page is at `/<username>`, so every top-level page CloudChef has, or may add, is named here first.
  */
 const USERNAME = /^[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}$/;
 const RESERVED = new Set([
@@ -8,21 +9,35 @@ const RESERVED = new Set([
   'admin',
   'api',
   'app',
+  'approvals',
   'assets',
   'chat',
   'cli',
   'cloudchef',
   'connect',
+  'copy',
+  'explore',
+  'feed',
+  'followers',
+  'following',
   'git',
   'help',
+  'home',
   'install',
   'join',
   'login',
+  'media',
   'new',
+  'notifications',
+  'post',
+  'posts',
   'privacy',
   'projects',
+  'reports',
+  'search',
   'security',
   'settings',
+  'showcase',
   'sign-in',
   'support',
   'teams',

@@ -235,6 +235,7 @@ describe('control-plane account export', () => {
       'emailSignInLinks',
       'authSessions',
       'oauthStates',
+      'showcase',
     ]);
     warn.mockRestore();
   });

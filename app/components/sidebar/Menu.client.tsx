@@ -4,10 +4,11 @@ import { cubicEasingFn } from '~/utils/easings';
 import { binDates } from './date-binning';
 import { classNames } from '~/utils/classNames';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { Button } from '@ui/Button';
+import { Button, buttonClassNames } from '@ui/Button';
+import { Link } from '@tanstack/react-router';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
-import { CheckCircledIcon, GlobeIcon, PlusIcon } from '@radix-ui/react-icons';
+import { CheckCircledIcon, GlobeIcon, HomeIcon, PersonIcon, PlusIcon } from '@radix-ui/react-icons';
 import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
 import { WorkspaceSwitcher } from '~/components/header/WorkspaceSwitcher';
 import { useStore } from '@nanostores/react';
@@ -53,6 +54,7 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
   const { data: session } = authClient.useSession();
   // A member limited to the organization's GitHub projects can't start apps of their own here.
   const draftsAllowed = session?.context?.kind !== 'organization' || session.context.draftsAllowed;
+  const username = session?.user.username ?? null;
   // Approvals gather every team's this person is an admin of.
   const teamAdmin =
     session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
@@ -206,12 +208,33 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
             variant="subtle"
             size="xs"
             className="w-full justify-start"
+            to="/feed"
+            onClick={onClose}
+            icon={<HomeIcon />}
+          >
+            Feed
+          </LinkButton>
+          <LinkButton
+            variant="subtle"
+            size="xs"
+            className="w-full justify-start"
             to="/explore"
             onClick={onClose}
             icon={<GlobeIcon />}
           >
             Explore
           </LinkButton>
+          {username ? (
+            <Link
+              className={buttonClassNames({ variant: 'subtle', size: 'xs', className: 'w-full justify-start' })}
+              to="/$username"
+              params={{ username }}
+              onClick={onClose}
+            >
+              <PersonIcon />
+              Your page
+            </Link>
+          ) : null}
           {teamAdmin ? (
             <LinkButton
               variant="subtle"

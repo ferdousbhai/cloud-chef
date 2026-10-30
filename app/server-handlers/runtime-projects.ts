@@ -36,6 +36,7 @@ import { registerGitHubImport } from './projects';
 import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
+import { projectPublished } from '~/lib/.server/showcase/jobs';
 
 /**
  * A member's workspace runtime working on a project kept in Artifacts. The runtime reads and writes the
@@ -485,9 +486,10 @@ export async function runtimeProjectStatusAction(args: {
       return json({ state: 'none' }, 200);
     }
     const status = await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit });
-    // A production build of main's pushed commit is that push going live, recorded once.
+    // A production build of main's pushed commit is that push going live, recorded once; a public project's post
+    // is made or updated then (app/lib/.server/showcase/jobs.ts).
     if (status.state === 'succeeded' && status.url) {
-      await recordProductionPublish(args.env.DB, {
+      const publish = await recordProductionPublish(args.env.DB, {
         projectId: project.id,
         commit: body.commit,
         siteUrl: null,
@@ -495,6 +497,9 @@ export async function runtimeProjectStatusAction(args: {
         publishedAt: Date.now(),
         deployedBy: 'workers_builds',
       });
+      if (publish) {
+        await projectPublished(args.env, { ...publish, siteUrl: publish.siteUrl ?? status.url });
+      }
     }
     return json(status, 200);
   });

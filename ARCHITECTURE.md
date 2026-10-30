@@ -31,6 +31,29 @@ origin-bound capability and communicates directly with that Worker for chat, pro
 operations. Generated-application D1 and R2 resources are created later only when the validated deployment plan
 requires them. Cloudflare meters those resources to the user's account.
 
+Exception, showcase media only: a screenshot of a public project's live site, taken when it is posted or published
+again, is stored in CloudChef's own R2 and served by CloudChef, and it is taken by Browser Rendering in CloudChef's
+own account, which loads the site's public address as any visitor would. No project code, data, chat
+or build output is stored or run there. Removing a post, making its project private, or erasing the author's account
+deletes its media.
+
+## Showcase
+
+Each person with a username has a public page at `/<username>`, and each public project one post at its own address,
+`/<owner>/<slug>` (its clone address without `.git`); both and `/explore` are rendered on the server for anyone,
+signed in or not, from `app/lib/showcase-loaders.ts`, and read only what anyone may see (no email, no private
+project, no team name). Following, likes, comments, the feed (`/feed`) and notifications need sign-in
+(`app/server-handlers/showcase.ts`). A post is made or updated only from `recordProductionPublish`'s first record of
+a commit of main going live (`projectPublished` in `app/lib/.server/showcase/jobs.ts`), for a public project; later
+publishes update the one post, moving it up feeds at most once a day, and never undo its author hiding it. Making a
+project private hides its post and deletes its media. The screenshot is taken from the `cloudchef-showcase` queue by
+Browser Rendering (`BROWSER`), and each posted site is sent to Cloudflare's URL Scanner when
+`URL_SCANNER_ACCOUNT_ID` and `URL_SCANNER_API_TOKEN` are set. Media is `SHOWCASE_MEDIA` (R2), served at
+`/media/<id>` only while its post is shown; a trigger queues the objects of deleted rows
+(`post_media_deletions`) and the scheduled maintenance deletes them. Reports from three different people, or a
+malicious scan, hold a post or comment until an operator (`OPERATOR_USER_IDS`) decides at `/reports`; an author with
+two posts removed has their page paused.
+
 ## Runtime Upgrades
 
 Redeploying a workspace Worker resets its Durable Objects, which ends whatever they are running. A CloudChef
@@ -298,18 +321,20 @@ history, a clone command and a ZIP of any commit through the runtime (`projects.
 
 ## State Ownership
 
-| State                                                                                    | Authoritative owner                                  |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Identity, OAuth credentials, sessions, connection metadata, runtime locators             | CloudChef control-plane D1                           |
-| Organizations, memberships, invites, per-member daily usage counts                       | CloudChef control-plane D1                           |
-| Projects, members' roles, GitHub installations, publishes of projects CloudChef deploys  | CloudChef control-plane D1                           |
-| Chat catalog, transcript identity, Agent garbage-collection queue                        | User workspace D1                                    |
-| Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable) | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
-| Project bytes, numeric revision, change index, and tool journal                          | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
-| Dependency installation and validation                                                   | User-owned `ProjectWorkspace` Container backend      |
-| Building and deploying a project CloudChef publishes                                     | User-owned `ProjectBuilder`, user's Cloudflare APIs  |
-| Query collections and editor files                                                       | Rebuildable in-memory browser presentation cache     |
-| Generated application's Worker, D1, R2, Agent, and related resources                     | User's Cloudflare account                            |
+| State                                                                                        | Authoritative owner                                  |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Identity, OAuth credentials, sessions, connection metadata, runtime locators                 | CloudChef control-plane D1                           |
+| Organizations, memberships, invites, per-member daily usage counts                           | CloudChef control-plane D1                           |
+| Projects, members' roles, GitHub installations, publishes of projects CloudChef deploys      | CloudChef control-plane D1                           |
+| Showcase posts, follows, likes, comments, notifications, reports, copies waiting for a space | CloudChef control-plane D1                           |
+| Showcase screenshots of public projects' live sites                                          | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
+| Chat catalog, transcript identity, Agent garbage-collection queue                            | User workspace D1                                    |
+| Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable)     | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
+| Project bytes, numeric revision, change index, and tool journal                              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
+| Dependency installation and validation                                                       | User-owned `ProjectWorkspace` Container backend      |
+| Building and deploying a project CloudChef publishes                                         | User-owned `ProjectBuilder`, user's Cloudflare APIs  |
+| Query collections and editor files                                                           | Rebuildable in-memory browser presentation cache     |
+| Generated application's Worker, D1, R2, Agent, and related resources                         | User's Cloudflare account                            |
 
 Do not create a second authoritative store for the same state. Browser and process-local materializations must be
 rebuildable from their owner. Cloudflare Computer's SQLite VFS in `ProjectWorkspace` is the sole authority for project

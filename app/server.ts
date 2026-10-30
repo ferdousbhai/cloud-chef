@@ -119,6 +119,9 @@ import {
   updateDefaultModelAction,
 } from './server-handlers/model-settings';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
+import * as showcase from './server-handlers/showcase';
+import { deleteGoneMediaBestEffort, serveMediaAction } from './lib/.server/showcase/media';
+import { runShowcaseJobs, type ShowcaseJob } from './lib/.server/showcase/jobs';
 import { PROJECT_PRESENCE_ROUTE, projectPresenceAction } from './server-handlers/project-presence';
 import { pruneProjectVisitsBestEffort } from './lib/cloudflare/data/project-presence.server';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
@@ -270,6 +273,34 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/settings/command-line-tokens': ['GET', listCommandLineTokensAction],
     '/api/settings/command-line-tokens/create': ['POST', createCommandLineTokenAction],
     '/api/settings/command-line-tokens/revoke': ['POST', revokeCommandLineTokenAction],
+    '/api/showcase/viewer': ['GET', showcase.viewerAction],
+    '/api/showcase/explore': ['GET', showcase.explorePageAction],
+    '/api/showcase/person': ['GET', showcase.personPageAction],
+    '/api/showcase/feed': ['GET', showcase.feedAction],
+    '/api/showcase/comments': ['GET', showcase.commentsAction],
+    '/api/showcase/comments/add': ['POST', showcase.addCommentAction],
+    '/api/showcase/comments/delete': ['POST', showcase.deleteCommentAction],
+    '/api/showcase/follow': ['POST', showcase.followAction],
+    '/api/showcase/follows': ['GET', showcase.followListAction],
+    '/api/showcase/like': ['POST', showcase.likeAction],
+    '/api/showcase/likers': ['GET', showcase.likersAction],
+    '/api/showcase/report': ['POST', showcase.reportAction],
+    '/api/showcase/posts/caption': ['POST', showcase.captionAction],
+    '/api/showcase/posts/shown': ['POST', showcase.shownAction],
+    '/api/showcase/posts/delete': ['POST', showcase.deletePostAction],
+    '/api/showcase/posts/hidden': ['GET', showcase.hiddenPostsAction],
+    '/api/showcase/profile': ['POST', showcase.profileAction],
+    '/api/showcase/notifications': ['GET', showcase.notificationsAction],
+    '/api/showcase/notifications/read': ['POST', showcase.readNotificationsAction],
+    '/api/showcase/copies': ['GET', showcase.waitingCopiesAction],
+    '/api/showcase/copies/wait': ['POST', showcase.waitingCopyAction],
+    '/api/showcase/copies/make': ['POST', showcase.makeWaitingCopyAction],
+    '/api/showcase/copies/forget': ['POST', showcase.forgetWaitingCopyAction],
+    '/api/showcase/operator': ['GET', showcase.operatorAction],
+    '/api/showcase/reports': ['GET', showcase.listReportsAction],
+    '/api/showcase/reports/media': ['GET', showcase.reportMediaAction],
+    '/api/showcase/reports/decide': ['POST', showcase.decideReportAction],
+    '/api/showcase/reports/unpause': ['POST', showcase.unpauseAction],
   }),
 );
 
@@ -295,11 +326,15 @@ export default {
       Promise.all([
         pruneCloudflareAuthDataBestEffort(env.DB),
         sweepUserWorkspaceRuntimeUpgradesBestEffort(env, controller.scheduledTime),
+        deleteGoneMediaBestEffort(env),
         pruneProjectVisitsBestEffort(env.DB, controller.scheduledTime),
       ]),
     );
   },
-} satisfies ExportedHandler<Env>;
+  queue(batch: MessageBatch<ShowcaseJob>, env: Env) {
+    return runShowcaseJobs(batch, env);
+  },
+} satisfies ExportedHandler<Env, ShowcaseJob>;
 
 /** The routes workspace runtimes call with their secret; runtime-session is the browser's. */
 function isRuntimeRoute(pathname: string): boolean {
@@ -318,6 +353,10 @@ async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> 
 }
 
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
+  // A post's picture, from CloudChef's own R2, at an address named by its id.
+  if (pathname.startsWith('/media/')) {
+    return serveMediaAction({ request, env });
+  }
   // git from a person's own computer: its paths name the project, and every request is limited per token.
   if (isCommandLineGitPath(pathname)) {
     return (await runtimeRateLimited(request, env))

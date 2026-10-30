@@ -12,6 +12,7 @@ import {
   renderReport,
   workerInvocationsQuery,
   PROJECTS_STATEMENT,
+  SHOWCASE_STATEMENT,
 } from './ops-report.mjs';
 
 const NOW = Date.UTC(2026, 7, 18, 12, 0, 0);
@@ -159,7 +160,7 @@ describe('production report', () => {
     expect(report).toMatchObject({
       controlPlaneReadable: true,
       status: 'ok',
-      headline: 'Everything is healthy: all 7 checks passed.',
+      headline: 'Everything is healthy: all 8 checks passed.',
     });
     expect(report.checks.map((item: { id: string }) => item.id)).toEqual([
       'control-plane-worker',
@@ -169,8 +170,9 @@ describe('production report', () => {
       'users',
       'sessions',
       'projects',
+      'showcase',
     ]);
-    expect(report.checks.at(-1)).toMatchObject({
+    expect(report.checks.at(-2)).toMatchObject({
       sentence: '2 projects: 1 in Artifacts, 1 still to be imported from GitHub on first open.',
       detail: {
         entries: [
@@ -396,26 +398,28 @@ function healthyRows(): Rows {
 /** The core rows for the core statements, and two projects (a team's to import, a person's in Artifacts). */
 function fixtureQuery(rows: Rows) {
   return async (sql: string) =>
-    sql === PROJECTS_STATEMENT
-      ? [
-          [
-            {
-              name: 'ff',
-              organization: 'Sites',
-              owner: null,
-              artifact_repo: null,
-              import_repo_full_name: 'ada/forbidden-feminine',
-            },
-            {
-              name: 'mine',
-              organization: null,
-              owner: 'ada@example.com',
-              artifact_repo: 't-mine',
-              import_repo_full_name: 'ada/mine',
-            },
-          ],
-        ]
-      : rows;
+    sql === SHOWCASE_STATEMENT
+      ? [[{ visible_posts: 3, open_reports: 0, held_posts: 0 }]]
+      : sql === PROJECTS_STATEMENT
+        ? [
+            [
+              {
+                name: 'ff',
+                organization: 'Sites',
+                owner: null,
+                artifact_repo: null,
+                import_repo_full_name: 'ada/forbidden-feminine',
+              },
+              {
+                name: 'mine',
+                organization: null,
+                owner: 'ada@example.com',
+                artifact_repo: 't-mine',
+                import_repo_full_name: 'ada/mine',
+              },
+            ],
+          ]
+        : rows;
 }
 
 function invocationRow(outcome: string, count: number) {

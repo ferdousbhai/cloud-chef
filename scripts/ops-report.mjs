@@ -353,6 +353,12 @@ export function coreStatements(now) {
  * it from. Asked apart from the core statements, so a schema the deployed release hasn't migrated yet marks
  * only this check unknown.
  */
+/** Showcase posts shown, reports waiting for an operator, and posts reports hold (migrations/0056_showcase.sql). */
+export const SHOWCASE_STATEMENT = `SELECT
+    (SELECT COUNT(*) FROM posts WHERE status = 'visible') AS visible_posts,
+    (SELECT COUNT(*) FROM post_reports WHERE state = 'open') AS open_reports,
+    (SELECT COUNT(*) FROM posts WHERE status = 'hidden' AND hidden_reason = 'reported') AS held_posts`;
+
 export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.name AS organization, owners.email AS owner,
     projects.artifact_repo AS artifact_repo,
     projects.import_repo_full_name AS import_repo_full_name,
@@ -615,9 +621,10 @@ export async function collectReport({
   pinnedBuilderModel = null,
 }) {
   const statements = coreStatements(now);
-  const [core, projects, invocations, catalog] = await Promise.all([
+  const [core, projects, showcase, invocations, catalog] = await Promise.all([
     attempt(() => query(statements.join(';\n'))),
     attempt(() => query(PROJECTS_STATEMENT)),
+    attempt(() => query(SHOWCASE_STATEMENT)),
     attempt(() => readInvocations({ now })),
     attempt(() => readModelCatalog()),
   ]);
@@ -629,6 +636,7 @@ export async function collectReport({
     buildUsersCheck(core),
     buildSessionsCheck(core),
     buildProjectsCheck(projects),
+    buildShowcaseCheck(showcase),
   ];
 
   const status = checks.reduce(
@@ -765,6 +773,28 @@ function buildProjectsCheck(projects) {
       ? 'No projects.'
       : `${entries.length} ${plural(entries.length, 'project')}: ${entries.length - waiting} in Artifacts, ${waiting} still to be imported from GitHub on first open.`;
   return check('projects', 'Projects', 'ok', sentence, { detail: { entries } });
+}
+
+/**
+ * Showcase posts, and the reports waiting at /reports: any open report needs an operator, and a post held by
+ * reports stays off every page until one decides.
+ */
+function buildShowcaseCheck(showcase) {
+  if (!showcase.ok) {
+    return unknownCheck('showcase', 'Showcase', showcase);
+  }
+  const row = showcase.value[0]?.[0] ?? {};
+  const visible = number(row.visible_posts);
+  const open = number(row.open_reports);
+  const held = number(row.held_posts);
+  const posts = `${visible} ${plural(visible, 'post')} shown`;
+  const sentence =
+    open === 0
+      ? `${posts}; no reports waiting.`
+      : `${posts}; ${open} ${plural(open, 'report')} waiting at /reports${held > 0 ? `, ${held} ${plural(held, 'post')} held until decided` : ''}.`;
+  return check('showcase', 'Showcase', open === 0 ? 'ok' : 'attention', sentence, {
+    detail: { visiblePosts: visible, openReports: open, heldPosts: held },
+  });
 }
 
 function buildRuntimesCheck(core, { now, desiredRuntimeVersion }) {

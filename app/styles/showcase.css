@@ -1,0 +1,118 @@
+/*
+ * Showcase pages and the feed: a person's page, posts, Explore. The pictures carry the page, so the chrome around
+ * them stays quiet: thin rules, soft surfaces, and the accent only on what was liked.
+ */
+
+.showcase-page {
+  --showcase-surface: var(--cc-background-secondary);
+  --showcase-rule: var(--cc-border-transparent);
+  --showcase-liked: rgb(225, 48, 88);
+  background: var(--cc-background-primary);
+  color: var(--cc-content-primary);
+}
+
+html.dark .showcase-page {
+  --showcase-liked: rgb(255, 92, 128);
+}
+
+.showcase-avatar {
+  background: color-mix(in srgb, var(--cc-accent) 18%, var(--cc-background-secondary));
+  color: var(--cc-content-accent);
+  box-shadow: 0 0 0 1px var(--cc-border-transparent);
+}
+
+/* A post with no picture yet: its name on a soft field made from the accent, never an empty box. */
+.showcase-placeholder {
+  background:
+    radial-gradient(120% 90% at 0% 0%, color-mix(in srgb, var(--cc-accent) 26%, transparent), transparent 60%),
+    radial-gradient(
+      110% 90% at 100% 100%,
+      color-mix(in srgb, var(--cc-content-link) 22%, transparent),
+      transparent 60%
+    ),
+    var(--cc-background-tertiary);
+}
+
+.showcase-card {
+  background: var(--showcase-surface);
+  border: 1px solid var(--showcase-rule);
+  border-radius: var(--cc-radius-lg);
+}
+
+.showcase-tile {
+  border-radius: var(--cc-radius);
+  background: var(--cc-background-tertiary);
+}
+
+.showcase-tile__veil {
+  background: linear-gradient(to top, rgb(0 0 0 / 0.58), rgb(0 0 0 / 0.12) 34%, rgb(0 0 0 / 0) 50%);
+}
+
+.showcase-tile__counts {
+  background: rgb(0 0 0 / 0.36);
+  opacity: 0;
+  transition: opacity var(--cc-duration-fade, 150ms) var(--cc-ease, ease);
+}
+
+.showcase-tile:hover .showcase-tile__counts,
+.showcase-tile:focus-visible .showcase-tile__counts {
+  opacity: 1;
+}
+
+.showcase-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  border-radius: 999px;
+  color: var(--cc-content-primary);
+  transition:
+    transform 120ms var(--cc-ease, ease),
+    background-color 120ms var(--cc-ease, ease);
+}
+
+.showcase-icon-button:hover {
+  background: color-mix(in srgb, var(--cc-content-primary) 8%, transparent);
+}
+
+.showcase-icon-button:active {
+  transform: scale(0.92);
+}
+
+.showcase-icon-button:focus-visible {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 1px;
+}
+
+.showcase-liked {
+  color: var(--showcase-liked);
+}
+
+@keyframes showcase-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.28);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.showcase-liked svg {
+  animation: showcase-pop 260ms var(--cc-ease, ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase-liked svg {
+    animation: none;
+  }
+}
+
+.showcase-chip {
+  border: 1px solid var(--showcase-rule);
+  border-radius: 999px;
+  color: var(--cc-content-secondary);
+}

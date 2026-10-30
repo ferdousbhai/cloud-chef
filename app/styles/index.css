@@ -13,6 +13,7 @@
 @import './home.css' layer(utilities);
 @import './app-shell.css' layer(utilities);
 @import './trust.css' layer(utilities);
+@import './showcase.css' layer(utilities);
 @import 'tailwindcss';
 
 @plugin 'tailwind-scrollbar';

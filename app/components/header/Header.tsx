@@ -2,7 +2,7 @@ import { useStore } from '@nanostores/react';
 import { lazy, Suspense, useState } from 'react';
 import { chatStore } from '~/lib/stores/workspaceId';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { ExitIcon, GearIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';
+import { BellIcon, ExitIcon, GearIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';
 import { useWaitingApprovals } from '~/lib/cloudflare/approvals.client';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent, MenuSeparator } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
@@ -12,6 +12,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm.client';
 import { useWebMcpTools } from '~/lib/webmcp.client';
+import { useUnreadNotifications } from '~/lib/showcase-api';
 
 const ProjectMenu = lazy(() => import('./ProjectMenu.client').then((module) => ({ default: module.ProjectMenu })));
 const ProjectPresence = lazy(() =>
@@ -23,6 +24,9 @@ const ProjectDialogs = lazy(() =>
 const SidebarMenu = lazy(() => import('~/components/sidebar/Menu.client').then((module) => ({ default: module.Menu })));
 const HeaderActionButtons = lazy(() =>
   import('./HeaderActionButtons.client').then((module) => ({ default: module.HeaderActionButtons })),
+);
+const WaitingCopies = lazy(() =>
+  import('~/components/showcase/WaitingCopies.client').then((module) => ({ default: module.WaitingCopies })),
 );
 
 export function Header() {
@@ -51,6 +55,9 @@ export function Header() {
       : null,
   );
   const menuLabel = isMenuOpen ? 'Close project menu' : 'Open project menu';
+  // Someone followed, liked, commented on or copied their work: a dot on their avatar until they look.
+  const unread = useUnreadNotifications(user !== null);
+  const username = session?.user.username ?? null;
 
   return (
     <>
@@ -103,10 +110,20 @@ export function Header() {
             <MenuComponent
               buttonProps={{
                 variant: 'neutral',
-                title: 'Account',
+                title: unread > 0 ? `Account (${unread} new notifications)` : 'Account',
                 inline: true,
-                className: '!size-11 !min-h-11 sm:!size-9 sm:!min-h-9 rounded !p-1',
-                icon: <ProfileAvatar avatar={user.image} username={user.name} />,
+                className: 'relative !size-11 !min-h-11 sm:!size-9 sm:!min-h-9 rounded !p-1',
+                icon: (
+                  <>
+                    <ProfileAvatar avatar={user.image} username={user.name} />
+                    {unread > 0 ? (
+                      <span
+                        aria-hidden
+                        className="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-[rgb(225,48,88)] ring-2 ring-(--cc-background-primary)"
+                      />
+                    ) : null}
+                  </>
+                ),
               }}
             >
               <div className="px-3 py-2 text-xs text-content-secondary">
@@ -114,6 +131,16 @@ export function Header() {
                 <div className="truncate">{user.email}</div>
               </div>
               <MenuSeparator />
+              {username ? (
+                <MenuItemComponent action={() => void navigate({ to: '/$username', params: { username } })}>
+                  <PersonIcon className="text-content-secondary" />
+                  Your page
+                </MenuItemComponent>
+              ) : null}
+              <MenuItemComponent action={() => void navigate({ to: '/notifications' })}>
+                <BellIcon className="text-content-secondary" />
+                {unread > 0 ? `Notifications (${unread})` : 'Notifications'}
+              </MenuItemComponent>
               <MenuItemComponent action={() => void navigate({ to: '/settings' })}>
                 <GearIcon className="text-content-secondary" />
                 Settings
@@ -137,6 +164,11 @@ export function Header() {
         </Suspense>
       )}
       {isAuthenticated && <ChooseUsernamePrompt />}
+      {session?.context ? (
+        <Suspense fallback={null}>
+          <WaitingCopies />
+        </Suspense>
+      ) : null}
     </>
   );
 }

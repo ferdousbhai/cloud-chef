@@ -121,6 +121,25 @@ function TermsPage() {
           <Link to="/security">Security</Link> instead, so exploit details stay private.
         </p>
       </TrustSection>
+      <TrustSection title="Your page and posts">
+        <p>
+          Publishing a public project puts it on your page at your username, where anyone on the web can see its live
+          site, a picture of it, and its caption, and signed-in people can like it, comment on it, and make their own
+          copy. Private projects are never posted. You can hide a post from your page or delete it at any time; making
+          the project private takes it off for good.
+        </p>
+        <p>
+          Post only what you have the right to share. Posts, captions and comments must follow the acceptable use rules
+          above: no scams or pages that ask for passwords or money under false pretenses, no sexual content, nothing
+          violent or hateful, no spam, and nothing copied from someone else without permission.
+        </p>
+        <p>
+          Anyone can report a post or comment from its menu. CloudChef holds a post or comment that several people
+          report, or whose site Cloudflare&apos;s URL Scanner finds malicious, until it has looked at it, and may take
+          it down, telling its author why. Someone whose posts are taken down repeatedly has their page paused while it
+          is reviewed. If you think a takedown is wrong, tell us through <Link to="/support">Support</Link>.
+        </p>
+      </TrustSection>
       <TrustSection title="Suspension, termination, and data">
         <p>
           You may stop using CloudChef at any time and revoke its Cloudflare access. CloudChef may limit or suspend

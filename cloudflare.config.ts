@@ -18,7 +18,11 @@ export default defineConfig({
     // No preview URLs: every version of this Worker carries production's D1 and secrets.
     previewUrls: false,
     domains: ['cloudchef.build', 'www.cloudchef.build'],
-    triggers: [triggers.scheduled({ schedule: '*/15 * * * *' })],
+    triggers: [
+      triggers.scheduled({ schedule: '*/15 * * * *' }),
+      // Showcase work done in the background: a post's screenshot, and the URL Scanner's verdict on its site.
+      triggers.queue({ name: 'cloudchef-showcase', maxBatchSize: 4, maxBatchTimeout: 5, maxRetries: 3 }),
+    ],
     observability: {
       redactQueryString: true,
       enabled: true,
@@ -64,6 +68,24 @@ export default defineConfig({
       RUNTIME_RATE_LIMITER: bindings.rateLimit({ namespace: '1005', simple: { limit: 600, period: 60 } }),
       // Emailed sign-in links (app/server-handlers/email-auth.ts), sent through Cloudflare Email Service.
       SIGN_IN_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['noreply@cloudchef.build'] }),
+      // Showcase pages and the feed (docs/proposals/showcase-and-feed.md). The one exception to the account boundary:
+      // a public project's screenshot is kept in CloudChef's own R2 and served from /media/<id>.
+      SHOWCASE_MEDIA: bindings.r2({ name: 'cloudchef-showcase-media' }),
+      // Browser Rendering in CloudChef's own account: loads a public project's live site as any visitor would, for
+      // its post's screenshot (app/lib/.server/showcase/screenshot.ts).
+      BROWSER: bindings.browser(),
+      SHOWCASE_JOBS: bindings.queue({ name: 'cloudchef-showcase' }),
+      // Follows, likes and comments, per signed-in person; reports, per visitor's address. Daily limits are counted
+      // in D1 (app/lib/cloudflare/data/posts.server.ts).
+      SHOWCASE_ACTION_RATE_LIMITER: bindings.rateLimit({ namespace: '1006', simple: { limit: 30, period: 60 } }),
+      SHOWCASE_REPORT_RATE_LIMITER: bindings.rateLimit({ namespace: '1007', simple: { limit: 5, period: 60 } }),
+      // Who may decide reports at /reports: comma-separated CloudChef user ids. Changed by a release, never in the
+      // dashboard.
+      OPERATOR_USER_IDS: bindings.text('4128ec6e-8d8b-4c8a-8f93-ea2973525d00'),
+      // Cloudflare's URL Scanner in CloudChef's own account, checking each posted site for phishing. Unset, sites are
+      // not scanned and reports alone hold a post. The token needs URL Scanner edit on that account.
+      URL_SCANNER_ACCOUNT_ID: bindings.text(''),
+      URL_SCANNER_API_TOKEN: bindings.secret(),
     },
     exports: {
       UserWorkspaceRuntimeProvisioningWorkflow: exports.workflow({
