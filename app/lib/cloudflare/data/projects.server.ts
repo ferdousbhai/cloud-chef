@@ -1,3 +1,4 @@
+import { SharedProjectRepositories } from '~/lib/.server/cloudflare/shared-project';
 import { z } from 'zod';
 import {
   runtimeConnectionIdentity,
@@ -52,6 +53,8 @@ type ResolvedProject = {
   name: string;
   role: 'view' | 'edit';
   orgProjectId: string;
+  /** Shared with this person from another account, whose repository is read through CloudChef. */
+  inAnotherAccount: boolean;
 };
 
 const REVISION_TRAILER = /^CloudChef-Revision: ([0-9a-f]{64})$/m;
@@ -60,6 +63,19 @@ const REVISION_TRAILER = /^CloudChef-Revision: ([0-9a-f]{64})$/m;
 type ProjectRepositoriesFactory = (env: Env) => ProjectRepositories;
 
 const accountRepositories: ProjectRepositoriesFactory = (env) => new ProjectRepositories(env.ARTIFACTS);
+
+/**
+ * Where a project's history is read from: this account's repositories, or, for a project shared from another account,
+ * CloudChef's forwarding to that account (`SharedProjectRepositories`).
+ */
+function readsOf(
+  env: Env,
+  project: { orgProjectId: string; inAnotherAccount: boolean },
+  repositories: ProjectRepositoriesFactory,
+): Pick<ProjectRepositories, 'log' | 'head' | 'resolve' | 'archiveZip'> | SharedProjectRepositories {
+  const identity = project.inAnotherAccount ? runtimeConnectionIdentity(env) : null;
+  return identity ? new SharedProjectRepositories(env, identity, project.orgProjectId) : repositories(env);
+}
 
 async function resolveProject(env: Env, sessionId: string, target: ProjectTarget): Promise<ResolvedProject> {
   let orgProjectId = target.orgProjectId ?? null;
@@ -82,7 +98,13 @@ async function resolveProject(env: Env, sessionId: string, target: ProjectTarget
   }
   try {
     const project = await openProject(env, identity, orgProjectId);
-    return { repo: project.repo, name: project.name, role: project.role, orgProjectId };
+    return {
+      repo: project.repo,
+      name: project.name,
+      role: project.role,
+      orgProjectId,
+      inAnotherAccount: project.inAnotherAccount === true,
+    };
   } catch (error) {
     if (error instanceof ProjectAccessError) {
       throw error.status === 404 ? new DataNotFoundError(error.message) : new ProjectForbiddenError(error.message);
@@ -101,7 +123,10 @@ export async function projectHistory(
   if (!project.repo) {
     return [];
   }
-  const commits = await repositories(env).log(project.repo, { limit: args.limit, offset: args.offset });
+  const commits = await readsOf(env, project, repositories).log(project.repo, {
+    limit: args.limit,
+    offset: args.offset,
+  });
   return commits.map((commit) => {
     const entry: ProjectCommit = {
       hash: commit.hash,
@@ -677,7 +702,7 @@ export async function userRuntimeProjectArchiveAction(
       args.userId,
       chat ? { chatInitialId: chat } : { orgProjectId: orgProject ?? '' },
     );
-    const store = repositories(args.env);
+    const store = readsOf(args.env, project, repositories);
     if (!project.repo || !(await store.head(project.repo))) {
       throw new DataNotFoundError('This project has no saved versions yet.');
     }

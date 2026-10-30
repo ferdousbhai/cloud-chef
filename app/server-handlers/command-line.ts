@@ -27,6 +27,12 @@ import {
 import { getAuthSession } from '~/lib/.server/auth';
 import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
+import {
+  isSharedOp,
+  sharedCapabilitySubject,
+  SHARED_WORKSPACE_HEADER,
+  type SharedOp,
+} from '~/lib/.server/cloudflare/shared-project';
 import { usableWorkspaceRuntime } from './cloudflare-integration';
 import { signedIn } from './signed-in';
 import { usernameProblem } from '~/lib/usernames';
@@ -119,6 +125,8 @@ export async function runtimeFor(
   env: Env,
   userId: string,
   connectionId: string,
+  /** What the capability is for, when not for the person themselves: a shared project's request (`sharedCapabilitySubject`). */
+  subject: string = userId,
 ): Promise<{ endpoint: string; token: string } | { refusal: string; status: number }> {
   const connection = await findActiveCloudflareConnection(env.DB, connectionId);
   if (!connection || !(await canUseConnection(env.DB, userId, connection))) {
@@ -139,7 +147,7 @@ export async function runtimeFor(
     connectionGeneration: connection.generation,
     organizationConnectionId: connection.orgId ? connection.id : null,
   });
-  const capability = await mintRuntimeCapability({ secret, subject: userId, origin: publicOrigin(request) });
+  const capability = await mintRuntimeCapability({ secret, subject, origin: publicOrigin(request) });
   return { endpoint: usable.runtime.endpoint, token: capability.token };
 }
 
@@ -159,6 +167,17 @@ export async function commandLineGitAction({ request, env }: { request: Request;
   // Someone who may only read it gets nothing else; a public one is read through its owner's runtime.
   if (!target.mayPush && !readsOnly(rest, new URL(request.url).searchParams)) {
     return new Response('You can read this project but not push to it. Make a copy to change it.\n', { status: 403 });
+  }
+  // Shared with them from another account: a runtime there answers, for them and with their role.
+  const sharedOp = `git/${rest}`;
+  if (target.sharedRole && isSharedOp(sharedOp)) {
+    return forwardToProjectAccount(request, env, {
+      project: target,
+      userId,
+      role: target.sharedRole,
+      op: sharedOp,
+      workspace: 'command-line',
+    });
   }
   const runtime = await readerRuntime(request, env, userId, target);
   if ('refusal' in runtime) {
@@ -625,6 +644,8 @@ type Readable = {
   /** Read only because it is public: nothing but reading goes to a member's runtime for them. */
   readsAsPublic: boolean;
   mayPush: boolean;
+  /** Their role when it was shared with them from an account not theirs; null otherwise. */
+  sharedRole: 'view' | 'edit' | null;
 };
 
 /** The project `ref` names, if `userId` may read it. */
@@ -642,6 +663,7 @@ async function findReadable(
         connectionId: project.connectionId,
         readsAsPublic: project.role === 'public',
         mayPush: project.role === 'edit',
+        sharedRole: project.shared && project.role !== 'public' ? project.role : null,
       }
     : null;
 }
@@ -652,7 +674,7 @@ async function findReadable(
  * they leave. It is asked only to read: the callers check that.
  */
 async function readerRuntime(request: Request, env: Env, userId: string, target: Readable) {
-  if (!target.readsAsPublic) {
+  if (!target.readsAsPublic && !target.sharedRole) {
     return runtimeFor(request, env, userId, target.connectionId);
   }
   const readers = await projectReaders(env.DB, target);
@@ -668,10 +690,67 @@ async function readerRuntime(request: Request, env: Env, userId: string, target:
 }
 
 /**
+ * A request of someone a project is shared with (`role`), sent on to a runtime in the project's account, the first
+ * of those who may read it there that has one (`projectReaders`), with a capability the control plane signs for this
+ * one person, project and role (`sharedCapabilitySubject`): that runtime answers from its own repository and makes its
+ * own checks, so no token of the project's account ever reaches theirs. `op` is a shared read or git's request
+ * (`SharedOp`); its query, method, git's headers and the body pass through. The callers have checked the role.
+ */
+export async function forwardToProjectAccount(
+  request: Request,
+  env: Env,
+  args: {
+    project: { id: string; connectionId: string };
+    userId: string;
+    role: 'view' | 'edit';
+    op: SharedOp;
+    workspace: string;
+  },
+): Promise<Response> {
+  const subject = sharedCapabilitySubject({ projectId: args.project.id, role: args.role, userId: args.userId });
+  const readers = await projectReaders(env.DB, args.project);
+  let runtime: { endpoint: string; token: string } | null = null;
+  for (const reader of readers) {
+    const found = await runtimeFor(request, env, reader, args.project.connectionId, subject);
+    if (!('refusal' in found)) {
+      runtime = found;
+      break;
+    }
+  }
+  if (!runtime) {
+    return new Response(
+      readers.length === 0
+        ? 'This project can’t be reached now: nobody who runs it is here any more.\n'
+        : 'This project can’t be reached until its owner opens CloudChef again.\n',
+      { status: 503, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
+  const headers = new Headers({
+    authorization: `Bearer ${runtime.token}`,
+    origin: publicOrigin(request),
+    [SHARED_WORKSPACE_HEADER]: args.workspace,
+  });
+  for (const name of GIT_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) {
+      headers.set(name, value);
+    }
+  }
+  const forwardTo = new URL(`/v1/shared/${args.project.id}/${args.op}`, runtime.endpoint);
+  forwardTo.search = new URL(request.url).search;
+  return fetch(forwardTo, {
+    method: request.method,
+    headers,
+    body: request.method === 'POST' ? request.body : null,
+    redirect: 'manual',
+  });
+}
+
+/**
  * Who may read a project in its account, best first: in a team's account its active admins, then the active
  * members given access to it; in a person's own account, that person.
  */
-async function projectReaders(db: D1Database, target: Readable): Promise<string[]> {
+async function projectReaders(db: D1Database, target: Pick<Readable, 'id' | 'connectionId'>): Promise<string[]> {
   const { results } = await db
     .prepare(
       `SELECT user_id FROM (

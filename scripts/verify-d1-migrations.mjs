@@ -75,6 +75,7 @@ const migrationPolicies = [
       '0056_showcase.sql': '975bd7ccf50ae6ed0b7cfe88a7dd27d0dd943902a5b2816e380c936650549e03',
       '0057_drop_old_app_publishing.sql': 'e59a64acc113ed30450f371270832b99c7b013506408e89dd7f9d17fb2835455',
       '0058_post_reels.sql': '63ce83c460a1a47e5723cb6a8c5d9d67b0e03da379b6fd68cc78d52f082016d3',
+      '0059_project_shares.sql': '7963ab2750ab7a2ebe5f3042592d3e731368500242b4fb7947f5feaaa341e5f7',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -132,6 +133,9 @@ const migrationPolicies = [
       '0055_chat_projects.sql',
       // Chat apps and production requests, unnamed since every project publishes by pushing to its repository.
       '0057_drop_old_app_publishing.sql',
+      // Notifications' kind CHECK gains 'project_shared', and a project column: SQLite can't change a CHECK in place, so
+      // the table is rebuilt with every row copied in order. Nothing references it.
+      '0059_project_shares.sql',
     ],
   },
   {

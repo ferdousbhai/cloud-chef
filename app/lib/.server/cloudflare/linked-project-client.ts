@@ -45,6 +45,13 @@ const openedProjectSchema = z.object({
   deploysWith: z.enum(['workers_builds', 'cloudchef']).optional().catch(undefined),
   /** What it was made from: 'chat' for an app made in a chat, which the chat names. */
   createdFrom: z.string().nullable().optional().catch(null),
+  /**
+   * Shared with this person from another Cloudflare account: its repository is reached only through CloudChef
+   * (`shared-project.ts`), and its site and builds are its owner's. Missing means it is this account's.
+   */
+  inAnotherAccount: z.boolean().optional().catch(false),
+  /** Whose it is, when shared from another account: its team, or the person whose account it is in. */
+  ownerName: z.string().max(256).nullable().optional().catch(null),
 });
 type OpenedProject = z.infer<typeof openedProjectSchema>;
 
@@ -180,7 +187,8 @@ export async function reportMainRewritten(
 export async function reportMainPushed(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; oldCommit: string | null; newCommit: string },
+  /** `pushedBy`: someone the project is shared with from another account, whose push this runtime answered. */
+  body: { orgProjectId: string; oldCommit: string | null; newCommit: string; pushedBy?: string },
 ): Promise<void> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/main-pushed', body);
   if (!response.ok) {

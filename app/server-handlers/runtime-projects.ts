@@ -28,8 +28,10 @@ import {
   requireProjectScope,
   type ProjectScope,
   type Project,
-  type ProjectRole,
+  type AccessibleProject,
 } from '~/lib/cloudflare/data/org-projects.server';
+import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import { shownName } from '~/lib/shown-name';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { importedProjectRepo } from '~/lib/.server/cloudflare/project-repository';
 import { registerGitHubImport } from './projects';
@@ -81,11 +83,11 @@ export async function runtimeOpenProjectAction(args: {
   app?: GitHubApp | null;
   openAccount?: OpenWorkersBuildsAccountApi;
 }): Promise<Response> {
-  const opened = await openProject(args, projectSchema);
+  const opened = await openProject(args, projectSchema, { shared: true });
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, identity, connection } = opened;
+  const { project, identity, projectConnection: connection } = opened;
   if (project.repo !== null && !project.siteUrl && project.deploysWith === 'workers_builds') {
     // The projects home shows the live site from the first open, not only once the agent asks about a build.
     await withWorkersBuilds(args, connection, project, async () => json(null, 200)).catch(() => undefined);
@@ -99,8 +101,12 @@ export async function runtimeOpenProjectAction(args: {
     member: await memberIdentity(args.env.DB, identity.userId),
     deploysWith: project.deploysWith,
     createdFrom: project.createdFrom,
+    // Shared with them from another account: their workspace reaches it through `runtime-shared`, and whose it is.
+    inAnotherAccount: project.shared,
+    ownerName: project.shared ? await projectOwnerName(args.env.DB, project) : null,
   };
-  if (project.repo !== null || project.role !== 'edit') {
+  // Imported from GitHub by whoever runs it, never by someone it is shared with from another account.
+  if (project.repo !== null || project.role !== 'edit' || project.shared) {
     return json(answer, 200);
   }
   const importSource = await importSourceFor(args, project);
@@ -440,7 +446,16 @@ export async function runtimeNameProjectAction(args: { request: Request; env: En
     : json({ error: 'Only a project its maker started in a chat is named this way.' }, 409);
 }
 
-const mainPushedSchema = z.strictObject({ ...projectFields, oldCommit: COMMIT.nullable(), newCommit: COMMIT });
+const mainPushedSchema = z.strictObject({
+  ...projectFields,
+  oldCommit: COMMIT.nullable(),
+  newCommit: COMMIT,
+  /**
+   * Who pushed, when it was someone the project is shared with from another account: a runtime in the project's
+   * account answered their push (`runtime-shared`) and tells it for them.
+   */
+  pushedBy: z.string().min(1).max(128).optional(),
+});
 
 /**
  * `runtime-projects/main-pushed`: the runtime's person pushed the project's main, from `oldCommit` (null for its first
@@ -457,9 +472,18 @@ export async function runtimeMainPushedAction(args: { request: Request; env: Env
   if (project.role !== 'edit') {
     return json({ error: 'You can view this project but not change it.' }, 403);
   }
+  let pusher = identity.userId;
+  if (body.pushedBy !== undefined && body.pushedBy !== identity.userId) {
+    // Told by a runtime in the project's own account, for someone who may still edit it as a share.
+    const shared = await findAccessibleProject(args.env.DB, project.id, body.pushedBy);
+    if (project.shared || !shared?.shared || shared.role !== 'edit') {
+      return json({ error: 'They can’t change this project.' }, 403);
+    }
+    pusher = body.pushedBy;
+  }
   await recordMainPush(args.env.DB, {
     projectId: project.id,
-    userId: identity.userId,
+    userId: pusher,
     oldCommit: body.oldCommit,
     newCommit: body.newCommit,
     pushedAt: Date.now(),
@@ -473,11 +497,11 @@ export async function runtimeProjectStatusAction(args: {
   env: Env;
   openAccount?: OpenWorkersBuildsAccountApi;
 }): Promise<Response> {
-  const opened = await openProject(args, statusSchema);
+  const opened = await openProject(args, statusSchema, { shared: true });
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, connection } = opened;
+  const { project, body, projectConnection: connection } = opened;
   if (project.deploysWith === 'cloudchef') {
     return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
   }
@@ -516,11 +540,11 @@ export async function runtimeProjectSiteAction(args: {
   env: Env;
   openAccount?: OpenWorkersBuildsAccountApi;
 }): Promise<Response> {
-  const opened = await openProject(args, projectSchema);
+  const opened = await openProject(args, projectSchema, { shared: true });
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, connection } = opened;
+  const { project, projectConnection: connection } = opened;
   if (project.deploysWith === 'cloudchef') {
     const previews = (await latestDeployments(args.env.DB, project.id))
       .filter((deployment) => deployment.kind === 'preview' && deployment.state === 'succeeded' && deployment.url)
@@ -626,16 +650,20 @@ async function withWorkersBuilds(
 /**
  * The project, with the member's role, if this runtime may ask about it: the runtime proves who it is,
  * the member may still view or edit the project, and the project belongs to the connection (the account)
- * the runtime runs for.
+ * the runtime runs for, or was shared with them from another (`projectConnection` is then that account's,
+ * whose authorization reads its builds and site; the runtime's own never reaches them).
  */
 export async function openProject<T extends z.infer<typeof projectSchema>>(
   args: { request: Request; env: Env },
   schema: z.ZodType<T>,
+  /** Whether a project shared with the person from another account may be asked about: only what its workspace reads. */
+  options: { shared?: boolean } = {},
 ): Promise<
   | {
-      project: Project & { role: ProjectRole };
+      project: AccessibleProject;
       body: T;
       connection: CloudflareConnection;
+      projectConnection: CloudflareConnection;
       identity: { userId: string };
       credentialHandle: string;
     }
@@ -654,13 +682,35 @@ export async function openProject<T extends z.infer<typeof projectSchema>>(
   if (!project && (await deletedProjectIds(args.env.DB, [body.orgProjectId])).length > 0) {
     return json({ code: 'project_deleted', error: PROJECT_DELETED_MESSAGE }, 404);
   }
-  if (!project || project.connectionId !== connection.id) {
+  if (!project || (project.connectionId !== connection.id && !(project.shared && options.shared))) {
     return json({ error: 'This project is not available to you.' }, 403);
   }
-  return { project, body, connection, identity, credentialHandle };
+  const projectConnection =
+    project.connectionId === connection.id
+      ? connection
+      : await findActiveCloudflareConnection(args.env.DB, project.connectionId);
+  if (!projectConnection) {
+    return json({ error: 'This project’s account is no longer connected to CloudChef.' }, 409);
+  }
+  return { project, body, connection, projectConnection, identity, credentialHandle };
 }
 
 const INVALID_REQUEST = 'Invalid workspace runtime project request.';
+
+/** Whose a shared project is, as its workspace names them: its team, or the person whose account it is in. */
+async function projectOwnerName(db: D1Database, project: Project): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT COALESCE(
+         (SELECT name FROM organizations WHERE id = ?1),
+         (SELECT "user".name FROM cloudflare_connections JOIN "user" ON "user".id = cloudflare_connections.user_id
+          WHERE cloudflare_connections.id = ?2)
+       ) AS name`,
+    )
+    .bind(project.orgId, project.connectionId)
+    .first<{ name: string | null }>();
+  return row?.name ? shownName(row.name) : null;
+}
 
 /** A JSON answer to the runtime. */
 export function json<Answer>(body: Answer, status: number): Response {

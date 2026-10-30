@@ -19,6 +19,7 @@ import { Route as PrivacyRouteImport } from './routes/privacy';
 import { Route as ReportsRouteImport } from './routes/reports';
 import { Route as SecurityRouteImport } from './routes/security';
 import { Route as SettingsRouteImport } from './routes/settings';
+import { Route as SharedRouteImport } from './routes/shared';
 import { Route as SupportRouteImport } from './routes/support';
 import { Route as TermsRouteImport } from './routes/terms';
 import { Route as UsernameIndexRouteImport } from './routes/$username.index';
@@ -78,6 +79,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any);
+const SharedRoute = SharedRouteImport.update({
+  id: '/shared',
+  path: '/shared',
+  getParentRoute: () => rootRouteImport,
+} as any);
 const SupportRoute = SupportRouteImport.update({
   id: '/support',
   path: '/support',
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
+  '/shared': typeof SharedRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/$username/$slug': typeof UsernameSlugRoute;
@@ -150,6 +157,7 @@ export interface FileRoutesByTo {
   '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
+  '/shared': typeof SharedRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/$username/$slug': typeof UsernameSlugRoute;
@@ -171,6 +179,7 @@ export interface FileRoutesById {
   '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
+  '/shared': typeof SharedRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
   '/$username/$slug': typeof UsernameSlugRoute;
@@ -193,6 +202,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/security'
     | '/settings'
+    | '/shared'
     | '/support'
     | '/terms'
     | '/$username/$slug'
@@ -213,6 +223,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/security'
     | '/settings'
+    | '/shared'
     | '/support'
     | '/terms'
     | '/$username/$slug'
@@ -233,6 +244,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/security'
     | '/settings'
+    | '/shared'
     | '/support'
     | '/terms'
     | '/$username/$slug'
@@ -254,6 +266,7 @@ export interface RootRouteChildren {
   ReportsRoute: typeof ReportsRoute;
   SecurityRoute: typeof SecurityRoute;
   SettingsRoute: typeof SettingsRoute;
+  SharedRoute: typeof SharedRoute;
   SupportRoute: typeof SupportRoute;
   TermsRoute: typeof TermsRoute;
   UsernameSlugRoute: typeof UsernameSlugRoute;
@@ -336,6 +349,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/shared': {
+      id: '/shared';
+      path: '/shared';
+      fullPath: '/shared';
+      preLoaderRoute: typeof SharedRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     '/support': {
       id: '/support';
       path: '/support';
@@ -406,6 +426,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReportsRoute: ReportsRoute,
   SecurityRoute: SecurityRoute,
   SettingsRoute: SettingsRoute,
+  SharedRoute: SharedRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
   UsernameSlugRoute: UsernameSlugRoute,

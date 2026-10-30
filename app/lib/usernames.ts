@@ -37,6 +37,7 @@ const RESERVED = new Set([
   'search',
   'security',
   'settings',
+  'shared',
   'showcase',
   'sign-in',
   'support',

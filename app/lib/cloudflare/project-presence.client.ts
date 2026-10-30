@@ -27,10 +27,18 @@ const changedSinceSchema = z.object({ count: z.number(), people: z.array(z.strin
 
 export type ChangedSince = z.infer<typeof changedSinceSchema>;
 
-const presenceSchema = z.object({ here: z.array(visitorSchema), changedSince: changedSinceSchema.nullable() });
+const presenceSchema = z.object({
+  here: z.array(visitorSchema),
+  changedSince: changedSinceSchema.nullable(),
+  /** Whether this person runs the project (its owner, or a team admin), and so may share it. */
+  canShare: z.boolean().optional(),
+});
 
 /** Whether this person's agent is running a turn in the open project, as the chat's connection reports it. */
 export const agentWorkingStore = atom(false);
+
+/** The open project, when this person may share it from its menu; null otherwise. */
+export const projectShareStore = atom<string | null>(null);
 
 /** Who else has the open project open now; empty outside a project, or when nobody else is here. */
 export const projectVisitorsStore = atom<ProjectVisitor[]>([]);
@@ -68,6 +76,7 @@ export function useProjectPresence(workspaceId: string): void {
           return;
         }
         projectVisitorsStore.set(answer.here);
+        projectShareStore.set(answer.canShare ? projectId : null);
         if (answer.changedSince) {
           projectChangesNoticeStore.set(answer.changedSince);
         }
@@ -115,6 +124,7 @@ export function useProjectPresence(workspaceId: string): void {
       window.removeEventListener('pagehide', leave);
       leave();
       projectVisitorsStore.set([]);
+      projectShareStore.set(null);
       projectChangesNoticeStore.set(null);
     };
   }, [workspaceId]);

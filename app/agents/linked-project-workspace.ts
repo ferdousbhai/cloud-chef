@@ -1,6 +1,6 @@
 import { WORK_DIR } from 'cloudchef-agent/constants';
 import { base64ToBytes, bytesToBase64, sha256Hex } from '~/lib/hex-digest';
-import type { ProjectRepositories, RepositoryFileInput } from '~/lib/.server/cloudflare/project-repository';
+import type { RepositoryFileInput } from '~/lib/.server/cloudflare/project-repository';
 import { ProjectRefusalError } from '~/lib/.server/cloudflare/linked-project-client';
 import { MAIN_BRANCH } from '~/lib/.server/cloudflare/project-repository';
 import type { BuilderWorkspaceApi } from './builder-workspace-api';
@@ -32,7 +32,14 @@ export async function seedLinkedWorkspace(
     BuilderWorkspaceApi,
     'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject' | 'linkedProject'
   >,
-  repositories: Pick<ProjectRepositories, 'streamFilesAt'>,
+  /** This account's repositories, or a shared project's read through CloudChef (`SharedProjectRepositories`). */
+  repositories: {
+    streamFilesAt(
+      repo: string,
+      ref: string,
+      keep: (path: string) => boolean,
+    ): Promise<{ commit: { hash: string }; files: AsyncIterable<{ path: string; mode: string; bytes: Uint8Array }> }>;
+  },
   project: SeedProject,
 ): Promise<BuilderWorkspaceState> {
   const seedId = `linked_${project.orgProjectId}`;

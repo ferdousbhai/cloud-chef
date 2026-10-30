@@ -240,6 +240,40 @@ export function postRuntimeRoute(
 }
 
 /**
+ * A request about a project shared with this runtime's person, whose repository is in another account: the control
+ * plane checks their role and sends it on to a runtime in that account (`runtime-shared/<project>/<op>`). git's own
+ * requests pass through as git sent them, headers and body; the runtime's secret and identity go beside them.
+ */
+export function sharedProjectRequest(
+  env: RuntimeCredentialEnv,
+  identity: CloudflareConnectionIdentity,
+  orgProjectId: string,
+  op: string,
+  init: {
+    method?: 'GET' | 'POST';
+    search?: string;
+    headers?: HeadersInit;
+    body?: BodyInit | null;
+    signal?: AbortSignal;
+  },
+): Promise<Response> {
+  const endpoint = runtimeRouteEndpoint(env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT, `runtime-shared/${orgProjectId}/${op}`);
+  endpoint.search = init.search ?? '';
+  const headers = new Headers(init.headers);
+  headers.set('authorization', `Bearer ${env.CONTROL_PLANE_SECRET}`);
+  for (const [name, value] of Object.entries(runtimeIdentityHeaders(identity))) {
+    headers.set(name, value);
+  }
+  return fetch(endpoint, {
+    method: init.method ?? 'GET',
+    headers,
+    body: init.body ?? null,
+    redirect: 'manual',
+    signal: init.signal,
+  });
+}
+
+/**
  * What every call to the control plane's runtime routes carries: the runtime's secret, and who it says
  * it is, in headers, so the control plane checks them before reading the body.
  */
@@ -277,7 +311,8 @@ type RuntimeRoute =
   | 'runtime-projects/main-pushed'
   | 'runtime-projects/deleted'
   | 'runtime-projects/reel/target'
-  | 'runtime-projects/reel';
+  | 'runtime-projects/reel'
+  | `runtime-shared/${string}`;
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

@@ -121,6 +121,8 @@ describe('a runtime opening a project', () => {
       member: { name: 'sara.a', email: 'sara.a@example.com' },
       deploysWith: 'workers_builds',
       createdFrom: 'github',
+      inAnotherAccount: false,
+      ownerName: null,
       importSource: {
         url: 'https://github.com/ada/site.git',
         branch: 'master',
@@ -160,6 +162,8 @@ describe('a runtime opening a project', () => {
       member: { name: 'sara.a', email: 'sara.a@example.com' },
       deploysWith: 'workers_builds',
       createdFrom: 'github',
+      inAnotherAccount: false,
+      ownerName: null,
     });
     // Admins own every team project.
     const owned = await runtimeOpenProjectAction({

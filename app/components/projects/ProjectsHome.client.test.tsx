@@ -273,7 +273,7 @@ describe('ProjectsHome', () => {
     await render('user-member');
     await vi.waitFor(() => card('Docs'));
 
-    expect(document.querySelector('#team-projects')?.textContent).toBe('Shared with me');
+    expect(document.querySelector('#team-projects')?.textContent).toBe('Team projects');
     // In a team, a member sees only its projects, and imports none.
     expect(document.querySelector('#my-projects')).toBeNull();
     expect(document.querySelector(ADD)).toBeNull();
@@ -404,7 +404,7 @@ describe('ProjectsHome', () => {
   it('leaves Explore to the header: the projects home has no link of its own', async () => {
     context = teamMember;
     await render('user-explore-link');
-    await vi.waitFor(() => expect(document.body.textContent).toContain('Shared with me'));
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Team projects'));
     expect(document.querySelector('a[href="/explore"]')).toBeNull();
   });
 

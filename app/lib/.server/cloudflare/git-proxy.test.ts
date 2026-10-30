@@ -233,6 +233,15 @@ describe('the workspace git proxy', () => {
     expect(revoked).toEqual(['token-write']);
   });
 
+  it('sends a shared project’s push on as git sent it, for the runtime in its account to stage and check', async () => {
+    const { deps, sent, recorded } = harness({ answer: repository() });
+    deps.forwarded = () => true;
+    await (await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), deps)).arrayBuffer();
+    expect(sent).toHaveLength(1);
+    expect(commandsOf(sent[0])).toEqual(['refs/heads/main']);
+    expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: OLD, newOid: NEW }]);
+  });
+
   it("lands main's new commit on a ref of its own, then moves main to it from the commit git read", async () => {
     const { deps, sent, recorded } = harness({ answer: repository() });
     await (await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), deps)).arrayBuffer();
