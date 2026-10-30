@@ -672,7 +672,7 @@ describe('rewriting main', () => {
       if (route === 'runtime-projects/main-rewrite') {
         return owner();
       }
-      if (route === 'runtime-projects/main-rewritten') {
+      if (route === 'runtime-projects/main-rewritten' || route === 'runtime-projects/main-pushed') {
         return Response.json({ recorded: true });
       }
       return new Response('unavailable', { status: 503 });
@@ -709,7 +709,13 @@ describe('rewriting main', () => {
     const answer = await rewrite();
 
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ oldCommit: main, newCommit: slim, publishedBy: 'cloudchef', recorded: true });
+    expect(await answer.json()).toEqual({
+      oldCommit: main,
+      newCommit: slim,
+      rewritten: true,
+      publishedBy: 'cloudchef',
+      recorded: true,
+    });
     expect(await artifacts.head('t-storefront')).toBe(slim);
     expect(calls.map((call) => call.route)).toEqual([
       'runtime-projects/main-rewrite',
@@ -810,7 +816,7 @@ describe('rewriting main', () => {
     expect(await artifacts.head('t-storefront')).toBe(held);
   });
 
-  it('refuses a branch that only adds to main, which is pushed as usual and not recorded as a rewrite', async () => {
+  it('moves main to a branch that only adds to it as a push would, recorded as a push and not a rewrite', async () => {
     const { artifacts, calls, enqueued, rewrite, main, store } = await world();
     const added = await store().commitFiles({
       repo: 't-storefront',
@@ -825,13 +831,49 @@ describe('rewriting main', () => {
 
     const answer = await rewrite({ branch: 'ahead', commit: ahead });
 
-    expect(answer.status).toBe(409);
+    expect(answer.status).toBe(200);
     expect(await answer.json()).toEqual({
-      error:
-        'ahead only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ahead:main).',
+      oldCommit: main,
+      newCommit: ahead,
+      rewritten: false,
+      publishedBy: 'cloudchef',
+      recorded: true,
     });
+    expect(await artifacts.head('t-storefront')).toBe(ahead);
+    expect(calls.map((call) => call.route)).toEqual(['runtime-projects/main-rewrite', 'runtime-projects/main-pushed']);
+    expect(calls[1]?.body).toEqual({ orgProjectId: TEAM_PROJECT, oldCommit: main, newCommit: ahead });
+    expect(enqueued).toEqual([{ orgProjectId: TEAM_PROJECT, branch: 'main', commit: ahead }]);
+  });
+
+  it('checks a branch that only adds to main as a push is checked: a secret in any commit it brings stays off', async () => {
+    const { artifacts, rewrite, main, store } = await world();
+    const leaky = await store().commitFiles({
+      repo: 't-storefront',
+      branch: 'ahead',
+      parent: main,
+      replaces: null,
+      files: [
+        { path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('v3') },
+        { path: '.dev.vars', mode: 0o644, bytes: new TextEncoder().encode('KEY=1') },
+      ],
+      message: 'Leaky',
+      author,
+    });
+    const leakyCommit = 'commit' in leaky ? leaky.commit : '';
+    const cleaned = await store().commitFiles({
+      repo: 't-storefront',
+      branch: 'ahead',
+      parent: leakyCommit,
+      files: [{ path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('v3') }],
+      message: 'Cleaned',
+      author,
+    });
+    const ahead = 'commit' in cleaned ? cleaned.commit : '';
+
+    const answer = await rewrite({ branch: 'ahead', commit: ahead });
+
+    expect(answer.status).toBe(422);
+    expect(JSON.stringify(await answer.json())).toContain('.dev.vars holds secrets');
     expect(await artifacts.head('t-storefront')).toBe(main);
-    expect(calls.map((call) => call.route)).not.toContain('runtime-projects/main-rewritten');
-    expect(enqueued).toEqual([]);
   });
 });

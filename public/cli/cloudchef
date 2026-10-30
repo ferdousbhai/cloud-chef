@@ -1199,8 +1199,15 @@ cmd_repo_rewrite_main() {
   api_post_json /api/command-line/projects/rewrite-main \
     "{\"project\":\"$(json_escape "$P_ID")\",\"branch\":\"$(json_escape "$branch")\",\"commit\":\"$commit\",\"expected\":\"$main\"}"
   printf 'main of %s is now %s (it was %s). It is publishing now.\n' "$P_REF" "${commit:0:7}" "${main:0:7}"
-  [ "$(json_field recorded "$HTTP_BODY")" != "false" ] || note "CloudChef couldn't keep its record of this rewrite."
   published="$(json_field publishedBy "$HTTP_BODY")"
+  if [ "$(json_field rewritten "$HTTP_BODY")" = "false" ]; then
+    # The branch only added to main: main moved as a push of it would have, so no copy has to be reset.
+    printf '%s only added to main, so nothing was rewritten: this was an ordinary publish.\n' "$branch"
+    [ "$(json_field recorded "$HTTP_BODY")" != "false" ] || note "CloudChef couldn't keep its record of who published this."
+    [ "$published" != "cloudchef" ] || printf 'Follow the publish: cloudchef run watch --project %s\n' "$P_REF"
+    return 0
+  fi
+  [ "$(json_field recorded "$HTTP_BODY")" != "false" ] || note "CloudChef couldn't keep its record of this rewrite."
   [ "$published" != "cloudchef" ] || printf 'Follow the publish: cloudchef run watch --project %s\n' "$P_REF"
   printf 'Every copy, this one included, still has the old main. In each: git fetch, then on its main branch\n'
   printf 'git reset --hard REMOTE/main (commits there that were never pushed are dropped), or clone it again.\n'
