@@ -5,7 +5,8 @@ import { z } from 'zod';
  * A chat from before pi-durable kept its messages in the Agents SDK's session tables, written by AI Chat. Each one is
  * moved once into the pi-durable transcript as a display-only entry (`cloudchef.legacy`), which the model never sees:
  * such a chat goes on in a fresh context, and the chat still shows what came before. The old tables stay, unused,
- * so a rollback to the release before keeps every chat; a later release drops them.
+ * so a rollback to the release before keeps every chat; a later release drops them. The runtime's maintenance starts
+ * each agent once (`legacy-chat-moves.server.ts`), so a chat no one opens moves too.
  */
 
 type LegacySql = Pick<DurableObjectStorage['sql'], 'exec'>;

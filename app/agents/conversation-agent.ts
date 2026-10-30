@@ -663,9 +663,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   /**
    * A chat from before pi-durable: its messages move once into the transcript, shown only, and the conversation
-   * goes on in a fresh context (`legacy-chat.ts`).
+   * goes on in a fresh context (`legacy-chat.ts`). Answers how many old messages the transcript shows.
    */
-  private async convertLegacyChat(): Promise<void> {
+  private async convertLegacyChat(): Promise<number> {
     const legacy = readLegacyMessages(this.ctx.storage.sql);
     if (legacy.length > 0) {
       const conversation = await this.piHarness.conversation(ROOT_SESSION);
@@ -678,6 +678,25 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         }, BACKGROUND_CONTEXT);
       }
     }
+    return legacy.length;
+  }
+
+  /**
+   * The runtime's one-time sweep of chats from before pi-durable (`legacy-chat-moves.server.ts`): reaching this
+   * starts an idle agent, and its old chat moves as on any start. Answers how many old messages the transcript
+   * shows; an old chat with no owner to move it for throws, so the sweep tries again.
+   */
+  async moveLegacyChat(): Promise<number> {
+    if (readLegacyMessages(this.ctx.storage.sql).length === 0) {
+      return 0;
+    }
+    if (!this.userId) {
+      await this.hydrateDurableIdentity();
+    }
+    if (!this.userId) {
+      throw new Error('The old chat has no owner to move it for.');
+    }
+    return this.convertLegacyChat();
   }
 
   /** A turn this instance recorded before it stopped: wait for its run again, or end it if it never reached pi. */

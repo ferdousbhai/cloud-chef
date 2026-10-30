@@ -14,9 +14,16 @@ vi.mock('../../app/lib/cloudflare/data/app-resource-gc.server', () => ({
 // Every job the provisioned trigger must register. Listing them here is what
 // keeps the call-count assertions from drifting when a sweep is added.
 const MAINTENANCE_JOBS = [sweepAgentGcCandidatesBestEffort, sweepAppResourceGcCandidatesBestEffort];
+// The sweep of old chats runs for real, against a D1 that only records what it was asked.
+const UNMOCKED_JOBS = 1;
 
 function maintenanceEnv() {
-  return { ConversationAgent: {}, DB: {} } as unknown as Parameters<typeof scheduleUserWorkspaceRuntimeMaintenance>[1];
+  const prepare = vi.fn((_query: string) => {
+    throw new Error('offline');
+  });
+  return { ConversationAgent: {}, DB: { prepare } } as unknown as Parameters<
+    typeof scheduleUserWorkspaceRuntimeMaintenance
+  >[1];
 }
 
 describe('user workspace runtime scheduled maintenance', () => {
@@ -38,8 +45,10 @@ describe('user workspace runtime scheduled maintenance', () => {
     expect(sweepAgentGcCandidatesBestEffort).toHaveBeenCalledWith(env);
     // Only the scheduled sweep looks for removed chats whose deployment records outlived their candidate.
     expect(sweepAppResourceGcCandidatesBestEffort).toHaveBeenCalledWith(env, { requeueRemovedChats: true });
-    expect(waitUntil).toHaveBeenCalledTimes(MAINTENANCE_JOBS.length);
+    expect(waitUntil).toHaveBeenCalledTimes(MAINTENANCE_JOBS.length + UNMOCKED_JOBS);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     await Promise.all(waitUntil.mock.calls.map(([promise]) => promise));
+    expect(vi.mocked(env.DB.prepare).mock.calls[0]?.[0]).toContain('FROM legacy_chat_moves');
   });
 
   it('ignores an unprovisioned trigger', () => {

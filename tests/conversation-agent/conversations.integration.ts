@@ -165,4 +165,22 @@ describe('an app a team adopted as one of its projects', () => {
         .toArray(),
     ).toHaveLength(1);
   });
+
+  it("answers the runtime's sweep with how many old messages it shows, moving none twice", async () => {
+    const harness = await conversationAgentHarness({
+      legacyMessages: [
+        { id: 'old-1', role: 'user', parts: [{ type: 'text', text: 'Build a todo app' }] },
+        { id: 'old-2', role: 'assistant', parts: [{ type: 'text', text: 'Done.' }] },
+      ],
+    });
+
+    await expect(harness.agent.moveLegacyChat()).resolves.toBe(2);
+    const restarted = await harness.restart();
+    await expect(restarted.moveLegacyChat()).resolves.toBe(2);
+    const snapshot = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, conversationIndex: 0 });
+    expect(snapshot.messages.map((message) => message.id)).toEqual(['old-1', 'old-2']);
+
+    const fresh = await conversationAgentHarness();
+    await expect(fresh.agent.moveLegacyChat()).resolves.toBe(0);
+  });
 });

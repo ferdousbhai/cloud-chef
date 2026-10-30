@@ -151,6 +151,7 @@ const migrationPolicies = [
       '0021_drop_clone_tokens.sql': '44a4e7fa605feb3bf838527b5404dbf97845fb0e6fc011ec8635ad958fc05104',
       '0022_clear_project_workspace_names.sql': 'b5f24a2fb0a7653957b56a82c9db86f112ae314c2c0e4647da56d813a596c4f7',
       '0023_base_container_snapshots.sql': '083d89491fb6721eb75f9a841de174995ded613eabfb5d75a4121a7a2f594e54',
+      '0024_legacy_chat_moves.sql': 'e08fcc7e5f79342fac866db98a2e5d62ee2a9d17d0189d079a886abd06450cef',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
