@@ -169,6 +169,26 @@ describe('production requests', () => {
     });
   });
 
+  it('never approves a request into a project its repository already is, and changes nothing', async () => {
+    const { database, send, approve, admin } = await setup();
+    const { requestId } = sentSchema.parse(await (await send({ ...DRAFT, note: '', previewUrl: null })).json());
+    // Sending refuses a repository that is a project, so only a project made after the request could be one.
+    database
+      .prepare(
+        `INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, created_by, created_at)
+         VALUES ('existing', 'team-connection', ?, 'Recipes', 'recipes', 'p-recipe-chat', 'draft', ?, 1)`,
+      )
+      .run(ORG, admin.userId);
+
+    expect((await approve(admin.cookie, requestId)).status).toBe(409);
+    expect(database.prepare('SELECT id FROM org_projects').all()).toEqual([{ id: 'existing' }]);
+    expect(database.prepare('SELECT user_id FROM org_project_access').all()).toEqual([]);
+    expect(database.prepare('SELECT status, project_id FROM production_requests').get()).toEqual({
+      status: 'pending',
+      project_id: null,
+    });
+  });
+
   it('stops an approved draft being the drafter’s app: it is no longer listed as theirs, nor sent again', async () => {
     const { database, env, runtime, send, approve, admin, sara } = await setup();
     database

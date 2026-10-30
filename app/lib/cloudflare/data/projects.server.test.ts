@@ -14,6 +14,7 @@ import {
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
   userRuntimeDeleteProjectRepositoryAction,
+  sweepDeletedProjectWorkspaces,
   userRuntimeRemoveProjectWorkspaceAction,
   userRuntimeRewriteMainAction,
   userRuntimeProjectCopyAction,
@@ -648,6 +649,38 @@ describe('removing a deleted team project’s workspace', () => {
     ]);
     expect((await remove({ orgProjectId: TEAM_PROJECT })).status).toBe(204);
   });
+
+  it('removes on its own schedule this person’s workspaces of projects the control plane says were deleted', async () => {
+    const { database, env } = await setup();
+    const KEPT = '22222222-2222-4222-8222-222222222222';
+    database.exec(`
+      INSERT INTO workspaces (id, creator_id, initial_id, timestamp, has_messages, org_project_id) VALUES
+        ('linked-1', '${OWNER}', 'linked-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}'),
+        ('linked-2', 'someone-else', 'their-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}'),
+        ('linked-3', '${OWNER}', 'kept-initial', '2026-10-21T00:00:00.000Z', 1, '${KEPT}');
+    `);
+    const asked: unknown[] = [];
+    let answer = (ids: string[]) => Response.json({ deleted: ids.filter((id) => id === TEAM_PROJECT) });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      expect(String(input)).toBe('https://control-plane.test/api/cloudflare/runtime-projects/deleted');
+      const body = z.object({ orgProjectIds: z.array(z.string()) }).parse(JSON.parse(String(init?.body)));
+      asked.push(body);
+      return answer(body.orgProjectIds);
+    });
+    const live = () => database.prepare('SELECT id FROM workspaces WHERE is_deleted = 0 ORDER BY id').all();
+
+    expect(await sweepDeletedProjectWorkspaces(env)).toBe(1);
+    // Only its own person's projects are asked about, and only theirs removed.
+    expect(asked).toEqual([{ orgProjectIds: [TEAM_PROJECT, KEPT] }]);
+    expect(live()).toEqual([{ id: 'chat-1' }, { id: 'linked-2' }, { id: 'linked-3' }]);
+
+    // An id the control plane names that this runtime didn't ask about removes nothing; a failure removes nothing.
+    answer = () => Response.json({ deleted: ['33333333-3333-4333-8333-333333333333'] });
+    expect(await sweepDeletedProjectWorkspaces(env)).toBe(0);
+    answer = () => new Response('unavailable', { status: 503 });
+    await expect(sweepDeletedProjectWorkspaces(env)).rejects.toThrow();
+    expect(live()).toEqual([{ id: 'chat-1' }, { id: 'linked-2' }, { id: 'linked-3' }]);
+  });
 });
 
 describe('rewriting main', () => {
@@ -672,7 +705,7 @@ describe('rewriting main', () => {
       if (route === 'runtime-projects/main-rewrite') {
         return owner();
       }
-      if (route === 'runtime-projects/main-rewritten') {
+      if (route === 'runtime-projects/main-rewritten' || route === 'runtime-projects/main-pushed') {
         return Response.json({ recorded: true });
       }
       return new Response('unavailable', { status: 503 });
@@ -709,7 +742,13 @@ describe('rewriting main', () => {
     const answer = await rewrite();
 
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ oldCommit: main, newCommit: slim, publishedBy: 'cloudchef', recorded: true });
+    expect(await answer.json()).toEqual({
+      oldCommit: main,
+      newCommit: slim,
+      rewritten: true,
+      publishedBy: 'cloudchef',
+      recorded: true,
+    });
     expect(await artifacts.head('t-storefront')).toBe(slim);
     expect(calls.map((call) => call.route)).toEqual([
       'runtime-projects/main-rewrite',
@@ -810,7 +849,7 @@ describe('rewriting main', () => {
     expect(await artifacts.head('t-storefront')).toBe(held);
   });
 
-  it('refuses a branch that only adds to main, which is pushed as usual and not recorded as a rewrite', async () => {
+  it('moves main to a branch that only adds to it as a push would, recorded as a push and not a rewrite', async () => {
     const { artifacts, calls, enqueued, rewrite, main, store } = await world();
     const added = await store().commitFiles({
       repo: 't-storefront',
@@ -825,13 +864,49 @@ describe('rewriting main', () => {
 
     const answer = await rewrite({ branch: 'ahead', commit: ahead });
 
-    expect(answer.status).toBe(409);
+    expect(answer.status).toBe(200);
     expect(await answer.json()).toEqual({
-      error:
-        'ahead only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ahead:main).',
+      oldCommit: main,
+      newCommit: ahead,
+      rewritten: false,
+      publishedBy: 'cloudchef',
+      recorded: true,
     });
+    expect(await artifacts.head('t-storefront')).toBe(ahead);
+    expect(calls.map((call) => call.route)).toEqual(['runtime-projects/main-rewrite', 'runtime-projects/main-pushed']);
+    expect(calls[1]?.body).toEqual({ orgProjectId: TEAM_PROJECT, oldCommit: main, newCommit: ahead });
+    expect(enqueued).toEqual([{ orgProjectId: TEAM_PROJECT, branch: 'main', commit: ahead }]);
+  });
+
+  it('checks a branch that only adds to main as a push is checked: a secret in any commit it brings stays off', async () => {
+    const { artifacts, rewrite, main, store } = await world();
+    const leaky = await store().commitFiles({
+      repo: 't-storefront',
+      branch: 'ahead',
+      parent: main,
+      replaces: null,
+      files: [
+        { path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('v3') },
+        { path: '.dev.vars', mode: 0o644, bytes: new TextEncoder().encode('KEY=1') },
+      ],
+      message: 'Leaky',
+      author,
+    });
+    const leakyCommit = 'commit' in leaky ? leaky.commit : '';
+    const cleaned = await store().commitFiles({
+      repo: 't-storefront',
+      branch: 'ahead',
+      parent: leakyCommit,
+      files: [{ path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('v3') }],
+      message: 'Cleaned',
+      author,
+    });
+    const ahead = 'commit' in cleaned ? cleaned.commit : '';
+
+    const answer = await rewrite({ branch: 'ahead', commit: ahead });
+
+    expect(answer.status).toBe(422);
+    expect(JSON.stringify(await answer.json())).toContain('.dev.vars holds secrets');
     expect(await artifacts.head('t-storefront')).toBe(main);
-    expect(calls.map((call) => call.route)).not.toContain('runtime-projects/main-rewritten');
-    expect(enqueued).toEqual([]);
   });
 });

@@ -181,8 +181,10 @@ const deleteRepositoryThroughRuntime: DeleteProjectRepository = async ({ request
 
 /**
  * Asks the runtime of each person with one in the project's account to remove their workspace of it. Someone who
- * may no longer use the account, or whose runtime isn't ready, can't open the project from it either, so is
- * skipped; a runtime that is ready and refuses stops the deletion, which deleting again finishes.
+ * may no longer use the account, or whose runtime isn't ready, is skipped: that runtime removes its workspace of the
+ * project itself on its next maintenance sweep once the project's record is gone (`sweepDeletedProjectWorkspaces`),
+ * and until then opening it says the project was deleted. A runtime that is ready and refuses stops the deletion,
+ * which deleting again finishes.
  */
 const removeWorkspacesThroughRuntimes: RemoveProjectWorkspaces = async ({ request, env, project }) => {
   const { results } = await env.DB.prepare(

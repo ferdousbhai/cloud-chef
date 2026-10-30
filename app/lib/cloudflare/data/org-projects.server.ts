@@ -631,6 +631,62 @@ export async function latestMainChanges(
   return latest;
 }
 
+/**
+ * One change of a project's main: a push (`project_main_pushes`, from a workspace, a person's own computer, or a
+ * `rewrite-main` of a branch that only added to main) or a rewrite (`project_main_rewrites`). `by` is null for
+ * someone no longer on CloudChef; `oldCommit` is null for main's first push; `branch` is the rewrite's, null for a push.
+ */
+export type MainChange = {
+  kind: 'push' | 'rewrite';
+  by: { id: string; name: string } | null;
+  oldCommit: string | null;
+  newCommit: string;
+  branch: string | null;
+  at: number;
+};
+
+/**
+ * The project's changes of main, newest first: who pushed or rewrote it, from and to which commit, and when, whoever
+ * publishes it (Workers Builds reads main by itself, so for its projects this is the only record of who published).
+ * At most `limit`; with `before` (ms), only changes made before that time, for the next page.
+ */
+export async function listMainChanges(
+  db: D1Database,
+  projectId: string,
+  options: { limit: number; before?: number | null },
+): Promise<MainChange[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT changes.*, people.name FROM (
+         SELECT 'push' AS kind, pushed_by AS changed_by, old_commit, new_commit, NULL AS branch, pushed_at AS changed_at
+         FROM project_main_pushes WHERE project_id = ?1 AND pushed_at < ?2
+         UNION ALL
+         SELECT 'rewrite', rewritten_by, old_commit, new_commit, branch, rewritten_at
+         FROM project_main_rewrites WHERE project_id = ?1 AND rewritten_at < ?2
+       ) AS changes
+       LEFT JOIN "user" AS people ON people.id = changes.changed_by
+       ORDER BY changes.changed_at DESC LIMIT ?3`,
+    )
+    .bind(projectId, options.before ?? Number.MAX_SAFE_INTEGER, Math.max(0, Math.min(options.limit, 500)))
+    .all<{
+      kind: 'push' | 'rewrite';
+      changed_by: string | null;
+      old_commit: string | null;
+      new_commit: string;
+      branch: string | null;
+      changed_at: number;
+      name: string | null;
+    }>();
+  return results.map((row) => ({
+    kind: row.kind,
+    by: row.changed_by && row.name !== null ? { id: row.changed_by, name: row.name } : null,
+    oldCommit: row.old_commit,
+    newCommit: row.new_commit,
+    branch: row.branch,
+    at: row.changed_at,
+  }));
+}
+
 /** Gives a team member a role on one project, changes it, or (null) withdraws it. */
 export async function setProjectAccess(
   db: D1Database,
@@ -865,7 +921,7 @@ export async function declineProductionRequest(
 /**
  * Approves a request: the draft's own Artifacts repository becomes a team project, adopted as it is, that
  * its requester may edit. Returns the project and its repository; null when the request was decided
- * already or its requester is no longer in the team.
+ * already, its requester is no longer in the team, or its repository is a project already.
  */
 export async function approveProductionRequest(
   db: D1Database,
@@ -882,9 +938,9 @@ export async function approveProductionRequest(
   )`;
   const request = `(SELECT repo FROM production_requests WHERE id = ?1)`;
   const connection = `(SELECT id FROM cloudflare_connections WHERE org_id = ?3)`;
-  // The repository may be a project already (its draft was approved before and sent again): then that
-  // project is the one the request approves into.
-  const repositoryProject = `(SELECT id FROM org_projects WHERE connection_id = ${connection} AND artifact_repo = ${request})`;
+  // A draft's repository that is a project already is never sent for review (`runtime-projects/request-production`
+  // refuses it, and a draft has one open request), so one found here is refused with the rest rather than approved
+  // into that project.
   const title = await db
     .prepare('SELECT title FROM production_requests WHERE id = ?')
     .bind(args.requestId)
@@ -896,7 +952,12 @@ export async function approveProductionRequest(
         `UPDATE production_requests SET status = 'approved', decided_by = ?2, decided_at = ?3, note = NULL,
            preview_url = NULL
          WHERE id = ?1 AND org_id = ?4 AND status = 'pending' AND repo IS NOT NULL AND ${REQUESTER_IS_MEMBER}
-           AND EXISTS (SELECT 1 FROM cloudflare_connections WHERE org_id = ?4)`,
+           AND EXISTS (SELECT 1 FROM cloudflare_connections WHERE org_id = ?4)
+           AND NOT EXISTS (
+             SELECT 1 FROM org_projects
+             WHERE connection_id = (SELECT id FROM cloudflare_connections WHERE org_id = ?4)
+               AND artifact_repo = production_requests.repo
+           )`,
       )
       .bind(args.requestId, args.actorId, now, args.orgId),
     db
@@ -904,29 +965,24 @@ export async function approveProductionRequest(
         `INSERT INTO org_projects
            (id, connection_id, org_id, name, slug, artifact_repo, created_from, created_by, created_at)
          SELECT ?4, ${connection}, ?3, title, ?6, repo, 'draft', ?5, ?2 FROM production_requests
-         WHERE id = ?1 AND ${approvedNow}
-         ON CONFLICT DO NOTHING`,
+         WHERE id = ?1 AND ${approvedNow}`,
       )
       .bind(args.requestId, now, args.orgId, newProjectId, args.actorId, slug),
     db
       .prepare(
         `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
-         SELECT ${repositoryProject}, requested_by, 'edit', ?4, ?2 FROM production_requests
-         WHERE id = ?1 AND ${approvedNow} AND ${repositoryProject} IS NOT NULL
-         ON CONFLICT(project_id, user_id) DO UPDATE SET role = 'edit'`,
+         SELECT ?4, requested_by, 'edit', ?5, ?2 FROM production_requests
+         WHERE id = ?1 AND ${approvedNow}`,
       )
-      .bind(args.requestId, now, args.orgId, args.actorId),
+      .bind(args.requestId, now, args.orgId, newProjectId, args.actorId),
     // The draft's repository is the project's now, so the drafter's app of it goes: it can't be made public, copied
     // or reached from the command line as theirs. Their runtime keeps the app's chat to read (`runtime-projects/adoption`).
     db
       .prepare(`DELETE FROM apps WHERE connection_id = ${connection} AND repo = ${request} AND ${approvedNow}`)
       .bind(args.requestId, now, args.orgId),
     db
-      .prepare(
-        `UPDATE production_requests SET project_id = ${repositoryProject}
-         WHERE id = ?1 AND ${approvedNow} AND ${repositoryProject} IS NOT NULL`,
-      )
-      .bind(args.requestId, now, args.orgId),
+      .prepare(`UPDATE production_requests SET project_id = ?4 WHERE id = ?1 AND ${approvedNow}`)
+      .bind(args.requestId, now, args.orgId, newProjectId),
   ]);
   if (approved?.meta.changes !== 1) {
     return null;

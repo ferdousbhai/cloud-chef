@@ -30,6 +30,9 @@ const MAIN_REF = 'refs/heads/main';
 const INCOMING_REFS_ROOT = 'refs/cloudchef/incoming';
 /** Said, in git's push report, of a push that would rewrite main rather than add to it. */
 const MAIN_REWRITE_REFUSAL = 'main can’t be rewritten, only added to: pull, then push again.';
+/** Said of a push bringing more commits than can be checked for secret files in one go. */
+const PUSH_TOO_LONG_REFUSAL =
+  'This push brings too many commits for CloudChef to check at once: push an older commit of it first, then the rest.';
 /** Every workspace's saved branches sit under here, each workspace's in its own folder. */
 const WORKSPACE_REFS_ROOT = 'refs/cloudchef/workspaces';
 /** A push's command section is a few lines per ref; anything larger is not a push git sends. */
@@ -375,10 +378,10 @@ export type GitProxyDependencies = {
    */
   isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean | null>;
   /**
-   * The local secret files `commit` adds or changes compared with `base`, or holds at all when `base` is null
-   * (`ProjectRepositories.secretFilesChanged`).
+   * The local secret files a push of `commit` brings that `base` doesn't hold, in any commit it brings, or any at all
+   * when `base` is null; null when it brings too many commits to check (`ProjectRepositories.secretFilesPushed`).
    */
-  secretFilesChanged(repo: string, base: string | null, commit: string): Promise<string[]>;
+  secretFilesPushed(repo: string, base: string | null, commit: string): Promise<string[] | null>;
   /** The commit main is at, or null when there is no main yet: what a new branch is checked against. */
   mainHead(repo: string): Promise<string | null>;
   /** The workspace's saved branches' prefix (`workspaceRefsPrefix`): the only refs besides branches and tags it may write or see. */
@@ -583,9 +586,9 @@ async function stagedPush(args: {
 
 /**
  * Moves a branch from `update`'s old commit to its new one, once the repository has the new one: main only when
- * that adds to main's history, and any branch only when its new commit adds or changes no secret file compared with
- * the branch's old commit, or, for a new branch, with main (with nothing at all, for main's own first push). Why it
- * wasn't moved, or null when it was.
+ * that adds to main's history, and any branch only when no commit the push brings holds a secret file that the
+ * branch's old commit doesn't, or, for a new branch, that main doesn't (no secret file at all, for main's own first
+ * push). Why it wasn't moved, or null when it was.
  */
 async function moveStaged(
   deps: GitProxyDependencies,
@@ -608,11 +611,14 @@ async function moveStaged(
   // with everyone on it, and main is what gets published.
   const base = created ? (isMain ? null : await deps.mainHead(repo).catch(() => undefined)) : update.oldOid;
   const secrets =
-    base === undefined ? null : await deps.secretFilesChanged(repo, base, update.newOid).catch(() => null);
-  if (secrets === null) {
+    base === undefined ? undefined : await deps.secretFilesPushed(repo, base, update.newOid).catch(() => undefined);
+  if (secrets === undefined) {
     return isMain
       ? 'CloudChef couldn’t check this push against main. Try again.'
       : 'CloudChef couldn’t check this push. Try again.';
+  }
+  if (secrets === null) {
+    return PUSH_TOO_LONG_REFUSAL;
   }
   if (secrets[0] !== undefined) {
     return secretFileRefusal(secrets[0]);

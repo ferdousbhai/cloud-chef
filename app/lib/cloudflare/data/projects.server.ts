@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
+import {
+  runtimeConnectionIdentity,
+  type RuntimeConnectionEnv,
+} from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import {
   abandonProjectImport,
@@ -12,6 +15,8 @@ import {
   commitAuthor,
   deletableProjectRepository,
   mainRewriteTarget,
+  deletedProjects,
+  reportMainPushed,
   reportMainRewritten,
   registerProjectImport,
   registerUploadedProject,
@@ -587,17 +592,68 @@ export async function userRuntimeRemoveProjectWorkspaceAction(args: {
     return Response.json({ error: 'Name the project.' }, { status: 400 });
   }
   try {
-    const { results } = await args.env.DB.prepare(
-      `SELECT initial_id FROM workspaces WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0`,
-    )
-      .bind(args.userId, parsed.data.orgProjectId)
-      .all<{ initial_id: string }>();
-    for (const workspace of results) {
-      await removeWorkspace(args.env.DB, { sessionId: args.userId, id: workspace.initial_id });
-    }
+    await removeProjectWorkspaces(args.env.DB, args.userId, parsed.data.orgProjectId);
     return new Response(null, { status: 204 });
   } catch (error) {
     return internalErrorResponse(error, 'The project’s workspace could not be removed. Try again.');
+  }
+}
+
+/** Removes `userId`'s workspaces of the team project `orgProjectId`, as deleting one from their projects does. */
+async function removeProjectWorkspaces(db: D1Database, userId: string, orgProjectId: string): Promise<void> {
+  const { results } = await db
+    .prepare(`SELECT initial_id FROM workspaces WHERE creator_id = ? AND org_project_id = ? AND is_deleted = 0`)
+    .bind(userId, orgProjectId)
+    .all<{ initial_id: string }>();
+  for (const workspace of results) {
+    await removeWorkspace(db, { sessionId: userId, id: workspace.initial_id });
+  }
+}
+
+/** The most projects one sweep asks about: more than a person works on. */
+const DELETED_PROJECT_SWEEP_LIMIT = 100;
+
+type DeletedProjectSweepEnv = RuntimeConnectionEnv &
+  Pick<Env, 'DB' | 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
+
+/**
+ * Removes this runtime's person's workspaces of projects that were deleted, as `POST /v1/projects/remove-workspace`
+ * does when CloudChef asks at the deletion itself: a runtime that wasn't ready or reachable then cleans up here, on
+ * its maintenance schedule, so nobody keeps a workspace of a project that no longer exists. Only a project the control
+ * plane says has no record at all is removed. Answers how many projects' workspaces were removed.
+ */
+export async function sweepDeletedProjectWorkspaces(env: DeletedProjectSweepEnv): Promise<number> {
+  const identity = runtimeConnectionIdentity(env);
+  if (!identity) {
+    return 0;
+  }
+  const { results } = await env.DB.prepare(
+    `SELECT DISTINCT org_project_id FROM workspaces
+     WHERE creator_id = ? AND is_deleted = 0 AND org_project_id IS NOT NULL
+     ORDER BY org_project_id LIMIT ?`,
+  )
+    .bind(identity.userId, DELETED_PROJECT_SWEEP_LIMIT)
+    .all<{ org_project_id: string }>();
+  if (results.length === 0) {
+    return 0;
+  }
+  const held = new Set(results.map((row) => row.org_project_id));
+  const deleted = (await deletedProjects(env, identity, [...held])).filter((id) => held.has(id));
+  for (const orgProjectId of deleted) {
+    await removeProjectWorkspaces(env.DB, identity.userId, orgProjectId);
+  }
+  return deleted.length;
+}
+
+/** `sweepDeletedProjectWorkspaces` on a schedule: a failure is logged, and the next sweep tries again. */
+export async function sweepDeletedProjectWorkspacesBestEffort(env: DeletedProjectSweepEnv): Promise<void> {
+  try {
+    const removed = await sweepDeletedProjectWorkspaces(env);
+    if (removed > 0) {
+      console.info({ event: 'deleted_project_workspaces_removed', projects: removed });
+    }
+  } catch (error) {
+    console.warn({ event: 'deleted_project_workspaces_not_swept', message: String(error) });
   }
 }
 
@@ -872,10 +928,10 @@ const rewriteMainSchema = z.strictObject({
 /**
  * `POST /v1/projects/rewrite-main`: main becomes `branch`'s commit even though it doesn't add to main's history, once
  * CloudChef says this person runs the project (its owner, or one of its team's admins). Only while main and the branch
- * are still where the person read them; never for a branch that only adds to main, which is pushed as usual; and
- * never with a secret file in any commit the new history brings, or in its last commit, even one main already held.
- * The change is recorded, then published as a push to main is. main's old commits stay in the repository,
- * unreachable from it.
+ * are still where the person read them, and never with a secret file in any commit the new history brings, or in its
+ * last commit, even one main already held. The change is recorded, then published as a push to main is. main's old
+ * commits stay in the repository, unreachable from it. A branch that only adds to main is no rewrite: main moves to it
+ * as a push of it would (checked as a push is, `rewritten: false`) and is recorded as that person's push.
  */
 export async function userRuntimeRewriteMainAction(
   args: { request: Request; env: Env },
@@ -915,16 +971,17 @@ export async function userRuntimeRewriteMainAction(
     if (commit === expected) {
       return refused(`main is already at ${commit.slice(0, 7)}.`);
     }
-    // A branch that only adds to main is pushed to it, as any change is: that keeps it an ordinary push.
+    // A branch that only adds to main is what a push of it to main would be: checked, moved and recorded as one.
     const fastForward = await store.isAncestor(target.repo, expected, commit);
-    if (fastForward) {
-      return refused(
-        `${branch} only adds to main, so there is nothing to rewrite: push it to main as usual (git push origin ${branch}:main).`,
-      );
-    }
-    // Every commit the new history brings, and its last one's files whole: a secret file main already held, or one
-    // only in an older commit of the new history, would otherwise come along.
-    const secrets = fastForward === null ? null : await store.secretFilesIntroduced(target.repo, expected, commit);
+    // For a push, what main doesn't already hold in any commit it brings; for a rewrite, every commit the new history
+    // brings and its last one's files whole: a secret file main already held, or one only in an older commit of the
+    // new history, would otherwise come along.
+    const secrets =
+      fastForward === null
+        ? null
+        : fastForward
+          ? await store.secretFilesPushed(target.repo, expected, commit)
+          : await store.secretFilesIntroduced(target.repo, expected, commit);
     if (secrets === null) {
       return refused(`${branch}’s history is too long for CloudChef to check, so main was left as it is.`, 422);
     }
@@ -936,15 +993,19 @@ export async function userRuntimeRewriteMainAction(
       return refused(`main has changed since you read it, so it was left as it is (${notMoved}). Try again.`);
     }
     // main has moved: a record that couldn't be kept is said, and logged, rather than main moved back.
-    const recorded = await reportMainRewritten(args.env, identity, {
-      orgProjectId,
-      branch,
-      oldCommit: expected,
-      newCommit: commit,
-    }).then(
+    const record = fastForward
+      ? reportMainPushed(args.env, identity, { orgProjectId, oldCommit: expected, newCommit: commit })
+      : reportMainRewritten(args.env, identity, { orgProjectId, branch, oldCommit: expected, newCommit: commit });
+    const recorded = await record.then(
       () => true,
       (error: Error) => {
-        console.error({ event: 'main_rewrite_not_recorded', orgProjectId, expected, commit, message: error.message });
+        console.error({
+          event: fastForward ? 'main_push_not_recorded' : 'main_rewrite_not_recorded',
+          orgProjectId,
+          expected,
+          commit,
+          message: error.message,
+        });
         return false;
       },
     );
@@ -956,7 +1017,7 @@ export async function userRuntimeRewriteMainAction(
         .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
     }
     return Response.json(
-      { oldCommit: expected, newCommit: commit, publishedBy: target.deploysWith, recorded },
+      { oldCommit: expected, newCommit: commit, rewritten: !fastForward, publishedBy: target.deploysWith, recorded },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (error) {

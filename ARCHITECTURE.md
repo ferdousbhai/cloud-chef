@@ -254,18 +254,22 @@ runtime's `GitProxy` (`user-workspace-runtime/src/git-proxy.ts`, `app/lib/.serve
 it checks the person's access on each request, adds a short-lived Artifacts token the container never sees, refuses
 deleting main or pushing anything but branches and tags, and records the refs a push updated. Every branch a push
 sets (from a workspace, or from the person's own computer through `/v1/git/…`, which uses the same proxy) lands first
-on a ref of its own under `refs/cloudchef/incoming/`, and the branch moves to it from the commit git read only once it
-adds or changes no `.env`/`.dev.vars` file compared with the branch's old commit, or for a new branch with main (with
-nothing, for main's first push). A push moves main only as a fast-forward, so no push rewrites it. Replacing main's history on purpose (to drop large
+on a ref of its own under `refs/cloudchef/incoming/`, and the branch moves to it from the commit git read only once no
+commit the push brings (every commit reachable from the new one and not from the base, and the new one itself) holds a
+`.env`/`.dev.vars` file the base doesn't hold as it is: the base is the branch's old commit, or for a new branch main
+(none, for main's first push, so every commit is checked and any secret file refuses it). A push moves main only as a
+fast-forward, so no push rewrites it. Replacing main's history on purpose (to drop large
 files from old commits) is the project owner's, or a team admin's, `cloudchef repo rewrite-main BRANCH`
 (`app/server-handlers/main-rewrite.ts`, then the runtime's `POST /v1/projects/rewrite-main`): main moves to the pushed
-branch's commit only from the commit the owner read, never for a branch that only adds to main (that is pushed as
-usual), never with a secret file in any commit the new history brings or in its last commit (even one main already
-held), is recorded in `project_main_rewrites`, and publishes as a push to main does. A push to a team project's main
-goes from the member's runtime straight to the repository, and Workers Builds reads main from there, so the control
-plane never sees it go by: the runtime's git proxy tells it once main has moved (`runtime-projects/main-pushed`), and
-it keeps who pushed, when, and main's commit before and after in `project_main_pushes`, for a member who may edit the
-project. The projects home shows the newest push or rewrite on the project's card ("Updated 2 hours ago by Sara"). A
+branch's commit only from the commit the owner read, never with a secret file in any commit the new history brings or
+in its last commit (even one main already held), is recorded in `project_main_rewrites`, and publishes as a push to
+main does. A branch that only adds to main is no rewrite: main moves to it checked as a push is, and it is recorded as
+that person's push. A push to a project's main goes from the person's runtime straight to the repository, and Workers
+Builds reads main from there, so the control plane never sees it go by: the runtime's git proxy tells it once main has
+moved (`runtime-projects/main-pushed`), and it keeps who pushed, when, and main's commit before and after in
+`project_main_pushes`, for a member who may edit the project. `listMainChanges` (and `GET /api/projects/<id>/main-changes`)
+reads a project's pushes and rewrites back, newest first. The projects home shows the newest push or rewrite on the
+project's card ("Updated 2 hours ago by Sara"). A
 push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
 checked). A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the

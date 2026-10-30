@@ -278,19 +278,121 @@ export class ProjectRepositories {
   }
 
   /**
-   * The local secret files (`.env`, `.dev.vars` and their variants, not `.env.example` and the like) `commit` adds
-   * or changes compared with `base` (every one it holds, when `base` is null: nothing to compare with): what the
-   * workspace's own commit hook refuses, for a push from anywhere.
+   * The local secret files (`.env`, `.dev.vars` and their variants, not `.env.example` and the like) a push of
+   * `commit` brings that `base` doesn't hold as they are: what the workspace's own commit hook refuses, for a push
+   * from anywhere. Every commit reachable from `commit` and not from `base` is read, and `commit` itself always, so a
+   * secret added in one commit and deleted in a later one is found too: its blob would stay in the shared history. A
+   * secret file at a path `base` holds with the same blob is not counted. With `base` null (main's first push, no
+   * main to compare with) every commit is read and every secret file counts. Null when more than `limit` commits
+   * would be read, so the push couldn't be checked in time.
+   *
+   * The commits are told apart as `git rev-list commit ^base` does: newest first by commit time, each commit marked
+   * as reachable from `base` or only from `commit`, the walk ending once nothing only reachable from `commit` is left
+   * to read, which is soon after the two histories meet. A commit time skewed between machines can only make a commit
+   * of `base`'s history read as new (checked when it needn't be), never a new commit go unread.
    */
-  async secretFilesChanged(repo: string, base: string | null, commit: string): Promise<string[]> {
-    const [before, after] = await Promise.all([
-      base === null ? { files: [] } : this.readTreeAt(repo, base),
-      this.readTreeAt(repo, commit),
-    ]);
-    const earlier = new Map(before.files.map((file) => [file.path, file.oid]));
-    return after.files
-      .filter((file) => isSecretFilePath(file.path) && earlier.get(file.path) !== file.oid)
-      .map((file) => file.path);
+  async secretFilesPushed(repo: string, base: string | null, commit: string, limit = 5_000): Promise<string[] | null> {
+    return this.#withRepo(repo, async (handle) => {
+      const commits = new Map<string, ArtifactsCommitMetadata>();
+      // Each commit seen: `old` when `base` reaches it, else `new`; and what it was when its parents were marked.
+      const marks = new Map<string, 'old' | 'new'>();
+      const walked = new Map<string, 'old' | 'new'>();
+      const pending = new Set<string>();
+      const mark = async (oid: string, as: 'old' | 'new') => {
+        const was = marks.get(oid);
+        if (was === 'old' || was === as) {
+          return;
+        }
+        if (!commits.has(oid)) {
+          const read = await handle.readCommit(oid);
+          if (!read) {
+            throw new ProjectRepositoryError(`The repository has no commit ${oid.slice(0, 64)}.`, 'not_found');
+          }
+          commits.set(oid, read);
+        }
+        marks.set(oid, as);
+        pending.add(oid);
+      };
+      await mark(commit, 'new');
+      if (base !== null) {
+        await mark(base, 'old');
+      }
+      while ([...pending].some((oid) => marks.get(oid) === 'new')) {
+        // The newest commit waiting; of two made at once, the one `base` reaches, so its history is marked first.
+        let next: string | null = null;
+        for (const oid of pending) {
+          const time = commits.get(oid)!.committedAt;
+          const best = next === null ? null : commits.get(next)!.committedAt;
+          if (best === null || time > best || (time === best && marks.get(oid) === 'old')) {
+            next = oid;
+          }
+        }
+        pending.delete(next!);
+        const as = marks.get(next!)!;
+        if (walked.get(next!) === as) {
+          continue;
+        }
+        walked.set(next!, as);
+        if (walked.size > limit) {
+          return null;
+        }
+        for (const parent of commits.get(next!)!.parents) {
+          await mark(parent, as);
+        }
+      }
+      const trees = new Set([commits.get(commit)!.treeHash]);
+      for (const [oid, as] of marks) {
+        if (as === 'new' && walked.has(oid)) {
+          trees.add(commits.get(oid)!.treeHash);
+        }
+      }
+      // A folder's secret files are the same in every commit that holds it at the same path, so each is read once.
+      const read = new Map<string, Map<string, string>>();
+      const secretsIn = async (hash: string, prefix: string): Promise<Map<string, string>> => {
+        const key = `${prefix}\0${hash}`;
+        const known = read.get(key);
+        if (known) {
+          return known;
+        }
+        const entries = await handle.readTree(hash);
+        if (!entries) {
+          throw new ProjectRepositoryError('A folder in the repository could not be read.', 'not_found');
+        }
+        const found = new Map<string, string>();
+        for (const entry of entries) {
+          const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.type === 'tree') {
+            for (const [nested, oid] of await secretsIn(entry.hash, path)) {
+              found.set(nested, oid);
+            }
+          } else if (isSecretFilePath(path)) {
+            found.set(path, entry.hash);
+          }
+        }
+        read.set(key, found);
+        return found;
+      };
+      const brought: { path: string; oid: string }[] = [];
+      for (const tree of trees) {
+        for (const [path, oid] of await secretsIn(tree, '')) {
+          if (!brought.some((secret) => secret.path === path && secret.oid === oid)) {
+            brought.push({ path, oid });
+          }
+        }
+      }
+      if (brought.length === 0) {
+        return [];
+      }
+      const baseTree = base === null ? null : commits.get(base)!.treeHash;
+      const paths: string[] = [];
+      for (const secret of brought) {
+        const held = baseTree === null ? null : await entryAt(handle, baseTree, secret.path);
+        if (held !== secret.oid && !paths.includes(secret.path)) {
+          paths.push(secret.path);
+        }
+      }
+      return paths;
+    });
   }
 
   /**
@@ -1046,4 +1148,24 @@ function importError(error: GitSourceError, authorized: boolean): ProjectReposit
 /** `.env`, `.env.*`, `.dev.vars` and `.dev.vars.*` at any depth, except the example files projects keep. */
 function isSecretFilePath(path: string): boolean {
   return /(^|\/)(\.env|\.dev\.vars)(\.[^/]*)?$/.test(path) && !/(^|\/)\.env\.(example|sample|template)$/.test(path);
+}
+
+/** The blob or tree at `path` in the tree `hash`, or null when it holds nothing there. */
+async function entryAt(handle: ArtifactsRepo, hash: string, path: string): Promise<string | null> {
+  let tree = hash;
+  const parts = path.split('/');
+  for (const [index, name] of parts.entries()) {
+    const entry = (await handle.readTree(tree))?.find((candidate) => candidate.name === name);
+    if (!entry) {
+      return null;
+    }
+    if (index === parts.length - 1) {
+      return entry.hash;
+    }
+    if (entry.type !== 'tree') {
+      return null;
+    }
+    tree = entry.hash;
+  }
+  return null;
 }

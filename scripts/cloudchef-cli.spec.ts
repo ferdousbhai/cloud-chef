@@ -228,6 +228,16 @@ class FakeCloudChef {
       }
       // ferdous/broken's repository: main moves from the commit the command read, as CloudChef's does.
       const served = join(this.gitRoot, 'ferdous/broken.git');
+      // A branch that only adds to main is no rewrite, as CloudChef says.
+      let rewritten = true;
+      try {
+        execFileSync('git', ['merge-base', '--is-ancestor', rewrite.expected ?? '', rewrite.commit ?? ''], {
+          cwd: served,
+        });
+        rewritten = false;
+      } catch {
+        // Not an ancestor: a rewrite.
+      }
       execFileSync('git', ['update-ref', 'refs/heads/main', rewrite.commit ?? '', rewrite.expected ?? ''], {
         cwd: served,
       });
@@ -235,6 +245,7 @@ class FakeCloudChef {
       return json(200, {
         oldCommit: rewrite.expected ?? '',
         newCommit: rewrite.commit ?? '',
+        rewritten,
         publishedBy: 'cloudchef',
         recorded: true,
       });
@@ -667,6 +678,27 @@ describe('cloudchef repo', () => {
     // main is there already.
     const again = await cli(home, ['repo', 'rewrite-main', 'slim', '--project', 'ferdous/broken']);
     expect(again.stderr).toContain('is already at slim');
+
+    // A branch that only adds to main is an ordinary publish: no copy needs resetting.
+    const local = mkdtempSync(join(workDir, 'ahead-'));
+    git(local, 'init', '-q', '-b', 'ahead');
+    git(local, 'fetch', '-q', served, 'main');
+    git(local, 'reset', '-q', '--hard', 'FETCH_HEAD');
+    writeFileSync(join(local, 'more.txt'), 'more\n');
+    git(local, 'add', '-A');
+    git(local, 'commit', '-q', '-m', 'More');
+    git(local, 'push', '-q', served, 'ahead:refs/heads/ahead');
+    git(served, 'update-server-info');
+    const ahead = await cli(home, [
+      'repo',
+      'rewrite-main',
+      'ahead',
+      '--project=ferdous/broken',
+      '--accept-history-rewrite',
+    ]);
+    expect(ahead.code).toBe(0);
+    expect(ahead.stdout).toContain('ahead only added to main, so nothing was rewritten: this was an ordinary publish.');
+    expect(ahead.stdout).not.toContain('git reset --hard');
   });
 
   it('refuses main itself, a branch that isn’t there, and anyone but the owner, and says why the server refused', async () => {

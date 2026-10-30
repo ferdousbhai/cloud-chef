@@ -7,8 +7,8 @@ export const ORIGIN = 'https://cloudchef.build';
 export const ORG = '33333333-3333-4333-8333-333333333333';
 const ENCRYPTION_KEY = btoa('k'.repeat(32));
 
-/** A request body as a browser or runtime sends it: flat JSON. */
-export type Body = Record<string, string | number | boolean | null>;
+/** A request body as a browser or runtime sends it: flat JSON, or a list of strings. */
+export type Body = Record<string, string | number | boolean | null | string[]>;
 
 /**
  * A team (`ORG`, its Cloudflare connection `team-connection` in `account-team`) with its admin Ada and its
