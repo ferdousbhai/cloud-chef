@@ -257,7 +257,7 @@ describe('control-plane account export', () => {
       INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
         VALUES ('acme-connection', 'acme', 'account-acme', 'active', 1, 1);
       INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
-        VALUES ('project-1', 'acme-connection', 'acme', 'Shop', 'p-shop', 'draft', 1);
+        VALUES ('project-1', 'acme-connection', 'acme', 'Shop', 'p-shop', 'chat', 1);
       INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('project-1', 'user-1', 'view', 7);
       INSERT INTO org_projects (id, connection_id, name, import_repo_full_name, import_branch, created_from, created_at)
         VALUES ('project-2', 'connection-user-1', 'Mine', 'me/mine', 'main', 'github', 8);

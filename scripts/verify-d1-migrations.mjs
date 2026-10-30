@@ -73,6 +73,7 @@ const migrationPolicies = [
       '0054_project_visits.sql': 'c6f7866ea570d6e3717eb92ef6b3f333fbb4efebe26bf491c3dcc581d843e305',
       '0055_chat_projects.sql': 'dad4c9ca3ee67540493c250868757259066241ab71febf77ec1ab350a3f9eb78',
       '0056_showcase.sql': '975bd7ccf50ae6ed0b7cfe88a7dd27d0dd943902a5b2816e380c936650549e03',
+      '0057_drop_old_app_publishing.sql': 'e59a64acc113ed30450f371270832b99c7b013506408e89dd7f9d17fb2835455',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -128,6 +129,8 @@ const migrationPolicies = [
       '0049_drop_connection_authorization_copies.sql',
       // Rebuilds org_projects so created_from's CHECK gains 'chat' (an app made in a chat); its dependents step aside.
       '0055_chat_projects.sql',
+      // Chat apps and production requests, unnamed since every project publishes by pushing to its repository.
+      '0057_drop_old_app_publishing.sql',
     ],
   },
   {
@@ -158,6 +161,7 @@ const migrationPolicies = [
       '0023_base_container_snapshots.sql': '083d89491fb6721eb75f9a841de174995ded613eabfb5d75a4121a7a2f594e54',
       '0024_legacy_chat_moves.sql': 'e08fcc7e5f79342fac866db98a2e5d62ee2a9d17d0189d079a886abd06450cef',
       '0025_drop_legacy_chat_moves.sql': 'b823a026ca5caa3db953ad61d629b2ed0f36e305d44796b790be5b95a38b336a',
+      '0026_drop_old_app_publishing.sql': '2e2b1395878b140f967d5531592c1307e8e97b5acc67a8aa7778450dd056cb70',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -182,6 +186,8 @@ const migrationPolicies = [
       '0021_drop_clone_tokens.sql',
       // Which chats from before pi-durable had moved into their transcripts, unnamed since the release before.
       '0025_drop_legacy_chat_moves.sql',
+      // The runtime's chat-app deployments and resource cleanup, and adopted drafts, unnamed since the release before.
+      '0026_drop_old_app_publishing.sql',
     ],
   },
   {

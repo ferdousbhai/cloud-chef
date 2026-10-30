@@ -1,4 +1,3 @@
-import type { BuilderWorkspaceGitRepository } from '~/agents/builder-workspace-api';
 import {
   boundedBytes,
   concatBytes,
@@ -68,8 +67,13 @@ type GitProxyRoute = { service: GitService; advertisement: boolean };
 
 export type RefUpdate = { ref: string; oldOid: string; newOid: string };
 
-/** The workspace's repository, and the branch and commit its files match (none yet for a new CloudChef app). */
-export type GitWorkspaceRepository = BuilderWorkspaceGitRepository & {
+/**
+ * The repository git reaches, the project it belongs to (none for a build's read-only source, or a workspace recorded
+ * before it named one), and the branch and commit its files match (none yet for a new CloudChef app).
+ */
+export type GitWorkspaceRepository = {
+  repo: string;
+  orgProjectId: string | null;
   base: { branch: string; commit: string | null };
 };
 
@@ -380,7 +384,7 @@ export type GitProxyDependencies = {
   /** Who commits made in the workspace are by: the person, as the project's history names them. */
   author(): Promise<{ name: string; email: string }>;
   /** Why this person may not fetch (`write` false) or push to the repository now, or null when they may. */
-  refusal(target: BuilderWorkspaceGitRepository, write: boolean): Promise<string | null>;
+  refusal(target: GitWorkspaceRepository, write: boolean): Promise<string | null>;
   access(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }>;
   revoke(repo: string, tokenId: string): Promise<void>;
   /**

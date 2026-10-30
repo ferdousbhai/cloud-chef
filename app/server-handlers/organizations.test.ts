@@ -729,7 +729,7 @@ describe('organizations', () => {
     });
     database.exec(`
       INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
-        VALUES ('site', 'acme-connection', '${orgId}', 'Site', 'p-site', 'draft', 1);
+        VALUES ('site', 'acme-connection', '${orgId}', 'Site', 'p-site', 'chat', 1);
       INSERT INTO org_project_access (project_id, user_id, granted_at) VALUES ('site', '${sam.userId}', 1);
       INSERT INTO user_computer_runtimes
         (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
@@ -934,7 +934,7 @@ describe('a team’s name and deletion', () => {
     database
       .prepare(
         `INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
-         VALUES ('44444444-4444-4444-8444-444444444444', 'acme-connection', ?, 'Site', 'p-site', 'draft', 1)`,
+         VALUES ('44444444-4444-4444-8444-444444444444', 'acme-connection', ?, 'Site', 'p-site', 'chat', 1)`,
       )
       .run(orgId);
     database
