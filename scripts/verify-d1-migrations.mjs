@@ -156,6 +156,7 @@ const migrationPolicies = [
       '0022_clear_project_workspace_names.sql': 'b5f24a2fb0a7653957b56a82c9db86f112ae314c2c0e4647da56d813a596c4f7',
       '0023_base_container_snapshots.sql': '083d89491fb6721eb75f9a841de174995ded613eabfb5d75a4121a7a2f594e54',
       '0024_legacy_chat_moves.sql': 'e08fcc7e5f79342fac866db98a2e5d62ee2a9d17d0189d079a886abd06450cef',
+      '0025_drop_legacy_chat_moves.sql': 'b823a026ca5caa3db953ad61d629b2ed0f36e305d44796b790be5b95a38b336a',
     },
     contractAllowlist: [
       // Chat identity has one immutable key; remove the unused alternate URL column and index.
@@ -178,6 +179,8 @@ const migrationPolicies = [
       '0019_workspaces_and_conversations.sql',
       // Clone tokens, recorded by no runtime since the release before, which revoked every one still recorded.
       '0021_drop_clone_tokens.sql',
+      // Which chats from before pi-durable had moved into their transcripts, unnamed since the release before.
+      '0025_drop_legacy_chat_moves.sql',
     ],
   },
   {
