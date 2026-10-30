@@ -101,14 +101,13 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
       isSmallViewport={controller.isSmallViewport}
       closable={!controller.isSmallViewport || Boolean(beforeChatStarted)}
       onClose={controller.close}
-      lockedMessage={isStreaming ? 'Build in progress. Code and preview unlock when this step finishes.' : null}
       headerActions={
         controller.selectedView === 'code' ? (
           controller.conversationClosed ? null : (
             <PanelHeaderButton
               className="mr-1 text-sm"
               title="Save current file"
-              disabled={!controller.currentDocument}
+              disabled={!controller.currentDocument || isStreaming}
               onClick={() => void controller.onFileSave()}
             >
               Save
@@ -160,7 +159,8 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
                 presentation={presentation}
                 publication={publication}
                 reloadKey={previewReloadKey}
-                requesting={controller.publishRequesting}
+                // Publishing mid-turn would ship whatever the agent has half written.
+                requesting={controller.publishRequesting || Boolean(isStreaming)}
                 onPublish={() => void controller.onPublishRequest()}
                 linkedSite={controller.linkedProject ? controller.linkedSite : undefined}
               />
@@ -190,7 +190,6 @@ function WorkbenchFrame({
   isSmallViewport,
   closable,
   onClose,
-  lockedMessage,
   headerActions,
   children,
 }: {
@@ -200,7 +199,6 @@ function WorkbenchFrame({
   isSmallViewport: boolean;
   closable: boolean;
   onClose: () => void;
-  lockedMessage?: ReactNode;
   headerActions?: ReactNode;
   children: ReactNode;
 }) {
@@ -253,22 +251,13 @@ function WorkbenchFrame({
                   <div className="ml-auto" />
                 </>
               )}
-              <div className={classNames({ 'ml-auto': isSmallViewport })} inert={Boolean(lockedMessage)}>
-                {headerActions}
-              </div>
+              <div className={classNames({ 'ml-auto': isSmallViewport })}>{headerActions}</div>
               {closable && (
                 <IconButton icon={<Cross2Icon />} className="-mr-1" title="Close workbench" onClick={onClose} />
               )}
             </div>
             <div className="relative flex-1 overflow-hidden">
-              <div className="size-full" inert={Boolean(lockedMessage)}>
-                {children}
-              </div>
-              {lockedMessage && (
-                <div className="absolute inset-0 z-20 flex items-center justify-center bg-bolt-elements-background-depth-2 px-6 text-center text-sm text-content-secondary">
-                  {lockedMessage}
-                </div>
-              )}
+              <div className="size-full">{children}</div>
             </div>
           </div>
         </div>

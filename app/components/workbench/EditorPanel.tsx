@@ -82,6 +82,11 @@ export const EditorPanel = memo(function EditorPanel({
           {(activeFileSegments?.length ?? 0) > 0 && (
             <div className="flex flex-1 items-center text-sm">
               <FileBreadcrumb pathSegments={activeFileSegments} files={files} onFileSelect={onFileSelect} />
+              {isStreaming && !readOnly && (
+                <span className="ml-auto shrink-0 pl-3 text-xs text-content-secondary">
+                  Read only while CloudChef works
+                </span>
+              )}
               {activeFileUnsaved && !readOnly && (
                 <div className="-mr-1.5 ml-auto flex gap-1">
                   <PanelHeaderButton
