@@ -43,7 +43,12 @@ function PostPageContent({ initial }: { initial: PostView }) {
     );
   }
   const menu = (
-    <PostMenu post={post} onCaption={(caption) => setPost({ ...post, caption })} onGone={() => setGone(true)} />
+    <PostMenu
+      post={post}
+      onCaption={(caption) => setPost({ ...post, caption })}
+      onGone={() => setGone(true)}
+      onReelRemoved={() => setPost({ ...post, reel: null })}
+    />
   );
   const when = timeAgo(post.shownAt);
   return (

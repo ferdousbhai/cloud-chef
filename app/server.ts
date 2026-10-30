@@ -120,6 +120,7 @@ import {
 } from './server-handlers/model-settings';
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import * as showcase from './server-handlers/showcase';
+import { runtimeReelAction, runtimeReelTargetAction } from './server-handlers/runtime-reels';
 import { deleteGoneMediaBestEffort, serveMediaAction } from './lib/.server/showcase/media';
 import { runShowcaseJobs, type ShowcaseJob } from './lib/.server/showcase/jobs';
 import { PROJECT_PRESENCE_ROUTE, projectPresenceAction } from './server-handlers/project-presence';
@@ -218,6 +219,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/main-rewritten': ['POST', runtimeMainRewrittenAction],
     '/api/cloudflare/runtime-projects/main-pushed': ['POST', runtimeMainPushedAction],
     '/api/cloudflare/runtime-projects/deleted': ['POST', runtimeDeletedProjectsAction],
+    '/api/cloudflare/runtime-projects/reel/target': ['POST', runtimeReelTargetAction],
+    '/api/cloudflare/runtime-projects/reel': ['POST', runtimeReelAction],
     '/api/approvals': ['GET', listApprovalsAction],
     '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
@@ -288,6 +291,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/showcase/posts/caption': ['POST', showcase.captionAction],
     '/api/showcase/posts/shown': ['POST', showcase.shownAction],
     '/api/showcase/posts/delete': ['POST', showcase.deletePostAction],
+    '/api/showcase/posts/clip/remove': ['POST', showcase.removeReelAction],
     '/api/showcase/posts/hidden': ['GET', showcase.hiddenPostsAction],
     '/api/showcase/profile': ['POST', showcase.profileAction],
     '/api/showcase/notifications': ['GET', showcase.notificationsAction],

@@ -68,8 +68,9 @@ const POST_COLUMNS = `posts.id, posts.project_id, posts.caption, posts.site_url,
   projects.name AS project_name, projects.slug AS project_slug, owners.username AS owner_username,
   authors.username AS author_username, authors.name AS author_name, authors.image AS author_image,
   (SELECT json_group_array(json_object('id', media.id, 'kind', media.kind, 'width', media.width,
-     'height', media.height, 'contentType', media.content_type))
-   FROM post_media AS media WHERE media.post_id = posts.id AND media.state = 'ready') AS media`;
+     'height', media.height, 'contentType', media.content_type, 'durationMs', media.duration_ms))
+   FROM post_media AS media WHERE media.post_id = posts.id AND media.state = 'ready'
+     AND (media.part_of IS NULL OR (media.kind = 'reel_still' AND media.position = 0))) AS media`;
 
 /** What a post is read with: its project, its author, and its project's author (whose username is in its address). */
 const POST_JOINS = `JOIN org_projects AS projects ON projects.id = posts.project_id
@@ -88,13 +89,17 @@ const PUBLIC = `posts.status = 'visible' AND projects.visibility = 'public' AND 
 const beforeCursor = (shownAt: string, id: string) =>
   `(posts.shown_at < ${shownAt} OR (posts.shown_at = ${shownAt} AND posts.id < ${id}))`;
 
-/** A media row as POST_COLUMNS gathers it. Only screenshots are made today; any other kind is not shown. */
+/**
+ * A media row as POST_COLUMNS gathers it: the screenshot, and a clip's timeline with its first picture (the rest of
+ * a clip's files are read by the player from its timeline). Any other kind is not shown.
+ */
 type MediaJson = {
   id: string;
   kind: string;
   width: number | null;
   height: number | null;
   contentType: string;
+  durationMs: number | null;
 };
 
 /** Where a media item is served: CloudChef's own address, by its id, so a replaced picture is a new address. */
@@ -106,6 +111,8 @@ function toPostView(row: PostRow): PostView {
   // SAFETY: `media` is the json_group_array of POST_COLUMNS, whose objects have exactly these fields.
   const media: MediaJson[] = row.media ? (JSON.parse(row.media) as MediaJson[]) : [];
   const screenshot = media.find((item) => item.kind === 'screenshot');
+  const reel = media.find((item) => item.kind === 'reel');
+  const poster = media.find((item) => item.kind === 'reel_still');
   return {
     id: row.id,
     projectId: row.project_id,
@@ -117,6 +124,14 @@ function toPostView(row: PostRow): PostView {
     screenshot: screenshot
       ? { url: mediaPath(screenshot), width: screenshot.width ?? 1280, height: screenshot.height ?? 800 }
       : null,
+    reel:
+      reel && poster
+        ? {
+            url: mediaPath(reel),
+            poster: { url: mediaPath(poster), width: poster.width ?? 1280, height: poster.height ?? 800 },
+            seconds: (reel.durationMs ?? 0) / 1000,
+          }
+        : null,
     updated: row.published_count > 1,
     shownAt: row.shown_at,
     likeCount: row.like_count,
@@ -589,14 +604,20 @@ export async function setBio(db: D1Database, userId: string, bio: string): Promi
 
 export type NewMedia = {
   id: string;
-  /** Only automatic screenshots today; the table takes other kinds without a change (migrations/0056). */
-  kind: 'screenshot';
-  origin: 'automatic';
+  /**
+   * An automatic screenshot; or a clip the agent made and its author approved (migrations/0059): its timeline, and
+   * its pictures and spoken lines (`partOf` the timeline, in `position` order).
+   */
+  kind: 'screenshot' | 'reel' | 'reel_still' | 'reel_audio';
+  origin: 'automatic' | 'agent';
   r2Key: string;
   contentType: string;
   bytes: number;
   width: number | null;
   height: number | null;
+  durationMs?: number | null;
+  partOf?: string | null;
+  position?: number;
   commit: string | null;
   state: 'pending' | 'ready';
 };
@@ -604,9 +625,9 @@ export type NewMedia = {
 function insertMedia(db: D1Database, postId: string, media: NewMedia, now: number): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO post_media (id, post_id, kind, origin, r2_key, content_type, bytes, width, height,
-         commit_sha, state, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
+      `INSERT INTO post_media (id, post_id, kind, origin, r2_key, content_type, bytes, width, height, duration_ms,
+         part_of, position, commit_sha, state, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
     )
     .bind(
       media.id,
@@ -618,6 +639,9 @@ function insertMedia(db: D1Database, postId: string, media: NewMedia, now: numbe
       media.bytes,
       media.width,
       media.height,
+      media.durationMs ?? null,
+      media.partOf ?? null,
+      media.position ?? 0,
       media.commit,
       media.state,
       now,
@@ -644,6 +668,57 @@ export async function replaceScreenshot(
     insertMedia(db, args.postId, args.media, Date.now()),
   ]);
   return true;
+}
+
+/** The post of a project that `userId` manages, for its clip: null when there is none they may change. */
+export async function findManagedPostOfProject(
+  db: D1Database,
+  projectId: string,
+  userId: string,
+): Promise<ManagedPost | null> {
+  const post = await db.prepare('SELECT id FROM posts WHERE project_id = ?').bind(projectId).first<{ id: string }>();
+  const managed = post ? await findManagedPost(db, post.id, userId) : null;
+  return managed && managed.status !== 'removed' && managed.projectPublic ? managed : null;
+}
+
+/**
+ * A clip its author approved in the chat, replacing the post's clip before it (whose objects are deleted with their
+ * rows). Only someone who manages the post, while it isn't removed and its project is public. A new clip moves a
+ * visible post back to the top of feeds when it last moved more than a day ago, as a publish does.
+ */
+export async function replaceReel(
+  db: D1Database,
+  args: { postId: string; userId: string; reel: NewMedia; parts: readonly NewMedia[]; now?: number },
+): Promise<ManagedPost> {
+  const post = await requireManagedPost(db, args.postId, args.userId);
+  if (post.status === 'removed' || !post.projectPublic) {
+    throw new ShowcaseError('This post can’t take a clip now.', 409);
+  }
+  const now = args.now ?? Date.now();
+  await db.batch([
+    db
+      .prepare(`DELETE FROM post_media WHERE post_id = ? AND kind IN ('reel', 'reel_still', 'reel_audio')`)
+      .bind(args.postId),
+    insertMedia(db, args.postId, args.reel, now),
+    ...args.parts.map((part) => insertMedia(db, args.postId, { ...part, partOf: args.reel.id }, now)),
+    db
+      .prepare(
+        `UPDATE posts SET updated_at = ?2,
+           shown_at = CASE WHEN status = 'visible' AND ?2 - shown_at > ?3 THEN ?2 ELSE shown_at END
+         WHERE id = ?1`,
+      )
+      .bind(args.postId, now, POST_MOVE_INTERVAL_MS),
+  ]);
+  return post;
+}
+
+/** Takes a post's clip off it, leaving its screenshot. */
+export async function removeReel(db: D1Database, args: { postId: string; userId: string }): Promise<void> {
+  await requireManagedPost(db, args.postId, args.userId);
+  await db
+    .prepare(`DELETE FROM post_media WHERE post_id = ? AND kind IN ('reel', 'reel_still', 'reel_audio')`)
+    .bind(args.postId)
+    .run();
 }
 
 /** A media item to serve: only a ready one of a post anyone may see. */

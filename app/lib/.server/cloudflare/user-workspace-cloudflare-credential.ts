@@ -274,7 +274,9 @@ type RuntimeRoute =
   | 'runtime-projects/main-rewrite'
   | 'runtime-projects/main-rewritten'
   | 'runtime-projects/main-pushed'
-  | 'runtime-projects/deleted';
+  | 'runtime-projects/deleted'
+  | 'runtime-projects/reel/target'
+  | 'runtime-projects/reel';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

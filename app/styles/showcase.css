@@ -116,3 +116,49 @@ html.dark .showcase-page {
   border-radius: 999px;
   color: var(--cc-content-secondary);
 }
+
+/* A clip's tap mark (ReelPlayer): a ring where something was pressed, pulsing once as it appears. */
+.reel-tap {
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -1.375rem 0 0 -1.375rem;
+  border: 3px solid rgb(255 255 255 / 0.95);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.18);
+  box-shadow:
+    0 0 0 2px rgb(0 0 0 / 0.35),
+    0 4px 14px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 120ms ease-out,
+    transform 260ms ease-out;
+}
+
+.reel-tap[data-shown='true'] {
+  opacity: 1;
+  transform: scale(1);
+  animation: reel-tap-pulse 900ms ease-out;
+}
+
+@keyframes reel-tap-pulse {
+  0% {
+    box-shadow:
+      0 0 0 0 rgb(255 255 255 / 0.6),
+      0 4px 14px rgb(0 0 0 / 0.35);
+  }
+  100% {
+    box-shadow:
+      0 0 0 18px rgb(255 255 255 / 0),
+      0 4px 14px rgb(0 0 0 / 0.35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reel-tap,
+  .reel-tap[data-shown='true'] {
+    animation: none;
+    transition: none;
+    transform: none;
+  }
+}
