@@ -44,7 +44,12 @@ export function PostMedia({
         className,
       )}
     >
-      <span className="line-clamp-2 text-lg font-semibold tracking-tight text-content-primary sm:text-xl">
+      <span
+        className={classNames('line-clamp-2 font-semibold tracking-tight text-content-primary wrap-anywhere', {
+          'text-sm sm:text-lg': variant === 'tile',
+          'text-lg sm:text-xl': variant !== 'tile',
+        })}
+      >
         {post.title}
       </span>
     </div>

@@ -1,5 +1,6 @@
 import { createFileRoute, notFound } from '@tanstack/react-router';
 import { PersonPage } from '~/components/showcase/PersonPage';
+import { PersonNotFound } from '~/components/showcase/PersonNotFound';
 import { ShowcaseShell } from '~/components/showcase/ShowcaseShell';
 import { loadPersonPage } from '~/lib/showcase-loaders';
 import { createPublicPageHead } from '~/lib/social-meta';
@@ -37,7 +38,18 @@ export const Route = createFileRoute('/$username/')({
     });
   },
   component: PersonRoute,
+  // The same for everyone on the server: no page here. Its own person learns, in the browser, where theirs will be.
+  notFoundComponent: PersonMissing,
 });
+
+function PersonMissing() {
+  const { username } = Route.useParams();
+  return (
+    <ShowcaseShell>
+      <PersonNotFound username={username} />
+    </ShowcaseShell>
+  );
+}
 
 function PersonRoute() {
   const data = Route.useLoaderData();

@@ -13,6 +13,7 @@ import {
   hidePostOfPrivateProject,
   listExplorePosts,
   listFeedPosts,
+  listFollowPeople,
   listNotifications,
   mediaToServe,
   pendingMediaDeletions,
@@ -158,6 +159,47 @@ describe('showing posts', () => {
     await expect(deletePost(db, { postId, userId: 'ben' })).rejects.toBeInstanceOf(ShowcaseError);
     await deletePost(db, { postId, userId: 'sara' });
     expect(postOf(database, 'recipes')).toBeUndefined();
+  });
+});
+
+describe('people’s pages', () => {
+  it('shows nobody until they have a post anyone may see, and hides them again when it goes', async () => {
+    const { database, db } = seeded();
+    expect(await findPerson(db, 'sara')).toBeNull();
+    expect(await findPerson(db, 'ben')).toBeNull();
+
+    await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
+    expect(await findPerson(db, 'sara')).toMatchObject({ username: 'sara', name: 'Sara', posts: 1 });
+
+    const postId = postOf(database, 'recipes')!.id;
+    await setPostShown(db, { postId, userId: 'sara', shown: false });
+    expect(await findPerson(db, 'sara')).toBeNull();
+  });
+
+  it('never counts or lists a follower with no page of their own, and nobody can follow someone with none', async () => {
+    const { database, db } = seeded();
+    database.exec(`INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, visibility,
+      created_by, site_url, created_at) VALUES ('portfolio', 'sara-account', 'Portfolio', 'portfolio', 't-portfolio',
+      'zip', 'public', 'mira', 'https://portfolio.example.workers.dev', 3)`);
+    await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
+    await recordPublication(db, { projectId: 'portfolio', commit: COMMIT_A, by: 'mira', siteUrl: null });
+
+    // Ben has posted nothing: following Sara is his to do, but nobody else learns of him.
+    expect(await setFollowing(db, { userId: 'ben', username: 'sara', follow: true })).toEqual({
+      following: true,
+      followers: 0,
+    });
+    expect(await setFollowing(db, { userId: 'mira', username: 'sara', follow: true })).toEqual({
+      following: true,
+      followers: 1,
+    });
+    expect(await findPerson(db, 'sara')).toMatchObject({ followers: 1, following: 0 });
+    expect(await listFollowPeople(db, 'sara', 'followers')).toEqual([{ username: 'mira', name: 'Mira', image: null }]);
+    expect(JSON.stringify(await findPerson(db, 'sara'))).not.toContain('Ben');
+
+    await expect(setFollowing(db, { userId: 'sara', username: 'ben', follow: true })).rejects.toMatchObject({
+      status: 404,
+    });
   });
 });
 

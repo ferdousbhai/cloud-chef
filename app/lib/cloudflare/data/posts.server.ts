@@ -146,14 +146,34 @@ function cursorValues(cursor: ShowcaseCursor | null | undefined): [number, strin
   return cursor ? [cursor.shownAt, cursor.id] : [Number.MAX_SAFE_INTEGER, '￿'];
 }
 
-/** A person's public page: who they are, their counts, and their newest visible posts. Null without such a person. */
+/**
+ * Whether the person `alias` (a `"user"` row) has a public page: at least one post anyone may see. Until then nobody
+ * else sees their name, picture or line about themselves, and no follower list or count names them.
+ */
+function hasPublicPage(alias: string): string {
+  return `EXISTS (SELECT 1 FROM ${POST_FROM} WHERE posts.author_id = ${alias}.id AND ${PUBLIC})`;
+}
+
+/**
+ * How many people with a public page follow (`self` = followee_id) or are followed by (`self` = follower_id) the
+ * person `alias`.
+ */
+function followCount(self: 'followee_id' | 'follower_id', other: 'followee_id' | 'follower_id', alias: string) {
+  return `(SELECT COUNT(*) FROM follows JOIN "user" AS counted ON counted.id = follows.${other}
+    WHERE follows.${self} = ${alias}.id AND ${hasPublicPage('counted')})`;
+}
+
+/**
+ * A person's public page: who they are, their counts, and their newest visible posts. Null without such a person, or
+ * while they have no post anyone may see.
+ */
 export async function findPerson(db: D1Database, username: string): Promise<PublicPerson | null> {
   const row = await db
     .prepare(
       `SELECT people.id, people.username, people.name, people.image, people.bio,
-         (SELECT COUNT(*) FROM follows WHERE followee_id = people.id) AS followers,
-         (SELECT COUNT(*) FROM follows WHERE follower_id = people.id) AS following
-       FROM "user" AS people WHERE people.username = ?1 AND people.showcase_paused_at IS NULL`,
+         ${followCount('followee_id', 'follower_id', 'people')} AS followers,
+         ${followCount('follower_id', 'followee_id', 'people')} AS following
+       FROM "user" AS people WHERE people.username = ?1 AND ${hasPublicPage('people')}`,
     )
     .bind(username)
     .first<{
@@ -711,7 +731,7 @@ export async function forgetMediaDeletions(db: D1Database, keys: readonly string
 
 async function userIdOf(db: D1Database, username: string): Promise<string | null> {
   const row = await db
-    .prepare('SELECT id FROM "user" WHERE username = ? AND showcase_paused_at IS NULL')
+    .prepare(`SELECT people.id FROM "user" AS people WHERE people.username = ? AND ${hasPublicPage('people')}`)
     .bind(username)
     .first<{ id: string }>();
   return row?.id ?? null;
@@ -784,7 +804,9 @@ export async function setFollowing(
       .run();
   }
   const count = await db
-    .prepare('SELECT COUNT(*) AS count FROM follows WHERE followee_id = ?')
+    .prepare(
+      `SELECT ${followCount('followee_id', 'follower_id', 'people')} AS count FROM "user" AS people WHERE people.id = ?`,
+    )
     .bind(followeeId)
     .first<{ count: number }>();
   return { following: args.follow, followers: count?.count ?? 0 };
@@ -800,9 +822,9 @@ export async function listFollowPeople(
     .prepare(
       which === 'followers'
         ? `SELECT people.username, people.name, people.image FROM follows JOIN "user" AS people ON people.id = follows.follower_id
-           WHERE follows.followee_id = ? AND people.username IS NOT NULL ORDER BY follows.created_at DESC LIMIT 500`
+           WHERE follows.followee_id = ? AND ${hasPublicPage('people')} ORDER BY follows.created_at DESC LIMIT 500`
         : `SELECT people.username, people.name, people.image FROM follows JOIN "user" AS people ON people.id = follows.followee_id
-           WHERE follows.follower_id = ? AND people.username IS NOT NULL ORDER BY follows.created_at DESC LIMIT 500`,
+           WHERE follows.follower_id = ? AND ${hasPublicPage('people')} ORDER BY follows.created_at DESC LIMIT 500`,
     )
     .bind(userId)
     .all<{ username: string; name: string; image: string | null }>();

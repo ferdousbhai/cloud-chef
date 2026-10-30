@@ -250,7 +250,7 @@ function EditPageButton({ bio, onSaved }: { bio: string | null; onSaved: (bio: s
 }
 
 /** On a person's own page: the posts they hid, or that are hidden for another reason, and why. */
-function HiddenPosts() {
+export function HiddenPosts() {
   const [posts, setPosts] = useState<Awaited<ReturnType<typeof loadHiddenPosts>>>([]);
   useEffect(() => {
     const controller = new AbortController();
@@ -278,7 +278,8 @@ function HiddenPosts() {
         {posts.map((post) => (
           <li key={post.id} className="showcase-card flex items-center gap-3 p-2.5">
             <div className="aspect-[4/3] w-20 shrink-0 overflow-hidden rounded-md">
-              <PostMedia post={post} variant="tile" />
+              {/* A hidden post's pictures aren't served to anyone, so its name stands in for them. */}
+              <PostMedia post={{ ...post, screenshot: null, video: null }} variant="tile" />
             </div>
             <div className="min-w-0 flex-1 text-sm">
               <p className="truncate font-medium text-content-primary">{post.title}</p>
