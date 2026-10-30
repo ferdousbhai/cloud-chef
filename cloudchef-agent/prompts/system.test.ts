@@ -45,6 +45,16 @@ describe('builder system prompt', () => {
     }
   });
 
+  it("has the work build on others' pushes, and leaves a real contradiction to the person", () => {
+    for (const prompt of [systemPrompt(''), systemPrompt('', { repository: 'Ada site', defaultBranch: 'main' })]) {
+      expect(prompt).toContain('says when main took commits since git here last fetched it, and whose');
+      expect(prompt).toContain('`git pull` before changing files');
+      expect(prompt).toContain("Sara's latest changes are in your copy now");
+      expect(prompt).toContain('combine both sides yourself wherever they fit together');
+      expect(prompt).toContain('ask which to keep');
+    }
+  });
+
   it('describes the environment without coaching behaviour', () => {
     const prompt = systemPrompt('');
 

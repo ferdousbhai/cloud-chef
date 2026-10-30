@@ -234,6 +234,8 @@ export function gitSetupScript(): string {
     'g config user.email "$email"',
     `g config core.hooksPath ${shellQuote(GIT_HOOKS)}`,
     'g config pull.rebase true',
+    // A pull with changes not yet committed (an editor save, say) sets them aside and puts them back on top.
+    'g config rebase.autoStash true',
     'g config push.autoSetupRemote true',
     'g config cloudchef.saved "$saved"',
     // The branches the last container saved come back as they were, each following origin's where it has one.

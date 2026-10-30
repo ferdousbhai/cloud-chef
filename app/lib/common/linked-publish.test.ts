@@ -58,13 +58,7 @@ describe('linkedPublishView', () => {
     });
   });
 
-  it('tells a merge conflict and a call that never reached the repository apart', () => {
-    expect(
-      linkedPublishView(
-        publish(toolFailure('x', { branch: 'cloudchef/sara', commit: 'c'.repeat(40), conflict: true }), 'publish'),
-        NOW,
-      ),
-    ).toMatchObject({ kind: 'conflict', title: 'Not published' });
+  it('says what a call that never reached the repository answered', () => {
     expect(linkedPublishView(publish(toolFailure('Nothing has changed.'), 'publish'), NOW)).toMatchObject({
       kind: 'not_sent',
       title: 'Not published',

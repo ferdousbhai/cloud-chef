@@ -29,7 +29,13 @@ const MAIN_REF = 'refs/heads/main';
  */
 const INCOMING_REFS_ROOT = 'refs/cloudchef/incoming';
 /** Said, in git's push report, of a push that would rewrite main rather than add to it. */
-const MAIN_REWRITE_REFUSAL = 'main can’t be rewritten, only added to: pull, then push again.';
+const MAIN_REWRITE_REFUSAL = 'main can’t be rewritten, only added to: git pull, then push again.';
+/**
+ * Said of a push of main that lost a race: main took someone else's push after git read it. git itself refuses a
+ * push of main that doesn't hold main's latest commit (`fetch first`), so this is only the race in between.
+ */
+export const MAIN_MOVED_REFUSAL =
+  'main moved while this was being pushed: someone else’s commits went in first. git pull (it puts these commits on top of theirs), then push again.';
 /** Every workspace's saved branches sit under here, each workspace's in its own folder. */
 const WORKSPACE_REFS_ROOT = 'refs/cloudchef/workspaces';
 /** A push's command section is a few lines per ref; anything larger is not a push git sends. */
@@ -387,6 +393,8 @@ export type GitProxyDependencies = {
   recordPush(update: RefUpdate): Promise<void>;
   /** Where git in the next container starts: the branch and commit this one has checked out. */
   recordBase(base: { branch: string; commit: string }): Promise<void>;
+  /** The commit main was listed at when git last fetched (a push of main is told by `recordPush` instead). */
+  recordMainFetched(commit: string): Promise<void>;
   fetch: GitFetch;
   waitUntil(promise: Promise<unknown>): void;
 };
@@ -480,7 +488,12 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
   }
   if (listsRefs) {
     try {
-      return await filteredRefList(response, deps.workspaceRefs);
+      const listed = await filteredRefList(response, deps.workspaceRefs);
+      // A fetch's list, not a push's: git updates origin/main from what it fetches, never from what a push reads.
+      if (route.service === 'git-upload-pack' && listed.main) {
+        await deps.recordMainFetched(listed.main).catch(() => undefined);
+      }
+      return listed.response;
     } finally {
       deps.waitUntil(revoke());
     }
@@ -619,7 +632,16 @@ async function moveStaged(
   }
   // From `oldOid` only: if the branch moved since git read it, the repository refuses this, as it would git's own push.
   const moved = await updateRemoteRef(deps.fetch, remote, update, await emptyPack()).catch(() => null);
-  return moved?.ok ? null : (moved?.reason ?? 'The branch could not be updated. Try again.');
+  if (moved?.ok) {
+    return null;
+  }
+  if (isMain && !created) {
+    const now = await deps.mainHead(repo).catch(() => null);
+    if (now !== null && now !== update.oldOid) {
+      return MAIN_MOVED_REFUSAL;
+    }
+  }
+  return moved?.reason ?? 'The branch could not be updated. Try again.';
 }
 
 /** Why main can't take a commit holding the secret file `path`, whichever way it would get there. */
@@ -753,12 +775,16 @@ function visibleRef(ref: string, workspaceRefs: string): boolean {
 /**
  * `response`'s ref list (an advertisement, or v2's ls-refs) with only the refs the workspace is shown, so no
  * member sees another workspace's saved branches. Capabilities a left-out v0 ref carried move to the next
- * ref kept, or to a `capabilities^{}` line when none is.
+ * ref kept, or to a `capabilities^{}` line when none is. With it, the commit main is listed at, if it is.
  */
-async function filteredRefList(response: Response, workspaceRefs: string): Promise<Response> {
+async function filteredRefList(
+  response: Response,
+  workspaceRefs: string,
+): Promise<{ response: Response; main: string | null }> {
   if (!response.ok) {
-    return response;
+    return { response, main: null };
   }
+  let main: string | null = null;
   const bytes = await boundedBytes(response, MAX_REF_LIST_BYTES);
   const kept: Uint8Array[] = [];
   let capabilities: string | null = null;
@@ -780,10 +806,13 @@ async function filteredRefList(response: Response, workspaceRefs: string): Promi
     const packet = bytes.subarray(offset, offset + length);
     offset += length;
     const text = new TextDecoder().decode(packet.subarray(4)).replace(/\n$/, '');
-    const ref = /^[0-9a-f]{40} ([^ \0]+)/.exec(text)?.[1];
-    if (ref === undefined) {
+    const [, oid, ref] = /^([0-9a-f]{40}) ([^ \0]+)/.exec(text) ?? [];
+    if (oid === undefined || ref === undefined) {
       kept.push(packet);
       continue;
+    }
+    if (ref === MAIN_REF) {
+      main = oid;
     }
     const [listed = '', offered] = text.split('\0');
     if (!visibleRef(ref, workspaceRefs)) {
@@ -799,7 +828,7 @@ async function filteredRefList(response: Response, workspaceRefs: string): Promi
   const headers = new Headers(response.headers);
   headers.delete('content-length');
   headers.delete('content-encoding');
-  return new Response(concatBytes(kept), { status: response.status, headers });
+  return { response: new Response(concatBytes(kept), { status: response.status, headers }), main };
 }
 
 /** `head`, then what `reader` gives, read only as fast as it is sent on. */

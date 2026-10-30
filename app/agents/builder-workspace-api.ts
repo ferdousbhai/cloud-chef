@@ -306,6 +306,7 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   takeGitPushes(): Promise<RefUpdate[]>;
+  knownMain(): Promise<string | null>;
 }
 
 /**
@@ -367,6 +368,8 @@ export interface BuilderWorkspaceApi {
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   /** The refs git in the workspace pushed since this was last asked, each given once. */
   takeGitPushes(): Promise<RefUpdate[]>;
+  /** The commit main was at when git in the workspace last fetched or pushed it, or null when that isn't known. */
+  knownMain(): Promise<string | null>;
   prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
   deleteProject(): Promise<void>;
 }

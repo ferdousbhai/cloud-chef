@@ -171,6 +171,7 @@ import { providerFailureText } from '~/lib/.server/llm/provider-failure-text';
 import { isWorkersAiFreeAllocationError, workersPaidRequiredMessage } from '~/lib/workers-paid';
 import { BUILDER_SETTINGS, BuilderChatStream, builderExtension } from './builder-pi';
 import { CHAT_ENTRY, toolOutputEntryData, userEntryData } from './builder-chat-view';
+import { mainMovedNote } from './main-moved-note';
 import { readLegacyMessages } from './legacy-chat';
 import type { BuilderModel, BuilderModelId, BuilderReasoningLevel } from '~/lib/workers-ai-model';
 import { deriveProvisionalTitle, shouldGenerateConversationTitle, type TitleSubject } from '~/lib/title-generation';
@@ -848,6 +849,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
     await this.settleChatCloudflareChanges();
     const siteNote = this.linkedSiteNote();
+    const mainNote = this.mainMovedTurnNote(chatInitialId);
     // From the stop until the turn is recorded active, no automatic publication may start: this turn's end publishes.
     this.startingTurns += 1;
     let turn: BuilderTurnState;
@@ -884,6 +886,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       publicationFailure &&
         `CloudChef publication status: ${publicationFailure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`,
       await siteNote,
+      await mainNote,
       ...untoldChanges,
     ]);
     const shown = await this.chat.messages();
@@ -2357,6 +2360,29 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     }
   }
 
+  /**
+   * The commits main took since git in the workspace last fetched or pushed it, and who made them, for the turn's
+   * context. Null when there are none, or they can't be learned quickly, so a turn never waits on it.
+   */
+  private async mainMovedTurnNote(chatInitialId: string): Promise<string | null> {
+    const note = (async () => {
+      const [linked, known] = await Promise.all([this.workspace.linkedProject(), this.workspace.knownMain()]);
+      return mainMovedNote(this.repositories(), linked?.repository ?? nativeProjectRepo(chatInitialId), known);
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SITE_NOTE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([note, late]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      note.catch(() => undefined);
+    }
+  }
+
   /** Whether this person is now an active admin of the organization whose account this runtime uses. */
   private async isOrganizationAdmin(): Promise<boolean> {
     const identity = runtimeConnectionIdentity(this.env);
@@ -3545,12 +3571,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
-/** How long a turn's start waits for a team project's addresses before going on without them. */
+/** How long a turn's start waits for a team project's addresses, or what main took since git last fetched it. */
 const SITE_NOTE_TIMEOUT_MS = 5_000;
 
 /**
  * Puts CloudChef's own notes for this turn (the last automatic publication's failure, a team project's
- * addresses) ahead of the turn's workspace context.
+ * addresses, the commits main took since git last fetched it) ahead of the turn's workspace context.
  */
 function withNotes(
   turnContext: ChatTurnContext | undefined,
