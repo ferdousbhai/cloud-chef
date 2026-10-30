@@ -52,7 +52,7 @@ describe('who has a project open', () => {
     expect((await report(sara.cookie, { working: false })).status).toBe(404);
     expect(await report(admin.cookie, { working: true })).toEqual({
       status: 200,
-      body: { here: [], changedSince: null },
+      body: { here: [], changedSince: null, canShare: true },
     });
 
     grant(sara.userId, 'view');

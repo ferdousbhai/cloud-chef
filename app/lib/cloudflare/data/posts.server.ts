@@ -1090,7 +1090,7 @@ export async function listNotifications(db: D1Database, userId: string): Promise
        FROM notifications
        LEFT JOIN "user" AS actors ON actors.id = notifications.actor_id
        LEFT JOIN posts ON posts.id = notifications.post_id
-       LEFT JOIN org_projects AS projects ON projects.id = posts.project_id
+       LEFT JOIN org_projects AS projects ON projects.id = COALESCE(posts.project_id, notifications.project_id)
        LEFT JOIN "user" AS owners ON owners.id = projects.created_by
        WHERE notifications.user_id = ? ORDER BY notifications.created_at DESC, notifications.rowid DESC LIMIT 200`,
     )
@@ -1115,7 +1115,13 @@ export async function listNotifications(db: D1Database, userId: string): Promise
     const actor = row.actor_name
       ? { username: row.actor_username, name: row.actor_name, image: row.actor_image }
       : null;
-    const postPath = row.owner_username && row.project_slug ? `/${row.owner_username}/${row.project_slug}` : null;
+    // A shared project is found in the projects home; a post at its address.
+    const postPath =
+      row.kind === 'project_shared'
+        ? '/'
+        : row.post_id && row.owner_username && row.project_slug
+          ? `/${row.owner_username}/${row.project_slug}`
+          : null;
     if (row.kind === 'post_liked' && row.post_id) {
       const key = `${row.post_id}:${new Date(row.created_at).toISOString().slice(0, 10)}`;
       const group = likeGroups.get(key);
@@ -1144,9 +1150,10 @@ export async function listNotifications(db: D1Database, userId: string): Promise
       kind: row.kind,
       actor,
       others: 0,
-      projectName: row.project_name ?? (row.kind === 'project_copied' ? row.detail : null),
+      projectName:
+        row.project_name ?? (row.kind === 'project_copied' || row.kind === 'project_shared' ? row.detail : null),
       postPath,
-      detail: row.kind === 'project_copied' ? null : row.detail,
+      detail: row.kind === 'project_copied' || row.kind === 'project_shared' ? null : row.detail,
       createdAt: row.created_at,
       unread: row.read_at === null,
     });

@@ -8,22 +8,25 @@ import {
   CounterClockwiseClockIcon,
   DownloadIcon,
   Pencil1Icon,
+  PersonIcon,
 } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { Menu, MenuItem } from '@ui/Menu';
 import { TextInput } from '@ui/TextInput';
 import { ProjectTitle } from '~/components/ProjectTitle';
 import { projectDialogStore } from '~/lib/stores/project-actions.client';
+import { projectShareStore } from '~/lib/cloudflare/project-presence.client';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 
 /**
- * The open project's name, and its menu: renaming it, its history, a clone command, and its files as they are in
+ * The open project's name, and its menu: renaming it, sharing it (for whoever runs it), its history, a clone command, and its files as they are in
  * the workspace now (edits not yet published included), zipped in the browser. A team or imported project goes by
  * its own name, which isn't renamed here.
  */
 export function ProjectMenu() {
   const initialDescription = useStore(descriptionStore) ?? '';
   const linkedProject = useStore(workbenchStore.linkedProject);
+  const shareable = useStore(projectShareStore);
 
   const { editing, handleChange, handleBlur, handleSubmit, handleKeyDown, currentDescription, toggleEditMode } =
     useEditChatDescription({
@@ -86,6 +89,12 @@ export function ProjectMenu() {
           Rename
         </MenuItem>
       )}
+      {shareable ? (
+        <MenuItem action={() => projectDialogStore.set('share')}>
+          <PersonIcon />
+          Share
+        </MenuItem>
+      ) : null}
       <MenuItem action={() => projectDialogStore.set('history')}>
         <CounterClockwiseClockIcon />
         History

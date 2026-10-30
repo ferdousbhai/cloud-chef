@@ -128,6 +128,12 @@ function describe(item: NotificationView): ReactNode {
           through <a href="/support">Support</a>.
         </>
       );
+    case 'project_shared':
+      return (
+        <>
+          <Person actor={item.actor} /> shared <Project item={item} /> with you.
+        </>
+      );
     case 'comment_removed':
       return (
         <>

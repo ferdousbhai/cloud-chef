@@ -50,7 +50,14 @@ export type PostComment = {
 
 export type NotificationView = {
   id: string;
-  kind: 'new_follower' | 'project_copied' | 'post_liked' | 'post_commented' | 'post_removed' | 'comment_removed';
+  kind:
+    | 'new_follower'
+    | 'project_copied'
+    | 'post_liked'
+    | 'post_commented'
+    | 'post_removed'
+    | 'comment_removed'
+    | 'project_shared';
   actor: ShowcaseAuthor | null;
   /** For grouped likes: how many others liked it that day. */
   others: number;

@@ -51,13 +51,15 @@ import { DeployLogDialog } from './DeployLogDialog.client';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } from './ProjectCard';
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
+import { loadSharedWithMe, type SharedProject, type SharedWithMe } from '~/lib/cloudflare/project-sharing.client';
+import { ConnectCloudflareButton } from '~/components/showcase/ConnectCloudflareButton';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
 
 type OpenDialog =
   | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean }
   | { kind: 'clone'; project: ProjectRef; name: string; fullName: string | null }
-  | { kind: 'share'; orgId: string; project: { id: string; name: string } }
+  | { kind: 'share'; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
   | { kind: 'copy'; project: { id: string; name: string } }
@@ -108,7 +110,7 @@ export function ProjectsHome() {
         <TeamProjects
           orgId={team.orgId}
           admin={team.role === 'admin'}
-          heading={team.role === 'admin' ? 'Team projects' : 'Shared with me'}
+          heading="Team projects"
           action={addProject}
           reauthorization={reauthorize ? 'prompt' : null}
           onDialog={setDialog}
@@ -116,6 +118,7 @@ export function ProjectsHome() {
       ) : (
         <OwnProjects action={addProject} reauthorization={reauthorize ? 'prompt' : null} onDialog={setDialog} />
       )}
+      <SharedWithYou onDialog={setDialog} />
       {dialog?.kind === 'history' ? (
         <ProjectHistoryDialog
           project={dialog.project}
@@ -133,7 +136,7 @@ export function ProjectsHome() {
         />
       ) : null}
       {dialog?.kind === 'share' ? (
-        <ShareProjectDialog orgId={dialog.orgId} project={dialog.project} onClose={() => setDialog(null)} />
+        <ShareProjectDialog project={dialog.project} onClose={() => setDialog(null)} />
       ) : null}
       {dialog?.kind === 'import' ? (
         <ImportFromGitHubDialog
@@ -296,7 +299,6 @@ function OwnProjects({
               canEdit={project.role === 'edit'}
               ownsAccount
               badge={null}
-              orgId={null}
               connection={added}
               onDialog={onDialog}
             />
@@ -529,7 +531,6 @@ function ConnectionProjectCard({
   canEdit,
   ownsAccount,
   badge,
-  orgId,
   connection,
   onDialog,
 }: {
@@ -538,8 +539,6 @@ function ConnectionProjectCard({
   /** Whether the person owns the account (theirs, or a team they administer): only they publish over its Workers. */
   ownsAccount: boolean;
   badge: string | null;
-  /** The team whose project it is, for sharing; null for a project of the person's own account. */
-  orgId: string | null;
   connection: ConnectionProjects;
   onDialog: (dialog: OpenDialog) => void;
 }) {
@@ -639,10 +638,8 @@ function ConnectionProjectCard({
             <DownloadIcon />
             Download ZIP
           </MenuItem>
-          {orgId ? (
-            <MenuItem
-              action={() => onDialog({ kind: 'share', orgId, project: { id: project.id, name: project.name } })}
-            >
+          {project.canManage ? (
+            <MenuItem action={() => onDialog({ kind: 'share', project: { id: project.id, name: project.name } })}>
               <PersonIcon />
               Share
             </MenuItem>
@@ -721,7 +718,6 @@ function TeamProjects({
                 canEdit={canEdit}
                 ownsAccount={admin}
                 badge={admin ? 'Owner' : canEdit ? 'Can edit' : 'Can view'}
-                orgId={admin ? orgId : null}
                 connection={connection}
                 onDialog={onDialog}
               />
@@ -729,6 +725,114 @@ function TeamProjects({
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/**
+ * Projects others shared with this person from accounts not theirs, opened in the account they are working in now:
+ * with Can edit, Edit opens a workspace there; with Can view, History, Clone and Download. Shown only when there are
+ * some. Someone with no Cloudflare account yet is told that opening one needs it.
+ */
+function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
+  const [shared, setShared] = useState<SharedWithMe | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
+  const [openFailure, setOpenFailure] = useState<{ id: string; message: string } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    loadSharedWithMe(controller.signal).then(setShared, () => undefined);
+    return () => controller.abort();
+  }, []);
+  if (!shared || shared.projects.length === 0) {
+    return null;
+  }
+  const open = async (project: SharedProject) => {
+    setOpening(project.id);
+    setOpenFailure(null);
+    try {
+      if (!(await openTeamProject(project))) {
+        setOpening(null);
+      }
+    } catch (error) {
+      if (!(error instanceof Error && noteCloudflareReauthorization(error))) {
+        setOpenFailure({
+          id: project.id,
+          message: messageOf(error, `${project.name} could not be opened. Try again.`),
+        });
+      }
+      setOpening(null);
+    }
+  };
+  return (
+    <section aria-labelledby="shared-with-you" className="grid gap-4">
+      <SectionHeading id="shared-with-you" action={null}>
+        Shared with you
+      </SectionHeading>
+      {shared.canOpen ? null : (
+        <div className="grid justify-items-start gap-2 text-sm text-content-secondary">
+          <p>
+            To open these, connect a Cloudflare account of your own. Your workspace runs there; the owner’s site stays
+            theirs.
+          </p>
+          <ConnectCloudflareButton />
+        </div>
+      )}
+      <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {shared.projects.map((project) => {
+          const ref = { orgProjectId: project.id };
+          const canEdit = project.role === 'edit';
+          return (
+            <ProjectCard
+              key={project.id}
+              title={project.name}
+              updatedAt={null}
+              updatedBy={null}
+              siteUrl={project.siteUrl ?? null}
+              siteFramed={project.siteFrameable !== false}
+              subtitle={project.ownerName ? `Shared by ${project.ownerName}` : null}
+              isPublic={project.visibility === 'public'}
+              badge={canEdit ? 'Can edit' : 'Can view'}
+              note={openFailure?.id === project.id ? openFailure.message : null}
+              primary={
+                canEdit && shared.canOpen ? (
+                  <Button
+                    size="xs"
+                    icon={<Pencil1Icon />}
+                    aria-label={`Edit ${project.name}`}
+                    disabled={opening !== null}
+                    loading={opening === project.id}
+                    onClick={() => void open(project)}
+                  >
+                    Edit
+                  </Button>
+                ) : null
+              }
+              menuItems={
+                <>
+                  <MenuItem
+                    action={() => onDialog({ kind: 'history', project: ref, name: project.name, canRevert: false })}
+                  >
+                    <CounterClockwiseClockIcon />
+                    History
+                  </MenuItem>
+                  <MenuItem
+                    action={() =>
+                      onDialog({ kind: 'clone', project: ref, name: project.name, fullName: project.fullName ?? null })
+                    }
+                  >
+                    <CodeIcon />
+                    Clone
+                  </MenuItem>
+                  <MenuItem action={() => download(ref, project.name)}>
+                    <DownloadIcon />
+                    Download ZIP
+                  </MenuItem>
+                </>
+              }
+            />
+          );
+        })}
+      </ul>
     </section>
   );
 }

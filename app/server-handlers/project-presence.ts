@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { readJsonRequest } from '~/lib/.server/request-guards';
 import { findAccessibleProject } from '~/lib/cloudflare/data/org-projects.server';
+import { runsProject } from '~/lib/cloudflare/data/project-shares.server';
 import { changesSince, leaveProject, listVisitors, recordVisit } from '~/lib/cloudflare/data/project-presence.server';
 import { projectIdOfPath } from './projects';
 import { signedIn } from './signed-in';
@@ -51,7 +52,12 @@ export function projectPresenceAction({ request, env }: { request: Request; env:
       previousVisitAt === null ? null : changesSince(env.DB, { projectId: project.id, userId, since: previousVisitAt }),
     ]);
     return Response.json(
-      { here: visitors.filter((visitor) => visitor.id !== userId), changedSince: changed },
+      {
+        here: visitors.filter((visitor) => visitor.id !== userId),
+        changedSince: changed,
+        // Whether this person runs the project, and so may share it from its menu.
+        canShare: await runsProject(env.DB, project.id, userId),
+      },
       { headers: NO_STORE },
     );
   });
