@@ -1270,6 +1270,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     await this.assertContainerMatchesDurableProject();
     return bridgeTerminal(await this.runningContainer(), {
       cwd: PROJECT_ROOT,
+      projectName: this.linkedProject()?.name ?? 'project',
       size: terminalSize(new URL(request.url)),
     });
   }

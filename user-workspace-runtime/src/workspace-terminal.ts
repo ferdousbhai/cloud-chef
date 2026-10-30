@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CONTAINER_TOOL_ENV } from './computer-sandbox';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
 import { shellQuote } from './shell-quote';
+import { WORK_DIR } from '../../cloudchef-agent/constants';
 
 /**
  * The terminal's home folder. Everything under /home is kept with the workspace, so what a person signs in to
@@ -42,10 +43,36 @@ export function terminalEnvironment() {
   };
 }
 
+/**
+ * The prompt the login shell reads after Debian's own (`/etc/profile` sources `profile.d` last): the project's name
+ * and where in it the shell is, such as `alberta-plan-glossary/src$`, instead of `root@` and the container's 64-character
+ * name. A person's own ~/.profile or ~/.bashrc still overrides it.
+ */
+export const TERMINAL_PROMPT_FILE = '/etc/profile.d/cloudchef-prompt.sh';
+
+const TERMINAL_PROMPT = String.raw`__cloudchef_where() {
+  case $PWD in
+    ${WORK_DIR}) ;;
+    ${WORK_DIR}/*) printf '/%s' "${'$'}{PWD#${WORK_DIR}/}" ;;
+    *) printf ':%s' "$(dirs +0)" ;;
+  esac
+}
+PS1='${'$'}{CLOUDCHEF_PROJECT:-project}$(__cloudchef_where)$ '`;
+
 /** A login shell (started in the project folder, its `cwd`), creating the home the first time. The terminal panel says what is kept. */
 export function terminalCommand() {
   const home = shellQuote(TERMINAL_HOME);
-  return ['/bin/bash', '-c', [`mkdir -p ${home}`, 'exec /bin/bash -l'].join('\n')] as const;
+  return [
+    '/bin/bash',
+    '-c',
+    [
+      `mkdir -p ${home}`,
+      `cat > ${shellQuote(TERMINAL_PROMPT_FILE)} <<'CLOUDCHEF_PROMPT'`,
+      TERMINAL_PROMPT,
+      'CLOUDCHEF_PROMPT',
+      'exec /bin/bash -l',
+    ].join('\n'),
+  ] as const;
 }
 
 /**
@@ -53,7 +80,7 @@ export function terminalCommand() {
  * with the terminal's environment and login shell. tmux keeps the shell when the page goes away, so a reload or a
  * dropped connection reattaches to the same shell; a new container starts a new one.
  */
-export function terminalSessionCommand(cwd: string): string[] {
+export function terminalSessionCommand(cwd: string, projectName: string): string[] {
   return [
     'tmux',
     'new-session',
@@ -62,7 +89,10 @@ export function terminalSessionCommand(cwd: string): string[] {
     TERMINAL_SESSION,
     '-c',
     cwd,
-    ...Object.entries(terminalEnvironment()).flatMap(([name, value]) => ['-e', `${name}=${value}`]),
+    ...Object.entries({ ...terminalEnvironment(), CLOUDCHEF_PROJECT: projectName }).flatMap(([name, value]) => [
+      '-e',
+      `${name}=${value}`,
+    ]),
     ...terminalCommand(),
   ];
 }
@@ -101,10 +131,10 @@ const terminalResizeSchema = z.object({
  */
 export async function bridgeTerminal(
   container: Pick<Container, 'exec'>,
-  options: { cwd: string; size: TerminalSize },
+  options: { cwd: string; projectName: string; size: TerminalSize },
 ): Promise<Response> {
   const abort = new AbortController();
-  const tmux = await container.exec(terminalSessionCommand(options.cwd), {
+  const tmux = await container.exec(terminalSessionCommand(options.cwd, options.projectName), {
     pty: options.size,
     env: terminalEnvironment(),
     cwd: options.cwd,
