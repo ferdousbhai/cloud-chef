@@ -4,21 +4,17 @@ import { ensureInitialWorkspace } from './data/workspace-repository.server';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 
 describe('a new conversation in a chat', () => {
-  it('closes the one before, then has it stop and hand its publication over to the new one', async () => {
+  it('closes the one before, then has it stop what it has under way', async () => {
     const { database, db } = userWorkspaceDatabase();
     await ensureInitialWorkspace(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
-    const handover = { productionRevision: 'a'.repeat(64), publicationPending: true };
     const calls: unknown[] = [];
     const lastIndex = () => database.prepare('SELECT last_conversation_index AS last FROM workspaces').get()?.last;
     const ConversationAgent = {
       getByName: (name: string) => ({
         getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),
-        settleForSuccessor: async (ownerId: string) => {
-          calls.push(['settle', name, ownerId, lastIndex()]);
-          return handover;
+        closeForSuccessor: async (ownerId: string) => {
+          calls.push(['close', name, ownerId, lastIndex()]);
         },
-        continuePublication: async (ownerId: string, value: typeof handover) =>
-          calls.push(['continue', name, ownerId, value]),
       }),
     };
 
@@ -26,19 +22,16 @@ describe('a new conversation in a chat', () => {
 
     expect(await response.json()).toEqual({ result: 1 });
     // Already closed when it is asked to stop, so it refuses new work whatever happens next.
-    expect(calls).toEqual([
-      ['settle', 'chat', 'session', 1],
-      ['continue', 'chat--transcript-1-0', 'session', handover],
-    ]);
+    expect(calls).toEqual([['close', 'chat', 'session', 1]]);
   });
 
-  it('is started even when the one before cannot hand over, and the new one publishes again', async () => {
+  it('is started even when the one before does not settle in time', async () => {
     const { db } = userWorkspaceDatabase();
     await ensureInitialWorkspace(db, { id: 'chat-row', creatorId: 'session', initialId: 'chat' });
     const ConversationAgent = {
       getByName: () => ({
         getTranscriptSnapshotForOwner: async () => ({ checkpoint: null, messages: [] }),
-        settleForSuccessor: async () => {
+        closeForSuccessor: async () => {
           throw new Error('The earlier conversation did not settle in time.');
         },
       }),

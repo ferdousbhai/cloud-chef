@@ -3,20 +3,15 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
 
 vi.mock('~/lib/stores/workbench.client', async () => {
   const { atom, map } = await import('nanostores');
-  const { emptyAppSiteState } = await import('~/lib/common/app-site');
   let workspaceId: string | null = null;
-  let publish: (() => Promise<BuilderDeploymentState>) | null = null;
-  const siteState = atom(emptyAppSiteState());
   const linkedProject = atom<{ repository: string; defaultBranch: string } | null>(null);
   const conversationClosed = atom(false);
 
   return {
     workbenchStore: {
-      siteState,
       showWorkbench: atom(false),
       selectedFile: atom<string | undefined>(undefined),
       currentDocument: atom(undefined),
@@ -29,29 +24,13 @@ vi.mock('~/lib/stores/workbench.client', async () => {
       conversationClosed,
       activateWorkspace(nextWorkspaceId: string) {
         workspaceId = nextWorkspaceId;
-        publish = null;
-        siteState.set(emptyAppSiteState());
         linkedProject.set(null);
         conversationClosed.set(false);
       },
       getActiveWorkspaceId: () => workspaceId,
       isWorkspaceActive: (candidate: string) => workspaceId === candidate,
-      connectSite(actions: { publish: () => Promise<BuilderDeploymentState> }) {
-        publish = actions.publish;
-        return () => {
-          if (publish === actions.publish) {
-            publish = null;
-          }
-        };
-      },
-      publishSite: () => {
-        if (!publish) {
-          throw new Error('The connection to the builder is not ready.');
-        }
-        return publish();
-      },
       flushPendingEditorChange: vi.fn(),
-      saveCurrentDocument: vi.fn(),
+      saveCurrentDocument: vi.fn(() => Promise.resolve()),
       setDocuments: vi.fn(),
       setDocumentContent: vi.fn(),
       setCurrentDocumentScrollPosition: vi.fn(),
@@ -80,56 +59,9 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-const deploying: BuilderDeploymentState = { status: 'deploying', workspaceRevision: 1, revision: 'a'.repeat(64) };
-
-describe('useWorkbenchController publish requests', () => {
-  it('does not expose a pending request from another workspace in the same chat', async () => {
-    const oldPublish = deferred<BuilderDeploymentState>();
+describe('useWorkbenchController saves', () => {
+  it("saves the project's file and shows which project it is", async () => {
     workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectSite({ publish: () => oldPublish.promise });
-
-    const controller = await mountController();
-
-    let request: Promise<void> | undefined;
-    await act(async () => {
-      request = controller()!.onPublishRequest();
-      await Promise.resolve();
-    });
-    expect(controller()?.publishRequesting).toBe(true);
-
-    await act(async () => workbenchStore.activateWorkspace('account:chat--transcript-1-0'));
-
-    expect(controller()?.projectId).toBe('chat');
-    expect(controller()?.publishRequesting).toBe(false);
-
-    await act(async () => {
-      oldPublish.resolve(deploying);
-      await request;
-    });
-    expect(controller()?.publishRequesting).toBe(false);
-  });
-
-  it('publishes the app after a saved workspace change', async () => {
-    const publish = vi.fn(() => Promise.resolve(deploying));
-    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectSite({ publish });
-
-    const controller = await mountController();
-
-    act(() => controller()!.onFileSave());
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
-    expect(publish).toHaveBeenCalledOnce();
-  });
-
-  it("saves a GitHub project's file without asking CloudChef to publish what its pipeline builds", async () => {
-    const publish = vi.fn(() => Promise.resolve(deploying));
-    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectSite({ publish });
     workbenchStore.linkedProject.set({ repository: 'ada/site', defaultBranch: 'main' });
 
     const controller = await mountController();
@@ -137,11 +69,9 @@ describe('useWorkbenchController publish requests', () => {
     act(() => controller()!.onFileSave());
     await act(async () => {
       await Promise.resolve();
-      await Promise.resolve();
     });
 
     expect(workbenchStore.saveCurrentDocument).toHaveBeenCalled();
-    expect(publish).not.toHaveBeenCalled();
     expect(controller()!.linkedProject).toEqual({ repository: 'ada/site', defaultBranch: 'main' });
   });
 
@@ -157,27 +87,6 @@ describe('useWorkbenchController publish requests', () => {
     });
 
     expect(workbenchStore.saveCurrentDocument).not.toHaveBeenCalled();
-  });
-
-  it('does not continue a pending save into publishing after unmount', async () => {
-    const pendingSave = deferred<void>();
-    const publish = vi.fn(() => Promise.resolve(deploying));
-    workbenchStore.activateWorkspace('account:chat--transcript-0-0');
-    workbenchStore.connectSite({ publish });
-    vi.mocked(workbenchStore.saveCurrentDocument).mockReturnValueOnce(pendingSave.promise);
-
-    const controller = await mountController();
-
-    act(() => controller()!.onFileSave());
-    await act(async () => root?.unmount());
-    root = undefined;
-    await act(async () => {
-      pendingSave.resolve();
-      await pendingSave.promise;
-      await Promise.resolve();
-    });
-
-    expect(publish).not.toHaveBeenCalled();
   });
 });
 
@@ -200,12 +109,4 @@ async function mountController() {
     ),
   );
   return () => controller;
-}
-
-function deferred<T>() {
-  let resolve: (value: T) => void = () => undefined;
-  const promise = new Promise<T>((complete) => {
-    resolve = complete;
-  });
-  return { promise, resolve };
 }

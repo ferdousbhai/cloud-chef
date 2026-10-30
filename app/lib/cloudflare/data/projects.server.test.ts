@@ -3,22 +3,19 @@ import { z } from 'zod';
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { envWith, userWorkspaceDatabase } from '~/test/control-plane-d1';
 import { fakeArtifacts } from '~/test/fake-artifacts';
-import { getAllWorkspaces } from './workspace-service.server';
 import { DataNotFoundError, ProjectForbiddenError, ProjectRepositoryFailureError } from './errors';
 import {
-  forkProject,
   importProject,
   projectGitAddress,
   projectHistory,
   userRuntimeProjectArchiveAction,
-  userRuntimeAppCopyAction,
-  userRuntimeAppReadAccessAction,
   userRuntimeDeleteProjectRepositoryAction,
   sweepDeletedProjectWorkspaces,
   userRuntimeRemoveProjectWorkspaceAction,
   userRuntimeRewriteMainAction,
   userRuntimeProjectCopyAction,
   userRuntimeProjectCreateEmptyAction,
+  userRuntimeProjectReadAccessAction,
   userRuntimeProjectUploadAction,
   userRuntimeRevokeReadAccessAction,
   withRepositoryErrors,
@@ -95,10 +92,12 @@ function controlPlane(role: 'view' | 'edit', repo: string | null) {
 }
 
 describe("a project's history", () => {
-  it("lists a CloudChef app's commits for its creator only, with the revisions they published", async () => {
-    const { env, commit, store } = await setup();
-    const first = await commit(`p-${CHAT}`, 'v1', `First\n\nCloudChef-Revision: ${'a'.repeat(64)}`);
-    const second = await commit(`p-${CHAT}`, 'v2', 'Second');
+  it("lists the commits of a chat's project for its creator only, with the revisions they published", async () => {
+    const { env, database, commit, store } = await setup();
+    database.prepare('UPDATE workspaces SET org_project_id = ?').run(TEAM_PROJECT);
+    controlPlane('edit', 't-team');
+    const first = await commit('t-team', 'v1', `First\n\nCloudChef-Revision: ${'a'.repeat(64)}`);
+    const second = await commit('t-team', 'v2', 'Second');
     const history = await projectHistory(env, { sessionId: OWNER, chatInitialId: CHAT, limit: 10, offset: 0 }, store);
     expect(history).toEqual([
       { hash: second, message: 'Second', author, committedAt: expect.any(Number) },
@@ -117,9 +116,17 @@ describe("a project's history", () => {
 
   it('is empty before the first commit', async () => {
     const { env, store } = await setup();
-    expect(await projectHistory(env, { sessionId: OWNER, chatInitialId: CHAT, limit: 10, offset: 0 }, store)).toEqual(
-      [],
-    );
+    controlPlane('edit', 't-team');
+    expect(
+      await projectHistory(env, { sessionId: OWNER, orgProjectId: TEAM_PROJECT, limit: 10, offset: 0 }, store),
+    ).toEqual([]);
+  });
+
+  it('finds nothing for a chat that is not tied to a project', async () => {
+    const { env, store } = await setup();
+    await expect(
+      projectHistory(env, { sessionId: OWNER, chatInitialId: CHAT, limit: 10, offset: 0 }, store),
+    ).rejects.toBeInstanceOf(DataNotFoundError);
   });
 
   it("reads a team project's repository, by id or through its conversation, for a member who can view it", async () => {
@@ -137,20 +144,13 @@ describe("a project's history", () => {
         (entry) => entry.hash,
       ),
     ).toEqual([head]);
-    // Viewing is not copying.
-    await expect(
-      forkProject(env, { sessionId: OWNER, orgProjectId: TEAM_PROJECT, commit: head }, store),
-    ).rejects.toBeInstanceOf(ProjectForbiddenError);
   });
 });
 
 describe("a project's git address", () => {
-  it('names an app by its own id and a team project by its id, handing out no token of the repository', async () => {
-    const { env, artifacts, database, commit } = await setup();
-    await commit(`p-${CHAT}`, 'v1', 'First');
+  it('names a project by its id, handing out no token of the repository', async () => {
+    const { env, artifacts, database } = await setup();
     const tokensBefore = artifacts.tokens.length;
-    expect(await projectGitAddress(env, { sessionId: OWNER, chatInitialId: CHAT })).toEqual({ projectId: CHAT });
-
     database.exec(`UPDATE workspaces SET org_project_id = '${TEAM_PROJECT}'`);
     controlPlane('view', 't-site');
     expect(await projectGitAddress(env, { sessionId: OWNER, chatInitialId: CHAT })).toEqual({
@@ -165,29 +165,6 @@ describe("a project's git address", () => {
     await expect(projectGitAddress(env, { sessionId: OWNER, orgProjectId: TEAM_PROJECT })).rejects.toBeInstanceOf(
       ProjectForbiddenError,
     );
-  });
-});
-
-describe('forking a project', () => {
-  it('copies its history up to the commit into a new app, which lists as one', async () => {
-    const { env, artifacts, database, commit, store } = await setup();
-    const older = await commit(`p-${CHAT}`, 'v1', 'First');
-    await commit(`p-${CHAT}`, 'v2', 'Second');
-    const { initialId } = await forkProject(env, { sessionId: OWNER, chatInitialId: CHAT, commit: older }, store);
-    expect(await artifacts.head(`p-${initialId}`)).toBe(older);
-    expect(await artifacts.filesAt(`p-${initialId}`, 'main')).toEqual({ 'index.html': 'v1' });
-    expect(database.prepare('SELECT description FROM workspaces WHERE initial_id = ?').get(initialId)).toEqual({
-      description: 'My Bakery (fork)',
-    });
-    expect((await getAllWorkspaces(env.DB, { sessionId: OWNER })).map((chat) => chat.initialId)).toContain(initialId);
-  });
-
-  it('refuses a commit that is not in the project', async () => {
-    const { env, commit, store } = await setup();
-    await commit(`p-${CHAT}`, 'v1', 'First');
-    await expect(
-      withRepositoryErrors(forkProject(env, { sessionId: OWNER, chatInitialId: CHAT, commit: 'f'.repeat(40) }, store)),
-    ).rejects.toBeInstanceOf(DataNotFoundError);
   });
 });
 
@@ -232,8 +209,10 @@ describe('an import that breaks off', () => {
 
 describe('downloading a commit', () => {
   it('streams the commit as a ZIP named after the project and the commit', async () => {
-    const { env, commit, store } = await setup();
-    const head = await commit(`p-${CHAT}`, 'v1', 'First');
+    const { env, database, commit, store } = await setup();
+    database.prepare('UPDATE workspaces SET org_project_id = ?').run(TEAM_PROJECT);
+    controlPlane('view', 't-team');
+    const head = await commit('t-team', 'v1', 'First');
     const response = await userRuntimeProjectArchiveAction(
       { url: new URL(`https://runtime.test/v1/projects/archive?chat=${CHAT}`), env, userId: OWNER },
       store,
@@ -241,13 +220,15 @@ describe('downloading a commit', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('application/zip');
     expect(response.headers.get('content-disposition')).toBe(
-      `attachment; filename="my-bakery-${head.slice(0, 7)}.zip"`,
+      `attachment; filename="team-site-${head.slice(0, 7)}.zip"`,
     );
     expect(new Uint8Array(await response.arrayBuffer()).slice(0, 4)).toEqual(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
   });
 
   it('answers in JSON when it cannot', async () => {
-    const { env, store } = await setup();
+    const { env, database, store } = await setup();
+    database.prepare('UPDATE workspaces SET org_project_id = ?').run(TEAM_PROJECT);
+    controlPlane('view', 't-team');
     const archive = (query: string, userId = OWNER) =>
       userRuntimeProjectArchiveAction(
         { url: new URL(`https://runtime.test/v1/projects/archive?${query}`), env, userId },
@@ -461,106 +442,23 @@ describe('making an empty project for history pushed from the command line', () 
   });
 });
 
-describe('copying an app into a new app of this person', () => {
-  const SOURCE_URL = 'https://other-account.artifacts.test/git/cloudchef/p-source.git';
-  const AUTHORIZATION = `Basic ${btoa('x:read-token')}`;
-
-  it('copies its whole history into the new app’s repository and lists it as theirs', async () => {
-    const { env, artifacts, database, store } = await setup();
-    await artifacts.addSource(SOURCE_URL, { 'index.html': 'one' }, 'main', { authorization: AUTHORIZATION });
-    const head = await artifacts.commitSource(SOURCE_URL, { 'index.html': 'two' }, 'Second version');
-
-    const response = await userRuntimeAppCopyAction(
-      {
-        request: new Request('https://runtime.test/v1/apps/copy', {
-          method: 'POST',
-          body: JSON.stringify({
-            name: 'My garden',
-            source: { url: SOURCE_URL, authorization: AUTHORIZATION, branch: 'main' },
-          }),
-        }),
-        env,
-        userId: OWNER,
-      },
-      store,
-    );
-
-    expect(response.status).toBe(201);
-    const { initialId } = z.object({ initialId: z.string() }).parse(await response.json());
-    expect(await artifacts.head(`p-${initialId}`)).toBe(head);
-    expect(
-      database
-        .prepare('SELECT description, has_messages, org_project_id FROM workspaces WHERE initial_id = ?')
-        .get(initialId),
-    ).toEqual({ description: 'My garden', has_messages: 1, org_project_id: null });
-  });
-
-  it('gives a read token only for the person’s own app', async () => {
-    const { env, store } = await setup();
-    const ask = (appId: string) =>
-      userRuntimeAppReadAccessAction(
-        {
-          request: new Request('https://runtime.test/v1/apps/read-access', {
-            method: 'POST',
-            body: JSON.stringify({ appId }),
-          }),
-          env,
-          userId: OWNER,
-        },
-        store,
-      );
-
-    expect((await ask('99999999-9999-4999-8999-999999999999')).status).toBe(404);
-  });
-
-  it('gives none for a team’s draft an admin approved, whose repository is the team project’s now', async () => {
-    const { env, store, commit } = await setup();
-    await commit(`p-${CHAT}`, 'draft', 'Draft');
-    const teamEnv = { ...env, CLOUDCHEF_SHARED_ACCOUNT: '1' };
-    let adoptedBy: string | null = null;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).endsWith('runtime-projects/adoption')
-        ? Response.json({ orgProjectId: adoptedBy })
-        : new Response('unavailable', { status: 503 }),
-    );
-    const ask = () =>
-      userRuntimeAppReadAccessAction(
-        {
-          request: new Request('https://runtime.test/v1/apps/read-access', {
-            method: 'POST',
-            body: JSON.stringify({ appId: CHAT }),
-          }),
-          env: teamEnv,
-          userId: OWNER,
-        },
-        store,
-      );
-
-    expect((await ask()).status).toBe(200);
-    adoptedBy = TEAM_PROJECT;
-    const refused = await ask();
-    expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({
-      error: 'This app is now one of your team’s projects. Open it from Team projects to keep working on it.',
-    });
-  });
-
+describe('reading a project for a copy', () => {
   it('gives a read token good for one copy, which is revoked by its id once the copy is done', async () => {
     const { env, artifacts, commit, store } = await setup();
-    await commit(`p-${CHAT}`, 'v1', 'First');
-    const answer = await userRuntimeAppReadAccessAction(
+    controlPlane('view', 't-team');
+    await commit('t-team', 'v1', 'First');
+    const answer = await userRuntimeProjectReadAccessAction(
       {
-        request: new Request('https://runtime.test/v1/apps/read-access', {
+        request: new Request('https://runtime.test/v1/projects/read-access', {
           method: 'POST',
-          body: JSON.stringify({ appId: CHAT }),
+          body: JSON.stringify({ orgProjectId: TEAM_PROJECT }),
         }),
         env,
-        userId: OWNER,
       },
       store,
     );
     const { tokenId, url } = z.object({ tokenId: z.string(), url: z.string() }).parse(await answer.json());
-    // On a fork of main made for this one copy, not on the app's own repository.
+    // On a fork of main made for this one copy, not on the project's own repository.
     expect(url).toBe(`https://artifacts.test/git/cloudchef/c-${tokenId}.git`);
     expect(artifacts.tokens.at(-1)).toMatchObject({ repo: `c-${tokenId}`, scope: 'read', ttl: 35 * 60 });
 
@@ -568,7 +466,7 @@ describe('copying an app into a new app of this person', () => {
       {
         request: new Request('https://runtime.test/v1/read-access/revoke', {
           method: 'POST',
-          body: JSON.stringify({ appId: CHAT, tokenId }),
+          body: JSON.stringify({ orgProjectId: TEAM_PROJECT, tokenId }),
         }),
         env,
       },
@@ -576,7 +474,7 @@ describe('copying an app into a new app of this person', () => {
     );
     expect(revoked.status).toBe(204);
     expect(artifacts.repos.has(`c-${tokenId}`)).toBe(false);
-    expect(artifacts.repos.has(`p-${CHAT}`)).toBe(true);
+    expect(artifacts.repos.has('t-team')).toBe(true);
   });
 });
 

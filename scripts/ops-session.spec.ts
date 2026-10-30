@@ -91,9 +91,6 @@ function fakeProduction() {
       if (sql.includes('FROM conversations')) {
         return d1Rows([{ conversation_index: 0, agent_name: INITIAL, created_at: AT - 3_600_000, updated_at: AT }]);
       }
-      if (sql.includes('FROM deployments')) {
-        return d1Rows([]);
-      }
       if (sql.includes('FROM org_projects')) {
         return d1Rows([
           {

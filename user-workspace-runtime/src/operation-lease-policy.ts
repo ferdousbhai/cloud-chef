@@ -14,7 +14,6 @@ export const OPERATION_LEASE_MS = {
   exec: 10 * 60_000,
   install: 15 * 60_000,
   validate: 30 * 60_000,
-  deployment: 45 * 60_000,
   delete: 15 * 60_000,
 } as const;
 

@@ -81,7 +81,7 @@ export default defineConfig({
       SHOWCASE_REPORT_RATE_LIMITER: bindings.rateLimit({ namespace: '1007', simple: { limit: 5, period: 60 } }),
       // Who may decide reports at /reports: comma-separated CloudChef user ids. Changed by a release, never in the
       // dashboard.
-      OPERATOR_USER_IDS: bindings.text(''),
+      OPERATOR_USER_IDS: bindings.text('4128ec6e-8d8b-4c8a-8f93-ea2973525d00'),
       // Cloudflare's URL Scanner in CloudChef's own account, checking each posted site for phishing. Unset, sites are
       // not scanned and reports alone hold a post. The token needs URL Scanner edit on that account.
       URL_SCANNER_ACCOUNT_ID: bindings.text(''),

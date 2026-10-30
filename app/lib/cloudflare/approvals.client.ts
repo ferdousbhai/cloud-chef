@@ -24,25 +24,10 @@ const approvalSchema = z.object({
 });
 export type Approval = z.infer<typeof approvalSchema>;
 
-const productionRequestSchema = z.object({
-  id: z.string(),
-  orgId: z.string(),
-  orgName: z.string(),
-  title: z.string(),
-  note: z.string().nullable(),
-  previewUrl: z.string().nullable(),
-  requesterName: z.string(),
-  requesterEmail: z.string(),
-  createdAt: z.number(),
-  updatedAt: z.number().nullable(),
-});
-export type ProductionRequest = z.infer<typeof productionRequestSchema>;
-
 const approvalsSchema = z.object({
   admin: z.boolean(),
   waiting: z.array(approvalSchema),
   decided: z.array(approvalSchema),
-  productionRequests: z.array(productionRequestSchema),
 });
 export type Approvals = z.infer<typeof approvalsSchema>;
 
@@ -71,7 +56,7 @@ export function useWaitingApprovals(admin: boolean): number {
     }
     const controller = new AbortController();
     loadApprovals(controller.signal)
-      .then((approvals) => setWaiting(approvals.waiting.length + approvals.productionRequests.length))
+      .then((approvals) => setWaiting(approvals.waiting.length))
       .catch(() => undefined);
     return () => controller.abort();
   }, [admin]);

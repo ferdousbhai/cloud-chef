@@ -11,8 +11,6 @@ const workloadTables = [
   'deployment_activity',
   'deployment_resources',
   'deployments',
-  // Which chats from before pi-durable have moved into their transcript: agent names and counts, no messages.
-  'legacy_chat_moves',
   'runtime_activity',
   'runtime_upgrade_window',
   'workspaces',

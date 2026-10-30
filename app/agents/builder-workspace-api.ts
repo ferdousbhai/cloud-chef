@@ -1,8 +1,6 @@
 import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { RefUpdate } from '~/lib/.server/cloudflare/git-proxy';
 import type { CreateAIToolsOptions } from '@cloudflare/computer/tools/ai-sdk';
-import type { DeploymentProjectProfile } from '~/lib/.server/cloudflare/deployment-project-profile';
-import type { PreparedDeploymentArtifact } from '~/lib/.server/cloudflare/deployment-artifact';
 import type { BuilderValidationStage } from '~/lib/common/builder-validation-progress';
 import type {
   BuilderWorkspaceApplyResult,
@@ -127,31 +125,6 @@ export type WorkspaceCancelValidationRequest = {
   toolCallId?: string;
 };
 
-export type WorkspaceDeploymentSessionRequest = {
-  operationId: string;
-  expectedWorkspaceRevision: number;
-  expectedSnapshotRevision: string;
-};
-
-export type WorkspaceDeploymentArtifactRequest = {
-  /** The deployment session's id, which is the operation id it began with. */
-  sessionId: string;
-  revision: string;
-  deploymentId: string;
-  executionGeneration: number;
-  workerName: string;
-  projectType: DeploymentProjectProfile['type'];
-  workersAi: boolean;
-  appAgent: boolean;
-  assets?: boolean;
-  d1DatabaseId?: string;
-  d1DatabaseName?: string;
-  agentSecurityD1DatabaseId?: string;
-  agentSecurityD1DatabaseName?: string;
-  r2BucketName?: string;
-  kvNamespaceId?: string;
-};
-
 export type BuilderWorkspaceTextFile = {
   path: string;
   content: string;
@@ -204,10 +177,6 @@ export type BuilderWorkspaceSearchResult = {
   filesSkipped: number;
   truncated: boolean;
   revision: number;
-};
-
-export type BuilderWorkspaceDeploymentPlan = BuilderWorkspaceCheckpoint & {
-  project: DeploymentProjectProfile;
 };
 
 export const WORKSPACE_TOOL_OPERATION_INDETERMINATE_CODE = 'workspace_tool_operation_indeterminate';
@@ -294,25 +263,16 @@ export interface ProjectWorkspaceRpc extends Rpc.DurableObjectBranded {
     onStage?: WorkspaceValidationStageReporter,
   ): Promise<CloudChefToolResult>;
   cancelValidation(value: WorkspaceCancelValidationRequest): Promise<void>;
-  validationStatus(revision: string): { valid: boolean } | Promise<{ valid: boolean }>;
-  deploymentPlan(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
-  beginDeploymentSession(value: WorkspaceDeploymentSessionRequest): Promise<void>;
-  assertDeploymentSession(value: { sessionId: string }): Promise<BuilderWorkspaceCheckpoint>;
-  prepareDeploymentArtifact(value: WorkspaceDeploymentArtifactRequest): Promise<PreparedDeploymentArtifact>;
-  finishDeploymentSession(value: { sessionId: string; status: 'completed' | 'failed' }): Promise<void>;
-  terminalizeInterruptedDeploymentSession(value: { sessionId: string }): Promise<void>;
   deleteProject(): Promise<void>;
   setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   takeGitPushes(): Promise<RefUpdate[]>;
   knownMain(): Promise<string | null>;
-  setMainFetched(commit: string): Promise<void>;
 }
 
 /**
- * The project repository git in the workspace reaches through its git proxy: a CloudChef app's own, or a
- * team project's, with the team project it belongs to.
+ * The project repository git in the workspace reaches through its git proxy, with the project it belongs to.
  */
 export type BuilderWorkspaceGitRepository = { repo: string; orgProjectId: string | null };
 
@@ -360,22 +320,18 @@ export interface BuilderWorkspaceApi {
     args: WorkspaceValidateRequest & { abortSignal?: AbortSignal; onStage?: WorkspaceValidationStageReporter },
   ): Promise<CloudChefToolResult>;
   cancelActiveValidation(): Promise<void>;
-  hasSuccessfulValidation(revision: string): Promise<boolean>;
-  /** Records the GitHub project this workspace was opened from (its base commit and files). */
+  /** Records the project this workspace was opened from (its base commit and files). */
   setLinkedProject(value: BuilderWorkspaceLinkedProject): Promise<void>;
-  /** The GitHub project this workspace works on, or null for a CloudChef app. */
+  /** The project this workspace works on, or null before it is prepared. */
   linkedProject(): Promise<BuilderWorkspaceLinkedProject | null>;
   /** Records the repository git in the workspace pushes to and fetches from. */
   setGitRepository(value: BuilderWorkspaceGitRepository): Promise<void>;
   /** The refs git in the workspace pushed since this was last asked, each given once. */
   takeGitPushes(): Promise<RefUpdate[]>;
   /**
-   * The commit main was at when git in the workspace last fetched or pushed it, or CloudChef seeded or saved the
-   * workspace at; null when that isn't known.
+   * The commit main was at when git in the workspace last fetched or pushed it, or CloudChef seeded the workspace
+   * at; null when that isn't known.
    */
   knownMain(): Promise<string | null>;
-  /** Main is now at `commit` in the workspace too: seeded from it, or saved to it by CloudChef from the workspace. */
-  setMainFetched(commit: string): Promise<void>;
-  prepareDeployment(revision: string): Promise<BuilderWorkspaceDeploymentPlan>;
   deleteProject(): Promise<void>;
 }

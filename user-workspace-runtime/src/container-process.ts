@@ -206,8 +206,7 @@ class LiveContainerProcess implements TrackedSandboxProcess {
       options.timeout,
       'Container process output',
     );
-    // One combined budget that keeps the head, stdout first: the contract validation-stages.ts
-    // sizes its per-stage log tails against.
+    // One combined budget that keeps the head, stdout first.
     const stdout = this.#stdout.head(options.maxBytes);
     const stderr = this.#stderr.head(Math.max(0, options.maxBytes - stdout.byteLength));
     const decoder = new TextDecoder();

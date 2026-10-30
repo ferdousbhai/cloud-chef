@@ -47,9 +47,6 @@ async function runtime(input: RequestInfo | URL, init?: RequestInit): Promise<Re
     if (request.path === 'projects.gitAddress') {
       return Response.json({ result: { projectId: TEAM_PROJECT } });
     }
-    if (request.path === 'projects.fork') {
-      return Response.json({ result: { initialId: 'chat-2' } });
-    }
   }
   if (url === `/api/projects/${TEAM_PROJECT}/main-changes?limit=100`) {
     return Response.json({
@@ -95,7 +92,7 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-async function render(props: { canRevert: boolean; canFork: boolean; onOpenProject?: (initialId: string) => void }) {
+async function render(props: { canRevert: boolean }) {
   root = createRoot(document.body.appendChild(document.createElement('div')));
   await act(async () =>
     root?.render(
@@ -103,9 +100,7 @@ async function render(props: { canRevert: boolean; canFork: boolean; onOpenProje
         project={{ chatInitialId: 'chat-1' }}
         name="Booking site"
         onClose={() => undefined}
-        onOpenProject={props.onOpenProject ?? (() => undefined)}
         canRevert={props.canRevert}
-        canFork={props.canFork}
       />,
     ),
   );
@@ -122,7 +117,7 @@ function labelled(name: string): HTMLButtonElement {
 
 describe('ProjectHistoryDialog', () => {
   it('lists each commit by its first line, author and short hash', async () => {
-    await render({ canRevert: true, canFork: true });
+    await render({ canRevert: true });
 
     expect(dataRequests[0]).toEqual({
       path: 'projects.history',
@@ -136,7 +131,7 @@ describe('ProjectHistoryDialog', () => {
   });
 
   it('says who published a version and which one is live, from the control plane', async () => {
-    await render({ canRevert: true, canFork: true });
+    await render({ canRevert: true });
 
     await vi.waitFor(() => expect(document.body.textContent).toContain('Published by Sara 10 minutes ago'));
     const versions = [...document.querySelectorAll('li')].map((item) => item.textContent ?? '');
@@ -150,7 +145,7 @@ describe('ProjectHistoryDialog', () => {
   it('reverts the open workspace only after confirming', async () => {
     const revert = vi.fn(async () => ({ changed: true }));
     projectRevertStore.set(revert);
-    await render({ canRevert: true, canFork: false });
+    await render({ canRevert: true });
 
     await act(async () => labelled('Restore aaaaaaa').click());
     expect(revert).not.toHaveBeenCalled();
@@ -161,28 +156,17 @@ describe('ProjectHistoryDialog', () => {
     await act(async () => confirm.at(-1)?.click());
 
     expect(revert).toHaveBeenCalledWith(FIRST);
-    expect(document.querySelector('button[aria-label^="Make a copy"]')).toBeNull();
   });
 
   it('points to the project for reverting when it is not open here', async () => {
-    await render({ canRevert: true, canFork: true });
+    await render({ canRevert: true });
 
     expect(document.querySelector('button[aria-label^="Restore"]')).toBeNull();
     expect(document.body.textContent).toContain('Open the project to restore a version');
   });
 
-  it('forks from a commit and opens the new project', async () => {
-    const onOpenProject = vi.fn();
-    await render({ canRevert: false, canFork: true, onOpenProject });
-
-    await act(async () => labelled('Make a copy from bbbbbbb').click());
-
-    await vi.waitFor(() => expect(onOpenProject).toHaveBeenCalledWith('chat-2'));
-    expect(dataRequests.at(-1)).toEqual({ path: 'projects.fork', args: { chatInitialId: 'chat-1', commit: SECOND } });
-  });
-
   it("downloads a commit's files from the archive route", async () => {
-    await render({ canRevert: false, canFork: false });
+    await render({ canRevert: false });
 
     await act(async () => labelled('Download ZIP of aaaaaaa').click());
 

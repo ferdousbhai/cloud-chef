@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
@@ -7,9 +7,7 @@ import {
   eventually,
   RUNTIME_VERSION,
   settle,
-  VALIDATED_CHECKPOINT,
   type ConversationAgentHarness,
-  type BuilderPublisher,
 } from './harness';
 
 /**
@@ -20,11 +18,6 @@ import {
 function expectHeldByUpgradeWindow(harness: ConversationAgentHarness) {
   expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
 }
-
-beforeEach(() => {
-  // The Workers global a publication's progress follower waits on between reads.
-  vi.stubGlobal('scheduler', { wait: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) });
-});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -45,35 +38,17 @@ describe('ConversationAgent runtime activity', { timeout: 30_000 }, () => {
 
   it('a window for the version already running holds work back too, until the upgrade releases it', async () => {
     // Deployed, with its container applications still being replaced: work started now would lose its container.
-    const harness = await conversationAgentHarness();
+    const harness = await conversationAgentHarness({ cloudflareIdentity: true });
+    const proposal = await harness.proposeCloudflareRequest();
     harness.openUpgradeWindow(RUNTIME_VERSION);
 
-    const deployment = harness.agent.deployValidatedRevision();
+    const approval = harness.agent.approveCloudflareExecution({ executionId: proposal.executionId });
     await settle();
-    expect(harness.agent.state.deployment).toBeNull();
+    expect(harness.cloudflareExecution(proposal.executionId)?.status).toBe('awaiting_approval');
 
     harness.closeUpgradeWindow();
-    await expect(deployment).resolves.toMatchObject({ status: 'deploying' });
-  });
-
-  it('a production deployment stays busy while it runs, though an editor save clears its record', async () => {
-    const plan = deferred<Awaited<ReturnType<BuilderPublisher['deploy']>>>();
-    const harness = await conversationAgentHarness({
-      workspace: {
-        applyClientChanges: async () => ({ ok: true, state: READY_STATE, changedPaths: ['src/app.tsx'] }),
-      },
-      publisher: { deploy: () => plan.promise },
-    });
-
-    await harness.agent.deployValidatedRevision();
-    await eventually(() => harness.activity()[0]?.busy === 1);
-    await harness.agent.applyWorkspaceClientChanges({ baseRevision: 3, changes: [] });
-    expect(harness.agent.state.deployment).toBeNull();
-    await settle();
-    expect(harness.activity()).toEqual([{ agent_name: AGENT_NAME, busy: 1 }]);
-
-    plan.reject(new Error('The deployment could not be planned.'));
-    await eventually(() => harness.activity()[0]?.busy === 0);
+    await approval.catch(() => undefined);
+    expect(harness.cloudflareExecution(proposal.executionId)?.status).not.toBe('awaiting_approval');
   });
 
   it('seeding a new workspace is busy, and waits out an upgrade window before it starts', async () => {
@@ -103,19 +78,6 @@ describe('ConversationAgent runtime activity', { timeout: 30_000 }, () => {
     seed.resolve({ status: 'initialized', state: READY_STATE });
     await prepared;
     await eventually(() => harness.activity()[0]?.busy === 0);
-  });
-
-  it('a production deployment waits out an upgrade window before it starts', async () => {
-    const harness = await conversationAgentHarness();
-    harness.openUpgradeWindow();
-
-    const deployment = harness.agent.deployValidatedRevision();
-    await settle();
-    expectHeldByUpgradeWindow(harness);
-    expect(harness.agent.state.deployment).toBeNull();
-
-    harness.closeUpgradeWindow();
-    await expect(deployment).resolves.toMatchObject({ status: 'deploying', ...VALIDATED_CHECKPOINT });
   });
 
   it('an approved Cloudflare request waits out an upgrade window before it runs', async () => {

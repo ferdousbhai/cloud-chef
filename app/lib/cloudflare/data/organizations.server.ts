@@ -644,8 +644,7 @@ export async function updateMember(
               ];
   const membershipWrite = db.prepare(write + keepsAnAdmin).bind(...values);
   // Their workspace locator in the organization's account, their access to its projects and any invite
-  // still waiting for their email go with them, and their open production requests are declined: nobody
-  // may approve work for someone gone, and no invite left over brings them back.
+  // still waiting for their email go with them: no invite left over brings them back.
   // All in the one write that removes them, and only once they're gone, so a refused removal keeps
   // everything and an interrupted one leaves no grant behind to come back if they're invited again.
   const gone = 'AND NOT EXISTS (SELECT 1 FROM organization_members WHERE org_id = ? AND user_id = ?)';
@@ -653,21 +652,6 @@ export async function updateMember(
     args.action === 'remove'
       ? [
           membershipWrite,
-          db
-            .prepare(
-              `UPDATE production_requests
-               SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?, note = NULL, preview_url = NULL
-               WHERE org_id = ? AND requested_by = ? AND status = 'pending' ${gone}`,
-            )
-            .bind(
-              args.actorId,
-              now,
-              leaving ? 'They left the team.' : 'They were removed from the team.',
-              args.orgId,
-              args.userId,
-              args.orgId,
-              args.userId,
-            ),
           db
             .prepare(
               `DELETE FROM user_computer_runtimes

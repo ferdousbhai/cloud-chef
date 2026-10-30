@@ -20,8 +20,6 @@ import {
 } from '~/lib/.server/cloudflare/workers-builds';
 import { readJsonRequest } from '~/lib/.server/request-guards';
 import {
-  approveProductionRequest,
-  declineProductionRequest,
   findAccessibleProject,
   importProject,
   latestMainChanges,
@@ -48,12 +46,6 @@ const accessSchema = z.strictObject({
   projectId: z.string().uuid(),
   userId: z.string().min(1).max(128),
   role: z.enum(['view', 'edit']).nullable(),
-});
-const approveSchema = z.strictObject({ orgId: z.string().uuid(), requestId: z.string().uuid() });
-const declineSchema = z.strictObject({
-  orgId: z.string().uuid(),
-  requestId: z.string().uuid(),
-  note: z.string().trim().max(1_000),
 });
 
 /** The projects this person may view or edit in the account they are working in now, with their role. */
@@ -246,39 +238,6 @@ export function setProjectAccessAction({ request, env }: { request: Request; env
       return body.response;
     }
     await setProjectAccess(env.DB, { ...body.data, actorId: session.user.id });
-    return new Response(null, { status: 204 });
-  });
-}
-
-/**
- * An admin approving a member's production request: the draft's own repository becomes a team project
- * its requester may edit. Workers Builds then deploys it once an admin connects the repository to it.
- */
-export function approveProductionRequestAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, approveSchema, 'Choose a request.');
-    if ('response' in body) {
-      return body.response;
-    }
-    const approved = await approveProductionRequest(env.DB, { ...body.data, actorId: session.user.id });
-    if (!approved) {
-      throw new OrganizationError('That request was already decided, or its requester left the team.', 409);
-    }
-    return Response.json({
-      projectId: approved.projectId,
-      repo: approved.repo,
-      workersBuilds: { namespace: ARTIFACTS_NAMESPACE, repo: approved.repo, connectUrl: WORKERS_BUILDS_CONNECT_URL },
-    });
-  });
-}
-
-export function declineProductionRequestAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, declineSchema, 'Choose a request.');
-    if ('response' in body) {
-      return body.response;
-    }
-    await declineProductionRequest(env.DB, { ...body.data, actorId: session.user.id });
     return new Response(null, { status: 204 });
   });
 }

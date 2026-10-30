@@ -13,7 +13,6 @@ import {
   runtimeRegisterImportAction,
   runtimeNameProjectAction,
   runtimeRegisterUploadAction,
-  runtimeRequestProductionAction,
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
 } from './runtime-projects';
@@ -615,29 +614,6 @@ describe('a runtime adding a project uploaded as a ZIP', () => {
       env,
     });
     expect(imported.status).toBe(409);
-  });
-});
-
-describe('a runtime asking for a draft to become a team project', () => {
-  const ask = async (runtime: Awaited<ReturnType<typeof setup>>['runtime'], repo: string, env: Env) =>
-    runtimeRequestProductionAction({
-      request: await runtime('/api/cloudflare/runtime-projects/request-production', {
-        draftId: 'draft-chat',
-        draftRevision: 'r1',
-        title: 'Recipes',
-        repo,
-        commit: COMMIT,
-      }),
-      env,
-    });
-
-  it("names only the draft's own repository", async () => {
-    const { env, runtime, database, sara } = await setup();
-    database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.userId);
-    expect((await ask(runtime, 'p-another-app', env)).status).toBe(400);
-    expect((await ask(runtime, 'p-draft-chat-2', env)).status).toBe(400);
-    expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(201);
-    expect((await ask(runtime, 'p-draft-chat', env)).status).toBe(200);
   });
 });
 

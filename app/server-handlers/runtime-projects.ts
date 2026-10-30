@@ -18,7 +18,6 @@ import {
   abandonImport,
   addUploadedProject,
   findAccessibleProject,
-  findProjectOfRepository,
   findReadableProject,
   listGitHubInstallations,
   recordImportedRepo,
@@ -32,12 +31,10 @@ import {
   type ProjectRole,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
-import { importedProjectRepo, nativeProjectRepo } from '~/lib/.server/cloudflare/project-repository';
+import { importedProjectRepo } from '~/lib/.server/cloudflare/project-repository';
 import { registerGitHubImport } from './projects';
-import { syncApps } from '~/lib/cloudflare/data/apps.server';
 import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { answeringOrganizationErrors } from './signed-in';
-import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { projectPublished } from '~/lib/.server/showcase/jobs';
 
@@ -50,8 +47,8 @@ import { projectPublished } from '~/lib/.server/showcase/jobs';
  */
 const MAX_REQUEST_BYTES = 8 * 1024;
 const COMMIT = z.string().regex(/^[0-9a-f]{40}$/);
-/** An Artifacts repository name as CloudChef makes them: `p-<chat>` for a draft, `t-<project>` for an import or upload. */
-const REPO = z.string().regex(/^[pt]-[A-Za-z0-9_-]{1,120}$/);
+/** An Artifacts repository name as CloudChef makes a project's: `t-<project>`. */
+const REPO = z.string().regex(/^t-[A-Za-z0-9_-]{1,120}$/);
 
 const projectFields = { orgProjectId: z.string().uuid() };
 const projectSchema = z.strictObject(projectFields);
@@ -73,20 +70,6 @@ const registerUploadSchema = z.strictObject({
   /** Made in a chat with the agent, from CloudChef's starter. */
   chat: z.literal(true).optional(),
 });
-const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
-const productionRequestSchema = z.strictObject({
-  /** The builder holding the draft, and the validated revision sent: the same draft sent again replaces its request. */
-  draftId: z.string().min(1).max(256),
-  draftRevision: z.string().min(1).max(256),
-  title: z.string().trim().min(1).max(80),
-  /** The draft's own repository (`p-<chat>`), and the commit of it an admin reviews. */
-  repo: z.string().regex(/^p-[A-Za-z0-9_-]{1,120}$/),
-  commit: COMMIT,
-  note: z.string().trim().max(1_000).default(''),
-  /** The draft's deployment, which admins open: only a workers.dev address over https. */
-  previewUrl: z.url().max(2_048).refine(isWorkersDevUrl).nullable().default(null),
-});
-
 /**
  * What the runtime may do with a project: its repository (null until imported), the member's role, and,
  * while it is still to be imported and the member may edit it, where to import it from. A private
@@ -297,39 +280,6 @@ export async function runtimeRegisterImportAction(args: {
  * runtime chose): record it as a project of its account. In a team it takes one of the team's admins, as an
  * import does.
  */
-const syncAppsSchema = z.strictObject({
-  apps: z
-    .array(
-      z.strictObject({
-        id: z.string().uuid(),
-        name: z.string().trim().min(1).max(200),
-        siteUrl: z
-          .url({ protocol: /^https$/ })
-          .max(2_048)
-          .nullable(),
-      }),
-    )
-    .max(1_000),
-});
-
-/**
- * `runtime-projects/sync-apps`: the person's apps in this runtime's account, as its chats list them, kept so they
- * can be public, copied and reached from the command line. Their live addresses come from the runtime's own deploys.
- */
-export async function runtimeSyncAppsAction(args: { request: Request; env: Env }): Promise<Response> {
-  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, syncAppsSchema, {
-    maxBytes: 512 * 1024,
-    label: 'Workspace runtime apps',
-    invalid: INVALID_REQUEST,
-  });
-  if (authenticated instanceof Response) {
-    return authenticated;
-  }
-  const { body, identity, connection } = authenticated;
-  await syncApps(args.env.DB, { userId: identity.userId, connectionId: connection.id, apps: body.apps });
-  return json({ synced: body.apps.length }, 200);
-}
-
 /** Said of a project that no longer exists: someone who ran it deleted it. */
 const PROJECT_DELETED_MESSAGE = 'This project was deleted.';
 
@@ -363,25 +313,6 @@ export async function runtimeDeletedProjectsAction(args: { request: Request; env
   }
   const ids = authenticated.body.orgProjectIds;
   return json({ deleted: ids.length === 0 ? [] : await deletedProjectIds(args.env.DB, ids) }, 200);
-}
-
-const adoptionSchema = z.strictObject({ repo: REPO });
-
-/**
- * `runtime-projects/adoption`: the team project an app's repository became (an admin approved it as a draft), or
- * null while it is still only the app's. Its runtime then keeps the app to read: the repository is the project's.
- */
-export async function runtimeAdoptionAction(args: { request: Request; env: Env }): Promise<Response> {
-  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, adoptionSchema, {
-    maxBytes: MAX_REQUEST_BYTES,
-    label: 'Workspace runtime app adoption',
-    invalid: INVALID_REQUEST,
-  });
-  if (authenticated instanceof Response) {
-    return authenticated;
-  }
-  const project = await findProjectOfRepository(args.env.DB, authenticated.connection.id, authenticated.body.repo);
-  return json({ orgProjectId: project?.id ?? null }, 200);
 }
 
 export async function runtimeRegisterUploadAction(args: { request: Request; env: Env }): Promise<Response> {
@@ -690,161 +621,6 @@ async function withWorkersBuilds(
     }
     throw error;
   }
-}
-
-/**
- * A member asking for a draft built in the organization's account to become a team project: an admin
- * reviews it and, approving, adopts the draft's own repository as the project's.
- */
-export async function runtimeRequestProductionAction(args: { request: Request; env: Env }): Promise<Response> {
-  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, productionRequestSchema, {
-    maxBytes: MAX_REQUEST_BYTES,
-    label: 'Workspace runtime project request',
-    invalid: INVALID_REQUEST,
-  });
-  if (authenticated instanceof Response) {
-    return authenticated;
-  }
-  const orgId = authenticated.connection.orgId;
-  if (!orgId) {
-    return json({ error: "Only a team's drafts can be sent to become team projects." }, 409);
-  }
-  // A member limited to the team's projects has no drafts of their own to send.
-  const membership = await findMembership(args.env.DB, orgId, authenticated.identity.userId);
-  if (!membership?.draftsAllowed) {
-    return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its team projects only.' }, 403);
-  }
-  // The repository named is the draft's own (its chat's), never another app's.
-  const { draftId, repo } = authenticated.body;
-  if (repo !== nativeProjectRepo(draftId)) {
-    return json({ error: "That isn't this draft." }, 400);
-  }
-  // Once approved, the draft's repository is the team project's: sent again, it would commit the draft over what
-  // the team has done since (and give its sender back the edit role an admin may have taken away).
-  if (await findProjectOfRepository(args.env.DB, authenticated.connection.id, repo)) {
-    return json({ error: ADOPTED_APP_MESSAGE }, 409);
-  }
-  return sendProductionRequest(
-    args.env.DB,
-    orgId,
-    { ...authenticated.body, userId: authenticated.identity.userId },
-    true,
-  );
-}
-
-/** A draft's deployment: https on workers.dev, with no credentials or port. */
-function isWorkersDevUrl(value: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  return (
-    url.protocol === 'https:' &&
-    !url.username &&
-    !url.password &&
-    !url.port &&
-    url.hostname.endsWith('.workers.dev') &&
-    url.hostname.length > '.workers.dev'.length
-  );
-}
-
-type ProductionRequestBody = z.infer<typeof productionRequestSchema> & { userId: string };
-
-/**
- * A draft has at most one open request: sent again (an improved revision, a reload, a second tab), it
- * replaces what the admins see, keeping its place in their list.
- */
-async function sendProductionRequest(
-  db: D1Database,
-  orgId: string,
-  body: ProductionRequestBody,
-  retryOnRace: boolean,
-): Promise<Response> {
-  const open = await db
-    .prepare(
-      `SELECT id, title, note, draft_revision, commit_sha FROM production_requests
-       WHERE org_id = ? AND requested_by = ? AND status = 'pending' AND draft_id = ?`,
-    )
-    .bind(orgId, body.userId, body.draftId)
-    .first<{ id: string; title: string; note: string | null; draft_revision: string; commit_sha: string | null }>();
-  if (open) {
-    if (
-      open.draft_revision === body.draftRevision &&
-      open.commit_sha === body.commit &&
-      open.title === body.title &&
-      (open.note ?? '') === body.note
-    ) {
-      return json({ requestId: open.id, outcome: 'unchanged' }, 200);
-    }
-    const updated = await db
-      .prepare(
-        `UPDATE production_requests
-         SET draft_revision = ?, title = ?, note = ?, preview_url = ?, repo = ?, commit_sha = ?, updated_at = ?
-         WHERE id = ? AND status = 'pending'`,
-      )
-      .bind(
-        body.draftRevision,
-        body.title,
-        body.note || null,
-        body.previewUrl,
-        body.repo,
-        body.commit,
-        Date.now(),
-        open.id,
-      )
-      .run();
-    return updated.meta.changes === 1
-      ? json({ requestId: open.id, outcome: 'updated' }, 200)
-      : json({ error: `“${open.title}” was decided just now. Send it again to ask once more.` }, 409);
-  }
-  const pending = await db
-    .prepare(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(title = ? COLLATE NOCASE), 0) AS same_title
-       FROM production_requests WHERE requested_by = ? AND org_id = ? AND status = 'pending'`,
-    )
-    .bind(body.title, body.userId, orgId)
-    .first<{ count: number; same_title: number }>();
-  if ((pending?.same_title ?? 0) > 0) {
-    return json(
-      { error: `Another app of yours named “${body.title}” is waiting for review. Give this one its own name.` },
-      409,
-    );
-  }
-  if ((pending?.count ?? 0) >= MAX_PENDING_REQUESTS_PER_MEMBER) {
-    return json({ error: 'You already have several requests waiting. An admin will get to them.' }, 429);
-  }
-  const id = crypto.randomUUID();
-  // Ignored only when another send for the same draft got in first: that one is then replaced instead.
-  const inserted = await db
-    .prepare(
-      `INSERT OR IGNORE INTO production_requests
-         (id, org_id, requested_by, draft_id, draft_revision, title, note, preview_url, repo, commit_sha, status,
-          created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    )
-    .bind(
-      id,
-      orgId,
-      body.userId,
-      body.draftId,
-      body.draftRevision,
-      body.title,
-      body.note || null,
-      body.previewUrl,
-      body.repo,
-      body.commit,
-      Date.now(),
-    )
-    .run();
-  if (inserted.meta.changes === 1) {
-    return json({ requestId: id, outcome: 'requested' }, 201);
-  }
-  if (!retryOnRace) {
-    throw new Error('The production request was neither recorded nor found.');
-  }
-  return sendProductionRequest(db, orgId, body, false);
 }
 
 /**

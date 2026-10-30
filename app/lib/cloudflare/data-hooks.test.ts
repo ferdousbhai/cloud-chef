@@ -5,7 +5,6 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserRuntimeRequestError } from './client';
 import { useAllConversationsState } from './data-hooks';
-import { useWorkspaceHistory } from './workspace-history-db';
 import { queryClient as collectionQueryClient } from '~/lib/stores/reactQueryClient';
 
 const executeDataOperation = vi.hoisted(() => vi.fn());
@@ -26,10 +25,6 @@ vi.mock('./client', () => {
     executeDataOperation,
   };
 });
-
-function useProjectHistoryError() {
-  return useWorkspaceHistory('error-user').error;
-}
 
 function useSubchatHistoryError() {
   return useAllConversationsState({ workspaceId: 'error-chat', sessionId: 'error-user' }).error;
@@ -53,17 +48,14 @@ afterEach(() => {
 });
 
 describe('Query DB collection errors', () => {
-  it.each([
-    ['project history', useProjectHistoryError],
-    ['subchat history', useSubchatHistoryError],
-  ])('surfaces an initial %s failure after the source collection becomes ready', async (_name, useError) => {
+  it('surfaces an initial subchat history failure after the source collection becomes ready', async () => {
     executeDataOperation.mockRejectedValue(new UserRuntimeRequestError('cold load failed', 400, false));
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
 
     function Harness() {
-      const error = useError();
+      const error = useSubchatHistoryError();
       return createElement('span', null, error instanceof Error ? error.message : 'none');
     }
 

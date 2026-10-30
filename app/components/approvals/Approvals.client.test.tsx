@@ -35,7 +35,7 @@ let root: Root | undefined;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   decisions.length = 0;
-  listed = { admin: true, waiting: [change], decided: [], productionRequests: [] };
+  listed = { admin: true, waiting: [change], decided: [] };
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -98,7 +98,7 @@ describe('Approvals', () => {
   });
 
   it('says when the member typed the change in their own terminal', async () => {
-    listed = { admin: true, waiting: [{ ...change, source: 'terminal' }], decided: [], productionRequests: [] };
+    listed = { admin: true, waiting: [{ ...change, source: 'terminal' }], decided: [] };
     await render();
     await vi.waitFor(() => expect(document.body.textContent).toContain('Cloudflare change'));
 
@@ -106,37 +106,8 @@ describe('Approvals', () => {
     expect(document.body.textContent).not.toContain('agent asked');
   });
 
-  it('lists members’ requests to make a draft a team project beside the changes', async () => {
-    listed = {
-      admin: true,
-      waiting: [],
-      decided: [],
-      productionRequests: [
-        {
-          id: 'request-1',
-          orgId: 'org-1',
-          orgName: 'Sites',
-          title: 'Todo app',
-          note: null,
-          previewUrl: 'https://todo.example.com',
-          requesterName: 'Sara',
-          requesterEmail: 'sara@example.com',
-          createdAt: Date.now(),
-          updatedAt: null,
-        },
-      ],
-    };
-    await render();
-    await vi.waitFor(() => expect(document.body.textContent).toContain('Team project request'));
-
-    expect(document.body.textContent).toContain('Todo app');
-    expect(document.querySelector('a[href="https://todo.example.com"]')?.textContent).toBe('Try the draft');
-    await act(async () => button('Decline').click());
-    expect(document.querySelector('button[aria-label="Decline request: Todo app"]')).not.toBeNull();
-  });
-
   it('says there is nothing for someone who is no team’s admin', async () => {
-    listed = { admin: false, waiting: [], decided: [], productionRequests: [] };
+    listed = { admin: false, waiting: [], decided: [] };
     await render();
     await vi.waitFor(() =>
       expect(document.body.textContent).toContain('You’re not an admin of any team, so nothing waits for you here.'),

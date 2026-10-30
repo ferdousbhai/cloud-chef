@@ -1,12 +1,10 @@
 import { ensureInitialWorkspace, findWorkspace, requireWorkspace } from './workspace-repository.server';
-import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import { prepareInsertConversation } from './conversation-repository.server';
 import type { WorkspaceRow, ConversationRow } from './types';
 import { prepareAgentGcCandidatesStatement } from './agent-gc.server';
 import { MAX_CONVERSATION_INDEX } from '~/lib/cloudflare/data-operation-schemas';
 import { DataNotFoundError, ConversationLimitError } from './errors';
 import { EMPTY_WORKSPACE_DISCARD_PREDICATE } from './empty-workspace.server';
-import { prepareAppResourceGcCandidateStatement } from './app-resource-gc.server';
 
 export async function initializeWorkspace(
   db: D1Database,
@@ -23,11 +21,6 @@ export async function initializeWorkspace(
 export async function discardEmptyWorkspace(db: D1Database, args: { sessionId: string; id: string }): Promise<null> {
   await db.batch([
     prepareAgentGcCandidatesStatement(db, { ownerId: args.sessionId, initialId: args.id, requireEmpty: true }),
-    prepareAppResourceGcCandidateStatement(db, {
-      ownerId: args.sessionId,
-      initialId: args.id,
-      requireEmpty: true,
-    }),
     db
       .prepare(
         `UPDATE workspaces
@@ -46,59 +39,6 @@ export async function getWorkspace(db: D1Database, args: { id: string; sessionId
     return null;
   }
   return { description: workspace.description ?? undefined };
-}
-
-export async function getAllWorkspaces(db: D1Database, args: { sessionId: string }) {
-  const { results } = await db
-    .prepare(
-      `SELECT
-         workspaces.initial_id,
-         COALESCE(
-           NULLIF(TRIM(workspaces.description), ''),
-           (
-             SELECT NULLIF(TRIM(conversations.description), '')
-             FROM conversations
-             WHERE conversations.workspace_id = workspaces.id
-               AND conversations.description IS NOT NULL
-               AND TRIM(conversations.description) <> ''
-             ORDER BY conversations.conversation_index ASC
-             LIMIT 1
-           )
-         ) AS description,
-         workspaces.timestamp,
-         (
-           SELECT deployments.production_url FROM deployments
-           WHERE deployments.workspace_id = workspaces.id AND deployments.status = 'succeeded'
-             AND deployments.production_url IS NOT NULL
-           ORDER BY deployments.updated_at DESC LIMIT 1
-         ) AS production_url
-       FROM workspaces
-       WHERE workspaces.creator_id = ? AND workspaces.is_deleted = 0
-         AND workspaces.has_messages = 1
-         -- A team project's workspace is listed with the team's projects, not as an app of one's own; so is a draft
-         -- an admin made one of the team's projects.
-         AND workspaces.org_project_id IS NULL AND workspaces.adopted_by_org_project_id IS NULL
-       ORDER BY workspaces.timestamp DESC, workspaces.id DESC`,
-    )
-    .bind(args.sessionId)
-    .all<{
-      initial_id: string;
-      description: string | null;
-      timestamp: string;
-      production_url: string | null;
-    }>();
-  return results.map((row) => {
-    const summary: WorkspaceSummary = {
-      id: row.initial_id,
-      initialId: row.initial_id,
-      description: row.description ?? undefined,
-      timestamp: row.timestamp,
-    };
-    if (row.production_url?.startsWith('https://')) {
-      summary.productionUrl = row.production_url;
-    }
-    return summary;
-  });
 }
 
 export async function setDescription(
@@ -197,7 +137,6 @@ export async function setConversationDescription(
 export async function removeWorkspace(db: D1Database, args: { sessionId: string; id: string }) {
   await db.batch([
     prepareAgentGcCandidatesStatement(db, { initialId: args.id, ownerId: args.sessionId }),
-    prepareAppResourceGcCandidateStatement(db, { initialId: args.id, ownerId: args.sessionId }),
     db
       .prepare(
         `UPDATE workspaces

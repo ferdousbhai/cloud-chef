@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
-import type { WorkspaceSummary, ProjectCommit, ProjectGitAddress } from '~/lib/cloudflare/data-api';
+import type { ProjectCommit } from '~/lib/cloudflare/data-api';
 import type { Approval, Approvals } from '~/lib/cloudflare/approvals.client';
 import type { PublicProject, TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
@@ -15,19 +15,22 @@ const SITE_ORIGIN = 'https://e2e-booking-site.workers.dev';
 const dataRequestSchema = z.object({ path: z.string() });
 const reuseRequestSchema = z.object({ installationId: z.number() });
 
-const ownProjects: WorkspaceSummary[] = [
+/** The person's own projects in the account they work in: one made in a chat and live, one not published yet. */
+const ownProjects: TeamProject[] = [
   {
-    id: 'chat-booking',
-    initialId: 'chat-booking',
-    description: 'Booking site',
-    timestamp: new Date(Date.now() - 3_600_000).toISOString(),
-    productionUrl: `${SITE_ORIGIN}/`,
+    id: '00000000-0000-4000-8000-000000000030',
+    name: 'Booking site',
+    role: 'edit',
+    repo: 't-booking',
+    siteUrl: `${SITE_ORIGIN}/`,
+    createdAt: new Date(Date.now() - 3_600_000).toISOString(),
   },
   {
-    id: 'chat-draft',
-    initialId: 'chat-draft',
-    description: 'Recipe planner',
-    timestamp: new Date(Date.now() - 86_400_000).toISOString(),
+    id: '00000000-0000-4000-8000-000000000031',
+    name: 'Recipe planner',
+    role: 'edit',
+    repo: 't-recipes',
+    createdAt: new Date(Date.now() - 86_400_000).toISOString(),
   },
 ];
 
@@ -46,31 +49,20 @@ const commits: ProjectCommit[] = [
   },
 ];
 
-const gitAddress: ProjectGitAddress = { projectId: 'chat-booking' };
-
-async function stubSignedIn(page: Page, context: WorkspaceContext, teamProjects: TeamProject[] = []) {
+async function stubSignedIn(page: Page, context: WorkspaceContext, teamProjects: TeamProject[] = ownProjects) {
   const session: CloudflareAuthSession = { ...authSession, context, contexts: [context] };
   await page.route('**/api/auth/session', (route) => route.fulfill({ json: session }));
   await page.route('**/api/cloudflare/runtime-session', (route) =>
     route.fulfill({ json: { endpoint: RUNTIME_ORIGIN, token: 'e2e-capability', expiresAt: Date.now() + 600_000 } }),
   );
   await page.route('**/api/org-projects', (route) => route.fulfill({ json: { projects: teamProjects } }));
-  // CloudChef's record of the person's apps; none yet, so their cards have no public or copy choices.
-  await page.route('**/api/apps', (route) => route.fulfill({ json: { apps: [] } }));
   // The prompt's model selector reads the account's catalog from the same runtime.
   await page.route(`${RUNTIME_ORIGIN}/v1/models`, (route) =>
     route.fulfill({ json: { defaultModelId: DEFAULT_WORKERS_AI_MODEL.id, models: [DEFAULT_WORKERS_AI_MODEL] } }),
   );
   await page.route(`${RUNTIME_ORIGIN}/v1/data`, async (route) => {
     const { path } = dataRequestSchema.parse(route.request().postDataJSON());
-    const result =
-      path === 'messages.getAll'
-        ? ownProjects
-        : path === 'projects.history'
-          ? commits
-          : path === 'projects.gitAddress'
-            ? gitAddress
-            : null;
+    const result = path === 'projects.history' ? commits : null;
     return route.fulfill({ json: { result } });
   });
   await page.route(`${SITE_ORIGIN}/**`, (route) =>
@@ -92,7 +84,7 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await expect(page.getByPlaceholder(/Describe your app/i)).toBeVisible();
   const projects = page.getByRole('region', { name: 'My projects' });
   const booking = projects.getByRole('listitem').filter({ hasText: 'Booking site' });
-  await expect(booking.getByRole('link', { name: 'Edit Booking site' })).toHaveAttribute('href', '/chat/chat-booking');
+  await expect(booking.getByRole('button', { name: 'Edit Booking site' })).toBeVisible();
   await expect(booking.getByRole('link', { name: 'Open site: Booking site' })).toHaveAttribute(
     'href',
     `${SITE_ORIGIN}/`,
@@ -109,7 +101,7 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await page.getByRole('menuitem', { name: 'History' }).click();
   const history = page.getByRole('dialog', { name: 'History' });
   await expect(history.getByText('Add a booking form')).toBeVisible();
-  await expect(history.getByRole('button', { name: 'Make a copy from 0f9e8d7' })).toBeVisible();
+  await expect(history.getByRole('button', { name: /Make a copy from/ })).toHaveCount(0);
   await expect(history.getByRole('button', { name: 'Download ZIP of a1b2c3d' })).toBeVisible();
   await history.getByRole('button', { name: 'Close dialog' }).click();
 
@@ -117,9 +109,10 @@ test('lists the signed-in person’s projects below the prompt, with their histo
   await page.getByRole('menuitem', { name: 'Clone' }).click();
   const clone = page.getByRole('dialog', { name: 'Clone' });
   // Through CloudChef's own address, which checks who is asking each time: no token in the command.
-  await expect(clone.getByLabel('cloudchef command', { exact: true })).toHaveText('cloudchef repo clone chat-booking');
+  const projectId = ownProjects[0]!.id;
+  await expect(clone.getByLabel('cloudchef command', { exact: true })).toHaveText(`cloudchef repo clone ${projectId}`);
   const origin = new URL(page.url()).origin;
-  await expect(clone.getByLabel('git command', { exact: true })).toHaveText(`git clone ${origin}/git/chat-booking.git`);
+  await expect(clone.getByLabel('git command', { exact: true })).toHaveText(`git clone ${origin}/git/${projectId}.git`);
   await page.screenshot({ path: testInfo.outputPath('clone.png'), fullPage: true });
   await clone.getByRole('button', { name: 'Close dialog' }).click();
 
@@ -132,6 +125,7 @@ test('lists the signed-in person’s projects below the prompt, with their histo
 test('lists every project in one sidebar list, under the space they are in', async ({ page }, testInfo) => {
   const assertClean = collectBrowserDiagnostics(page, testInfo);
   await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' }, [
+    ...ownProjects,
     {
       id: 'project-glossary',
       name: 'alberta-plan-glossary',
@@ -144,11 +138,11 @@ test('lists every project in one sidebar list, under the space they are in', asy
   await page.goto('/');
   await page.getByRole('button', { name: 'Open project menu' }).click();
   const sidebar = page.getByRole('complementary', { name: 'Projects' });
-  // An imported project is listed with the ones made here, by when each was added: no separate heading.
+  // An imported project is listed with the ones made in a chat, by when each was added: no separate heading.
   await expect(sidebar.getByRole('heading')).toHaveText(['Projects']);
   await expect(sidebar).toContainText('3 projects');
   await expect(sidebar.getByRole('button', { name: /alberta-plan-glossary/ })).toBeVisible();
-  await expect(sidebar.getByRole('link', { name: /Booking site/ })).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: /Booking site/ })).toBeVisible();
   // The space and the pages beyond the projects are here, not in the header.
   await expect(sidebar.getByRole('button', { name: /^Personal · Test account/ })).toBeVisible();
   await expect(sidebar.getByRole('link', { name: 'Explore' })).toBeVisible();
@@ -199,7 +193,6 @@ test('lists public projects in Explore, with their sites and a way to make a cop
   await stubSignedIn(page, { kind: 'personal', connectionId: 'e2e-connection', accountName: 'Test account' });
   const publicProjects: PublicProject[] = [
     {
-      kind: 'project',
       id: '00000000-0000-4000-8000-000000000003',
       name: 'Booking site',
       fullName: 'grace/booking-site',
@@ -291,34 +284,19 @@ test("shows a team admin what their members asked for, from the sidebar's Approv
         decidedAt: Date.now() - 2 * 3_600_000,
       },
     ],
-    productionRequests: [
-      {
-        id: 'request-1',
-        orgId: 'e2e-org',
-        orgName: 'Sites',
-        title: 'Recipe planner',
-        note: 'Ready for the family to use.',
-        previewUrl: `${SITE_ORIGIN}/`,
-        requesterName: 'Sara',
-        requesterEmail: 'sara@example.invalid',
-        createdAt: Date.now() - 3 * 86_400_000,
-        updatedAt: null,
-      },
-    ],
   };
   await page.route('**/api/approvals', (route) => route.fulfill({ json: approvals }));
 
   await page.goto('/');
   // The sidebar's button says approvals are waiting; the sidebar links to them.
-  await page.getByRole('button', { name: 'Open project menu (2 waiting for approval)' }).click();
-  await page.getByRole('link', { name: 'Approvals (2)' }).click();
+  await page.getByRole('button', { name: 'Open project menu (1 waiting for approval)' }).click();
+  await page.getByRole('link', { name: 'Approvals (1)' }).click();
 
   await expect(page).toHaveURL(/\/approvals$/);
   await expect(page).toHaveTitle('Approvals | CloudChef');
   const waiting = page.getByRole('region', { name: 'Waiting' });
   await expect(waiting).toContainText('Sites · from Sara · 20 min ago');
   await expect(waiting).toContainText('Create /accounts/e2e-account/workers/domains');
-  await expect(waiting).toContainText('Recipe planner');
   await expect(page.getByRole('region', { name: 'Decided' })).toContainText(
     'Approved by Ada, and Cloudflare made the change',
   );

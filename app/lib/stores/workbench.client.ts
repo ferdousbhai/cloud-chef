@@ -9,7 +9,6 @@ import { downloadProject } from '~/lib/download/download-project';
 import { description } from './description';
 import { EditorStore } from './editor';
 import { FilesStore, type WorkspaceChangeListener } from './files';
-import { AppSiteStore } from './app-site';
 
 /** Editor buffers that differ from what is on disk and are renderable as text. */
 type UnsavedTextFiles = Record<AbsolutePath, File>;
@@ -27,7 +26,6 @@ export type WorkspaceFilesStatus = {
 const CONNECTING_WORKSPACE_FILES: WorkspaceFilesStatus = { state: 'connecting', failure: null, retry: null };
 
 export class WorkbenchStore {
-  #appSiteStore = new AppSiteStore();
   #filesStore = new FilesStore();
   #editorStore = new EditorStore();
   #flushPendingEditorChange: (() => void) | null = null;
@@ -45,16 +43,13 @@ export class WorkbenchStore {
   currentView: WritableAtom<WorkbenchViewType> = import.meta.hot?.data.workbenchCurrentView ?? atom('code');
   unsavedFiles: WritableAtom<Set<AbsolutePath>> = import.meta.hot?.data.unsavedFiles ?? atom(new Set<AbsolutePath>());
   /**
-   * The GitHub project the active workspace works on, or null for a CloudChef app (and until the agent
-   * says). A GitHub project previews and deploys through its repository's pipeline, not CloudChef's.
+   * The project the active workspace works on, or null until the agent says.
    */
   linkedProject: WritableAtom<BuilderLinkedProjectSummary | null> = atom(null);
   /** What a team or uploaded project's Preview shows: its newest preview from this conversation, else its live site. */
   linkedSite: WritableAtom<BuilderLinkedSite | null> = atom(null);
   /** A newer conversation in the chat continues the project: this one's files are shown to read only. */
   conversationClosed: WritableAtom<boolean> = atom(false);
-  /** A team adopted this app as one of its projects: it is closed for that reason, and changed from the project. */
-  conversationAdopted: WritableAtom<boolean> = atom(false);
   /** How the active workspace's files are reaching the browser, which the code view says while it has none. */
   workspaceFiles: WritableAtom<WorkspaceFilesStatus> = atom(CONNECTING_WORKSPACE_FILES);
 
@@ -68,30 +63,6 @@ export class WorkbenchStore {
 
   get followingStreamedCode() {
     return this.#editorStore.followingStreamedCode;
-  }
-
-  get siteState() {
-    return this.#appSiteStore.state;
-  }
-
-  connectSite(...args: Parameters<AppSiteStore['connect']>) {
-    return this.#appSiteStore.connect(...args);
-  }
-
-  updateSite(...args: Parameters<AppSiteStore['update']>) {
-    return this.#appSiteStore.update(...args);
-  }
-
-  get publicationState() {
-    return this.#appSiteStore.publication;
-  }
-
-  updatePublication(...args: Parameters<AppSiteStore['updatePublication']>) {
-    return this.#appSiteStore.updatePublication(...args);
-  }
-
-  publishSite(...args: Parameters<AppSiteStore['publish']>) {
-    return this.#appSiteStore.publish(...args);
   }
 
   get files() {
@@ -139,11 +110,9 @@ export class WorkbenchStore {
     this.#editorStore.setDocuments({});
     this.#editorStore.setSelectedFile(undefined);
     this.#editorStore.followingStreamedCode.set(true);
-    this.#appSiteStore.reset();
     this.linkedProject.set(null);
     this.linkedSite.set(null);
     this.conversationClosed.set(false);
-    this.conversationAdopted.set(false);
     this.workspaceFiles.set(CONNECTING_WORKSPACE_FILES);
     this.currentView.set('code');
     this.showWorkbench.set(false);

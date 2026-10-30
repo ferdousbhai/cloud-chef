@@ -31,7 +31,6 @@ const SECTION_NAMES = [
   'organizationQuotaEvents',
   'organizationUsage',
   'organizationProjects',
-  'productionRequests',
   'githubConnections',
   'emailSignInLinks',
   'authSessions',
@@ -170,28 +169,6 @@ type ExportedProjectAccess = {
   grantedAt: string;
 };
 
-/**
- * A draft this person asked to make a real project: its own Artifacts repository and the commit sent.
- * After a decision only the record is kept.
- */
-type ExportedProductionRequest = {
-  id: string;
-  organizationId: string;
-  title: string;
-  note: string | null;
-  previewUrl: string | null;
-  draftId: string | null;
-  draftRevision: string | null;
-  repository: string | null;
-  commit: string | null;
-  status: string;
-  decisionNote: string | null;
-  projectId: string | null;
-  createdAt: string;
-  updatedAt: string | null;
-  decidedAt: string | null;
-};
-
 /** A GitHub connection this person started, for a team or for themselves: who for, and where it returned. */
 type ExportedGitHubConnection = {
   cloudflareConnectionId: string;
@@ -253,7 +230,6 @@ type ControlPlaneExport = {
     organizationQuotaEvents: ExportedSection<BoundedList<{ events: ExportedQuotaEvent[] }>>;
     organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
     organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
-    productionRequests: ExportedSection<BoundedList<{ requests: ExportedProductionRequest[] }>>;
     githubConnections: ExportedSection<BoundedList<{ connections: ExportedGitHubConnection[] }>>;
     emailSignInLinks: ExportedSection<BoundedList<{ links: ExportedEmailSignInLink[] }>>;
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
@@ -280,7 +256,6 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     organizationQuotaEvents: await exportSection('organizationQuotaEvents', () => readQuotaEvents(db, args.userId)),
     organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
     organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
-    productionRequests: await exportSection('productionRequests', () => readProductionRequests(db, args.userId)),
     githubConnections: await exportSection('githubConnections', () => readGitHubConnections(db, args.userId)),
     emailSignInLinks: await exportSection('emailSignInLinks', () => readEmailSignInLinks(db, args.userId)),
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
@@ -692,54 +667,6 @@ async function readProjectAccess(
     }),
   );
   return { projects, ...bounds };
-}
-
-async function readProductionRequests(
-  db: D1Database,
-  userId: string,
-): Promise<BoundedList<{ requests: ExportedProductionRequest[] }>> {
-  const { items: requests, ...bounds } = await readBoundedList(
-    db,
-    userId,
-    `SELECT id, org_id, title, note, preview_url, draft_id, draft_revision, repo, commit_sha, status, decision_note,
-              project_id, created_at, updated_at, decided_at, COUNT(*) OVER () AS total_rows
-       FROM production_requests WHERE requested_by = ?
-       ORDER BY created_at DESC LIMIT ?`,
-    (row: {
-      id: string;
-      org_id: string;
-      title: string;
-      note: string | null;
-      preview_url: string | null;
-      draft_id: string | null;
-      draft_revision: string | null;
-      repo: string | null;
-      commit_sha: string | null;
-      status: string;
-      decision_note: string | null;
-      project_id: string | null;
-      created_at: number;
-      updated_at: number | null;
-      decided_at: number | null;
-    }) => ({
-      id: row.id,
-      organizationId: row.org_id,
-      title: row.title,
-      note: row.note,
-      previewUrl: row.preview_url,
-      draftId: row.draft_id,
-      draftRevision: row.draft_revision,
-      repository: row.repo,
-      commit: row.commit_sha,
-      status: row.status,
-      decisionNote: row.decision_note,
-      projectId: row.project_id,
-      createdAt: isoTimestamp(row.created_at),
-      updatedAt: optionalIsoTimestamp(row.updated_at),
-      decidedAt: optionalIsoTimestamp(row.decided_at),
-    }),
-  );
-  return { requests, ...bounds };
 }
 
 async function readGitHubConnections(
