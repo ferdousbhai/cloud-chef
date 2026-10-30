@@ -162,9 +162,9 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
           className={classNames(
             // A quiet label in the composer toolbar: the prompt is the focus, the model a setting.
             'group inline-flex min-h-7 min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-content-tertiary outline-hidden transition-colors hover:bg-bolt-elements-background-depth-3 hover:text-content-primary focus-visible:ring-2 focus-visible:ring-accent-500 disabled:cursor-not-allowed disabled:opacity-50',
-            // Sized to its label. A fixed width here truncated the one value this control
-            // exists to display.
-            'max-w-3xs',
+            // Sized to its label, up to the toolbar's width: a narrower cap truncated the one value this
+            // control exists to display.
+            'max-w-full',
           )}
           title={
             disabled

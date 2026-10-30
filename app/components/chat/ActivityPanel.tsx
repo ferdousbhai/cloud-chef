@@ -72,6 +72,7 @@ export function ActivityPanel({
                 <ActivityRun
                   key={message.id}
                   message={message}
+                  request={requestBefore(messages, message)}
                   active={active}
                   revealKey={active ? revealKey : 0}
                   cloudflareExecutions={cloudflareExecutions}
@@ -86,14 +87,26 @@ export function ActivityPanel({
   );
 }
 
+/** The person's message a run answered, to tell runs apart in the list. */
+function requestBefore(messages: CloudChefMessage[], run: CloudChefMessage): string {
+  const request = messages.slice(0, messages.indexOf(run)).findLast((message) => message.role === 'user');
+  return (request?.parts ?? [])
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function ActivityRun({
   message,
+  request,
   active,
   revealKey,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
 }: {
   message: CloudChefMessage;
+  request: string;
   active: boolean;
   /** A reveal the status line requested, passed only to the active run. */
   revealKey: number;
@@ -149,8 +162,8 @@ function ActivityRun({
         aria-expanded={open}
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="block font-medium text-content-primary">
-          {active ? 'Current work' : pendingApproval ? 'Approval needed' : 'Activity summary'}
+        <span className="block truncate font-medium text-content-primary">
+          {active ? 'Current work' : pendingApproval ? 'Approval needed' : request || 'Earlier work'}
         </span>
         <span className="mt-1 block">{summary}</span>
       </button>
