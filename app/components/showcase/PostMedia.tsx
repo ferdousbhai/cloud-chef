@@ -29,6 +29,25 @@ export function PostMedia({
     return <PostReelView reel={post.reel} title={post.title} className={className} priority={priority} />;
   }
   const picture = post.reel?.poster ?? post.screenshot;
+  if (picture && post.reel) {
+    // A grid tile shows the clip's first picture, marked as a clip.
+    return (
+      <div className={classNames('relative size-full', className)}>
+        <img
+          src={picture.url}
+          alt={`${post.title}, as it looks live`}
+          width={picture.width}
+          height={picture.height}
+          loading={priority ? 'eager' : 'lazy'}
+          decoding="async"
+          className="block size-full object-cover object-top"
+        />
+        <span className="absolute right-2 top-2 flex size-6 items-center justify-center rounded-full bg-black/60 text-white">
+          <PlayIcon className="ml-px size-3.5" aria-label="Has a clip" />
+        </span>
+      </div>
+    );
+  }
   if (picture) {
     return (
       <img

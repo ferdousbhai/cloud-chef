@@ -27,6 +27,8 @@ export default function ReelPlayer({
   const [index, setIndex] = useState(0);
   // A player is made when someone pressed play, so it may start at once.
   const [playing, setPlaying] = useState(autoPlay);
+  // Before it first plays, the picture stands alone under its play button, with no caption over it.
+  const [started, setStarted] = useState(autoPlay);
   const [ended, setEnded] = useState(false);
   const [muted, setMuted] = useState(true);
   const elapsed = useRef(0);
@@ -117,6 +119,7 @@ export default function ReelPlayer({
       setPlaying(true);
       return;
     }
+    setStarted(true);
     setPlaying(!playing);
   };
 
@@ -189,14 +192,15 @@ export default function ReelPlayer({
               ref={(element) => {
                 bars.current[stepIndex] = element;
               }}
-              className="block h-full origin-left scale-x-0 bg-white"
+              className="block h-full origin-left bg-white"
+              style={{ transform: 'scaleX(0)' }}
             />
           </span>
         ))}
       </div>
-      {caption ? (
+      {caption && started ? (
         <p
-          className="pointer-events-none absolute inset-x-0 bottom-14 mx-auto w-fit max-w-[88%] rounded-lg bg-black/72 px-3 py-1.5 text-center text-[15px] font-medium leading-snug sm:text-base"
+          className="pointer-events-none absolute inset-x-0 bottom-14 mx-auto w-fit max-w-[88%] rounded-lg bg-black/70 px-3 py-1.5 text-center text-[15px] font-medium leading-snug sm:text-base"
           aria-live={playing ? 'polite' : 'off'}
         >
           {caption}
@@ -218,7 +222,7 @@ export default function ReelPlayer({
         <button
           type="button"
           onClick={toggle}
-          className="flex size-9 items-center justify-center rounded-full bg-black/55 hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white"
+          className="flex size-9 items-center justify-center rounded-full bg-black/60 hover:bg-black/75 focus-visible:outline-2 focus-visible:outline-white"
           aria-label={playing ? 'Pause' : 'Play'}
         >
           {playing ? <PauseIcon className="size-4.5" /> : <PlayIcon className="size-4.5" />}
@@ -227,7 +231,7 @@ export default function ReelPlayer({
           <button
             type="button"
             onClick={() => setMuted(!muted)}
-            className="flex size-9 items-center justify-center rounded-full bg-black/55 hover:bg-black/70 focus-visible:outline-2 focus-visible:outline-white"
+            className="flex size-9 items-center justify-center rounded-full bg-black/60 hover:bg-black/75 focus-visible:outline-2 focus-visible:outline-white"
             aria-pressed={!muted}
             aria-label={muted ? 'Turn sound on' : 'Turn sound off'}
           >

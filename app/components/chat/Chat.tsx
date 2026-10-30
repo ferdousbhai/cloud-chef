@@ -1,3 +1,4 @@
+import { ChatReelsProvider } from './ChatReels';
 import { useStore } from '@nanostores/react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
 import { useSnapScroll } from '~/lib/hooks/useSnapScroll';
@@ -338,6 +339,7 @@ const AuthenticatedChat = memo(
       validationStage,
       cloudflareExecutions,
       decideCloudflareExecution,
+      reels,
       workspacePresentationState,
       workspaceFailure,
       retryWorkspacePresentation,
@@ -430,38 +432,40 @@ const AuthenticatedChat = memo(
       [liveSubchatTitle, subchats, transcript],
     );
     return (
-      <BaseChat
-        messageRef={messageRef}
-        scrollRef={scrollRef}
-        showChat={showChat}
-        chatStarted={chatStarted}
-        onStop={abort}
-        onSend={sendMessage}
-        streamStatus={streamStatus}
-        currentError={error}
-        buildProgress={buildProgress}
-        messages={visibleMessages}
-        disabledReason={chatDisabledReason(
-          conversationClosed,
-          hasUnsavedFiles,
-          workspacePresentationState,
-          workspaceFailure,
-          retryWorkspacePresentation,
-        )}
-        cloudflareExecutions={cloudflareExecutions}
-        onCloudflareExecutionDecision={decideCloudflareExecution}
-        runtimeNotice={
-          upgradeWaiting
-            ? 'Your workspace is being upgraded. Your message starts as soon as it finishes.'
-            : workspaceSyncNotice(
-                workspacePresentationState,
-                workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : null,
-              )
-        }
-        sendMessageInProgress={sendMessageInProgress}
-        subchats={visibleSubchats}
-        onSubchatTitleChange={handleSubchatTitleChange}
-      />
+      <ChatReelsProvider value={reels}>
+        <BaseChat
+          messageRef={messageRef}
+          scrollRef={scrollRef}
+          showChat={showChat}
+          chatStarted={chatStarted}
+          onStop={abort}
+          onSend={sendMessage}
+          streamStatus={streamStatus}
+          currentError={error}
+          buildProgress={buildProgress}
+          messages={visibleMessages}
+          disabledReason={chatDisabledReason(
+            conversationClosed,
+            hasUnsavedFiles,
+            workspacePresentationState,
+            workspaceFailure,
+            retryWorkspacePresentation,
+          )}
+          cloudflareExecutions={cloudflareExecutions}
+          onCloudflareExecutionDecision={decideCloudflareExecution}
+          runtimeNotice={
+            upgradeWaiting
+              ? 'Your workspace is being upgraded. Your message starts as soon as it finishes.'
+              : workspaceSyncNotice(
+                  workspacePresentationState,
+                  workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : null,
+                )
+          }
+          sendMessageInProgress={sendMessageInProgress}
+          subchats={visibleSubchats}
+          onSubchatTitleChange={handleSubchatTitleChange}
+        />
+      </ChatReelsProvider>
     );
   },
 );

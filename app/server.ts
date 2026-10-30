@@ -140,7 +140,9 @@ function applyContentSecurityPolicy(headers: Headers, nonce?: string) {
         "default-src 'self'",
         `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: https:",
+        // blob: for a clip waiting in the chat, which plays from the bytes the agent sent this page.
+        "img-src 'self' data: blob: https:",
+        "media-src 'self' blob:",
         "font-src 'self' data:",
         "connect-src 'self' https://*.workers.dev wss://*.workers.dev",
         'frame-src https:',

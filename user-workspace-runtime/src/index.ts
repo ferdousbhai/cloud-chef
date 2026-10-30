@@ -141,6 +141,7 @@ import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
 export { CloudflareApiProxy } from './cloudflare-api-proxy';
+export { ReelProxy } from './reel-proxy';
 import { handleCommandLineGit } from './git-proxy';
 import type { WorkspaceAgentCommand } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';

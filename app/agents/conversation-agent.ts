@@ -100,8 +100,20 @@ import {
   projectSite,
   commitAuthor,
   nameChatProject,
+  postReel,
+  reelTarget,
   registerUploadedProject,
 } from '~/lib/.server/cloudflare/linked-project-client';
+import {
+  BuilderReelRepository,
+  makeReel,
+  ReelRefusal,
+  reelRequestSchema,
+  workersAiSpeaker,
+  type ReelDraftForChat,
+  type ReelDraftPublicState,
+  type ReelRequest,
+} from './builder-reels';
 import {
   importedProjectRepo,
   MAIN_BRANCH,
@@ -337,6 +349,8 @@ export type ConversationAgentState = {
    */
   upgradeWaiting?: boolean;
   cloudflareExecutions?: CloudflareExecutionPublicState[];
+  /** Clips for the project's post the agent made, each shown in the chat with Approve and Not now. */
+  reels?: ReelDraftPublicState[];
   /** The project this workspace works on, once it's prepared. */
   linkedProject?: BuilderLinkedProjectSummary | null;
   linkedSite?: BuilderLinkedSite | null;
@@ -392,6 +406,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     validationProgress: null,
     upgradeWaiting: false,
     cloudflareExecutions: [],
+    reels: [],
     linkedProject: null,
     linkedSite: null,
     conversationClosed: false,
@@ -421,6 +436,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   });
   private readonly identityRepository: ConversationAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
+  private readonly reels: BuilderReelRepository;
   /** Changes each running command filed for the team's admins, in order, until that command's output takes them. */
   private readonly filedCloudflareChanges = new Map<string, CloudflareRequestFiled[]>();
   /** When the proxy holding each waiting change last asked about it, by execution: a change no one waits for is not sent. */
@@ -446,6 +462,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     initializeConversationAgentSchema(ctx);
     this.identityRepository = new ConversationAgentIdentityRepository(ctx.storage);
     this.cloudflareExecutions = new BuilderCloudflareExecutionRepository(ctx.storage);
+    this.reels = new BuilderReelRepository(ctx.storage);
     this.workspace = new UserWorkspaceRuntimeClient(
       env,
       () => this.workspaceProjectId(),
@@ -1163,6 +1180,98 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     this.refreshCloudflareExecutionState();
     await this.settleChatCloudflareChanges();
     return { execution: publicExecutionState(record) };
+  }
+
+  /**
+   * A clip for the project's post, from `cloudchef reel` while this conversation's command `toolCallId` runs (the
+   * runtime's ReelProxy asks). Made here, its lines spoken in the person's own account, and shown in that command's
+   * place in the chat with Approve and Not now; nothing leaves the account until they approve. The answer is the
+   * command's output, for the agent.
+   */
+  async proposeReel(input: { toolCallId: string; request: ReelRequest }): Promise<{ status: number; message: string }> {
+    const parsed = proposedReelSchema.safeParse(input);
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!parsed.success || !identity || identity.userId !== this.userId) {
+      return { status: 403, message: 'A clip is made by the agent in its own chat.' };
+    }
+    const linked = await this.workspace.linkedProject();
+    if (!linked) {
+      return { status: 409, message: 'This workspace is not tied to a project yet.' };
+    }
+    try {
+      const target = await reelTarget(this.env, identity, linked.orgProjectId);
+      const reel = await makeReel(parsed.data.request, workersAiSpeaker(this.env.AI));
+      const draft = this.reels.add({ toolCallId: parsed.data.toolCallId, postPath: target.path, reel });
+      this.refreshReelState();
+      return {
+        status: 200,
+        message:
+          `The ${Math.round(draft.seconds)}-second clip is playing in the chat for the person, with Approve and Not now. ` +
+          `It goes on their post (${target.path}) only if they approve; nothing more is needed from you.`,
+      };
+    } catch (error) {
+      if (error instanceof ReelRefusal || error instanceof ProjectRefusalError) {
+        return { status: 400, message: error.message };
+      }
+      throw error;
+    }
+  }
+
+  /** A clip waiting in the chat, for the chat's player to play. */
+  @callable()
+  async reelForChat(input: { reelId: string }): Promise<ReelDraftForChat> {
+    await this.requireDurableIdentity('reel_for_chat');
+    const reel = this.reels.bundle(reelIdOf(input));
+    if (!reel) {
+      throw new AgentRefusal('This clip is no longer in the chat.', 404);
+    }
+    return reel;
+  }
+
+  /** Approve: the clip goes on the project's post, sent to CloudChef as the person. */
+  @callable()
+  async approveReel(input: { reelId: string }): Promise<ReelDraftPublicState> {
+    const durable = await this.requireDurableIdentity('approve_reel');
+    const reelId = reelIdOf(input);
+    const identity = runtimeConnectionIdentity(this.env);
+    const linked = await this.workspace.linkedProject();
+    const reel = this.reels.bundle(reelId);
+    if (!identity || identity.userId !== durable.userId || !linked || !reel) {
+      throw new AgentRefusal('This clip can no longer be posted.', 409);
+    }
+    if (!this.reels.move(reelId, 'waiting', 'posting', null)) {
+      return this.reels.require(reelId);
+    }
+    this.refreshReelState();
+    try {
+      const posted = await postReel(this.env, identity, linked.orgProjectId, reel);
+      this.reels.move(
+        reelId,
+        'posting',
+        'posted',
+        posted.shown ? null : 'It shows on your post once CloudChef has looked at it.',
+      );
+    } catch (error) {
+      const note =
+        error instanceof ProjectRefusalError ? error.message : 'CloudChef couldn’t take the clip just now. Try again.';
+      this.reels.move(reelId, 'posting', 'waiting', note);
+    }
+    this.refreshReelState();
+    return this.reels.require(reelId);
+  }
+
+  /** Not now: the clip is put aside, and its files go. */
+  @callable()
+  async declineReel(input: { reelId: string }): Promise<ReelDraftPublicState> {
+    await this.requireDurableIdentity('decline_reel');
+    const reelId = reelIdOf(input);
+    this.reels.move(reelId, 'waiting', 'declined', null);
+    this.refreshReelState();
+    return this.reels.require(reelId);
+  }
+
+  private refreshReelState(): void {
+    this.setState({ ...this.state, reels: this.reels.listRecent() });
   }
 
   /**
@@ -2511,4 +2620,15 @@ async function settledWithin(promises: readonly Promise<unknown>[], timeoutMs: n
   ]);
   clearTimeout(timer);
   return settled;
+}
+
+const proposedReelSchema = z.strictObject({ toolCallId: z.string().min(1), request: reelRequestSchema });
+const reelChoiceSchema = z.strictObject({ reelId: z.string().uuid() });
+
+function reelIdOf(input: { reelId: string }): string {
+  const parsed = reelChoiceSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new AgentRefusal('Name the clip.', 400);
+  }
+  return parsed.data.reelId;
 }

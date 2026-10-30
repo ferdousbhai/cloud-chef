@@ -29,7 +29,7 @@ export const REEL_LIMITS = {
 } as const;
 
 /** Workers AI's English voices (`@cf/deepgram/aura-2-en`) a clip may speak in. */
-export const REEL_VOICES = [
+const REEL_VOICES = [
   'athena',
   'apollo',
   'asteria',
@@ -44,7 +44,7 @@ export const REEL_VOICES = [
 ] as const;
 export type ReelVoice = (typeof REEL_VOICES)[number];
 export const REEL_DEFAULT_VOICE: ReelVoice = 'athena';
-export const REEL_TTS_MODEL = '@cf/deepgram/aura-2-en';
+export const REEL_TTS_MODEL = '@cf/deepgram/aura-2-en' as const;
 
 /** Words shown or spoken: one line of plain text, nothing that could pass for markup or control characters. */
 const plainLine = (max: number) =>
@@ -85,7 +85,7 @@ export const reelScriptSchema = z.strictObject({
 export type ReelScript = z.infer<typeof reelScriptSchema>;
 
 /** A file of a timeline: a picture or a spoken line, by a name the timeline gives it. */
-export const reelRefSchema = z.string().regex(/^[a-z0-9-]{1,40}\.(?:webp|png|jpeg|mpeg)$/u);
+const reelRefSchema = z.string().regex(/^[a-z0-9-]{1,40}\.(?:webp|png|jpeg|mpeg)$/u);
 
 export const reelTimelineSchema = z
   .strictObject({
@@ -155,6 +155,14 @@ export type PostReel = {
   poster: { url: string; width: number; height: number };
   seconds: number;
 };
+
+/**
+ * Where `cloudchef reel` in the workspace container sends the agent's script and pictures: the runtime's ReelProxy,
+ * which hands them to the agent whose command is running.
+ */
+export const REEL_PROXY_HOST = 'showcase.internal';
+/** The script and its pictures, base64-encoded, a third larger than their limit. */
+export const REEL_REQUEST_MAX_BYTES = Math.ceil((REEL_LIMITS.totalBytes * 4) / 3) + 64 * 1024;
 
 /** A clip on its way, as JSON carries it: its timeline and its files, base64-encoded, by reference. */
 export const reelBundleSchema = z.strictObject({
