@@ -52,12 +52,7 @@ export function PostCard({ post: initial, priority = false }: { post: PostView; 
             {post.title}
           </PostLink>
         </div>
-        <PostMenu
-          post={post}
-          onCaption={(caption) => setPost({ ...post, caption })}
-          onChanged={() => window.location.reload()}
-          onGone={() => setGone(true)}
-        />
+        <PostMenu post={post} onCaption={(caption) => setPost({ ...post, caption })} onGone={() => setGone(true)} />
       </header>
       <PostLink
         path={post.path}

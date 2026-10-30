@@ -69,7 +69,7 @@ export default defineConfig({
       // Emailed sign-in links (app/server-handlers/email-auth.ts), sent through Cloudflare Email Service.
       SIGN_IN_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['noreply@cloudchef.build'] }),
       // Showcase pages and the feed (docs/proposals/showcase-and-feed.md). The one exception to the account boundary:
-      // a public project's screenshot or short video is kept in CloudChef's own R2 and served from /media/<id>.
+      // a public project's screenshot is kept in CloudChef's own R2 and served from /media/<id>.
       SHOWCASE_MEDIA: bindings.r2({ name: 'cloudchef-showcase-media' }),
       // Browser Rendering in CloudChef's own account: loads a public project's live site as any visitor would, for
       // its post's screenshot (app/lib/.server/showcase/screenshot.ts).

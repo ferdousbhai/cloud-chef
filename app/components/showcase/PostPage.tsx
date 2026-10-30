@@ -13,7 +13,7 @@ import { ShowcaseNotice } from './ShowcaseShell';
 import { ShowcaseViewerProvider } from './ViewerContext';
 
 /**
- * A post's own page, `/<owner>/<slug>`, the project's address on CloudChef: the picture or video large, and beside
+ * A post's own page, `/<owner>/<slug>`, the project's address on CloudChef: the picture large, and beside
  * it who made it, the caption and comments, then the actions and a box to comment. On a phone they stack, picture
  * first.
  */
@@ -43,12 +43,7 @@ function PostPageContent({ initial }: { initial: PostView }) {
     );
   }
   const menu = (
-    <PostMenu
-      post={post}
-      onCaption={(caption) => setPost({ ...post, caption })}
-      onChanged={() => window.location.reload()}
-      onGone={() => setGone(true)}
-    />
+    <PostMenu post={post} onCaption={(caption) => setPost({ ...post, caption })} onGone={() => setGone(true)} />
   );
   const when = timeAgo(post.shownAt);
   return (

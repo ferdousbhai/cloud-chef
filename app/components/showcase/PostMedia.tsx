@@ -1,10 +1,9 @@
-import { useEffect, useRef } from 'react';
 import type { PostView } from '~/lib/showcase';
 import { classNames } from '~/utils/classNames';
 
 /**
- * A post's picture: its video when it has one (muted and looping, playing while it's on screen, or with controls on
- * the post's own page), else its screenshot, else its name on a soft field while the first screenshot is taken.
+ * A post's picture: the screenshot of its live site, or its name on a soft field while the first screenshot is
+ * taken.
  */
 export function PostMedia({
   post,
@@ -12,28 +11,27 @@ export function PostMedia({
   className,
   priority = false,
 }: {
-  post: Pick<PostView, 'title' | 'screenshot' | 'video'>;
+  post: Pick<PostView, 'title' | 'screenshot'>;
   /** `tile` crops to the grid's shape; `card` and `page` show the whole picture. */
   variant: 'tile' | 'card' | 'page';
   className?: string;
   /** The first picture on a page, loaded at once. */
   priority?: boolean;
 }) {
-  const fit = variant === 'tile' ? 'object-cover object-top' : 'object-contain';
-  if (post.video && variant !== 'tile') {
-    return <PostVideo post={post} controls={variant === 'page'} className={classNames(fit, className)} />;
-  }
-  const picture = post.screenshot?.url ?? post.video?.posterUrl ?? null;
-  if (picture) {
+  if (post.screenshot) {
     return (
       <img
-        src={picture}
+        src={post.screenshot.url}
         alt={`${post.title}, as it looks live`}
-        width={post.screenshot?.width ?? 1280}
-        height={post.screenshot?.height ?? 800}
+        width={post.screenshot.width}
+        height={post.screenshot.height}
         loading={priority ? 'eager' : 'lazy'}
         decoding="async"
-        className={classNames('block size-full', fit, className)}
+        className={classNames(
+          'block size-full',
+          variant === 'tile' ? 'object-cover object-top' : 'object-contain',
+          className,
+        )}
       />
     );
   }
@@ -45,7 +43,7 @@ export function PostMedia({
       )}
     >
       <span
-        className={classNames('line-clamp-2 font-semibold tracking-tight text-content-primary wrap-anywhere', {
+        className={classNames('line-clamp-2 font-semibold tracking-tight text-content-primary', {
           'text-sm sm:text-lg': variant === 'tile',
           'text-lg sm:text-xl': variant !== 'tile',
         })}
@@ -53,53 +51,5 @@ export function PostMedia({
         {post.title}
       </span>
     </div>
-  );
-}
-
-function PostVideo({
-  post,
-  controls,
-  className,
-}: {
-  post: Pick<PostView, 'title' | 'screenshot' | 'video'>;
-  controls: boolean;
-  className?: string;
-}) {
-  const ref = useRef<HTMLVideoElement>(null);
-  // In a feed, a video plays while it's on screen and pauses when scrolled away, as a picture feed's do.
-  useEffect(() => {
-    const video = ref.current;
-    if (!video || controls || !('IntersectionObserver' in window)) {
-      return;
-    }
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          void video.play().catch(() => undefined);
-        } else {
-          video.pause();
-        }
-      },
-      { threshold: 0.6 },
-    );
-    observer.observe(video);
-    return () => observer.disconnect();
-  }, [controls]);
-  return (
-    <video
-      ref={ref}
-      src={post.video!.url}
-      poster={post.video!.posterUrl ?? post.screenshot?.url ?? undefined}
-      muted
-      loop
-      playsInline
-      controls={controls}
-      preload="metadata"
-      aria-label={`A short video of ${post.title}`}
-      className={classNames('block size-full bg-black', className)}
-    />
   );
 }

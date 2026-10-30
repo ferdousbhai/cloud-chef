@@ -31,9 +31,9 @@ origin-bound capability and communicates directly with that Worker for chat, pro
 operations. Generated-application D1 and R2 resources are created later only when the validated deployment plan
 requires them. Cloudflare meters those resources to the user's account.
 
-Exception, showcase media only: a screenshot or short video of a public project's live site, taken or uploaded when
-it is posted, is stored in CloudChef's own R2 and served by CloudChef, and the screenshot is taken by Browser Rendering
-in CloudChef's own account, which loads the site's public address as any visitor would. No project code, data, chat
+Exception, showcase media only: a screenshot of a public project's live site, taken when it is posted or published
+again, is stored in CloudChef's own R2 and served by CloudChef, and it is taken by Browser Rendering in CloudChef's
+own account, which loads the site's public address as any visitor would. No project code, data, chat
 or build output is stored or run there. Removing a post, making its project private, or erasing the author's account
 deletes its media.
 
@@ -330,7 +330,7 @@ edit) for a team project.
 | Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
 | Projects, members' roles, GitHub installations, production requests                               | CloudChef control-plane D1                           |
 | Showcase posts, follows, likes, comments, notifications, reports, copies waiting for a space      | CloudChef control-plane D1                           |
-| Showcase screenshots and videos of public projects' live sites                                    | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
+| Showcase screenshots of public projects' live sites                                               | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
 | Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
 | Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable)          | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
 | Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |

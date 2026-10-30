@@ -68,7 +68,7 @@ const POST_COLUMNS = `posts.id, posts.project_id, posts.caption, posts.site_url,
   projects.name AS project_name, projects.slug AS project_slug, owners.username AS owner_username,
   authors.username AS author_username, authors.name AS author_name, authors.image AS author_image,
   (SELECT json_group_array(json_object('id', media.id, 'kind', media.kind, 'width', media.width,
-     'height', media.height, 'durationMs', media.duration_ms, 'contentType', media.content_type))
+     'height', media.height, 'contentType', media.content_type))
    FROM post_media AS media WHERE media.post_id = posts.id AND media.state = 'ready') AS media`;
 
 /** What a post is read with: its project, its author, and its project's author (whose username is in its address). */
@@ -88,27 +88,24 @@ const PUBLIC = `posts.status = 'visible' AND projects.visibility = 'public' AND 
 const beforeCursor = (shownAt: string, id: string) =>
   `(posts.shown_at < ${shownAt} OR (posts.shown_at = ${shownAt} AND posts.id < ${id}))`;
 
+/** A media row as POST_COLUMNS gathers it. Only screenshots are made today; any other kind is not shown. */
 type MediaJson = {
   id: string;
-  kind: 'screenshot' | 'video' | 'poster';
+  kind: string;
   width: number | null;
   height: number | null;
-  durationMs: number | null;
   contentType: string;
 };
 
 /** Where a media item is served: CloudChef's own address, by its id, so a replaced picture is a new address. */
 function mediaPath(media: { id: string; contentType: string }): string {
-  const extension = media.contentType === 'video/mp4' ? 'mp4' : media.contentType === 'video/webm' ? 'webm' : 'webp';
-  return `/media/${media.id}.${extension}`;
+  return `/media/${media.id}.${media.contentType.split('/')[1] ?? 'webp'}`;
 }
 
 function toPostView(row: PostRow): PostView {
   // SAFETY: `media` is the json_group_array of POST_COLUMNS, whose objects have exactly these fields.
   const media: MediaJson[] = row.media ? (JSON.parse(row.media) as MediaJson[]) : [];
   const screenshot = media.find((item) => item.kind === 'screenshot');
-  const video = media.find((item) => item.kind === 'video');
-  const poster = media.find((item) => item.kind === 'poster');
   return {
     id: row.id,
     projectId: row.project_id,
@@ -119,15 +116,6 @@ function toPostView(row: PostRow): PostView {
     author: { username: row.author_username ?? '', name: row.author_name, image: row.author_image },
     screenshot: screenshot
       ? { url: mediaPath(screenshot), width: screenshot.width ?? 1280, height: screenshot.height ?? 800 }
-      : null,
-    video: video
-      ? {
-          url: mediaPath(video),
-          posterUrl: poster ? mediaPath(poster) : null,
-          width: video.width,
-          height: video.height,
-          durationMs: video.durationMs,
-        }
       : null,
     updated: row.published_count > 1,
     shownAt: row.shown_at,
@@ -601,14 +589,14 @@ export async function setBio(db: D1Database, userId: string, bio: string): Promi
 
 export type NewMedia = {
   id: string;
-  kind: 'screenshot' | 'video' | 'poster';
-  origin: 'automatic' | 'uploaded';
+  /** Only automatic screenshots today; the table takes other kinds without a change (migrations/0056). */
+  kind: 'screenshot';
+  origin: 'automatic';
   r2Key: string;
   contentType: string;
   bytes: number;
   width: number | null;
   height: number | null;
-  durationMs: number | null;
   commit: string | null;
   state: 'pending' | 'ready';
 };
@@ -616,9 +604,9 @@ export type NewMedia = {
 function insertMedia(db: D1Database, postId: string, media: NewMedia, now: number): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO post_media (id, post_id, kind, origin, r2_key, content_type, bytes, width, height, duration_ms,
+      `INSERT INTO post_media (id, post_id, kind, origin, r2_key, content_type, bytes, width, height,
          commit_sha, state, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
     )
     .bind(
       media.id,
@@ -630,7 +618,6 @@ function insertMedia(db: D1Database, postId: string, media: NewMedia, now: numbe
       media.bytes,
       media.width,
       media.height,
-      media.durationMs,
       media.commit,
       media.state,
       now,
@@ -657,38 +644,6 @@ export async function replaceScreenshot(
     insertMedia(db, args.postId, args.media, Date.now()),
   ]);
   return true;
-}
-
-/**
- * A video the author recorded or chose, with its poster frame, replacing the video before it. A new video moves the
- * post back to the top of feeds, at most once a day like a publish.
- */
-export async function replaceVideo(
-  db: D1Database,
-  args: { postId: string; userId: string; video: NewMedia; poster: NewMedia | null; now?: number },
-): Promise<void> {
-  const post = await requireManagedPost(db, args.postId, args.userId);
-  if (post.status === 'removed') {
-    throw new ShowcaseError('This post was taken down after reports.', 409);
-  }
-  const now = args.now ?? Date.now();
-  await db.batch([
-    db.prepare(`DELETE FROM post_media WHERE post_id = ? AND kind IN ('video', 'poster')`).bind(args.postId),
-    insertMedia(db, args.postId, args.video, now),
-    ...(args.poster ? [insertMedia(db, args.postId, args.poster, now)] : []),
-    db
-      .prepare(
-        `UPDATE posts SET updated_at = ?2, shown_at = CASE WHEN status = 'visible' AND ?2 - shown_at > ?3 THEN ?2
-           ELSE shown_at END WHERE id = ?1`,
-      )
-      .bind(args.postId, now, POST_MOVE_INTERVAL_MS),
-  ]);
-}
-
-/** Removes a post's video and its poster. */
-export async function removeVideo(db: D1Database, args: { postId: string; userId: string }): Promise<void> {
-  await requireManagedPost(db, args.postId, args.userId);
-  await db.prepare(`DELETE FROM post_media WHERE post_id = ? AND kind IN ('video', 'poster')`).bind(args.postId).run();
 }
 
 /** A media item to serve: only a ready one of a post anyone may see. */
@@ -1578,7 +1533,7 @@ export async function unpausePerson(db: D1Database, userId: string): Promise<voi
 // Account export
 // ---------------------------------------------------------------------------------------------------------------
 
-/** A post of theirs as the export lists it: its row, and its pictures and videos (`media`, as JSON). */
+/** A post of theirs as the export lists it: its row, and its pictures (`media`, as JSON). */
 type ExportedPostRow = {
   id: string;
   project_id: string;
@@ -1633,7 +1588,7 @@ export async function exportShowcase(db: D1Database, userId: string) {
     profile,
     posts: posts.results.map((post) => ({
       ...post,
-      // Each picture or video is at its address while the post is shown; the export lists them, not their bytes.
+      // Each picture is at its address while the post is shown; the export lists them, not their bytes.
       // SAFETY: `media` is the json_group_array above, whose objects have these fields.
       media: (JSON.parse(post.media) as { id: string; contentType: string }[]).map((media) => ({
         ...media,

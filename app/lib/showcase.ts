@@ -17,7 +17,7 @@ export type PublicPerson = {
 /** Who made a post, a comment, or something a notification is about. */
 type ShowcaseAuthor = { username: string | null; name: string; image: string | null };
 
-/** A post as anyone sees it: one public project, its live site, and its picture or video. */
+/** A post as anyone sees it: one public project, its live site, and a screenshot of it. */
 export type PostView = {
   id: string;
   projectId: string;
@@ -28,14 +28,8 @@ export type PostView = {
   caption: string | null;
   siteUrl: string;
   author: { username: string; name: string; image: string | null };
+  /** The live site as it looked at its last publish; null until the first screenshot is taken. */
   screenshot: { url: string; width: number; height: number } | null;
-  video: {
-    url: string;
-    posterUrl: string | null;
-    width: number | null;
-    height: number | null;
-    durationMs: number | null;
-  } | null;
   /** Published again since it was first posted. */
   updated: boolean;
   shownAt: number;
@@ -88,10 +82,6 @@ export const REPORT_REASON_LABELS = {
   other: 'Something else',
 } satisfies Record<ReportReason, string>;
 
-/** A video's limits: recorded in the browser or uploaded. */
-export const VIDEO_LIMITS = { seconds: 30, bytes: 25 * 1024 * 1024 } as const;
-/** A poster frame's limit. */
-export const POSTER_MAX_BYTES = 2 * 1024 * 1024;
 export const CAPTION_MAX = 2000;
 export const BIO_MAX = 300;
 export const COMMENT_MAX = 1000;

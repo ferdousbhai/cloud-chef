@@ -124,14 +124,14 @@ function TermsPage() {
       <TrustSection title="Your page and posts">
         <p>
           Publishing a public project puts it on your page at your username, where anyone on the web can see its live
-          site, a picture or short video of it, and its caption, and signed-in people can like it, comment on it, and
-          make their own copy. Private projects are never posted. You can hide a post from your page or delete it at any
-          time; making the project private takes it off for good.
+          site, a picture of it, and its caption, and signed-in people can like it, comment on it, and make their own
+          copy. Private projects are never posted. You can hide a post from your page or delete it at any time; making
+          the project private takes it off for good.
         </p>
         <p>
-          Post only what you have the right to share. Posts, captions, videos and comments must follow the acceptable
-          use rules above: no scams or pages that ask for passwords or money under false pretenses, no sexual content,
-          nothing violent or hateful, no spam, and nothing copied from someone else without permission.
+          Post only what you have the right to share. Posts, captions and comments must follow the acceptable use rules
+          above: no scams or pages that ask for passwords or money under false pretenses, no sexual content, nothing
+          violent or hateful, no spam, and nothing copied from someone else without permission.
         </p>
         <p>
           Anyone can report a post or comment from its menu. CloudChef holds a post or comment that several people

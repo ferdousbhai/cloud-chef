@@ -13,8 +13,6 @@ function recordWith(key: string) {
   return z.looseObject({ [key]: z.string() });
 }
 
-const refusalSchema = z.object({ error: z.string() });
-
 const viewerSchema = z.union([
   z.object({ signedIn: z.literal(false) }),
   z.object({
@@ -137,52 +135,6 @@ export async function setPostShown(postId: string, shown: boolean): Promise<void
 
 export async function deletePost(postId: string): Promise<void> {
   await postJson('/api/showcase/posts/delete', { postId }, z.unknown());
-}
-
-export async function removeVideo(postId: string): Promise<void> {
-  await postJson('/api/showcase/posts/video/remove', { postId }, z.unknown());
-}
-
-/** Uploads a post's video and its poster frame, reporting progress from 0 to 1. */
-export function uploadVideo(
-  args: { postId: string; video: Blob; poster: Blob | null; durationMs: number; width: number; height: number },
-  onProgress: (fraction: number) => void,
-): Promise<void> {
-  const form = new FormData();
-  form.set('postId', args.postId);
-  form.set('durationMs', String(Math.round(args.durationMs)));
-  form.set('width', String(args.width));
-  form.set('height', String(args.height));
-  form.set('video', args.video, args.video.type === 'video/mp4' ? 'video.mp4' : 'video.webm');
-  if (args.poster) {
-    form.set('poster', args.poster, 'poster.webp');
-  }
-  // XMLHttpRequest, for upload progress, which fetch doesn't report.
-  return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest();
-    request.open('POST', '/api/showcase/posts/video');
-    request.withCredentials = true;
-    request.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        onProgress(event.loaded / event.total);
-      }
-    };
-    request.onload = () => {
-      if (request.status >= 200 && request.status < 300) {
-        resolve();
-        return;
-      }
-      let message = 'The video could not be uploaded. Try again.';
-      try {
-        message = refusalSchema.safeParse(JSON.parse(request.responseText)).data?.error ?? message;
-      } catch {
-        // Not CloudChef's answer (a proxy's error page): the generic words stand.
-      }
-      reject(new Error(message));
-    };
-    request.onerror = () => reject(new Error('The video could not be uploaded. Check your connection and try again.'));
-    request.send(form);
-  });
 }
 
 export async function setBio(bio: string): Promise<string | null> {

@@ -7,33 +7,27 @@ import {
   Link2Icon,
   Pencil1Icon,
   TrashIcon,
-  UploadIcon,
-  VideoIcon,
 } from '@radix-ui/react-icons';
 import { Menu, MenuItem, MenuSeparator } from '@ui/Menu';
 import { messageOf } from '~/lib/json-request';
-import { removeVideo, setPostShown } from '~/lib/showcase-api';
+import { setPostShown } from '~/lib/showcase-api';
 import type { PostView } from '~/lib/showcase';
 import { CaptionDialog, DeletePostDialog, ReportDialog } from './PostDialogs';
-import { VideoDialog } from './VideoDialog';
 import { useShowcaseViewer } from './ViewerContext';
 
-type Dialog = 'caption' | 'record' | 'upload' | 'delete' | 'report' | null;
+type Dialog = 'caption' | 'delete' | 'report' | null;
 
 /**
- * A post's own menu. Its author (and a team project's admins) can edit the caption, add or take off a video, hide it
- * from their page, or delete it; anyone can copy its link or report it.
+ * A post's own menu. Its author (and a team project's admins) can edit the caption, hide it from their page,
+ * or delete it; anyone can copy its link or report it.
  */
 export function PostMenu({
   post,
   onCaption,
-  onChanged,
   onGone,
 }: {
   post: PostView;
   onCaption: (caption: string | null) => void;
-  /** Its video changed: the page reads the post again. */
-  onChanged: () => void;
   /** Hidden or deleted: gone from this page. */
   onGone: () => void;
 }) {
@@ -55,14 +49,6 @@ export function PostMenu({
       })
       .catch((error) => toast.error(messageOf(error, 'The post couldn’t be hidden. Try again.')));
   };
-  const takeOffVideo = () => {
-    removeVideo(post.id)
-      .then(() => {
-        toast.success('The video is off the post.');
-        onChanged();
-      })
-      .catch((error) => toast.error(messageOf(error, 'The video couldn’t be removed. Try again.')));
-  };
 
   return (
     <>
@@ -81,20 +67,6 @@ export function PostMenu({
               <Pencil1Icon />
               Edit caption
             </MenuItem>
-            <MenuItem action={() => setDialog('record')}>
-              <VideoIcon />
-              Record a video
-            </MenuItem>
-            <MenuItem action={() => setDialog('upload')}>
-              <UploadIcon />
-              Upload a video
-            </MenuItem>
-            {post.video ? (
-              <MenuItem action={takeOffVideo}>
-                <VideoIcon />
-                Take off the video
-              </MenuItem>
-            ) : null}
             <MenuItem action={hide}>
               <EyeNoneIcon />
               Hide from my page
@@ -125,20 +97,6 @@ export function PostMenu({
           onSaved={(caption) => {
             setDialog(null);
             onCaption(caption);
-          }}
-          onClose={() => setDialog(null)}
-        />
-      ) : null}
-      {dialog === 'record' || dialog === 'upload' ? (
-        <VideoDialog
-          postId={post.id}
-          title={post.title}
-          siteUrl={post.siteUrl}
-          mode={dialog}
-          onUploaded={() => {
-            setDialog(null);
-            toast.success('Your video is on the post.');
-            onChanged();
           }}
           onClose={() => setDialog(null)}
         />

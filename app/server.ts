@@ -145,9 +145,7 @@ function applyContentSecurityPolicy(headers: Headers, nonce?: string) {
         "default-src 'self'",
         `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
         "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: https:",
-        // A post's video, and one being recorded or chosen for it, before it is uploaded.
-        "media-src 'self' blob:",
+        "img-src 'self' data: https:",
         "font-src 'self' data:",
         "connect-src 'self' https://*.workers.dev wss://*.workers.dev",
         'frame-src https:',
@@ -302,8 +300,6 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/showcase/posts/caption': ['POST', showcase.captionAction],
     '/api/showcase/posts/shown': ['POST', showcase.shownAction],
     '/api/showcase/posts/delete': ['POST', showcase.deletePostAction],
-    '/api/showcase/posts/video': ['POST', showcase.uploadVideoAction],
-    '/api/showcase/posts/video/remove': ['POST', showcase.removeVideoAction],
     '/api/showcase/posts/hidden': ['GET', showcase.hiddenPostsAction],
     '/api/showcase/profile': ['POST', showcase.profileAction],
     '/api/showcase/notifications': ['GET', showcase.notificationsAction],
@@ -369,7 +365,7 @@ async function runtimeRateLimited(request: Request, env: Env): Promise<boolean> 
 }
 
 async function routeApplicationRequest(request: Request, env: Env, nonce: string, pathname: string): Promise<Response> {
-  // A post's picture or video, from CloudChef's own R2, at an address named by its id.
+  // A post's picture, from CloudChef's own R2, at an address named by its id.
   if (pathname.startsWith('/media/')) {
     return serveMediaAction({ request, env });
   }

@@ -42,7 +42,7 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
     }
     throw error;
   }
-  // Their posts' pictures and videos in CloudChef's own storage go with the posts the erasure deleted.
+  // Their posts' screenshots in CloudChef's own storage go with the posts the erasure deleted.
   await deleteGoneMediaBestEffort(env);
   console.info({
     event: 'control_plane_account_erased',

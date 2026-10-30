@@ -164,7 +164,7 @@ export function ReportDialog({
   );
 }
 
-/** "Delete post": the post, its likes, comments, pictures and video go; the project stays as it is. */
+/** "Delete post": the post, its likes, comments and picture go; the project stays as it is. */
 export function DeletePostDialog({
   postId,
   title,
@@ -192,7 +192,7 @@ export function DeletePostDialog({
   return (
     <Modal onClose={onClose} title={`Delete the post of ${title}?`}>
       <div className="grid gap-2 text-sm text-content-secondary">
-        <p>Its likes, comments, picture and video go with it. The project itself stays as it is.</p>
+        <p>Its likes, comments and picture go with it. The project itself stays as it is.</p>
         <p>
           While the project is public, its next publish puts a new post on your page. To stop it showing for good, make
           the project private, or choose Hide from my page instead.

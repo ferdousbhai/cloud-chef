@@ -946,7 +946,7 @@ const visibilitySchema = z.strictObject({ projectId: z.string().uuid(), visibili
 
 /**
  * A project its manager, or else an app its owner, makes public or private; false when neither is theirs. A project
- * made private takes its post off its author's page, and the post's pictures and videos are deleted.
+ * made private takes its post off its author's page, and the post's screenshot is deleted.
  */
 async function setVisibility(env: Env, userId: string, id: string, visibility: ProjectVisibility) {
   if (await setProjectVisibility(env.DB, { userId, projectId: id, visibility })) {

@@ -25,7 +25,7 @@ CREATE TABLE posts (
   -- operator (kept so the next publish doesn't post it again).
   status TEXT NOT NULL CHECK (status IN ('visible', 'hidden', 'removed')),
   hidden_reason TEXT CHECK (hidden_reason IN ('author', 'project_private', 'reported')),
-  -- Where it sorts in feeds and on the page: moved by a publish at most once a day, and by a new video.
+  -- Where it sorts in feeds and on the page: moved by a publish at most once a day.
   shown_at INTEGER NOT NULL,
   published_count INTEGER NOT NULL DEFAULT 1,
   like_count INTEGER NOT NULL DEFAULT 0,
@@ -37,19 +37,20 @@ CREATE TABLE posts (
 CREATE INDEX idx_posts_author ON posts(author_id, status, shown_at DESC);
 CREATE INDEX idx_posts_shown ON posts(status, shown_at DESC);
 
--- A post's pictures and videos, in CloudChef's own R2 (SHOWCASE_MEDIA). The newest automatic screenshot replaces the
--- one before it; an uploaded video replaces the video before it, with its poster frame.
+-- A post's media, in CloudChef's own R2 (SHOWCASE_MEDIA). The newest automatic screenshot replaces the one before
+-- it. `kind` and `origin` carry no CHECK, so a later kind of media needs no rebuild: today every row is a
+-- 'screenshot' whose origin is 'automatic' (taken on publish by Browser Rendering in CloudChef's own account).
 CREATE TABLE post_media (
   id TEXT PRIMARY KEY,
   post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('screenshot', 'video', 'poster')),
-  -- 'automatic' (taken on publish by Browser Rendering) or 'uploaded' (recorded or chosen by the author).
-  origin TEXT NOT NULL CHECK (origin IN ('automatic', 'uploaded')),
+  kind TEXT NOT NULL,
+  origin TEXT NOT NULL,
   r2_key TEXT NOT NULL UNIQUE,
   content_type TEXT NOT NULL,
   bytes INTEGER NOT NULL,
   width INTEGER,
   height INTEGER,
+  -- How long media that plays runs (none does yet).
   duration_ms INTEGER,
   commit_sha TEXT,
   -- 'pending' until checked; 'ready' to show; 'rejected' by the checks or an operator.

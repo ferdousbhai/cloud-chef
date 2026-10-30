@@ -38,7 +38,7 @@ Cloudflare control plane, builder agent, user-owned workspace runtime, and gener
 ## Invariants
 
 - Product code is self-contained in this repository; do not depend on sibling repositories.
-- User workloads, backing resources, and inference run only in the authenticated user's Cloudflare account. Missing user resources fail closed. Exception, showcase media only: a public project's screenshot (taken by Browser Rendering in CloudChef's own account, loading the site's public address as any visitor would) or short video is stored in CloudChef's own R2 and served by CloudChef; no project code, data, chat or build output is stored or run there, and removing the post, making the project private, or erasing the author's account deletes it.
+- User workloads, backing resources, and inference run only in the authenticated user's Cloudflare account. Missing user resources fail closed. Exception, showcase media only: a public project's screenshot, taken by Browser Rendering in CloudChef's own account loading the site's public address as any visitor would, is stored in CloudChef's own R2 and served by CloudChef; no project code, data, chat or build output is stored or run there, and removing the post, making the project private, or erasing the author's account deletes it.
 - Every new top-level page is added to `RESERVED` in `app/lib/usernames.ts` first: people's pages are at `/<username>`.
 - Do not hand-edit generated route trees, Worker binding types, or generated bundle modules. After changing `template/` or the workspace runtime, run `pnpm run generate:artifacts`.
 

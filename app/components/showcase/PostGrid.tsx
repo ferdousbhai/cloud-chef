@@ -1,4 +1,4 @@
-import { ChatBubbleIcon, HeartFilledIcon, VideoIcon } from '@radix-ui/react-icons';
+import { ChatBubbleIcon, HeartFilledIcon } from '@radix-ui/react-icons';
 import type { PostView } from '~/lib/showcase';
 import { countLabel } from '~/lib/showcase';
 import { Avatar } from './Avatar';
@@ -25,11 +25,6 @@ export function PostGrid({ posts, showAuthor = false }: { posts: PostView[]; sho
               priority={index < 6}
               className="transition-transform duration-300 group-hover:scale-[1.02]"
             />
-            {post.video ? (
-              <span className="absolute right-2 top-2 rounded-full bg-black/45 p-1 text-white" aria-hidden>
-                <VideoIcon className="size-3.5" />
-              </span>
-            ) : null}
             <span className="showcase-tile__veil pointer-events-none absolute inset-0" aria-hidden />
             <span className="pointer-events-none absolute inset-x-0 bottom-0 flex min-w-0 items-center gap-2 p-2 sm:p-3">
               {showAuthor ? (

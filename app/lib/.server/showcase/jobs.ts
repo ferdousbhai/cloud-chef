@@ -89,7 +89,6 @@ async function runJob(env: Env, job: ShowcaseJob): Promise<void> {
           bytes: shot.bytes.byteLength,
           width: shot.width,
           height: shot.height,
-          durationMs: null,
           commit: job.commit,
           state: await classifyMedia(env, shot.bytes, shot.contentType),
         },

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { toast } from 'sonner';
-import { EyeOpenIcon } from '@radix-ui/react-icons';
+import { EyeNoneIcon, EyeOpenIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
 import { messageOf } from '~/lib/json-request';
@@ -9,7 +9,6 @@ import { BIO_MAX, countLabel, type PostView, type PublicPerson, type ShowcaseCur
 import { Avatar } from './Avatar';
 import { FollowListDialog } from './FollowListDialog';
 import { PostGrid } from './PostGrid';
-import { PostMedia } from './PostMedia';
 import { ShowcaseViewerProvider, useShowcaseViewer } from './ViewerContext';
 
 /**
@@ -276,13 +275,19 @@ export function HiddenPosts() {
       </h2>
       <ul className="grid gap-2">
         {posts.map((post) => (
-          <li key={post.id} className="showcase-card flex items-center gap-3 p-2.5">
-            <div className="aspect-[4/3] w-20 shrink-0 overflow-hidden rounded-md">
-              {/* A hidden post's pictures aren't served to anyone, so its name stands in for them. */}
-              <PostMedia post={{ ...post, screenshot: null, video: null }} variant="tile" />
-            </div>
-            <div className="min-w-0 flex-1 text-sm">
-              <p className="truncate font-medium text-content-primary">{post.title}</p>
+          <li
+            key={post.id}
+            className="showcase-card grid grid-cols-[2.75rem_minmax(0,1fr)] items-center gap-x-3 gap-y-2 p-3"
+          >
+            {/* A hidden post's picture isn't served to anyone, so a mark stands in for it. */}
+            <span
+              aria-hidden
+              className="showcase-placeholder flex size-11 items-center justify-center rounded-md text-content-secondary"
+            >
+              <EyeNoneIcon />
+            </span>
+            <div className="min-w-0 text-sm">
+              <p className="font-medium text-content-primary wrap-anywhere">{post.title}</p>
               <p className="text-xs text-content-tertiary">
                 {post.hiddenReason === 'reported'
                   ? 'Held after reports, until CloudChef has looked at it.'
@@ -292,9 +297,11 @@ export function HiddenPosts() {
               </p>
             </div>
             {post.hiddenReason === 'author' || (post.hiddenReason === 'project_private' && post.projectPublic) ? (
-              <Button size="sm" variant="neutral" icon={<EyeOpenIcon />} onClick={() => void show(post)}>
-                Show on my page
-              </Button>
+              <div className="col-start-2">
+                <Button size="sm" variant="neutral" icon={<EyeOpenIcon />} onClick={() => void show(post)}>
+                  Show on my page
+                </Button>
+              </div>
             ) : null}
           </li>
         ))}

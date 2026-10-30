@@ -23,8 +23,6 @@ import {
   listPersonPosts,
   markNotificationsRead,
   removePendingCopy,
-  removeVideo,
-  replaceVideo,
   setBio,
   setFollowing,
   setLiked,
@@ -34,31 +32,16 @@ import {
   unpausePerson,
   unreadNotifications,
   viewerStateOfPosts,
-  type NewMedia,
 } from '~/lib/cloudflare/data/posts.server';
-import {
-  deleteGoneMediaBestEffort,
-  mediaKey,
-  serveMediaForReview,
-  sniffContentType,
-} from '~/lib/.server/showcase/media';
-import { classifyMedia } from '~/lib/.server/showcase/screenshot';
-import {
-  BIO_MAX,
-  CAPTION_MAX,
-  COMMENT_MAX,
-  POSTER_MAX_BYTES,
-  REPORT_REASONS,
-  VIDEO_LIMITS,
-  type ShowcaseCursor,
-} from '~/lib/showcase';
+import { deleteGoneMediaBestEffort, serveMediaForReview } from '~/lib/.server/showcase/media';
+import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor } from '~/lib/showcase';
 import { SENDER } from './email-auth';
 import { copyProjectFor } from './command-line';
 import { answeringOrganizationErrors } from './signed-in';
 
 /**
  * The showcase's routes (docs/proposals/showcase-and-feed.md): what a page shows a signed-in person differently,
- * following, likes, comments, reports, an author's controls on their post, video uploads, notifications, copies
+ * following, likes, comments, reports, an author's controls on their post, notifications, copies
  * waiting for a space, and the operators' reports page. Reading pages and posts is public (the routes' loaders, in
  * `app/lib/showcase-loaders.ts`); changing anything needs sign-in, except reporting.
  */
@@ -350,132 +333,6 @@ export const deletePostAction: Handler = ({ request, env }) =>
     return json({ deleted: true });
   });
 
-/** `POST /api/showcase/posts/video/remove`: take a post's video off it. */
-export const removeVideoAction: Handler = ({ request, env }) =>
-  signedInShowcase(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, postIdSchema, 'Name the post.');
-    if ('response' in body) {
-      return body.response;
-    }
-    await removeVideo(env.DB, { userId: session.user.id, postId: body.data.postId });
-    await deleteGoneMediaBestEffort(env);
-    return json({ removed: true });
-  });
-
-/** A whole multipart video upload: the video, its poster frame, and the form's few fields. */
-const MAX_UPLOAD_BYTES = VIDEO_LIMITS.bytes + POSTER_MAX_BYTES + 64 * 1024;
-
-/**
- * `POST /api/showcase/posts/video` (multipart: `postId`, `durationMs`, `width`, `height`, `video`, `poster`): a video
- * the author recorded in the browser or chose, at most 30 seconds and 25 MB, MP4 or WebM, with a poster frame the
- * browser took from it. What each file is comes from its bytes, never from what the browser said.
- */
-export const uploadVideoAction: Handler = ({ request, env }) =>
-  signedInShowcase(request, env, async ({ session }) => {
-    const declared = Number(request.headers.get('Content-Length') ?? 'NaN');
-    if (!Number.isFinite(declared) || declared > MAX_UPLOAD_BYTES) {
-      return json({ error: 'Choose a video of up to 25 MB.' }, 413);
-    }
-    const form = await request.formData().catch(() => null);
-    const postId = ID.safeParse(form?.get('postId'));
-    const durationMs = Number(form?.get('durationMs'));
-    const video = form?.get('video');
-    const poster = form?.get('poster');
-    if (!postId.success || !(video instanceof File)) {
-      return json({ error: 'Choose a video for the post.' }, 400);
-    }
-    if (!Number.isFinite(durationMs) || durationMs <= 0 || durationMs > VIDEO_LIMITS.seconds * 1000 + 500) {
-      return json({ error: 'Choose a video of up to 30 seconds.' }, 400);
-    }
-    if (video.size > VIDEO_LIMITS.bytes) {
-      return json({ error: 'Choose a video of up to 25 MB.' }, 413);
-    }
-    const videoBytes = new Uint8Array(await video.arrayBuffer());
-    const videoType = sniffContentType(videoBytes);
-    if (videoType !== 'video/mp4' && videoType !== 'video/webm') {
-      return json({ error: 'Choose an MP4 or WebM video.' }, 400);
-    }
-    let posterMedia: { bytes: Uint8Array; contentType: string } | null = null;
-    if (poster instanceof File && poster.size > 0 && poster.size <= POSTER_MAX_BYTES) {
-      const posterBytes = new Uint8Array(await poster.arrayBuffer());
-      const posterType = sniffContentType(posterBytes);
-      if (posterType === 'image/webp' || posterType === 'image/jpeg' || posterType === 'image/png') {
-        posterMedia = { bytes: posterBytes, contentType: posterType };
-      }
-    }
-    const dimension = (name: string) => {
-      const value = Number(form?.get(name));
-      return Number.isSafeInteger(value) && value > 0 && value <= 8192 ? value : null;
-    };
-    const [width, height] = [dimension('width'), dimension('height')];
-    // The project's own post, checked before anything is stored.
-    await findManagedPostOrThrow(env, postId.data, session.user.id);
-
-    const videoId = crypto.randomUUID();
-    const videoKey = mediaKey(postId.data, videoId, videoType);
-    const stored: string[] = [];
-    try {
-      await env.SHOWCASE_MEDIA.put(videoKey, videoBytes, { httpMetadata: { contentType: videoType } });
-      stored.push(videoKey);
-      const videoMedia: NewMedia = {
-        id: videoId,
-        kind: 'video',
-        origin: 'uploaded',
-        r2Key: videoKey,
-        contentType: videoType,
-        bytes: videoBytes.byteLength,
-        width,
-        height,
-        durationMs: Math.round(durationMs),
-        commit: null,
-        // Only the poster can be looked at by a classifier; the video waits with it.
-        state: 'ready',
-      };
-      let posterRow: NewMedia | null = null;
-      if (posterMedia) {
-        const posterId = crypto.randomUUID();
-        const posterKey = mediaKey(postId.data, posterId, posterMedia.contentType);
-        await env.SHOWCASE_MEDIA.put(posterKey, posterMedia.bytes, {
-          httpMetadata: { contentType: posterMedia.contentType },
-        });
-        stored.push(posterKey);
-        const state = await classifyMedia(env, posterMedia.bytes, posterMedia.contentType);
-        videoMedia.state = state;
-        posterRow = {
-          id: posterId,
-          kind: 'poster',
-          origin: 'uploaded',
-          r2Key: posterKey,
-          contentType: posterMedia.contentType,
-          bytes: posterMedia.bytes.byteLength,
-          width,
-          height,
-          durationMs: null,
-          commit: null,
-          state,
-        };
-      }
-      await replaceVideo(env.DB, {
-        postId: postId.data,
-        userId: session.user.id,
-        video: videoMedia,
-        poster: posterRow,
-      });
-    } catch (error) {
-      await env.SHOWCASE_MEDIA.delete(stored).catch(() => undefined);
-      throw error;
-    }
-    await deleteGoneMediaBestEffort(env);
-    return json({ uploaded: true }, 201);
-  });
-
-async function findManagedPostOrThrow(env: Env, postId: string, userId: string): Promise<void> {
-  const managed = await viewerStateOfPosts(env.DB, userId, [postId]);
-  if (!managed.managed.includes(postId)) {
-    throw new ShowcaseError('Only the person whose post it is, or their team’s admin, can do that.', 403);
-  }
-}
-
 /** `GET /api/showcase/posts/hidden`: the signed-in person's own hidden posts, for their page. */
 export const hiddenPostsAction: Handler = ({ request, env }) =>
   signedInShowcase(request, env, async ({ session }) =>
@@ -624,7 +481,7 @@ export const listReportsAction: Handler = ({ request, env }) =>
 export const reportMediaAction: Handler = ({ request, env }) =>
   operatorOnly(request, env, async () => {
     const id = ID.safeParse(new URL(request.url).searchParams.get('id'));
-    return id.success ? serveMediaForReview(env, request, id.data) : json({ error: 'Name a picture.' }, 400);
+    return id.success ? serveMediaForReview(env, id.data) : json({ error: 'Name a picture.' }, 400);
   });
 
 const decideSchema = z.strictObject({

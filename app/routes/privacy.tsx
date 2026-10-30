@@ -54,9 +54,9 @@ function PrivacyPage() {
           </li>
           <li>
             your page and posts: the line about you, a post for each public project you publish (its caption, live
-            address, a screenshot and any short video you add, kept in CloudChef&apos;s own storage), who you follow,
-            what you liked, your comments, your notifications, copies you asked for before you had a space, and reports
-            you sent (a visitor who reports is kept only as a one-way hash of their internet address, to limit reports)
+            address, and a screenshot of it kept in CloudChef&apos;s own storage), who you follow, what you liked, your
+            comments, your notifications, copies you asked for before you had a space, and reports you sent (a visitor
+            who reports is kept only as a one-way hash of their internet address, to limit reports)
           </li>
           <li>hashed authentication sessions and emailed sign-in links</li>
           <li>encrypted OAuth credentials</li>
@@ -75,12 +75,12 @@ function PrivacyPage() {
           <li>raw AI responses</li>
         </ul>
         <p>
-          Your page, your posts, their pictures and videos, their captions, comments and like and follower counts are
-          public: anyone on the web can see them. Who follows you is shown only to you; who liked a post, only to its
-          author. Your email is never shown. Making a project private takes its post off your page and deletes its
-          pictures and videos; erasing your account deletes all of it. Screenshots are taken by Cloudflare Browser
-          Rendering in CloudChef&apos;s own account, which opens your site&apos;s public address as any visitor would,
-          and each posted site&apos;s address is checked with Cloudflare&apos;s URL Scanner.
+          Your page, your posts, their screenshots, their captions, comments and like and follower counts are public:
+          anyone on the web can see them. Who follows you is shown only to you; who liked a post, only to its author.
+          Your email is never shown. Making a project private takes its post off your page and deletes its screenshot;
+          erasing your account deletes all of it. Screenshots are taken by Cloudflare Browser Rendering in
+          CloudChef&apos;s own account, which opens your site&apos;s public address as any visitor would, and each
+          posted site&apos;s address is checked with Cloudflare&apos;s URL Scanner.
         </p>
         <p>
           Chat catalogs, transcripts, generated files, workspace state, deployment records, and generated Cloudflare
