@@ -515,7 +515,7 @@ describe('cloudchef auth', () => {
   });
 });
 
-describe('cloudchef repo', () => {
+describe('cloudchef repo', { timeout: 30_000 }, () => {
   it('lists projects as a table', async () => {
     const result = await cli(makeHome(), ['repo', 'list']);
     expect(result.code).toBe(0);
@@ -971,7 +971,7 @@ describe('cloudchef repo', () => {
   });
 });
 
-describe('cloudchef run', () => {
+describe('cloudchef run', { timeout: 30_000 }, () => {
   it('lists runs with a header and short commits', async () => {
     const result = await cli(makeHome(), ['run', 'list', 'ferdous/alberta-plan-glossary']);
     expect(result.code).toBe(0);

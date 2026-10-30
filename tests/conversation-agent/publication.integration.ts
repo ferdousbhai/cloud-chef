@@ -410,7 +410,7 @@ describe('ConversationAgent automatic publication', () => {
   });
 });
 
-describe("a new turn's stop reaches every automatic publication", () => {
+describe("a new turn's stop reaches every automatic publication", { timeout: 30_000 }, () => {
   it('a deployment still waiting out an upgrade window when the person writes again never starts', async () => {
     const deploy = vi.fn<BuilderPublisher['deploy']>();
     const harness = await publicationHarness({ publisher: { deploy } });

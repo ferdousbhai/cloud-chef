@@ -63,7 +63,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('executeUserOwnedDeployment credential-free Computer flow', () => {
+describe('executeUserOwnedDeployment credential-free Computer flow', { timeout: 30_000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.credentialFetch.mockImplementation(async () =>

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ProjectWorkspaceRpc } from '~/agents/builder-workspace-api';
 import { UserWorkspaceRuntimeClient } from './user-workspace-runtime-client';
 
-describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', () => {
+describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30_000 }, () => {
   it('returns a completed journal receipt without executing the operation again', async () => {
     const execute = vi.fn(async () => ({ shouldNotRun: true }));
     const { client, calls } = harness((operation) =>

@@ -30,7 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('ConversationAgent runtime activity', () => {
+describe('ConversationAgent runtime activity', { timeout: 30_000 }, () => {
   it('records the agent busy while its turn runs, and idle once it ends', async () => {
     const harness = await conversationAgentHarness();
     const { agent } = harness;

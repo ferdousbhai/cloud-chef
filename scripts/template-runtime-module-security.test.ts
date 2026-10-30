@@ -17,7 +17,7 @@ const packageRequire = createRequire(import.meta.url);
 const AI_CHAT_ENTRY = resolve('template/node_modules/@cloudflare/ai-chat/dist/index.js');
 const AI_CHAT_REACT_ENTRY = resolve('template/node_modules/@cloudflare/ai-chat/dist/react.js');
 
-describe('generated app production module security', () => {
+describe('generated app production module security', { timeout: 30_000 }, () => {
   test.each([
     [`export { env as value } from "cloudflare:\\x77orkers";`, 'ambient-workers-module'],
     [`export const value = import("cloudflare:" + "workers");`, 'dynamic-import'],

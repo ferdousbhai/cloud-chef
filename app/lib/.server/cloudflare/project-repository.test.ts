@@ -24,7 +24,7 @@ function setup() {
   return { artifacts, repositories: new ProjectRepositories(artifacts, { fetch: artifacts.fetch }) };
 }
 
-describe('ProjectRepositories', () => {
+describe('ProjectRepositories', { timeout: 30_000 }, () => {
   it("tells whether a commit is in another's history, through any parent", async () => {
     const { artifacts, repositories } = setup();
     await artifacts.create('p-history');

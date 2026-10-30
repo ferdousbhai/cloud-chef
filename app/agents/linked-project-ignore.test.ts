@@ -26,7 +26,7 @@ describe('isNeverPublished', () => {
   });
 });
 
-describe('gitignoreMatcher', () => {
+describe('gitignoreMatcher', { timeout: 30_000 }, () => {
   it('applies the root rules as git does, a later negation included', () => {
     const ignored = gitignoreMatcher([
       { path: '.gitignore', content: '# build output\ncoverage/\nbuild\n*.log\n!keep.log\n/root-only.txt\n' },

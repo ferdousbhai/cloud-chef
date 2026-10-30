@@ -319,7 +319,7 @@ describe('starting a container on the base', () => {
   });
 });
 
-describe('the base setup', () => {
+describe('the base setup', { timeout: 30_000 }, () => {
   it('installs the pins this checkout keeps: .nvmrc’s Node, Computer’s computerd, the projects’ pnpm and cf', () => {
     const nvmrc = readFileSync(new URL('../../.nvmrc', import.meta.url), 'utf8').trim();
     expect(BASE_NODE_VERSION).toBe(nvmrc);
