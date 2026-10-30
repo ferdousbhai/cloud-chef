@@ -87,7 +87,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
       isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
-      secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+      secretFilesPushed: (repo, base, commit) => repositories.secretFilesPushed(repo, base, commit),
       mainHead: (repo) => repositories.head(repo),
       workspaceRefs: workspaceRefsPrefix(this.ctx.props.workspaceId),
       recordPush: async (update) => {
@@ -171,7 +171,7 @@ export async function handleCommandLineGit(
     access: (repo, scope) => repositories.gitAccess(repo, scope),
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
     isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
-    secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+    secretFilesPushed: (repo, base, commit) => repositories.secretFilesPushed(repo, base, commit),
     mainHead: (repo) => repositories.head(repo),
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
@@ -219,7 +219,7 @@ export async function handleCommandLineAppGit(
     access: (repo, scope) => repositories.gitAccess(repo, scope),
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
     isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
-    secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+    secretFilesPushed: (repo, base, commit) => repositories.secretFilesPushed(repo, base, commit),
     mainHead: (repo) => repositories.head(repo),
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
     recordPush: async () => undefined,

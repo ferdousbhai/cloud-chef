@@ -39,7 +39,7 @@ function harness(
       revoked.push(tokenId);
     },
     isAncestor: async (_repo, ancestor, commit) => (options.isAncestor ? options.isAncestor(ancestor, commit) : true),
-    secretFilesChanged: async () => [],
+    secretFilesPushed: async () => [],
     mainHead: async () => null,
     recordPush: async (update) => {
       recorded.push(update);
@@ -287,7 +287,7 @@ describe('the workspace git proxy', () => {
     const checked: { base: string | null; commit: string }[] = [];
     const { deps, recorded } = harness({ answer: repository() });
     deps.mainHead = async () => MAIN;
-    deps.secretFilesChanged = async (_repo, base, commit) => {
+    deps.secretFilesPushed = async (_repo, base, commit) => {
       checked.push({ base, commit });
       return commit === NEW ? ['.env'] : [];
     };
@@ -323,6 +323,14 @@ describe('the workspace git proxy', () => {
       await text(await handleGitProxyRequest(push([`${ZERO_OID} ${NEW} refs/heads/fresh`]), unchecked.deps)),
     ).toContain('ng refs/heads/fresh CloudChef couldn’t check this push');
     expect(unchecked.recorded).toEqual([]);
+
+    // Nor is one bringing more commits than can be checked.
+    const long = harness({ answer: repository() });
+    long.deps.secretFilesPushed = async () => null;
+    expect(await text(await handleGitProxyRequest(push([`${OLD} ${NEW} refs/heads/main`]), long.deps))).toContain(
+      'ng refs/heads/main This push brings too many commits for CloudChef to check at once',
+    );
+    expect(long.recorded).toEqual([]);
   });
 
   it('records a push before git has read the whole answer, so the command that pushed sees it', async () => {
@@ -503,7 +511,7 @@ describe("main's history in the repository itself", () => {
       access: (repo, scope) => repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
       isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
-      secretFilesChanged: (repo, base, commit) => repositories.secretFilesChanged(repo, base, commit),
+      secretFilesPushed: (repo, base, commit) => repositories.secretFilesPushed(repo, base, commit),
       mainHead: (repo) => repositories.head(repo),
       recordPush: async (update) => {
         recorded.push(update);
@@ -575,6 +583,39 @@ describe("main's history in the repository itself", () => {
     const main = await text(await handleGitProxyRequest(push([`${ZERO_OID} ${lone} refs/heads/main`]), deps));
     expect(main).toContain('ng refs/heads/main .dev.vars holds secrets');
     expect(await artifacts.head('p-empty')).toBeNull();
+  });
+
+  it('keeps a secret file in an older commit of a push off every branch, though its last commit holds none', async () => {
+    const { artifacts, deps, recorded } = await project();
+    // Added, then deleted: its contents would stay in the history the push brings.
+    await artifacts.commitDirect('p-site', 'buried', { 'index.html': 'one', 'api/.dev.vars': 'KEY=1' });
+    const buried = await artifacts.commitDirect('p-site', 'buried', { 'index.html': 'one' });
+
+    const branch = await text(await handleGitProxyRequest(push([`${ZERO_OID} ${buried} refs/heads/fresh`]), deps));
+    expect(branch).toContain('ng refs/heads/fresh api/.dev.vars holds secrets');
+    expect(await artifacts.head('p-site', 'fresh')).toBeNull();
+
+    // main's first push, with nothing to compare with.
+    await artifacts.create('p-empty');
+    await artifacts.commitDirect('p-empty', 'elsewhere', { '.env': 'KEY=1' });
+    const lone = await artifacts.commitDirect('p-empty', 'elsewhere', { 'index.html': 'one' });
+    deps.repository = async () => ({ repo: 'p-empty', orgProjectId: null, base: { branch: 'main', commit: null } });
+    const main = await text(await handleGitProxyRequest(push([`${ZERO_OID} ${lone} refs/heads/main`]), deps));
+    expect(main).toContain('ng refs/heads/main .env holds secrets');
+    expect(await artifacts.head('p-empty')).toBeNull();
+    expect(recorded).toEqual([]);
+  });
+
+  it('lets a push through that only brings commits without secrets, though main already held one', async () => {
+    const { artifacts, repositories, deps, recorded } = await project();
+    // A secret file main already holds, unchanged, isn't the push's: the branch moves.
+    const held = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'one', '.env': 'KEY=1' });
+    const next = await artifacts.commitDirect('p-site', 'main', { 'index.html': 'next', '.env': 'KEY=1' });
+    await repositories.resetMain('p-site', held);
+
+    const answer = await text(await handleGitProxyRequest(push([`${held} ${next} refs/heads/main`]), deps));
+    expect(answer).toContain('ok refs/heads/main');
+    expect(recorded).toEqual([{ ref: 'refs/heads/main', oldOid: held, newOid: next }]);
   });
 
   it('lets another branch be rewritten', async () => {

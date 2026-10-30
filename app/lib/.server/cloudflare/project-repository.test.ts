@@ -40,6 +40,29 @@ describe('ProjectRepositories', () => {
     expect(await repositories.isAncestor('p-history', unrelated, second, 1)).toBeNull();
   });
 
+  it('finds the secret files any commit a push brings holds that its base does not', async () => {
+    const { artifacts, repositories } = setup();
+    await artifacts.create('p-secrets');
+    const held = await artifacts.commitDirect('p-secrets', 'main', { 'a.txt': '1', '.env': 'KEY=1' });
+    // Only on main's history, before the push's base: not the push's.
+    const unchanged = await artifacts.commitDirect('p-secrets', 'main', { 'a.txt': '2', '.env': 'KEY=1' });
+    const example = await artifacts.commitDirect('p-secrets', 'main', { 'a.txt': '3', '.env.example': 'KEY=' });
+    await artifacts.commitDirect('p-secrets', 'main', { 'a.txt': '4', 'api/.dev.vars.local': 'KEY=1' });
+    const removed = await artifacts.commitDirect('p-secrets', 'main', { 'a.txt': '5' });
+    const changed = await artifacts.commitDirect('p-secrets', 'main', { 'a.txt': '6', '.env': 'KEY=2' });
+
+    expect(await repositories.secretFilesPushed('p-secrets', held, unchanged)).toEqual([]);
+    // Deleted again by the last commit, yet in a commit the push brings.
+    expect(await repositories.secretFilesPushed('p-secrets', unchanged, removed)).toEqual(['api/.dev.vars.local']);
+    expect(await repositories.secretFilesPushed('p-secrets', removed, changed)).toEqual(['.env']);
+    expect(await repositories.secretFilesPushed('p-secrets', null, held)).toEqual(['.env']);
+    expect(await repositories.secretFilesPushed('p-secrets', unchanged, example)).toEqual([]);
+    // Nothing new: the commit itself is still read, against the base.
+    expect(await repositories.secretFilesPushed('p-secrets', changed, held)).toEqual(['.env']);
+    // A walk cut short says it couldn't tell.
+    expect(await repositories.secretFilesPushed('p-secrets', null, changed, 2)).toBeNull();
+  });
+
   it('replaces main with a history of its own only from the commit it was read at', async () => {
     const { artifacts, repositories } = setup();
     await artifacts.create('p-rewrite');
