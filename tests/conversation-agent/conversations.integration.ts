@@ -157,7 +157,7 @@ describe('an app a team adopted as one of its projects', () => {
     expect((await harness.messages()).map((message) => message.id)).toEqual(['old-1', 'old-2']);
     // Started again on the same storage, it converts nothing twice; the table stays for a rollback.
     const restarted = await harness.restart();
-    const again = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, subchatIndex: 0 });
+    const again = await restarted.getTranscriptSnapshot({ agentName: AGENT_NAME, conversationIndex: 0 });
     expect(again.messages.map((message) => message.id)).toEqual(['old-1', 'old-2']);
     expect(
       harness.ctx.storage.sql

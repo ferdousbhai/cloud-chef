@@ -11,7 +11,7 @@ const identity: ConversationAgentDurableIdentity = {
   transcript: {
     agentName: 'chat--transcript-2-0',
     chatInitialId: 'chat',
-    subchatIndex: 2,
+    conversationIndex: 2,
     parentAgentName: 'chat--transcript-1-0',
   },
 };
@@ -63,7 +63,7 @@ describe('ConversationAgent durable identity', () => {
   it.each([
     { userId: 'owner-2' },
     { transcript: { ...identity.transcript, agentName: 'other-agent' } },
-    { transcript: { ...identity.transcript, subchatIndex: 3 } },
+    { transcript: { ...identity.transcript, conversationIndex: 3 } },
   ])('rejects a mismatched replay after the identity is claimed: %o', (override) => {
     const storage = new TestIdentityStorage();
     const repository = new ConversationAgentIdentityRepository(storage as never);

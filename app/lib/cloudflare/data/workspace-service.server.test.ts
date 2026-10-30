@@ -20,13 +20,13 @@ describe('empty chat lifecycle', () => {
     );
     insertChat.run('empty-row', 'empty', '**Generated title**', 0);
     insertChat.run('message-row', 'message', 'Message project', 1);
-    for (const chatId of ['empty-row', 'message-row']) {
+    for (const workspaceId of ['empty-row', 'message-row']) {
       database.sqlite
         .prepare(
           `INSERT INTO conversations (workspace_id, conversation_index)
            VALUES (?, 0)`,
         )
-        .run(chatId);
+        .run(workspaceId);
     }
 
     await discardEmptyWorkspace(database.db, { sessionId: 'owner', id: 'empty' });
@@ -71,11 +71,11 @@ describe('chat reads', () => {
   });
 
   it('lists every conversation of a chat in order', async () => {
-    const subchatRows = [0, 1, 2].map((subchatIndex) => ({
-      conversation_index: subchatIndex,
+    const subchatRows = [0, 1, 2].map((conversationIndex) => ({
+      conversation_index: conversationIndex,
       description: null,
-      updated_at: subchatIndex,
-      agent_name: `chat--transcript-${subchatIndex}-0`,
+      updated_at: conversationIndex,
+      agent_name: `chat--transcript-${conversationIndex}-0`,
     }));
     const all = vi.fn().mockResolvedValue({ results: subchatRows });
     const first = vi.fn().mockResolvedValue({
@@ -98,10 +98,10 @@ describe('chat reads', () => {
     // SAFETY: getConversations calls only prepare().bind().first() and .all(), which this stub provides.
     const subchats = await getConversations({ prepare } as unknown as D1Database, {
       sessionId: 'user-1',
-      chatId: 'chat',
+      workspaceId: 'chat',
     });
 
-    expect(subchats.map((item) => item.subchatIndex)).toEqual([0, 1, 2]);
+    expect(subchats.map((item) => item.conversationIndex)).toEqual([0, 1, 2]);
     expect(binds).toEqual([['user-1', 'chat'], ['chat-row']]);
   });
 });

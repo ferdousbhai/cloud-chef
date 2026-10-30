@@ -19,15 +19,15 @@ export function useChatHomepage(workspaceId: string) {
   const initializeWorkspace = useInitializeChat(workspaceId, setChatInitialized);
   const discardEmptyWorkspace = useDiscardEmptyChat(workspaceId);
   const loaded = useInitialMessagesState(chatInitialized ? workspaceId : undefined).initialMessages;
-  useChatSelectionSync(loaded?.loadedSubchatIndex ?? (chatInitialized ? 0 : undefined));
+  useChatSelectionSync(loaded?.loadedConversationIndex ?? (chatInitialized ? 0 : undefined));
   const subchatState = useSubchats(workspaceId, chatInitialized);
   const subchats = subchatState.subchats;
-  const subchatIndex = useStore(subchatIndexStore) ?? 0;
-  const loadedTranscript = loaded?.loadedSubchatIndex === subchatIndex ? loaded.transcript : undefined;
+  const conversationIndex = useStore(subchatIndexStore) ?? 0;
+  const loadedTranscript = loaded?.loadedConversationIndex === conversationIndex ? loaded.transcript : undefined;
   const transcript =
     loadedTranscript ??
-    subchats?.find((subchat) => subchat.subchatIndex === subchatIndex)?.transcript ??
-    ({ agentName: transcriptAgentName(workspaceId, subchatIndex), subchatIndex } as const);
+    subchats?.find((subchat) => subchat.conversationIndex === conversationIndex)?.transcript ??
+    ({ agentName: transcriptAgentName(workspaceId, conversationIndex), conversationIndex } as const);
   const onBuilderRequestStart = useCallback(() => {
     toolActivityStore.handoffActiveTurn();
     void navigateToChat(workspaceId);
@@ -50,11 +50,11 @@ export function useExistingChat(workspaceId: string) {
   const initialMessageState = useInitialMessagesState(workspaceId);
   const initialMessages = initialMessageState.initialMessages;
   useEffect(() => {
-    if (initialMessages?.loadedChatId && initialMessages.loadedChatId !== workspaceId) {
-      void navigateToChat(initialMessages.loadedChatId);
+    if (initialMessages?.loadedWorkspaceId && initialMessages.loadedWorkspaceId !== workspaceId) {
+      void navigateToChat(initialMessages.loadedWorkspaceId);
     }
-  }, [workspaceId, initialMessages?.loadedChatId, navigateToChat]);
-  useChatSelectionSync(initialMessages?.loadedSubchatIndex);
+  }, [workspaceId, initialMessages?.loadedWorkspaceId, navigateToChat]);
+  useChatSelectionSync(initialMessages?.loadedConversationIndex);
   const subchatState = useSubchats(workspaceId);
   const subchats = subchatState.subchats;
   const onBuilderRequestStart = useCallback(() => undefined, []);

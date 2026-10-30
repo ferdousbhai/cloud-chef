@@ -87,7 +87,7 @@ async function sendNextMessage(harness: ConversationAgentHarness, options: { tur
     .sendMessage({
       text: 'Next change',
       requestId: 'request-2',
-      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
       modelId: CLOUDFLARE_WORKERS_AI_MODEL,
       turnContext: options.turnContext,
     })

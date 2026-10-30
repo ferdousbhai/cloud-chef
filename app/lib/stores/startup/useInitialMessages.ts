@@ -17,24 +17,24 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 const logger = createScopedLogger('InitialMessages');
 
 function transcriptRequest(workspaceId: string, selection: TranscriptSelection): TranscriptRequest {
-  const request: TranscriptRequest = { chatId: workspaceId };
-  if (selection.subchatIndex !== undefined) {
-    request.subchatIndex = selection.subchatIndex;
+  const request: TranscriptRequest = { workspaceId };
+  if (selection.conversationIndex !== undefined) {
+    request.conversationIndex = selection.conversationIndex;
   }
   return request;
 }
 
 interface InitialMessages {
-  loadedChatId: string;
+  loadedWorkspaceId: string;
   deserialized: CloudChefMessage[];
-  loadedSubchatIndex: number;
+  loadedConversationIndex: number;
   transcript: TranscriptIdentity;
 }
 
 type TranscriptSelection = {
   scope: string;
-  subchatIndex?: number;
-  loadedSubchatIndex?: number;
+  conversationIndex?: number;
+  loadedConversationIndex?: number;
 };
 
 type InitialMessagesState = {
@@ -45,7 +45,7 @@ type InitialMessagesState = {
 
 export function useInitialMessagesState(workspaceId: string | undefined): InitialMessagesState {
   const userId = useUserIdOrNullOrLoading();
-  const subchatIndex = useStore(subchatIndexStore);
+  const conversationIndex = useStore(subchatIndexStore);
   const scope = workspaceId && userId ? `${userId}:${workspaceId}` : undefined;
   const [selection, setSelection] = useState<TranscriptSelection>();
   // A new scope starts from its latest subchat, until its transcript says which one that is.
@@ -61,27 +61,30 @@ export function useInitialMessagesState(workspaceId: string | undefined): Initia
     if (!activeSelection || transcript?.status !== 'ready') {
       return;
     }
-    if (activeSelection.subchatIndex !== undefined && transcript.loadedSubchatIndex !== activeSelection.subchatIndex) {
+    if (
+      activeSelection.conversationIndex !== undefined &&
+      transcript.loadedConversationIndex !== activeSelection.conversationIndex
+    ) {
       return;
     }
-    if (activeSelection.loadedSubchatIndex !== transcript.loadedSubchatIndex) {
+    if (activeSelection.loadedConversationIndex !== transcript.loadedConversationIndex) {
       // The store and the selection move together: set apart, a render could see the old store value with
       // the new selection and switch back to the conversation it just left.
-      subchatIndexStore.set(transcript.loadedSubchatIndex);
+      subchatIndexStore.set(transcript.loadedConversationIndex);
       // oxlint-disable-next-line react/set-state-in-effect
       setSelection({
         ...activeSelection,
-        loadedSubchatIndex: transcript.loadedSubchatIndex,
+        loadedConversationIndex: transcript.loadedConversationIndex,
       });
       return;
     }
-    if (subchatIndex !== undefined && subchatIndex !== transcript.loadedSubchatIndex) {
+    if (conversationIndex !== undefined && conversationIndex !== transcript.loadedConversationIndex) {
       setSelection({
         scope: activeSelection.scope,
-        subchatIndex,
+        conversationIndex,
       });
     }
-  }, [activeSelection, cached.transcript, subchatIndex]);
+  }, [activeSelection, cached.transcript, conversationIndex]);
 
   useEffect(() => {
     const transcript = cached.transcript;
@@ -113,14 +116,18 @@ export function useInitialMessagesState(workspaceId: string | undefined): Initia
     }
     const deserialized = transcript.messages.map(deserializeMessageFromStorage);
     return {
-      loadedChatId: transcript.loadedChatId,
+      loadedWorkspaceId: transcript.loadedWorkspaceId,
       deserialized,
-      loadedSubchatIndex: transcript.loadedSubchatIndex,
+      loadedConversationIndex: transcript.loadedConversationIndex,
       transcript: transcript.transcript,
     };
   }, [activeSelection, cached.isLoading, cached.transcript, workspaceId, userId]);
 
-  if (initialMessages && subchatIndex !== undefined && initialMessages.loadedSubchatIndex !== subchatIndex) {
+  if (
+    initialMessages &&
+    conversationIndex !== undefined &&
+    initialMessages.loadedConversationIndex !== conversationIndex
+  ) {
     return { initialMessages: undefined, error: cached.error, retry: cached.retry };
   }
   return { initialMessages, error: cached.error, retry: cached.retry };

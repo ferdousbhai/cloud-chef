@@ -11,7 +11,7 @@ import {
 export type BuilderTranscriptBinding = {
   agentName: string;
   chatInitialId: string;
-  subchatIndex: number;
+  conversationIndex: number;
   parentAgentName: string | null;
 };
 
@@ -22,7 +22,7 @@ export function builderTranscriptBindingsEqual(
   return (
     left.agentName === right.agentName &&
     left.chatInitialId === right.chatInitialId &&
-    left.subchatIndex === right.subchatIndex &&
+    left.conversationIndex === right.conversationIndex &&
     left.parentAgentName === right.parentAgentName
   );
 }
@@ -62,7 +62,7 @@ export async function loadBuilderTranscriptBinding(
     ? {
         agentName: row.agent_name,
         chatInitialId: row.initial_id,
-        subchatIndex: row.conversation_index,
+        conversationIndex: row.conversation_index,
         parentAgentName: row.parent_agent_name ?? null,
       }
     : null;
@@ -135,7 +135,7 @@ type BuilderChatRequestBody = {
 
 type BuilderRequestScope = {
   chatInitialId: string;
-  subchatIndex: number;
+  conversationIndex: number;
   transcript: TranscriptIdentity;
   modelId: BuilderModelId;
   /** The reasoning effort the person chose; absent for the provider's default. */
@@ -157,7 +157,7 @@ export function requireBuilderRequestScope(
   }
   return {
     chatInitialId: binding.chatInitialId,
-    subchatIndex: binding.subchatIndex,
+    conversationIndex: binding.conversationIndex,
     transcript,
     modelId: modelId.data,
     reasoningLevel: reasoningLevel.data,
@@ -172,7 +172,11 @@ export function requireBuilderTranscriptIdentity(
   if (!result.success) {
     throw new Response('Invalid transcript identity', { status: 400 });
   }
-  if (!binding || result.data.agentName !== binding.agentName || result.data.subchatIndex !== binding.subchatIndex) {
+  if (
+    !binding ||
+    result.data.agentName !== binding.agentName ||
+    result.data.conversationIndex !== binding.conversationIndex
+  ) {
     throw new Response('Transcript identity does not match this agent', { status: 409 });
   }
   return result.data;

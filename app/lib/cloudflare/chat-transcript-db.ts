@@ -55,9 +55,9 @@ const missingChatTranscriptSchema = z.object({
 const readyChatTranscriptSchema = z.object({
   requestKey: z.string().min(1),
   status: z.literal('ready'),
-  loadedChatId: z.string().min(1),
+  loadedWorkspaceId: z.string().min(1),
   description: z.string().optional(),
-  loadedSubchatIndex: z.number().int().nonnegative(),
+  loadedConversationIndex: z.number().int().nonnegative(),
   transcript: transcriptIdentitySchema,
   checkpoint: transcriptCheckpointSchema.nullable(),
   messages: z.array(serializedMessageSchema),
@@ -71,12 +71,12 @@ const cachedChatTranscriptSchema = z.discriminatedUnion('status', [
 type CachedChatTranscript = z.infer<typeof cachedChatTranscriptSchema>;
 
 export type TranscriptRequest = {
-  chatId: string;
-  subchatIndex?: number;
+  workspaceId: string;
+  conversationIndex?: number;
 };
 
 function transcriptRequestKey(request: TranscriptRequest): string {
-  return JSON.stringify([request.chatId, request.subchatIndex ?? null]);
+  return JSON.stringify([request.workspaceId, request.conversationIndex ?? null]);
 }
 
 const transcriptRequestKeySchema = z.tuple([z.string().min(1), z.number().int().nonnegative().nullable()]);
@@ -86,11 +86,11 @@ function parseTranscriptRequestKey(value: string): TranscriptRequest {
   if (!parsed.success) {
     throw new Error('Invalid persisted transcript request key.');
   }
-  const [chatId, subchatIndex] = parsed.data;
-  if (subchatIndex === null) {
-    return { chatId };
+  const [workspaceId, conversationIndex] = parsed.data;
+  if (conversationIndex === null) {
+    return { workspaceId };
   }
-  return { chatId, subchatIndex };
+  return { workspaceId, conversationIndex };
 }
 
 function requestKeyFromSubsetOptions(options: LoadSubsetOptions | null | undefined): string | undefined {
@@ -177,7 +177,7 @@ async function loadChatTranscript(
   signal.throwIfAborted();
   const response = await fetchUserRuntime('/v1/chats/messages', {
     method: 'POST',
-    body: JSON.stringify({ chatId: request.chatId, subchatIndex: request.subchatIndex }),
+    body: JSON.stringify({ workspaceId: request.workspaceId, conversationIndex: request.conversationIndex }),
     signal: AbortSignal.any([signal, AbortSignal.timeout(TRANSCRIPT_FETCH_TIMEOUT_MS)]),
   });
   if (!response.ok) {
@@ -191,9 +191,9 @@ async function loadChatTranscript(
   return {
     requestKey,
     status: 'ready',
-    loadedChatId: loaded.initialId,
+    loadedWorkspaceId: loaded.initialId,
     description: loaded.description,
-    loadedSubchatIndex: loaded.transcript.subchatIndex,
+    loadedConversationIndex: loaded.transcript.conversationIndex,
     transcript: loaded.transcript,
     checkpoint: loaded.checkpoint,
     messages: loaded.messages,

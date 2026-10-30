@@ -147,7 +147,7 @@ describe('ConversationAgent runtime activity', () => {
     const turn = harness.agent.sendMessage({
       text: 'Build it',
       requestId: 'request-1',
-      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
       modelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     await settle();
@@ -180,7 +180,7 @@ describe('ConversationAgent runtime activity', () => {
     const turn = harness.agent.sendMessage({
       text: 'Build it',
       requestId: 'request-1',
-      transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+      transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
       modelId: CLOUDFLARE_WORKERS_AI_MODEL,
     });
     await eventually(() => harness.agent.state.upgradeWaiting === true);

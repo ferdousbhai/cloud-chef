@@ -39,8 +39,8 @@ import { retryDurableObjectRpc } from './durable-object-rpc.server';
 const dataOperationPathSchema = z.object(dataOperationArgSchemas).keyof();
 const dataRequestSchema = z.object({ path: dataOperationPathSchema, args: z.unknown() });
 const initialMessagesRequestSchema = z.object({
-  chatId: z.string().min(1).max(512),
-  subchatIndex: z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX).optional(),
+  workspaceId: z.string().min(1).max(512),
+  conversationIndex: z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX).optional(),
 });
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
 const MAX_INITIAL_MESSAGES_REQUEST_BYTES = 8 * 1024;
@@ -101,14 +101,14 @@ export async function userRuntimeInitialMessagesAction(args: {
     const body = initialMessagesRequestSchema.parse(
       await readJsonBodyWithLimit(args.request, MAX_INITIAL_MESSAGES_REQUEST_BYTES, 'Initial messages request'),
     );
-    const workspace = await findWorkspace(args.env.DB, { id: body.chatId, sessionId: args.userId });
+    const workspace = await findWorkspace(args.env.DB, { id: body.workspaceId, sessionId: args.userId });
     if (!workspace) {
       return Response.json({ status: 'missing' });
     }
     const identity = transcriptIdentity(
       await requireConversation(args.env.DB, {
         workspaceId: workspace.id,
-        conversationIndex: body.subchatIndex ?? workspace.last_conversation_index,
+        conversationIndex: body.conversationIndex ?? workspace.last_conversation_index,
       }),
     );
     const durable = await getBuilderTranscriptSnapshot(args.env, identity, args.userId);
@@ -193,8 +193,11 @@ function runKnownDataOperation(
  * Starts the workspace's next conversation, which continues the same project with a fresh context. The one it
  * follows is closed from then on: it stops, and hands over its publication state to the new one.
  */
-async function createConversationFromAgent(env: Env, args: { sessionId: string; chatId: string }): Promise<number> {
-  const workspace = await requireWorkspace(env.DB, { id: args.chatId, sessionId: args.sessionId });
+async function createConversationFromAgent(
+  env: Env,
+  args: { sessionId: string; workspaceId: string },
+): Promise<number> {
+  const workspace = await requireWorkspace(env.DB, { id: args.workspaceId, sessionId: args.sessionId });
   const parent = await requireConversation(env.DB, {
     workspaceId: workspace.id,
     conversationIndex: workspace.last_conversation_index,

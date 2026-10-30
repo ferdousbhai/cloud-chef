@@ -8,20 +8,20 @@ interface SubchatOption {
 }
 
 export interface LiveSubchatTitle {
-  subchatIndex: number;
+  conversationIndex: number;
   title: string;
 }
 
-export function getSubchatLabel(subchatIndex: number, description?: string): string {
+export function getSubchatLabel(conversationIndex: number, description?: string): string {
   const normalizedDescription = description?.trim();
-  return normalizedDescription || (subchatIndex === 0 ? 'Initial chat' : `Chat ${subchatIndex + 1}`);
+  return normalizedDescription || (conversationIndex === 0 ? 'Initial chat' : `Chat ${conversationIndex + 1}`);
 }
 
 export function createSubchatOptions(subchats: ConversationSummary[] | undefined): SubchatOption[] {
   return (
     subchats?.map((subchat) => ({
-      label: getSubchatLabel(subchat.subchatIndex, subchat.description),
-      value: subchat.subchatIndex,
+      label: getSubchatLabel(subchat.conversationIndex, subchat.description),
+      value: subchat.conversationIndex,
     })) ?? []
   );
 }
@@ -49,7 +49,7 @@ export function applyLiveSubchatTitle(
   if (!subchats) {
     return [
       {
-        subchatIndex: liveTitle.subchatIndex,
+        conversationIndex: liveTitle.conversationIndex,
         description: liveTitle.title,
         updatedAt: Date.now(),
         transcript,
@@ -57,7 +57,7 @@ export function applyLiveSubchatTitle(
     ];
   }
 
-  const persisted = subchats.find((subchat) => subchat.subchatIndex === liveTitle.subchatIndex);
+  const persisted = subchats.find((subchat) => subchat.conversationIndex === liveTitle.conversationIndex);
   if (persisted?.description?.trim()) {
     return subchats;
   }
@@ -66,7 +66,7 @@ export function applyLiveSubchatTitle(
     return [
       ...subchats,
       {
-        subchatIndex: liveTitle.subchatIndex,
+        conversationIndex: liveTitle.conversationIndex,
         description: liveTitle.title,
         updatedAt: Date.now(),
         transcript,
@@ -75,6 +75,6 @@ export function applyLiveSubchatTitle(
   }
 
   return subchats.map((subchat) =>
-    subchat.subchatIndex === liveTitle.subchatIndex ? { ...subchat, description: liveTitle.title } : subchat,
+    subchat.conversationIndex === liveTitle.conversationIndex ? { ...subchat, description: liveTitle.title } : subchat,
   );
 }

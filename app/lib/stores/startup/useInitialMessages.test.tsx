@@ -13,7 +13,7 @@ import { TRANSCRIPT_HISTORY_FORMAT_VERSION } from 'cloudchef-agent/transcript';
 vi.mock('~/lib/cloudflare/runtime-session', () => ({
   fetchUserRuntime: (path: string, init?: RequestInit) => fetch(path, init),
 }));
-type TranscriptRequestBody = { chatId: string; subchatIndex?: number };
+type TranscriptRequestBody = { workspaceId: string; conversationIndex?: number };
 type ChatOnRuntime = { description: string; latestSubchatIndex: number };
 
 /** Serves the runtime's transcript endpoint: the chat `answer` returns, with no saved history, or a missing chat. */
@@ -26,13 +26,13 @@ function stubTranscriptEndpoint(answer: (body: TranscriptRequestBody) => Promise
     if (!chat) {
       return Response.json({ status: 'missing' });
     }
-    const subchatIndex = body.subchatIndex ?? chat.latestSubchatIndex;
+    const conversationIndex = body.conversationIndex ?? chat.latestSubchatIndex;
     return Response.json({
       status: 'ready',
       version: TRANSCRIPT_HISTORY_FORMAT_VERSION,
-      initialId: body.chatId,
+      initialId: body.workspaceId,
       description: chat.description,
-      transcript: { agentName: `${body.chatId}--transcript-${subchatIndex}-0`, subchatIndex },
+      transcript: { agentName: `${body.workspaceId}--transcript-${conversationIndex}-0`, conversationIndex },
       checkpoint: null,
       messages: [],
     });
@@ -104,7 +104,7 @@ describe('useInitialMessages', () => {
       finishSubchatLoad = resolve;
     });
     stubTranscriptEndpoint(async (body) => {
-      if (body.subchatIndex === 1) {
+      if (body.conversationIndex === 1) {
         await subchatLoad;
       }
       return { description: 'Project', latestSubchatIndex: 0 };
@@ -118,7 +118,11 @@ describe('useInitialMessages', () => {
     function Harness() {
       const messages = useInitialMessagesState('project-id').initialMessages;
       const state =
-        messages === undefined ? 'loading' : messages === null ? 'missing' : `ready-${messages.loadedSubchatIndex}`;
+        messages === undefined
+          ? 'loading'
+          : messages === null
+            ? 'missing'
+            : `ready-${messages.loadedConversationIndex}`;
       useEffect(() => {
         states.push(state);
       }, [state]);
@@ -159,7 +163,7 @@ describe('useInitialMessages', () => {
 
     function Harness() {
       const messages = useInitialMessagesState('project-id').initialMessages;
-      return <span>{messages ? `ready-${messages.loadedSubchatIndex}` : 'loading'}</span>;
+      return <span>{messages ? `ready-${messages.loadedConversationIndex}` : 'loading'}</span>;
     }
 
     await act(async () => {

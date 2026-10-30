@@ -465,7 +465,7 @@ export async function conversationAgentHarness(
         transcript: {
           agentName: AGENT_NAME,
           chatInitialId: CHAT_INITIAL_ID,
-          subchatIndex: 0,
+          conversationIndex: 0,
           parentAgentName: null,
         },
       };
@@ -493,7 +493,7 @@ export async function conversationAgentHarness(
      */
     restart: async () => (await startAgent(AGENT_NAME, ctx)).agent,
     /** The chat as the browser shows it. */
-    messages: async () => (await agent.getTranscriptSnapshot({ agentName: AGENT_NAME, subchatIndex: 0 })).messages,
+    messages: async () => (await agent.getTranscriptSnapshot({ agentName: AGENT_NAME, conversationIndex: 0 })).messages,
   };
 }
 

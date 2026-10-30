@@ -3385,12 +3385,12 @@ async function userRuntimeTerminalAction(
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
     return Response.json({ error: 'Expected a WebSocket upgrade' }, { status: 426 });
   }
-  const chatId = url.searchParams.get('chat') ?? '';
-  if (!chatId || !(await findWorkspace(env.DB, { id: chatId, sessionId: userId }))) {
+  const workspaceId = url.searchParams.get('chat') ?? '';
+  if (!workspaceId || !(await findWorkspace(env.DB, { id: workspaceId, sessionId: userId }))) {
     return Response.json({ error: 'Not found' }, { status: 404 });
   }
   // The chat's workspace, keyed as its agent keys it.
-  const projectId = env.ConversationAgent.idFromName(chatId).toString();
+  const projectId = env.ConversationAgent.idFromName(workspaceId).toString();
   const stub = env.PROJECT_WORKSPACE.get(env.PROJECT_WORKSPACE.idFromName(projectId));
   await stub.initializeProjectIdentity({ projectId, userId });
   const size = terminalSize(url);

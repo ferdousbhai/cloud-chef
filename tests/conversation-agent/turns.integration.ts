@@ -81,7 +81,7 @@ async function send(harness: ConversationAgentHarness, text: string) {
   return harness.agent.sendMessage({
     text,
     turnContext: { version: 1, content: 'Open file: src/app.ts' },
-    transcript: { agentName: AGENT_NAME, subchatIndex: 0 },
+    transcript: { agentName: AGENT_NAME, conversationIndex: 0 },
     modelId: CLOUDFLARE_WORKERS_AI_MODEL,
   });
 }

@@ -16,7 +16,7 @@ export async function requireConversation(
 }
 
 export function transcriptIdentity(row: ConversationRow): TranscriptIdentity {
-  return { agentName: row.agent_name, subchatIndex: row.conversation_index };
+  return { agentName: row.agent_name, conversationIndex: row.conversation_index };
 }
 
 /** Inserts a conversation, only while its parent is a conversation of the owner's live workspace. */

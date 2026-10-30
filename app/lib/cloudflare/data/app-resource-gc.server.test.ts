@@ -264,9 +264,9 @@ describe('app resource garbage collection', () => {
     const workspace = new AppResourceGcWorkspace(0, { queued: false });
     const plan = JSON.stringify(await deploymentPlan());
     for (let index = 0; index < 25; index += 1) {
-      const chatId = `chat-${String(index).padStart(2, '0')}`;
-      workspace.chat(chatId, { removed: true });
-      workspace.deployment(`deployment-${chatId}`, plan, [], chatId);
+      const workspaceId = `chat-${String(index).padStart(2, '0')}`;
+      workspace.chat(workspaceId, { removed: true });
+      workspace.deployment(`deployment-${workspaceId}`, plan, [], workspaceId);
     }
     cleanupApi(true);
 
@@ -366,7 +366,7 @@ class AppResourceGcWorkspace {
     id: string,
     planJson: string,
     resources: [type: string, logicalName: string, providerId: string][] = [],
-    chatId = 'chat-row',
+    workspaceId = 'chat-row',
   ) {
     this.#created += 1;
     this.#database
@@ -377,7 +377,7 @@ class AppResourceGcWorkspace {
          ) VALUES (?, ?, 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
            'succeeded', ?, 'digest', ?, ?)`,
       )
-      .run(id, chatId, planJson, this.#created, this.#created);
+      .run(id, workspaceId, planJson, this.#created, this.#created);
     this.#database
       .prepare(
         `INSERT INTO deployment_activity (deployment_id, execution_generation, sequence, message, created_at)
