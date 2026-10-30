@@ -281,7 +281,6 @@ describe("one Cloudflare account shared by a person's own space and their team",
     const outdated = await listOutdatedUserWorkspaceRuntimes(db, {
       runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
       imageDigest: USER_WORKSPACE_IMAGE,
-      protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
     });
     expect(outdated.map((runtime) => runtime.connectionId)).toEqual(['team', 'team']);
     expect(outdated.every((runtime) => runtime.connectionGeneration === 5)).toBe(true);

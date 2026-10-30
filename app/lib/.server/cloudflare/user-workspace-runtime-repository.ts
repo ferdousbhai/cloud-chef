@@ -123,13 +123,14 @@ type OutdatedUserWorkspaceRuntime = {
 };
 
 /**
- * Ready runtimes the sweep upgrades: ones from an earlier release that speak this release's protocol, whose
- * upgrade can wait for a quiet moment, and ones for a connection generation since replaced (a reconnect),
- * whose secret no longer authenticates, so nothing is running in them. Ordered most recently used first.
+ * Ready runtimes the sweep upgrades: ones from an earlier release, whatever protocol they speak, whose upgrade
+ * waits for a quiet moment (one speaking an earlier protocol can't serve this release's browser, so upgrading it
+ * before its owner returns spares them the wait), and ones for a connection generation since replaced (a
+ * reconnect), whose secret no longer authenticates, so nothing is running in them. Ordered most recently used first.
  */
 export async function listOutdatedUserWorkspaceRuntimes(
   db: D1Database,
-  args: { runtimeVersion: string; imageDigest: string; protocolVersion: number },
+  args: { runtimeVersion: string; imageDigest: string },
 ): Promise<OutdatedUserWorkspaceRuntime[]> {
   const { results } = await db
     .prepare(
@@ -141,14 +142,12 @@ export async function listOutdatedUserWorkspaceRuntimes(
        WHERE runtimes.status = 'ready'
          AND (
            runtimes.connection_generation <> connections.connection_generation
-           OR (
-             (runtimes.runtime_version <> ? OR runtimes.image_digest <> ?)
-             AND runtimes.protocol_version = ?
-           )
+           OR runtimes.runtime_version <> ?
+           OR runtimes.image_digest <> ?
          )
        ORDER BY runtimes.last_session_at IS NULL, runtimes.last_session_at DESC, runtimes.user_id, runtimes.connection_id`,
     )
-    .bind(args.runtimeVersion, args.imageDigest, args.protocolVersion)
+    .bind(args.runtimeVersion, args.imageDigest)
     .all<{ user_id: string; connection_id: string; connection_generation: number }>();
   return results.map((row) => ({
     userId: row.user_id,

@@ -83,8 +83,9 @@ claims the window again and redeploys only once the workspace is idle, so it nev
 
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
-(`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
-still serve their connection's generation and protocol, all of them, most recently used first, skips anyone who may
+(`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated, whatever
+protocol they speak (one on an earlier protocol can't serve this release's browser, so its owner would otherwise
+wait through the upgrade on return), all of them, most recently used first, skips anyone who may
 no longer use the connection, and starts or restarts the same gated Workflow instance a session request would name,
 until it has launched 10 (`UPGRADE_SWEEP_MAX_LAUNCHES`); upgrades still waiting don't count toward that cap, so they
 never keep a sweep from the rest. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
