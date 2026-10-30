@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { Volume } from 'memfs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { commitBuilderTemplate, loadBuilderTemplate } from '../../app/agents/builder-template';
+import { GIT_SETUP_HEADER } from '../../app/lib/.server/cloudflare/git-proxy';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import { fakeArtifacts } from '../../app/test/fake-artifacts';
 import {
@@ -178,6 +179,8 @@ describe.skipIf(!hasTools)("the workspace container's git", () => {
     expect(run(join(root, 'bin', 'git'), ['rev-parse', '--git-dir'], join(project)).stdout).toBe(
       join(root, 'git', 'project.git'),
     );
+    // Its fetch says it is the setup's, so the proxy doesn't count origin/main as taken by the files.
+    expect(gitSetupScript()).toContain(`http.extraHeader='${GIT_SETUP_HEADER}: 1' fetch`);
   });
 
   it("starts a new project's history from its whole template, so a commit of one changed file pushes only that change", async () => {

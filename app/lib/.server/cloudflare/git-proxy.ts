@@ -22,6 +22,11 @@ const REPOSITORY_PATH = '/project.git';
 const WORKSPACE_PATH = '/_cloudchef/workspace';
 /** Where the container's git wrapper says which branch and commit it has checked out, after a push. */
 export const GIT_BASE_PATH = '/_cloudchef/base';
+/**
+ * Sent by the container's git setup with its first fetch: the workspace's files stay at the commit they were, so
+ * what that fetch lists main at is not recorded as taken (`recordMainFetched`).
+ */
+export const GIT_SETUP_HEADER = 'x-cloudchef-git-setup';
 const MAIN_REF = 'refs/heads/main';
 /**
  * Where a push's new commit for each branch lands first, one ref per branch a push sets: the branch moves to it
@@ -490,7 +495,8 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
     try {
       const listed = await filteredRefList(response, deps.workspaceRefs);
       // A fetch's list, not a push's: git updates origin/main from what it fetches, never from what a push reads.
-      if (route.service === 'git-upload-pack' && listed.main) {
+      // The setup's own fetch after a restart moves no file, so it isn't counted.
+      if (route.service === 'git-upload-pack' && listed.main && !request.headers.has(GIT_SETUP_HEADER)) {
         await deps.recordMainFetched(listed.main).catch(() => undefined);
       }
       return listed.response;

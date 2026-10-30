@@ -5,7 +5,7 @@ import { CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS } from './operation-lease-policy';
 import { BASE_CONTAINER_START_BUDGET_MS } from './base-container';
 import { shellQuote } from './shell-quote';
 import { abortableSleep } from '../../app/lib/abortable-sleep';
-import { GIT_BASE_PATH, GIT_PROXY_HOST } from '../../app/lib/.server/cloudflare/git-proxy';
+import { GIT_BASE_PATH, GIT_PROXY_HOST, GIT_SETUP_HEADER } from '../../app/lib/.server/cloudflare/git-proxy';
 import {
   CLOUDFLARE_API_PROXY_BASE_URL,
   CLOUDFLARE_API_PROXY_TOKEN,
@@ -239,7 +239,8 @@ export function gitSetupScript(): string {
     'g config push.autoSetupRemote true',
     'g config cloudchef.saved "$saved"',
     // The branches the last container saved come back as they were, each following origin's where it has one.
-    'g fetch -q origin "+refs/heads/*:refs/remotes/origin/*" "+$saved/*:refs/cloudchef/saved/*"',
+    // Marked as the setup's own: the files stay where they were, so origin/main here isn't counted as taken.
+    `g -c http.extraHeader=${shellQuote(`${GIT_SETUP_HEADER}: 1`)} fetch -q origin "+refs/heads/*:refs/remotes/origin/*" "+$saved/*:refs/cloudchef/saved/*"`,
     'g for-each-ref --format="%(refname)" refs/cloudchef/saved/ | while read -r ref; do',
     '  name="${ref#refs/cloudchef/saved/}"',
     '  g update-ref "refs/heads/$name" "$ref"',

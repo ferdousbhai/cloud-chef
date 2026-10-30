@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { fakeArtifacts } from '~/test/fake-artifacts';
-import { handleGitProxyRequest, MAIN_MOVED_REFUSAL, mainPushReport, type GitProxyDependencies } from './git-proxy';
+import {
+  GIT_SETUP_HEADER,
+  handleGitProxyRequest,
+  MAIN_MOVED_REFUSAL,
+  mainPushReport,
+  type GitProxyDependencies,
+} from './git-proxy';
 import { ProjectRepositories } from './project-repository';
 import { concatBytes, pktLine, readPktLines, ZERO_OID } from './repository-wire';
 import type { RefUpdate } from './git-proxy';
@@ -473,6 +479,12 @@ describe('the workspace git proxy', () => {
     expect(listed).not.toContain('workspaces/w2');
     expect(listed).toContain(`${OLD} refs/heads/main`);
     expect(listing.fetched).toEqual([OLD]);
+    // The container's setup fetch after a restart moves no file: what it lists isn't taken.
+    const setup = harness({ answer });
+    const request = v2('ls-refs');
+    request.headers.set(GIT_SETUP_HEADER, '1');
+    expect(await text(await handleGitProxyRequest(request, setup.deps))).toContain(`${OLD} refs/heads/main`);
+    expect(setup.fetched).toEqual([]);
     expect(new TextDecoder().decode(listing.sent[0]?.body ?? new Uint8Array())).toContain('command=ls-refs');
 
     const fetching = harness({ answer });
