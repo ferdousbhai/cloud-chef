@@ -429,6 +429,8 @@ const claimedDeploymentSchema = z.object({
   attempt: z.number().int().positive(),
   repo: z.string().min(1),
   workerName: z.string().nullable(),
+  /** The project's name in addresses, which a CloudChef app's Worker is named after. */
+  slug: z.string().nullable(),
 });
 type ClaimedDeployment = z.infer<typeof claimedDeploymentSchema>;
 

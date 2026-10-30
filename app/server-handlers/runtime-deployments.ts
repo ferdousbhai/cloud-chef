@@ -103,6 +103,7 @@ export async function runtimeDeploymentClaimAction(args: { request: Request; env
       attempt: deployment.attempt,
       repo: project.repo,
       workerName: project.deployWorkerName,
+      slug: project.fullName?.split('/')[1] ?? null,
     },
     200,
   );
