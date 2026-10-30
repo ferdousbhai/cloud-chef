@@ -42,6 +42,8 @@ const openedProjectSchema = z.object({
   member: memberSchema.nullable().optional().catch(null),
   /** Who builds and deploys it: Workers Builds, or CloudChef itself (an upload). */
   deploysWith: z.enum(['workers_builds', 'cloudchef']).optional().catch(undefined),
+  /** What it was made from: 'chat' for an app made in a chat, which the chat names. */
+  createdFrom: z.string().nullable().optional().catch(null),
 });
 type OpenedProject = z.infer<typeof openedProjectSchema>;
 
@@ -285,10 +287,20 @@ export async function registerProjectImport(
 export async function registerUploadedProject(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; name: string; repo: string; copiedFrom?: string; pushed?: true },
+  body: { orgProjectId: string; name: string; repo: string; copiedFrom?: string; pushed?: true; chat?: true },
 ): Promise<void> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/register-upload', body, OPEN_TIMEOUT_MS);
   await readAnswer(response, z.object({ projectId: z.string() }), 'CloudChef could not add the project.');
+}
+
+/** Names a project made in a chat after what the chat is about, once the agent has a title for it. */
+export async function nameChatProject(
+  env: RuntimeEnv,
+  identity: Identity,
+  body: { orgProjectId: string; name: string },
+): Promise<void> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/name', body, STATUS_TIMEOUT_MS);
+  await readAnswer(response, z.object({ name: z.string() }), 'CloudChef could not name the project.');
 }
 
 /** Brings CloudChef's record of this person's apps in this account up to date with their chats. */
@@ -429,6 +441,8 @@ const claimedDeploymentSchema = z.object({
   attempt: z.number().int().positive(),
   repo: z.string().min(1),
   workerName: z.string().nullable(),
+  /** The project's name in addresses, which a CloudChef app's Worker is named after. */
+  slug: z.string().nullable(),
 });
 type ClaimedDeployment = z.infer<typeof claimedDeploymentSchema>;
 

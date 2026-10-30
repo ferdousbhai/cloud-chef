@@ -261,6 +261,7 @@ type RuntimeRoute =
   | 'runtime-projects/abandon-import'
   | 'runtime-projects/register-import'
   | 'runtime-projects/register-upload'
+  | 'runtime-projects/name'
   | 'runtime-projects/sync-apps'
   | 'runtime-projects/adoption'
   | 'runtime-projects/status'

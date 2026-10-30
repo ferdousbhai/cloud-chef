@@ -318,7 +318,8 @@ export async function upsertVerifiedEmailUser(
     return { id: byEmail.id, name: byEmail.name, email: byEmail.email, image: byEmail.image };
   }
   const id = crypto.randomUUID();
-  const name = identity.name?.trim() || email.split('@')[0];
+  // Without a name, the address before the @ as the person wrote it: `email` is lowercased for matching.
+  const name = identity.name?.trim() || identity.email.trim().split('@')[0];
   const image = identity.image ?? null;
   try {
     await db

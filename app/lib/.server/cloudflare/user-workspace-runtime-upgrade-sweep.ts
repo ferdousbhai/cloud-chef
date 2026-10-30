@@ -1,4 +1,3 @@
-import { USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION } from '@cloudchef/user-workspace-runtime/protocol';
 import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtime.generated';
 import { canUseConnection } from '~/lib/cloudflare/data/organization-access.server';
 import {
@@ -49,7 +48,6 @@ export async function sweepUserWorkspaceRuntimeUpgrades(args: {
   const candidates = await listOutdatedUserWorkspaceRuntimes(args.env.DB, {
     runtimeVersion: USER_WORKSPACE_RUNTIME_SHA256,
     imageDigest: USER_WORKSPACE_IMAGE,
-    protocolVersion: USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
   });
   const restartFailed = sweep % FAILED_UPGRADE_RESTART_EVERY_SWEEPS === 0;
   for (const candidate of candidates) {

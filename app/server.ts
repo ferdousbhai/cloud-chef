@@ -62,6 +62,7 @@ import {
   runtimeAbandonImportAction,
   runtimeProjectImportedAction,
   runtimeRegisterImportAction,
+  runtimeNameProjectAction,
   runtimeRegisterUploadAction,
   runtimeSyncAppsAction,
   runtimeAdoptionAction,
@@ -127,6 +128,8 @@ import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import * as showcase from './server-handlers/showcase';
 import { deleteGoneMediaBestEffort, serveMediaAction } from './lib/.server/showcase/media';
 import { runShowcaseJobs, type ShowcaseJob } from './lib/.server/showcase/jobs';
+import { PROJECT_PRESENCE_ROUTE, projectPresenceAction } from './server-handlers/project-presence';
+import { pruneProjectVisitsBestEffort } from './lib/cloudflare/data/project-presence.server';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
 import { sweepUserWorkspaceRuntimeUpgradesBestEffort } from './lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep';
 import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
@@ -205,11 +208,13 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/organizations/projects/access': ['POST', setProjectAccessAction],
     [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
     [PROJECT_MAIN_CHANGES_ROUTE]: ['GET', listProjectMainChangesAction],
+    [PROJECT_PRESENCE_ROUTE]: ['POST', projectPresenceAction],
     '/api/cloudflare/runtime-projects/open': ['POST', runtimeOpenProjectAction],
     '/api/cloudflare/runtime-projects/imported': ['POST', runtimeProjectImportedAction],
     '/api/cloudflare/runtime-projects/abandon-import': ['POST', runtimeAbandonImportAction],
     '/api/cloudflare/runtime-projects/register-import': ['POST', runtimeRegisterImportAction],
     '/api/cloudflare/runtime-projects/register-upload': ['POST', runtimeRegisterUploadAction],
+    '/api/cloudflare/runtime-projects/name': ['POST', runtimeNameProjectAction],
     '/api/cloudflare/runtime-projects/sync-apps': ['POST', runtimeSyncAppsAction],
     '/api/cloudflare/runtime-projects/adoption': ['POST', runtimeAdoptionAction],
     '/api/cloudflare/runtime-projects/status': ['POST', runtimeProjectStatusAction],
@@ -338,6 +343,7 @@ export default {
         pruneCloudflareAuthDataBestEffort(env.DB),
         sweepUserWorkspaceRuntimeUpgradesBestEffort(env, controller.scheduledTime),
         deleteGoneMediaBestEffort(env),
+        pruneProjectVisitsBestEffort(env.DB, controller.scheduledTime),
       ]),
     );
   },

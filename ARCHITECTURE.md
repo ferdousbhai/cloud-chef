@@ -83,8 +83,9 @@ claims the window again and redeploys only once the workspace is idle, so it nev
 
 A runtime whose owner does not come back would otherwise stay on an old release, and a failed upgrade would stay
 failed until the browser's explicit retry. The control plane's 15-minute cron therefore also sweeps
-(`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated but
-still serve their connection's generation and protocol, all of them, most recently used first, skips anyone who may
+(`app/lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep.ts`): it lists ready runtimes that are outdated, whatever
+protocol they speak (one on an earlier protocol can't serve this release's browser, so its owner would otherwise
+wait through the upgrade on return), all of them, most recently used first, skips anyone who may
 no longer use the connection, and starts or restarts the same gated Workflow instance a session request would name,
 until it has launched 10 (`UPGRADE_SWEEP_MAX_LAUNCHES`); upgrades still waiting don't count toward that cap, so they
 never keep a sweep from the rest. An upgrade still waiting is left alone; one that gave up waiting is restarted; one that failed is
@@ -269,7 +270,16 @@ Builds reads main from there, so the control plane never sees it go by: the runt
 moved (`runtime-projects/main-pushed`), and it keeps who pushed, when, and main's commit before and after in
 `project_main_pushes`, for a member who may edit the project. `listMainChanges` (and `GET /api/projects/<id>/main-changes`)
 reads a project's pushes and rewrites back, newest first. The projects home shows the newest push or rewrite on the
-project's card ("Updated 2 hours ago by Sara"). A
+project's card ("Updated 2 hours ago by Sara"); the History dialog names who published each version and, from
+the same route's `publishes` (CloudChef's own deployments of the project, or Workers Builds' latest builds of main for
+its recorded Worker, read with the connection's authorization), which version is live, publishing, or didn't publish.
+Who has a project open is kept beside it, as metadata only (`project_visits`, `app/server-handlers/project-presence.ts`):
+a browser with a project open reports every 30 seconds (`POST /api/projects/<id>/presence`, with whether that person's
+agent is running a turn, which their browser already knows), someone is shown beside the project's name while their
+last report is under 90 seconds old, and closing the project says so at once. The first report of a visit answers what
+others pushed or rewrote since the person's last one, said once as a closable tip. Only someone who may view the project
+(`findAccessibleProject`) reports or sees anyone, nothing anyone writes or says reaches the control plane, and scheduled
+maintenance forgets visits not made for 180 days. A
 push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
 checked). A CloudChef app's
 production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
@@ -333,10 +343,9 @@ messages are a rebuildable view of that.
   message of a chat from before pi-durable).
 - The agent keeps only the turn's own bookkeeping in its state: which pi operation the turn waits for, so a restarted
   agent waits for it again and then publishes what the turn pushed.
-- A chat from before pi-durable is converted once when its agent starts: AI Chat's messages become `cloudchef.legacy`
-  entries. Such a chat goes on in a fresh context: the model does not see the old messages. AI Chat's tables are left in
-  place, unused, so a rollback to the release before keeps every chat; a later release drops them (a drop takes two
-  releases).
+- Every chat from before pi-durable was converted once (2026-10-30): AI Chat's messages became `cloudchef.legacy`
+  entries, and such a chat goes on in a fresh context, so the model does not see the old messages. AI Chat's tables
+  (`cf_agents_session_*`) and the workspace D1's `legacy_chat_moves` are unread and are dropped in the next release.
 - The checkpoint the data API returns for a transcript (reload, a subchat's branch point) is derived from the chat's
   messages; it is not stored.
 

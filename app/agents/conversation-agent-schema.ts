@@ -35,8 +35,6 @@ const CLOUDFLARE_EXECUTIONS_COLUMNS = `
  * them already, beside the migrations table its earlier versioned schema kept, which nothing reads.
  */
 const SCHEMA_STATEMENTS: readonly string[] = [
-  // The context compaction store of the builder before pi-durable; nothing reads it.
-  `DROP TABLE IF EXISTS builder_context_state`,
   `
     CREATE TABLE IF NOT EXISTS builder_identity (
       id TEXT PRIMARY KEY CHECK (id = 'active'),

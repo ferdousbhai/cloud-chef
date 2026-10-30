@@ -1,4 +1,5 @@
 import { fileReport, recordPublication, replaceScreenshot } from '~/lib/cloudflare/data/posts.server';
+import type { ProductionPublish } from '~/lib/cloudflare/data/org-projects.server';
 import { classifyMedia, takeScreenshot } from './screenshot';
 import { mediaKey } from './media';
 import { scanVerdict, submitScan } from './url-scanner';
@@ -15,27 +16,38 @@ export type ShowcaseJob =
 const SCAN_WAIT_SECONDS = 60;
 const SCAN_READS = 5;
 
-function sendJob(env: Env, job: ShowcaseJob, delaySeconds?: number): Promise<void> {
+/** What posting a publish needs: the database, and the queue its screenshot is taken from. */
+type PostingEnv = { DB: D1Database; SHOWCASE_JOBS: Pick<Queue, 'send'> };
+
+function sendJob(env: PostingEnv, job: ShowcaseJob, delaySeconds?: number): Promise<void> {
   return env.SHOWCASE_JOBS.send(job, delaySeconds ? { delaySeconds } : undefined).then(() => undefined);
 }
 
 /**
- * The control plane's record of a successful production publish of a project: main's `commit` is live at `siteUrl`
- * (null for the project's recorded live address). A public project's post is made or updated
- * (`recordPublication`), and a new screenshot taken; private projects never post. Safe to call for every read of the
- * same build: only a new commit changes anything. `by` is who the caller knows published it, used when no push of
- * the commit is recorded. Never throws: a publish has succeeded whatever happens to its post.
+ * A project's production publish, as `recordProductionPublish` answers it the first time a commit of main is recorded
+ * live: a public project's post is made or updated (`recordPublication`), on the page of whoever pushed the commit
+ * (else the project's author), and a new screenshot taken; private projects never post. Called with that function's
+ * non-null answer, from both places it is recorded (CloudChef's builder reporting a deploy, and a Workers Builds
+ * status read). Asking again about a commit the post already shows changes nothing. Never throws: the publish has
+ * succeeded whatever happens to its post.
  */
-export async function projectPublished(
-  env: Env,
-  args: { projectId: string; commit: string; by: string | null; siteUrl: string | null },
-): Promise<void> {
+export async function projectPublished(env: PostingEnv, publish: ProductionPublish): Promise<void> {
   try {
-    const outcome = await recordPublication(env.DB, args);
+    const outcome = await recordPublication(env.DB, {
+      projectId: publish.projectId,
+      commit: publish.commit,
+      by: publish.pushedBy,
+      siteUrl: publish.siteUrl,
+    });
     if (outcome.kind !== 'created' && outcome.kind !== 'updated') {
       return;
     }
-    await sendJob(env, { kind: 'screenshot', postId: outcome.postId, commit: args.commit, siteUrl: outcome.siteUrl });
+    await sendJob(env, {
+      kind: 'screenshot',
+      postId: outcome.postId,
+      commit: publish.commit,
+      siteUrl: outcome.siteUrl,
+    });
   } catch (error) {
     console.error('[Showcase] Unable to post a publish', error instanceof Error ? error.message : 'not an Error');
   }

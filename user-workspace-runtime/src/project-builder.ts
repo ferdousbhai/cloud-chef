@@ -18,14 +18,28 @@ import {
   type DeploymentReportOutcome,
 } from '../../app/lib/.server/cloudflare/linked-project-client';
 import {
+  appBuildPlan,
+  appWorkerName,
   BUILD_PLAN_FILES,
   buildPlan,
   deployWorkerName,
+  isAppCommit,
   isCloudChefWorkerName,
   withoutJsonComments,
   type BuildPlan,
 } from '../../app/lib/.server/cloudflare/project-build-plan';
 import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
+import { D1MigrationChangedError, UserCloudflareAccountApi } from '../../app/lib/.server/cloudflare/user-account-api';
+import {
+  agentRemovalRefusal,
+  APP_BUILT_WORKER_MODULE,
+  appMigrationFiles,
+  appProfile,
+  appResourceNames,
+  migrationChangedMessage,
+  trustedAppWranglerConfig,
+  type AppResources,
+} from './app-build';
 import {
   readRuntimeUpgradeWindow,
   recordRuntimeActivity,
@@ -51,9 +65,9 @@ import { type ScheduledCallbackPayload, ScheduledCallbacks } from './scheduled-c
 const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 15 * 60_000;
 
 /**
- * Builds and deploys a project CloudChef deploys itself (one uploaded as a ZIP), one commit at a time, in a container
- * of its own: one ProjectBuilder per project, in the runtime of the person whose push or upload it is. It runs the
- * same steps every time, with no agent:
+ * Builds and deploys a project CloudChef deploys itself (an app made in a chat, or one uploaded as a ZIP or pushed
+ * from a computer), one commit at a time, in a container of its own: one ProjectBuilder per project, in the runtime of
+ * the person whose push or upload it is. It runs the same steps every time, with no agent:
  *
  *   1. read how the commit builds from its own files (`buildPlan`), in the Worker;
  *   2. fetch that commit through a read-only git proxy, install its packages and build it, as an unprivileged user
@@ -65,6 +79,12 @@ const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 15 * 60_000;
  *      running and only if it is one a deploy of this one Worker may make (`deployApiDecision`): the token never
  *      leaves this object;
  *   5. report how it went, keeping the log here, in the person's own account.
+ *
+ * A CloudChef app (a commit with CloudChef's `cloudflare.project.json` and no Wrangler config, `app-build.ts`) is
+ * deployed in app mode: in step 4 this builder itself, in the Worker, makes the resources its project file asks for,
+ * applies its databases' migrations (each recorded in the database, so an applied one never runs again and a
+ * changed one is refused), and writes the Wrangler config from CloudChef's own settings; Wrangler then deploys the
+ * built Worker with it as for any project.
  *
  * Each step runs in a scheduled call of its own, so none outlasts the time one may run; between them the job's
  * step is kept here, and a job whose container was lost starts over, a few times at most. While a step runs, a
@@ -141,6 +161,8 @@ type Job = {
   deployConfig: string | null;
   /** How many of the plan's D1 databases have had their migrations applied. */
   migrated: number;
+  /** The project's name in addresses, which a CloudChef app's Worker is named after. */
+  slug: string | null;
 };
 
 type JobRow = {
@@ -160,6 +182,7 @@ type JobRow = {
   name_taken: number;
   deploy_config: string | null;
   migrated: number;
+  project_slug: string | null;
 };
 
 const jobSchema = z.object({
@@ -175,9 +198,22 @@ const planSchema = z.looseObject({
   install: z.string(),
   build: z.string().nullable(),
   configBuild: z.string().nullable(),
-  configFile: z.enum(['wrangler.json', 'wrangler.jsonc', 'wrangler.toml']),
+  configFile: z.enum(['wrangler.json', 'wrangler.jsonc', 'wrangler.toml']).nullable(),
   workerName: z.string(),
   migrations: z.array(z.object({ binding: z.string(), databaseName: z.string() })),
+  app: z
+    .object({
+      type: z.enum(['web_app', 'worker']),
+      bindings: z.object({
+        ai: z.boolean(),
+        d1: z.boolean(),
+        r2: z.boolean(),
+        kv: z.boolean(),
+        appAgent: z.boolean(),
+        assets: z.boolean().optional(),
+      }),
+    })
+    .optional(),
 });
 
 /** What a step leads to: the next step, a wait before this one is tried again, or the end of the job. */
@@ -241,8 +277,14 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       name_taken INTEGER NOT NULL DEFAULT 0,
       deploy_config TEXT,
       migrated INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      project_slug TEXT
     )`);
+    // A table from before CloudChef apps were built here lacks the slug.
+    const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(builder_jobs)').toArray();
+    if (!columns.some((column) => column.name === 'project_slug')) {
+      ctx.storage.sql.exec('ALTER TABLE builder_jobs ADD COLUMN project_slug TEXT');
+    }
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS builder_logs (
       deployment_id TEXT PRIMARY KEY,
       log TEXT NOT NULL,
@@ -351,6 +393,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       commit: request.commit,
       kind: claimed.kind,
       recordedWorker: claimed.workerName,
+      slug: claimed.slug,
     });
     return { queued: true };
   }
@@ -376,6 +419,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       commit: retried.commit,
       kind: retried.kind,
       recordedWorker: claimed.workerName,
+      slug: claimed.slug,
     });
     return { deploymentId: retried.deploymentId };
   }
@@ -394,15 +438,16 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
 
   /** A job from its first step, replacing any earlier run of the same deployment. */
   private async addJob(
-    job: Pick<Job, 'deploymentId' | 'orgProjectId' | 'repo' | 'branch' | 'commit' | 'kind' | 'recordedWorker'>,
+    job: Pick<Job, 'deploymentId' | 'orgProjectId' | 'repo' | 'branch' | 'commit' | 'kind' | 'recordedWorker' | 'slug'>,
   ): Promise<void> {
     this.ctx.storage.sql.exec(
       `INSERT INTO builder_jobs (deployment_id, org_project_id, repo, branch, commit_sha, kind, recorded_worker, status,
-         created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+         created_at, project_slug)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
        ON CONFLICT(deployment_id) DO UPDATE SET repo = excluded.repo, recorded_worker = excluded.recorded_worker,
          status = 'pending', step = 'prepare', restarts = 0, waits = 0, plan = NULL, worker_name = NULL,
-         name_taken = 0, deploy_config = NULL, migrated = 0, created_at = excluded.created_at`,
+         name_taken = 0, deploy_config = NULL, migrated = 0, created_at = excluded.created_at,
+         project_slug = excluded.project_slug`,
       job.deploymentId,
       job.orgProjectId,
       job.repo,
@@ -411,6 +456,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       job.kind,
       job.recordedWorker,
       Date.now(),
+      job.slug,
     );
     await this.schedule(0, 'runNext', {});
   }
@@ -580,6 +626,20 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
    */
   private async seal(job: Job, plan: DeployablePlan): Promise<void> {
     await this.root(job, 'build', endBuildPhase(), SHORT_TIMEOUT_MS);
+    if (plan.app) {
+      // An app's Wrangler config is CloudChef's, written once its resources are made; the build left only the Worker.
+      const built = await this.command(
+        `rm -rf ${WORK_DIR}/.wrangler/deploy && test -f ${shellQuote(`${WORK_DIR}/${APP_BUILT_WORKER_MODULE}`)}`,
+        SHORT_TIMEOUT_MS,
+      ).then(
+        () => true,
+        () => false,
+      );
+      if (!built) {
+        throw new StepFailure('build', `The build didn’t leave the app’s Worker (${APP_BUILT_WORKER_MODULE}).`);
+      }
+      return;
+    }
     const source = await this.effectiveConfigPath(plan);
     const text = (await this.command(`cat ${shellQuote(source)}`, SHORT_TIMEOUT_MS)).stdout;
     const config = readWranglerConfig(source, text);
@@ -631,7 +691,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     const redirect = (
       await this.command(`cat ${WORK_DIR}/.wrangler/deploy/config.json 2>/dev/null || true`, SHORT_TIMEOUT_MS)
     ).stdout.trim();
-    let wanted = `${WORK_DIR}/${plan.configFile}`;
+    let wanted = `${WORK_DIR}/${plan.configFile ?? 'wrangler.json'}`;
     if (redirect) {
       const configPath = parseJson(redirect, z.object({ configPath: z.string().min(1) }))?.configPath;
       if (!configPath) {
@@ -652,7 +712,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
    */
   private async migrate(job: Job, plan: DeployablePlan): Promise<StepOutcome> {
     const deployConfig = job.deployConfig;
-    if (!deployConfig) {
+    if (!deployConfig && !plan.app) {
       throw new StepFailure('interrupted', 'Publishing lost its place.');
     }
     if (!job.workerName) {
@@ -681,8 +741,12 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       );
       return { next: 'migrate' };
     }
+    if (plan.app) {
+      await this.provisionApp(job, plan.app, job.workerName);
+      return { next: 'deploy' };
+    }
     const database = job.kind === 'production' ? plan.migrations[job.migrated] : undefined;
-    if (!database) {
+    if (!database || !deployConfig) {
       return { next: 'deploy' };
     }
     await this.expectRecorded(this.report(job, { state: 'deploying', workerName: job.workerName, step: 'migrating' }));
@@ -700,6 +764,84 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       job.deploymentId,
     );
     return { next: 'migrate' };
+  }
+
+  /**
+   * App mode: makes the resources the app's project file asks for (found again by name at later deploys), applies
+   * its databases' migrations for a deploy of main, and writes CloudChef's Wrangler config for the deploy. A deploy
+   * that would remove the Agent from a Worker holding its data is refused before anything changes.
+   */
+  private async provisionApp(job: Job, profile: NonNullable<DeployablePlan['app']>, workerName: string): Promise<void> {
+    await this.expectRecorded(this.report(job, { state: 'deploying', workerName, step: 'migrating' }));
+    await this.whileReporting(job, 'deploying', async () => {
+      const api = new UserCloudflareAccountApi(this.env.CLOUDFLARE_ACCOUNT_ID, await this.deployToken(job));
+      const step = async <T>(what: string, run: () => Promise<T>): Promise<T> => {
+        try {
+          return await run();
+        } catch (error) {
+          this.appendLog(job, `\n${what}: ${error instanceof Error ? error.message : String(error)}\n`);
+          throw error instanceof D1MigrationChangedError
+            ? new StepFailure('migrations', migrationChangedMessage(error))
+            : new StepFailure('deploy', `CloudChef couldn’t ${what}.`);
+        }
+      };
+      const refusal = agentRemovalRefusal(
+        profile,
+        await step('read the Worker’s Agent data', () => api.managedWorkerDurableObjectClasses(workerName)),
+      );
+      if (refusal) {
+        throw new StepFailure('deploy', refusal);
+      }
+      const names = await appResourceNames(workerName, job.orgProjectId);
+      const resources: AppResources = {};
+      await step('make the app’s database, storage and cache', async () => {
+        if (profile.bindings.d1) {
+          resources.DB = await api.ensureD1Database(names.DB);
+        }
+        if (profile.bindings.appAgent) {
+          resources.AGENT_SECURITY_DB = await api.ensureD1Database(names.AGENT_SECURITY_DB);
+        }
+        if (profile.bindings.r2) {
+          resources.APP_STORAGE = { name: (await api.ensureR2Bucket(names.APP_STORAGE)).name };
+        }
+        if (profile.bindings.kv) {
+          resources.APP_CACHE = { id: (await api.ensureKvNamespace(names.APP_CACHE)).id };
+        }
+      });
+      const made = Object.entries(resources).map(
+        ([binding, resource]) => `${binding} ${'name' in resource ? resource.name : resource.id}`,
+      );
+      this.appendLog(job, `\n[resources: ${made.join(', ') || 'none'}]\n`);
+      if (job.kind === 'production') {
+        const repositories = new ProjectRepositories(this.env.ARTIFACTS);
+        const { files } = await repositories.readTreeAt(job.repo, job.commit);
+        const migrations = appMigrationFiles(files, profile);
+        for (const binding of ['DB', 'AGENT_SECURITY_DB'] as const) {
+          const database = resources[binding];
+          const pending = migrations[binding];
+          if (!database || pending.length === 0) {
+            continue;
+          }
+          const read = await Promise.all(
+            pending.map(async (file) => ({
+              name: file.name,
+              sql: new TextDecoder().decode(await repositories.readBlob(job.repo, file.oid)),
+            })),
+          );
+          this.appendLog(job, `\n[${binding} migrations: ${read.map((file) => file.name).join(', ')}]\n`);
+          await step(`apply the migrations of ${database.name}`, () => api.applyD1Migrations(database.id, read));
+        }
+      }
+      const target = `${WORK_DIR}/${DEPLOY_CONFIG_NAME}`;
+      const config = trustedAppWranglerConfig({ workerName, profile, resources });
+      const encoded = base64(new TextEncoder().encode(JSON.stringify(config)));
+      await this.command(`printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)}`, SHORT_TIMEOUT_MS);
+      this.ctx.storage.sql.exec(
+        'UPDATE builder_jobs SET deploy_config = ? WHERE deployment_id = ?',
+        target,
+        job.deploymentId,
+      );
+    });
   }
 
   /** Deploys (main) or uploads a preview (another branch), then reports where it went. */
@@ -730,7 +872,10 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     if (url) {
       succeeded.url = url;
     }
-    if (job.nameTaken && isCloudChefWorkerName(plan.workerName)) {
+    if (job.nameTaken && plan.app) {
+      // An app's Worker is named after the project, so the derived name is all that changed.
+      succeeded.reason = `A Worker named ${plan.workerName} was already in the account, so this went to ${workerName}.`;
+    } else if (job.nameTaken && isCloudChefWorkerName(plan.workerName)) {
       succeeded.reason = `${plan.workerName} is a name CloudChef uses itself, so this went to ${workerName}.`;
     } else if (job.nameTaken) {
       succeeded.reason = `A Worker named ${plan.workerName} was already in the account, so this went to ${workerName}.`;
@@ -839,6 +984,15 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
           ? ''
           : new TextDecoder().decode(await repositories.readBlob(job.repo, file.oid));
       }
+    }
+    if (isAppCommit(contents)) {
+      const read = appProfile({
+        projectFile: contents['cloudflare.project.json'] ?? '',
+        packageJson: contents['package.json'] ?? '',
+      });
+      return 'reason' in read
+        ? { deployable: false, reason: read.reason }
+        : appBuildPlan(contents, read.profile, appWorkerName(job.slug));
     }
     return buildPlan(contents);
   }
@@ -1274,6 +1428,7 @@ function toJob(row: JobRow): Job {
     nameTaken: row.name_taken === 1,
     deployConfig: row.deploy_config,
     migrated: row.migrated,
+    slug: row.project_slug,
   };
 }
 

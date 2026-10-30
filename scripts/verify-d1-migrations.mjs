@@ -70,7 +70,9 @@ const migrationPolicies = [
       '0051_approval_request_sources.sql': 'bc4c7b8122fbf412874fa9315bbfb8fb3be087f38d22e9a3db3895ce53afbe46',
       '0052_main_pushes.sql': '052c3fea4be25ca07f61774a594d0496b8fa7d0a48b0c44a49ad3e3c7b918a48',
       '0053_github_authorization_installations.sql': 'eb492583048f308720c457edc34a1b6b99ddda95a029bd7f49282a864d0567a4',
-      '0054_showcase.sql': '65fa90ad318e09f56060b4f50dde2315a79f47085a62d5d20cf111ae9425d472',
+      '0054_project_visits.sql': 'c6f7866ea570d6e3717eb92ef6b3f333fbb4efebe26bf491c3dcc581d843e305',
+      '0055_chat_projects.sql': 'dad4c9ca3ee67540493c250868757259066241ab71febf77ec1ab350a3f9eb78',
+      '0056_showcase.sql': '7a5c744aad73d29986ed2cf761e05f820e31d0f3fb1867e8541e8bc0c4b27af0',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -124,6 +126,8 @@ const migrationPolicies = [
       '0048_drop_unused_request_storage.sql',
       // The connection's copies of its account's authorization and their rollout triggers, unread since 0035/0037.
       '0049_drop_connection_authorization_copies.sql',
+      // Rebuilds org_projects so created_from's CHECK gains 'chat' (an app made in a chat); its dependents step aside.
+      '0055_chat_projects.sql',
     ],
   },
   {

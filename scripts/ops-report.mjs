@@ -353,7 +353,7 @@ export function coreStatements(now) {
  * it from. Asked apart from the core statements, so a schema the deployed release hasn't migrated yet marks
  * only this check unknown.
  */
-/** Showcase posts shown, reports waiting for an operator, and posts reports hold (migrations/0054_showcase.sql). */
+/** Showcase posts shown, reports waiting for an operator, and posts reports hold (migrations/0056_showcase.sql). */
 export const SHOWCASE_STATEMENT = `SELECT
     (SELECT COUNT(*) FROM posts WHERE status = 'visible') AS visible_posts,
     (SELECT COUNT(*) FROM post_reports WHERE state = 'open') AS open_reports,

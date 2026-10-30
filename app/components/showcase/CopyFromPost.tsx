@@ -51,12 +51,14 @@ export function useCopyFromPost(project: { id: string; name: string; path: strin
   const start = () =>
     signedIn('Sign in to make your own copy.', () => setOpen(true), `${project.path}?${COPY_PARAM}=1`);
 
+  // The same module-level lazy component on every call: nothing is made here.
   const CopyProjectDialog = getCopyProjectDialog();
   const dialog =
     (open || (asked && !closed)) && viewer?.signedIn ? (
       viewer.me.hasSpace ? (
         CopyProjectDialog && (
           <Suspense fallback={null}>
+            {/* oxlint-disable-next-line react/static-components */}
             <CopyProjectDialog
               project={{ id: project.id, name: project.name }}
               onOpenProject={(initialId) => window.location.assign(`/chat/${encodeURIComponent(initialId)}`)}

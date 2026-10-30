@@ -104,8 +104,11 @@ describe('workspace runtime locator', () => {
     await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([
       { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 1 },
     ]);
+    // One speaking an earlier protocol is upgraded too, before its owner comes back to wait for it.
     await ready({ connectionId: 'org-connection', protocolVersion: 1 });
-    await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([]);
+    await expect(listOutdatedUserWorkspaceRuntimes(db, current)).resolves.toEqual([
+      { userId: 'user-1', connectionId: 'org-connection', connectionGeneration: 1 },
+    ]);
     await ready({ connectionId: 'org-connection' });
     // A reconnect replaced the generation it serves: upgraded onto the new one, whatever its build or protocol.
     await ready({ connectionId: 'org-connection', runtimeVersion: current.runtimeVersion, protocolVersion: 1 });

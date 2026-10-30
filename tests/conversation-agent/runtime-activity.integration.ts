@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import {
   AGENT_NAME,
+  chatProjectControlPlane,
   conversationAgentHarness,
   eventually,
   RUNTIME_VERSION,
@@ -79,8 +80,10 @@ describe('ConversationAgent runtime activity', { timeout: 30_000 }, () => {
     const seed = deferred<{ status: 'initialized'; state: typeof READY_STATE }>();
     const beginSeed = vi.fn(() => seed.promise);
     let seeded = true;
+    chatProjectControlPlane();
     const harness = await conversationAgentHarness({
       workspace: { refresh: async () => (seeded ? READY_STATE : { ...READY_STATE, initialized: false }), beginSeed },
+      cloudflareIdentity: true,
     });
     // The project was reset since the agent started: the next preparation seeds it again.
     seeded = false;

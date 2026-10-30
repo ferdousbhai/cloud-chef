@@ -25,8 +25,10 @@ export const orgProjectSchema = z.object({
   name: z.string(),
   /** The project's Artifacts repository; null until the first person to open it has imported it. */
   repo: z.string().nullable(),
+  createdFrom: z.enum(['github', 'zip', 'draft', 'copy', 'push', 'chat']),
+  /** Who publishes it: Workers Builds, which an admin connects, or CloudChef itself. */
+  deploysWith: z.enum(['workers_builds', 'cloudchef']),
   /** The GitHub repository it was imported from, for an imported project. */
-  createdFrom: z.enum(['github', 'zip', 'draft']),
   importRepoFullName: z.string().nullable(),
   access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),
 });
@@ -208,7 +210,9 @@ function ProjectRow({
             onChanged={onChanged}
             onError={onError}
           />
-          {project.createdFrom !== 'github' ? <WorkersBuildsInstruction /> : null}
+          {project.deploysWith === 'workers_builds' && project.createdFrom !== 'github' ? (
+            <WorkersBuildsInstruction />
+          ) : null}
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button
               size="xs"

@@ -1,6 +1,9 @@
 -- Showcase pages and the feed (docs/proposals/showcase-and-feed.md): each person's public page at their username,
 -- with a post for each public project they published; following, likes, comments, notifications, and reports.
 -- Pages, posts and Explore are public on the web; everything else needs sign-in.
+--
+-- posts and pending_copies name org_projects (ON DELETE CASCADE): a later rebuild of org_projects, as 0055 does, must
+-- step them aside first and bring them back after, or dropping it deletes every post.
 
 -- A person's line under their name on their page, and the time moderation paused their page (its posts are then
 -- hidden everywhere until an operator lifts it).

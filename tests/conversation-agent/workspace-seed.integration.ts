@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { BuilderWorkspaceSeedStartResult } from '@cloudchef/user-workspace-runtime/protocol';
-import { conversationAgentHarness, eventually, settle } from './harness';
+import { chatProjectControlPlane, conversationAgentHarness, eventually, settle } from './harness';
 
 /**
  * A new workspace is seeded outside the agent's startup, which Cloudflare cuts off after 30 seconds while a
@@ -27,8 +27,10 @@ describe("a new workspace's seed", () => {
     const beginSeed = vi.fn(async (): Promise<BuilderWorkspaceSeedStartResult> => {
       throw new Error('The workspace stopped answering.');
     });
+    chatProjectControlPlane();
     const harness = await conversationAgentHarness({
       workspace: { refresh: async () => ({ ...READY_STATE, initialized: false }), beginSeed },
+      cloudflareIdentity: true,
     });
     expect(beginSeed).not.toHaveBeenCalled();
 
@@ -126,8 +128,20 @@ describe("a new workspace's seed", () => {
           };
         }),
     );
+    chatProjectControlPlane();
     const harness = await conversationAgentHarness({
-      workspace: { refresh: async () => (seeded ? READY_STATE : { ...READY_STATE, initialized: false }), beginSeed },
+      workspace: {
+        refresh: async () => (seeded ? READY_STATE : { ...READY_STATE, initialized: false }),
+        beginSeed,
+        // A seed another caller already finished leaves the workspace linked to its project.
+        linkedProject: async () => ({
+          orgProjectId: TEAM_PROJECT_ID,
+          repository: `t-${TEAM_PROJECT_ID}`,
+          defaultBranch: 'main',
+          baseCommit: 'a'.repeat(40),
+        }),
+      },
+      cloudflareIdentity: true,
     });
 
     const first = harness.agent.prepareWorkspace();
