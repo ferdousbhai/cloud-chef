@@ -67,6 +67,7 @@ import {
   runtimeAdoptionAction,
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
+  runtimeDeletedProjectsAction,
   runtimeMainPushedAction,
   runtimeRequestProductionAction,
 } from './server-handlers/runtime-projects';
@@ -219,6 +220,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/main-rewrite': ['POST', runtimeMainRewriteAction],
     '/api/cloudflare/runtime-projects/main-rewritten': ['POST', runtimeMainRewrittenAction],
     '/api/cloudflare/runtime-projects/main-pushed': ['POST', runtimeMainPushedAction],
+    '/api/cloudflare/runtime-projects/deleted': ['POST', runtimeDeletedProjectsAction],
     '/api/approvals': ['GET', listApprovalsAction],
     '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],

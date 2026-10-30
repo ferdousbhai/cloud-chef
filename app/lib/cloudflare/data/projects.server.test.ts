@@ -14,6 +14,7 @@ import {
   userRuntimeAppCopyAction,
   userRuntimeAppReadAccessAction,
   userRuntimeDeleteProjectRepositoryAction,
+  sweepDeletedProjectWorkspaces,
   userRuntimeRemoveProjectWorkspaceAction,
   userRuntimeRewriteMainAction,
   userRuntimeProjectCopyAction,
@@ -647,6 +648,38 @@ describe('removing a deleted team project’s workspace', () => {
       { workspace_id: 'linked-1' },
     ]);
     expect((await remove({ orgProjectId: TEAM_PROJECT })).status).toBe(204);
+  });
+
+  it('removes on its own schedule this person’s workspaces of projects the control plane says were deleted', async () => {
+    const { database, env } = await setup();
+    const KEPT = '22222222-2222-4222-8222-222222222222';
+    database.exec(`
+      INSERT INTO workspaces (id, creator_id, initial_id, timestamp, has_messages, org_project_id) VALUES
+        ('linked-1', '${OWNER}', 'linked-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}'),
+        ('linked-2', 'someone-else', 'their-initial', '2026-10-21T00:00:00.000Z', 1, '${TEAM_PROJECT}'),
+        ('linked-3', '${OWNER}', 'kept-initial', '2026-10-21T00:00:00.000Z', 1, '${KEPT}');
+    `);
+    const asked: unknown[] = [];
+    let answer = (ids: string[]) => Response.json({ deleted: ids.filter((id) => id === TEAM_PROJECT) });
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      expect(String(input)).toBe('https://control-plane.test/api/cloudflare/runtime-projects/deleted');
+      const body = JSON.parse(String(init?.body)) as { orgProjectIds: string[] };
+      asked.push(body);
+      return answer(body.orgProjectIds);
+    });
+    const live = () => database.prepare('SELECT id FROM workspaces WHERE is_deleted = 0 ORDER BY id').all();
+
+    expect(await sweepDeletedProjectWorkspaces(env)).toBe(1);
+    // Only its own person's projects are asked about, and only theirs removed.
+    expect(asked).toEqual([{ orgProjectIds: [TEAM_PROJECT, KEPT] }]);
+    expect(live()).toEqual([{ id: 'chat-1' }, { id: 'linked-2' }, { id: 'linked-3' }]);
+
+    // An id the control plane names that this runtime didn't ask about removes nothing; a failure removes nothing.
+    answer = () => Response.json({ deleted: ['33333333-3333-4333-8333-333333333333'] });
+    expect(await sweepDeletedProjectWorkspaces(env)).toBe(0);
+    answer = () => new Response('unavailable', { status: 503 });
+    await expect(sweepDeletedProjectWorkspaces(env)).rejects.toThrow();
+    expect(live()).toEqual([{ id: 'chat-1' }, { id: 'linked-2' }, { id: 'linked-3' }]);
   });
 });
 

@@ -188,6 +188,24 @@ export async function reportMainPushed(
   await response.body?.cancel().catch(() => undefined);
 }
 
+const deletedProjectsSchema = z.object({ deleted: z.array(z.string()) });
+
+/**
+ * Those of `orgProjectIds` (the projects this runtime holds workspaces of) that were deleted: no project has their
+ * id now (`runtime-projects/deleted`).
+ */
+export async function deletedProjects(
+  env: RuntimeEnv,
+  identity: Identity,
+  orgProjectIds: readonly string[],
+): Promise<string[]> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-projects/deleted', {
+    orgProjectIds: [...orgProjectIds],
+  });
+  return (await readAnswer(response, deletedProjectsSchema, 'CloudChef could not say which projects were deleted.'))
+    .deleted;
+}
+
 const accessMemberSchema = z.object({ member: memberSchema.nullable().optional().catch(null) });
 
 /**

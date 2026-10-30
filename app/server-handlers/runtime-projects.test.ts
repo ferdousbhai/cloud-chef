@@ -6,6 +6,7 @@ import { bytesToBase64 } from '~/lib/hex-digest';
 import type { WorkersBuildsAccountApi } from '~/lib/.server/cloudflare/workers-builds';
 import { CloudflareAccountApiError, type WorkersBuild } from '~/lib/.server/cloudflare/user-account-api';
 import {
+  runtimeDeletedProjectsAction,
   runtimeOpenProjectAction,
   runtimeProjectImportedAction,
   runtimeAbandonImportAction,
@@ -212,6 +213,35 @@ describe('a runtime opening a project', () => {
     database.prepare('UPDATE organization_members SET paused_at = 1 WHERE user_id = ?').run(sara.userId);
     // A paused member's runtime isn't heard at all.
     expect((await open(SITE)).status).toBe(401);
+  });
+
+  it('says plainly that a deleted project was deleted, and which of a runtime’s projects were, never one that exists', async () => {
+    const { database, env, runtime } = await setup();
+    const GONE = '77777777-7777-4777-8777-777777777777';
+    const open = async (orgProjectId: string) =>
+      runtimeOpenProjectAction({
+        request: await runtime('/api/cloudflare/runtime-projects/open', { orgProjectId }),
+        env,
+        app: null,
+      });
+    const deleted = await open(GONE);
+    expect(deleted.status).toBe(404);
+    expect(await deleted.json()).toEqual({ code: 'project_deleted', error: 'This project was deleted.' });
+    // One that exists but isn't hers is no business of hers.
+    expect((await open(PROMOTED)).status).toBe(403);
+
+    const ask = async (body: { orgProjectIds: string[] }) =>
+      runtimeDeletedProjectsAction({
+        request: await runtime('/api/cloudflare/runtime-projects/deleted', body),
+        env,
+      });
+    const answer = await ask({ orgProjectIds: [SITE, GONE, PROMOTED, OWN, GONE] });
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({ deleted: [GONE] });
+    expect(await (await ask({ orgProjectIds: [] })).json()).toEqual({ deleted: [] });
+    expect((await ask({ orgProjectIds: ['not-a-project'] })).status).toBe(400);
+    database.prepare('DELETE FROM org_projects WHERE id = ?').run(SITE);
+    expect(await (await ask({ orgProjectIds: [SITE] })).json()).toEqual({ deleted: [SITE] });
   });
 });
 

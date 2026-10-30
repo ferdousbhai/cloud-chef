@@ -323,6 +323,41 @@ export async function runtimeSyncAppsAction(args: { request: Request; env: Env }
   return json({ synced: body.apps.length }, 200);
 }
 
+/** Said of a project that no longer exists: someone who ran it deleted it. */
+const PROJECT_DELETED_MESSAGE = 'This project was deleted.';
+
+/** Those of `projectIds` that no project has: deleted, as every project id a runtime holds was a project's once. */
+async function deletedProjectIds(db: D1Database, projectIds: readonly string[]): Promise<string[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT DISTINCT value AS id FROM json_each(?1) WHERE value NOT IN (SELECT id FROM org_projects) ORDER BY value`,
+    )
+    .bind(JSON.stringify(projectIds))
+    .all<{ id: string }>();
+  return results.map((row) => row.id);
+}
+
+const deletedProjectsSchema = z.strictObject({ orgProjectIds: z.array(z.string().uuid()).max(100) });
+
+/**
+ * `runtime-projects/deleted`: which of the projects a runtime holds workspaces of no longer exist, so it removes its
+ * person's workspaces of them. Deleting a project asks every ready runtime in its account to remove them at once; this
+ * is how one that wasn't ready then (or couldn't be reached) cleans up later. Only a project with no record at all is
+ * answered, never one that exists but that the person may no longer open.
+ */
+export async function runtimeDeletedProjectsAction(args: { request: Request; env: Env }): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, deletedProjectsSchema, {
+    maxBytes: MAX_REQUEST_BYTES,
+    label: 'Workspace runtime deleted projects',
+    invalid: INVALID_REQUEST,
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const ids = authenticated.body.orgProjectIds;
+  return json({ deleted: ids.length === 0 ? [] : await deletedProjectIds(args.env.DB, ids) }, 200);
+}
+
 const adoptionSchema = z.strictObject({ repo: REPO });
 
 /**
@@ -786,6 +821,9 @@ export async function openProject<T extends z.infer<typeof projectSchema>>(
   }
   const { body, identity, connection, credentialHandle } = authenticated;
   const project = await findAccessibleProject(args.env.DB, body.orgProjectId, identity.userId);
+  if (!project && (await deletedProjectIds(args.env.DB, [body.orgProjectId])).length > 0) {
+    return json({ code: 'project_deleted', error: PROJECT_DELETED_MESSAGE }, 404);
+  }
   if (!project || project.connectionId !== connection.id) {
     return json({ error: 'This project is not available to you.' }, 403);
   }

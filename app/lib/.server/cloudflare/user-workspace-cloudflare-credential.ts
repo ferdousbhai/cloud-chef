@@ -212,8 +212,11 @@ export async function readAccountModelSettings(
 
 /** The fields a runtime route is sent. */
 type RuntimeRouteValue = string | number | boolean | null | undefined;
-/** Plain values, or (for a list the runtime reports, such as its apps) a list of records of them. */
-type RuntimeRouteBody = Record<string, RuntimeRouteValue | Record<string, RuntimeRouteValue>[]>;
+/**
+ * Plain values, a list of strings (such as project ids), or (for a list the runtime reports, such as its apps) a list
+ * of records of them.
+ */
+type RuntimeRouteBody = Record<string, RuntimeRouteValue | string[] | Record<string, RuntimeRouteValue>[]>;
 
 /**
  * A call to one of the control plane's runtime routes, as this runtime, carrying `body` as JSON (a field
@@ -272,7 +275,8 @@ type RuntimeRoute =
   | 'runtime-projects/deletable'
   | 'runtime-projects/main-rewrite'
   | 'runtime-projects/main-rewritten'
-  | 'runtime-projects/main-pushed';
+  | 'runtime-projects/main-pushed'
+  | 'runtime-projects/deleted';
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
   let endpoint: URL;

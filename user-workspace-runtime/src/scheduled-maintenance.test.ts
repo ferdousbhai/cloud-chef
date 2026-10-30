@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { USER_WORKSPACE_RUNTIME_GC_CRON } from '../../app/lib/.server/cloudflare/user-workspace-runtime-policy';
 import { sweepAgentGcCandidatesBestEffort } from '../../app/lib/cloudflare/data/agent-gc.server';
 import { sweepAppResourceGcCandidatesBestEffort } from '../../app/lib/cloudflare/data/app-resource-gc.server';
+import { sweepDeletedProjectWorkspacesBestEffort } from '../../app/lib/cloudflare/data/projects.server';
 import { scheduleUserWorkspaceRuntimeMaintenance } from './scheduled-maintenance';
 
 vi.mock('../../app/lib/cloudflare/data/agent-gc.server', () => ({
@@ -10,10 +11,17 @@ vi.mock('../../app/lib/cloudflare/data/agent-gc.server', () => ({
 vi.mock('../../app/lib/cloudflare/data/app-resource-gc.server', () => ({
   sweepAppResourceGcCandidatesBestEffort: vi.fn(async () => undefined),
 }));
+vi.mock('../../app/lib/cloudflare/data/projects.server', () => ({
+  sweepDeletedProjectWorkspacesBestEffort: vi.fn(async () => undefined),
+}));
 
 // Every job the provisioned trigger must register. Listing them here is what
 // keeps the call-count assertions from drifting when a sweep is added.
-const MAINTENANCE_JOBS = [sweepAgentGcCandidatesBestEffort, sweepAppResourceGcCandidatesBestEffort];
+const MAINTENANCE_JOBS = [
+  sweepAgentGcCandidatesBestEffort,
+  sweepAppResourceGcCandidatesBestEffort,
+  sweepDeletedProjectWorkspacesBestEffort,
+];
 
 function maintenanceEnv() {
   return { ConversationAgent: {}, DB: {} } as unknown as Parameters<typeof scheduleUserWorkspaceRuntimeMaintenance>[1];
@@ -38,6 +46,7 @@ describe('user workspace runtime scheduled maintenance', () => {
     expect(sweepAgentGcCandidatesBestEffort).toHaveBeenCalledWith(env);
     // Only the scheduled sweep looks for removed chats whose deployment records outlived their candidate.
     expect(sweepAppResourceGcCandidatesBestEffort).toHaveBeenCalledWith(env, { requeueRemovedChats: true });
+    expect(sweepDeletedProjectWorkspacesBestEffort).toHaveBeenCalledWith(env);
     expect(waitUntil).toHaveBeenCalledTimes(MAINTENANCE_JOBS.length);
     await Promise.all(waitUntil.mock.calls.map(([promise]) => promise));
   });
