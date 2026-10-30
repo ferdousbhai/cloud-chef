@@ -7,7 +7,7 @@ import { Button } from '@ui/Button';
 import { TextInput } from '@ui/TextInput';
 import { format } from 'date-fns';
 import { ProjectTitle } from '~/components/ProjectTitle';
-import { useWorkspaceId } from '~/lib/stores/workspaceId';
+import { useOpenWorkspaceId } from '~/lib/stores/workspaceId';
 
 interface HistoryItemProps {
   item: WorkspaceSummary;
@@ -16,7 +16,7 @@ interface HistoryItemProps {
 }
 
 export function HistoryItem({ item, handleDeleteClick, onNavigate }: HistoryItemProps) {
-  const activeChatId = useWorkspaceId();
+  const activeChatId = useOpenWorkspaceId();
   const isActiveChat = activeChatId === item.initialId;
 
   const { editing, handleChange, handleBlur, handleSubmit, handleKeyDown, currentDescription, toggleEditMode } =

@@ -51,25 +51,26 @@ export function useCopyFromPost(project: { id: string; name: string; path: strin
   const start = () =>
     signedIn('Sign in to make your own copy.', () => setOpen(true), `${project.path}?${COPY_PARAM}=1`);
 
-  // The same module-level lazy component on every call: nothing is made here.
-  const CopyProjectDialog = getCopyProjectDialog();
-  const dialog =
-    (open || (asked && !closed)) && viewer?.signedIn ? (
-      viewer.me.hasSpace ? (
-        CopyProjectDialog && (
-          <Suspense fallback={null}>
-            {/* oxlint-disable-next-line react/static-components */}
-            <CopyProjectDialog
-              project={{ id: project.id, name: project.name }}
-              onOpenProject={(initialId) => window.location.assign(`/chat/${encodeURIComponent(initialId)}`)}
-              onClose={close}
-            />
-          </Suspense>
-        )
-      ) : (
-        <CopyWhenReadyDialog project={project} onClose={close} />
+  // Only ever shown in the browser, once the viewer is known: the copy dialog is the browser's alone. The same
+  // module-level lazy component on every call: nothing is made here.
+  const showing = (open || (asked && !closed)) && viewer?.signedIn ? viewer : null;
+  const CopyProjectDialog = showing?.me.hasSpace ? getCopyProjectDialog() : undefined;
+  const dialog = showing ? (
+    showing.me.hasSpace ? (
+      CopyProjectDialog && (
+        <Suspense fallback={null}>
+          {/* oxlint-disable-next-line react/static-components */}
+          <CopyProjectDialog
+            project={{ id: project.id, name: project.name }}
+            onOpenProject={(initialId) => window.location.assign(`/chat/${encodeURIComponent(initialId)}`)}
+            onClose={close}
+          />
+        </Suspense>
       )
-    ) : null;
+    ) : (
+      <CopyWhenReadyDialog project={project} onClose={close} />
+    )
+  ) : null;
 
   return { start, dialog };
 }

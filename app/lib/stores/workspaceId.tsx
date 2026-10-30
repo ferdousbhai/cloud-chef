@@ -19,6 +19,11 @@ export function useWorkspaceId() {
   return workspaceId;
 }
 
+/** The open project's workspace, or undefined on a page with none open (Explore, a person's page, Settings). */
+export function useOpenWorkspaceId(): string | undefined {
+  return useContext(WorkspaceIdContext) ?? undefined;
+}
+
 export function chatUrlMask(workspaceId: string) {
   return {
     to: '/chat/$id',

@@ -17,11 +17,11 @@ export function SignInOverlay({ title, returnTo, onClose }: { title: string; ret
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-sm" />
         <Dialog.Content
           aria-describedby={undefined}
-          className="fixed inset-x-3 top-1/2 z-50 mx-auto max-h-[calc(100dvh-1.5rem)] max-w-lg -translate-y-1/2 overflow-y-auto rounded-lg bg-bolt-elements-background-depth-1 shadow-xl focus:outline-hidden"
+          className="fixed inset-x-0 top-1/2 z-50 mx-auto max-h-dvh max-w-lg -translate-y-1/2 overflow-y-auto focus:outline-hidden"
         >
           <Dialog.Title className="sr-only">{title}</Dialog.Title>
           <Dialog.Close
-            className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full text-content-secondary hover:bg-bolt-elements-background-depth-2 hover:text-content-primary"
+            className="absolute right-6 top-9 z-10 flex size-9 items-center justify-center rounded-full text-content-secondary hover:bg-bolt-elements-background-depth-2 hover:text-content-primary"
             aria-label="Close"
           >
             <span aria-hidden>×</span>

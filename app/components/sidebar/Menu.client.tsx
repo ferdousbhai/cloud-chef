@@ -7,7 +7,7 @@ import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
 import { classNames } from '~/utils/classNames';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { useWorkspaceId } from '~/lib/stores/workspaceId';
+import { useOpenWorkspaceId } from '~/lib/stores/workspaceId';
 import { Button, buttonClassNames } from '@ui/Button';
 import { Link } from '@tanstack/react-router';
 import { LinkButton } from '~/components/ui/LinkButton';
@@ -81,7 +81,7 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const userId = useUserIdOrNullOrLoading();
   const accountUserId = userId ?? null;
-  const activeChatId = useWorkspaceId();
+  const activeChatId = useOpenWorkspaceId();
   const history = useWorkspaceHistory(accountUserId);
   // Projects come from the workspace in the user's Cloudflare account; while it's set up or updated, say so.
   const workspacePreparing = useStore(userWorkspacePreparingStore);
