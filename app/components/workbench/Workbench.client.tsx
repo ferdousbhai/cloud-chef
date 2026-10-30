@@ -12,7 +12,6 @@ import { Cross2Icon, ReloadIcon } from '@radix-ui/react-icons';
 import { useWorkbenchController } from './useWorkbenchController';
 import { useStore } from '@nanostores/react';
 import { workbenchStore } from '~/lib/stores/workbench.client';
-import { appSitePresentation } from '~/lib/common/app-site';
 import { useWorkspaceSwipe } from '~/lib/hooks/useWorkspaceSwipe';
 
 /** `--workbench-width` is a CSS custom property, which `CSSProperties` alone cannot express. */
@@ -88,8 +87,6 @@ export const Workbench = memo(function Workbench({ isStreaming, beforeChatStarte
 function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps, 'isStreaming' | 'beforeChatStarted'>) {
   const controller = useWorkbenchController(isStreaming);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
-  const presentation = appSitePresentation(controller.siteState);
-  const publication = useStore(workbenchStore.publicationState);
   const workspaceFiles = useStore(workbenchStore.workspaceFiles);
   const hasFiles = Object.values(controller.files).some((dirent) => dirent?.type === 'file');
 
@@ -114,19 +111,12 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
             </PanelHeaderButton>
           )
         ) : (
-          <>
-            {presentation.url && presentation.status === 'publishing' && (
-              <span className="mr-2 text-xs text-content-secondary" aria-live="polite">
-                Updating…
-              </span>
-            )}
-            <IconButton
-              icon={<ReloadIcon />}
-              title="Reload preview frame"
-              disabled={!presentation.url}
-              onClick={() => setPreviewReloadKey((value) => value + 1)}
-            />
-          </>
+          <IconButton
+            icon={<ReloadIcon />}
+            title="Reload preview frame"
+            disabled={!controller.linkedSite}
+            onClick={() => setPreviewReloadKey((value) => value + 1)}
+          />
         )
       }
     >
@@ -155,15 +145,7 @@ function ReadyWorkbench({ isStreaming, beforeChatStarted }: Pick<WorkbenchProps,
         <View {...slidingPosition({ view: 'preview', selectedView: controller.selectedView })}>
           {controller.hasLoadedPreview ? (
             <Suspense fallback={null}>
-              <Preview
-                presentation={presentation}
-                publication={publication}
-                reloadKey={previewReloadKey}
-                // Publishing mid-turn would ship whatever the agent has half written.
-                requesting={controller.publishRequesting || Boolean(isStreaming)}
-                onPublish={() => void controller.onPublishRequest()}
-                linkedSite={controller.linkedProject ? controller.linkedSite : undefined}
-              />
+              <Preview site={controller.linkedSite} reloadKey={previewReloadKey} />
             </Suspense>
           ) : (
             <div />

@@ -15,7 +15,6 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 import { waitForAgentSocketOpen } from './agent-connection';
 import { WORKERS_PAID_REQUIRED_MARKER } from '~/lib/workers-paid';
 import { showWorkersPaidRequiredToast } from '~/lib/workers-paid.client';
-import { refreshWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
 import { executeDataOperation } from '~/lib/cloudflare/client';
 import { api } from '~/lib/cloudflare/data-api';
 import { description as descriptionStore } from '~/lib/stores/description';
@@ -157,12 +156,6 @@ export function useConversationAgentChat(args: {
       if (activePresentationRef.current !== args.presentationId) {
         return;
       }
-      workbenchStore.updateSite({
-        url: state.productionUrl ?? state.deployment?.productionUrl ?? null,
-        revision: state.productionRevision ?? null,
-        deployment: state.deployment ?? null,
-      });
-      workbenchStore.updatePublication(state.publication ?? null);
       setUpgradeWaiting(state.upgradeWaiting === true);
       const linked = state.linkedProject ?? null;
       const shownLinked = workbenchStore.linkedProject.get();
@@ -175,7 +168,6 @@ export function useConversationAgentChat(args: {
         workbenchStore.linkedSite.set(site);
       }
       workbenchStore.conversationClosed.set(state.conversationClosed === true);
-      workbenchStore.conversationAdopted.set(state.conversationAdopted === true);
       const generatedTitle = state.generatedConversationTitle;
       if (!generatedTitle || generatedSubchatTitleUpdatedAtRef.current === generatedTitle.updatedAt) {
         return;
@@ -216,11 +208,7 @@ export function useConversationAgentChat(args: {
     void workspaceControllerRef.current?.pull().catch((workspaceError) => {
       logger.error('Failed to refresh the durable workspace presentation after a builder response', workspaceError);
     });
-    void refreshProjectMetadata(
-      args.chatInitialId,
-      args.accountId,
-      () => activePresentationRef.current === args.presentationId,
-    );
+    void refreshProjectMetadata(args.chatInitialId, () => activePresentationRef.current === args.presentationId);
   };
   const receiveFrame = (event: MessageEvent, presentationId: string) => {
     const text = z.string().safeParse(event.data).data;
@@ -480,22 +468,6 @@ export function useConversationAgentChat(args: {
     [assertCurrentPresentation, conversationAgent, transcript, workspaceGateRef],
   );
 
-  const deployValidatedRevision = useCallback(async () => {
-    await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
-    return conversationAgent.call('deployValidatedRevision', [], { timeout: 30 * 60_000 });
-  }, [conversationAgent]);
-
-  useEffect(() => workbenchStore.connectSite({ publish: deployValidatedRevision }), [deployValidatedRevision]);
-
-  const requestProduction = useCallback(
-    async (input: { title: string; note: string }) => {
-      await waitForAgentSocketOpen(conversationAgent, AGENT_SEND_READY_TIMEOUT_MS);
-      const { outcome } = await conversationAgent.call('requestProduction', [input], { timeout: 2 * 60_000 });
-      return outcome;
-    },
-    [conversationAgent],
-  );
-
   // The others on the project see when this person's agent is working: only that it is, nothing of what it does.
   useEffect(() => {
     agentWorkingStore.set(busy);
@@ -592,10 +564,6 @@ export function useConversationAgentChat(args: {
     steerMessage,
     streamStatus: status,
     validationStage: conversationAgent.state?.validationProgress?.stage ?? null,
-    deployment: conversationAgent.state?.deployment ?? null,
-    publication: conversationAgent.state?.publication ?? null,
-    deployValidatedRevision,
-    requestProduction,
     cloudflareExecutions: conversationAgent.state?.cloudflareExecutions ?? [],
     decideCloudflareExecution,
     workspacePresentationState,
@@ -625,30 +593,19 @@ function createAsyncGate(): AsyncGate {
   return { promise, resolve, error: null, started: false };
 }
 
-async function refreshProjectMetadata(
-  workspaceId: string,
-  accountId: string,
-  isActive: () => boolean,
-  attempt = 0,
-): Promise<void> {
+async function refreshProjectMetadata(workspaceId: string, isActive: () => boolean, attempt = 0): Promise<void> {
   if (!workspaceId || !isActive()) {
     return;
   }
   try {
-    const [, chat] = await Promise.all([
-      refreshWorkspaceHistory(accountId),
-      executeDataOperation(api.messages.get, { id: workspaceId }),
-    ]);
+    const chat = await executeDataOperation(api.messages.get, { id: workspaceId });
     if (!isActive()) {
       return;
     }
     if (chat?.description) {
       descriptionStore.set(chat.description);
     } else if (attempt < 2) {
-      window.setTimeout(
-        () => void refreshProjectMetadata(workspaceId, accountId, isActive, attempt + 1),
-        (attempt + 1) * 1_000,
-      );
+      window.setTimeout(() => void refreshProjectMetadata(workspaceId, isActive, attempt + 1), (attempt + 1) * 1_000);
     }
   } catch {
     // The title stays as it is until the project is next opened.

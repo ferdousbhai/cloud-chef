@@ -5,8 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
-import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
-import type { App, TeamProject } from '~/lib/cloudflare/org-projects.client';
+import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { refreshSession } from '~/lib/auth-client';
 import { cloudflareReauthorizationRequiredStore, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import {
@@ -30,9 +29,7 @@ const teamMember: WorkspaceContext = {
 const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3', role: 'admin', draftsAllowed: true };
 
 let context: WorkspaceContext = personal;
-let ownProjects: WorkspaceSummary[] = [];
 let teamProjects: TeamProject[] = [];
-let apps: App[] = [];
 /** The workspace runtime's publish routes, or null where it hasn't been upgraded to have them. */
 let deployRoutes: { log: string } | null = null;
 /** Whether the control plane refuses a workspace session until Cloudflare is reauthorized. */
@@ -41,7 +38,6 @@ let reauthorizationRequired = false;
 let openFailure: string | null = null;
 const deployRequests: unknown[] = [];
 const visibilityRequests: unknown[] = [];
-const copyRequests: unknown[] = [];
 const deleteRequests: unknown[] = [];
 
 /** CloudChef's routes and the workspace runtime, as the home reaches them. */
@@ -59,13 +55,6 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (url === '/api/org-projects') {
     return Response.json({ projects: teamProjects });
   }
-  if (url === '/api/projects/copy' && init?.method === 'POST') {
-    copyRequests.push(JSON.parse(String(init.body)));
-    return Response.json(
-      { projectId: 'app-9', initialId: 'chat-9', fullName: 'ada/booking-site-copy' },
-      { status: 201 },
-    );
-  }
   if (url === '/api/projects/delete/preview' && init?.method === 'POST') {
     return Response.json({
       sites: ['https://storefront.example.com'],
@@ -79,9 +68,6 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (url === '/api/projects/delete' && init?.method === 'POST') {
     deleteRequests.push(JSON.parse(String(init.body)));
     return Response.json({ deleted: ['Worker storefront'] });
-  }
-  if (url === '/api/apps') {
-    return Response.json({ apps });
   }
   if (url === '/api/projects/visibility' && init?.method === 'POST') {
     const body: { projectId: string; visibility: string } = JSON.parse(String(init.body));
@@ -102,9 +88,6 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   if (url === '/api/cloudflare/runtime-session') {
     return Response.json({ endpoint: RUNTIME, token: 'runtime-token', expiresAt: Date.now() + 3_600_000 });
-  }
-  if (url === `${RUNTIME}/v1/data`) {
-    return Response.json({ result: ownProjects });
   }
   if (deployRoutes && url === `${RUNTIME}/v1/projects/deploy` && init?.method === 'POST') {
     deployRequests.push(JSON.parse(String(init.body)));
@@ -129,16 +112,13 @@ beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', InertObserver);
   vi.stubGlobal('ResizeObserver', InertObserver);
   resetUserRuntimeSession();
-  ownProjects = [];
   teamProjects = [];
-  apps = [];
   deployRoutes = null;
   reauthorizationRequired = false;
   openFailure = null;
   cloudflareReauthorizationRequiredStore.set(false);
   deployRequests.length = 0;
   visibilityRequests.length = 0;
-  copyRequests.length = 0;
   deleteRequests.length = 0;
 });
 
@@ -152,11 +132,11 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-/** The home's projects for `userId`; each test uses its own, since the project list is cached per person. */
-async function render(userId: string) {
+/** The home's projects; `_name` names the person each test renders for. */
+async function render(_name: string) {
   await refreshSession();
   const router = createRouter({
-    routeTree: createRootRoute({ component: () => <ProjectsHome userId={userId} /> }),
+    routeTree: createRootRoute({ component: () => <ProjectsHome /> }),
     history: createMemoryHistory(),
   });
   await router.load();
@@ -221,22 +201,22 @@ async function type(input: HTMLInputElement, text: string) {
 describe('ProjectsHome', () => {
   it("lists the person's own projects, with Open site only once published", async () => {
     context = personal;
-    ownProjects = [
+    teamProjects = [
       {
-        id: 'chat-1',
-        initialId: 'chat-1',
-        description: 'Booking site',
-        timestamp: new Date().toISOString(),
-        productionUrl: 'https://booking.example.workers.dev',
+        id: 'project-1',
+        name: 'Booking site',
+        role: 'edit',
+        repo: 'r',
+        siteUrl: 'https://booking.example.workers.dev',
       },
-      { id: 'chat-2', initialId: 'chat-2', description: 'Draft', timestamp: new Date().toISOString() },
+      { id: 'project-2', name: 'Draft', role: 'edit', repo: 'r' },
     ];
     await render('user-personal');
     await vi.waitFor(() => card('Booking site'));
 
     expect(document.querySelector('#my-projects')?.textContent).toBe('My projects');
     expect(document.querySelector('#team-projects')).toBeNull();
-    expect(card('Booking site').querySelector('a[href="/chat/chat-1"]')?.textContent).toContain('Edit');
+    expect(card('Booking site').querySelector('button[aria-label="Edit Booking site"]')).not.toBeNull();
     expect(card('Booking site').querySelector('a[href="https://booking.example.workers.dev"]')).not.toBeNull();
     expect(card('Draft').textContent).toContain('Not published yet');
     expect(card('Draft').textContent).not.toContain('Open site');
@@ -248,8 +228,10 @@ describe('ProjectsHome', () => {
 
   it("lists a project uploaded to the person's own account among their projects, with how its publishing went", async () => {
     context = personal;
-    ownProjects = [{ id: 'chat-1', initialId: 'chat-1', description: 'Draft', timestamp: '2026-10-01T00:00:00.000Z' }];
-    teamProjects = [{ ...uploaded({ state: 'building' }), createdAt: '2026-10-20T00:00:00.000Z' }];
+    teamProjects = [
+      { id: 'project-2', name: 'Draft', role: 'edit', repo: 'r', createdAt: '2026-10-01T00:00:00.000Z' },
+      { ...uploaded({ state: 'building' }), createdAt: '2026-10-20T00:00:00.000Z' },
+    ];
     await render('user-personal-upload');
     await vi.waitFor(() => card('Storefront'));
 
@@ -269,34 +251,17 @@ describe('ProjectsHome', () => {
     expect(document.querySelector(ADD)).not.toBeNull();
   });
 
-  it("shows a team admin the team's projects first, with no empty section of their own", async () => {
+  it("shows a team admin the team's projects, with no section of their own", async () => {
     context = teamAdmin;
     teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
     await render('user-admin');
     await vi.waitFor(() => card('Storefront'));
-    // The admin's own list, empty, has finished loading too.
-    await vi.waitFor(() =>
-      expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url) === `${RUNTIME}/v1/data`)).toBe(true),
-    );
-    await act(async () => undefined);
 
     expect(document.querySelector('#team-projects')?.textContent).toBe('Team projects');
     expect(document.querySelector('#my-projects')).toBeNull();
     expect(document.querySelector('#team-projects')?.parentElement?.querySelector(ADD)).not.toBeNull();
     expect(card('Storefront').textContent).toContain('Owner');
     expect(await addChoices()).toEqual(['Import from GitHub', 'Upload a ZIP']);
-  });
-
-  it("lists a team admin's own projects after the team's once they have some", async () => {
-    context = teamAdmin;
-    teamProjects = [{ id: 'project-1', name: 'Storefront', role: 'edit', repo: 't-project-1' }];
-    ownProjects = [{ id: 'chat-3', initialId: 'chat-3', description: 'Sketch', timestamp: new Date().toISOString() }];
-    await render('user-admin-drafts');
-    await vi.waitFor(() => card('Sketch'));
-
-    const headings = [...document.querySelectorAll('h2')].map((heading) => heading.textContent);
-    expect(headings).toEqual(['Team projects', 'My projects']);
-    expect(document.querySelectorAll(ADD)).toHaveLength(1);
   });
 
   it('shows a member the team projects shared with them, with Edit only where they can edit', async () => {
@@ -309,7 +274,7 @@ describe('ProjectsHome', () => {
     await vi.waitFor(() => card('Docs'));
 
     expect(document.querySelector('#team-projects')?.textContent).toBe('Shared with me');
-    // A member limited to the team's projects has none of their own, and imports none.
+    // In a team, a member sees only its projects, and imports none.
     expect(document.querySelector('#my-projects')).toBeNull();
     expect(document.querySelector(ADD)).toBeNull();
     expect(card('Storefront').querySelector('button[aria-label="Edit Storefront"]')).not.toBeNull();
@@ -562,88 +527,11 @@ describe('ProjectsHome', () => {
     expect(dialog?.textContent).toContain('Acme');
   });
 
-  it('gives an app made in a chat the same public and copy choices, once CloudChef has recorded it', async () => {
-    context = personal;
-    const at = new Date().toISOString();
-    ownProjects = [
-      { id: 'chat-1', initialId: 'chat-1', description: 'Booking site', timestamp: at },
-      { id: 'chat-2', initialId: 'chat-2', description: 'Garden club', timestamp: at },
-      { id: 'chat-3', initialId: 'chat-3', description: 'Just made', timestamp: at },
-    ];
-    apps = [
-      { id: 'chat-1', fullName: 'ada/booking-site', visibility: 'private' },
-      { id: 'chat-2', fullName: 'ada/garden-club', visibility: 'public' },
-    ];
-    await render('user-app-menu');
-    await vi.waitFor(() => expect(card('Garden club').textContent).toContain('ada/garden-club'));
-
-    expect(card('Garden club').textContent).toContain('Public');
-    expect(card('Booking site').textContent).toContain('ada/booking-site');
-    expect(card('Booking site').textContent).not.toContain('Public');
-    const booking = await moreChoices('Booking site');
-    expect(booking).toEqual(['History', 'Clone', 'Download ZIP', 'Make public', 'Make a copy', 'Delete']);
-    await closeMenu();
-    const garden = await moreChoices('Garden club');
-    expect(garden).toContain('Make private');
-    expect(garden).not.toContain('Make public');
-    await closeMenu();
-    // Not recorded yet: nothing to make public or copy.
-    expect(await moreChoices('Just made')).toEqual(['History', 'Clone', 'Download ZIP', 'Delete']);
-  });
-
-  it('asks before making an app public, and makes it private again without asking', async () => {
-    context = personal;
-    ownProjects = [
-      { id: 'chat-1', initialId: 'chat-1', description: 'Booking site', timestamp: new Date().toISOString() },
-    ];
-    apps = [{ id: 'chat-1', fullName: 'ada/booking-site', visibility: 'private' }];
-    await render('user-app-make-public');
-    await vi.waitFor(() => expect(card('Booking site').textContent).toContain('ada/booking-site'));
-
-    await moreChoices('Booking site');
-    await choose('Make public');
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.textContent).toContain('Make Booking site public?');
-    expect(dialog?.textContent).toContain('Anyone signed in to CloudChef will be able to find it in Explore');
-    expect(visibilityRequests).toEqual([]);
-
-    await click(dialog!, 'Make public');
-    await vi.waitFor(() => expect(card('Booking site').textContent).toContain('Public'));
-    expect(visibilityRequests).toEqual([{ projectId: 'chat-1', visibility: 'public' }]);
-
-    await moreChoices('Booking site');
-    await choose('Make private');
-    await vi.waitFor(() => expect(card('Booking site').textContent).not.toContain('Public'));
-    expect(visibilityRequests).toEqual([
-      { projectId: 'chat-1', visibility: 'public' },
-      { projectId: 'chat-1', visibility: 'private' },
-    ]);
-  });
-
-  it('makes a copy of an app and opens it', async () => {
-    context = personal;
-    ownProjects = [
-      { id: 'chat-1', initialId: 'chat-1', description: 'Booking site', timestamp: new Date().toISOString() },
-    ];
-    apps = [{ id: 'chat-1', fullName: 'ada/booking-site', visibility: 'private' }];
-    await render('user-app-copy');
-    await vi.waitFor(() => expect(card('Booking site').textContent).toContain('ada/booking-site'));
-
-    await moreChoices('Booking site');
-    await choose('Make a copy');
-    const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.querySelector('input')?.value).toBe('Booking site');
-    expect(dialog?.textContent).toContain('Personal');
-    const assign = vi.fn();
-    vi.stubGlobal('location', { ...window.location, assign });
-    await click(dialog!, 'Make a copy');
-    await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/chat/chat-9'));
-    expect(copyRequests).toEqual([{ projectId: 'chat-1', name: 'Booking site' }]);
-  });
-
   it('asks once to reauthorize Cloudflare when the workspace needs it, instead of saying projects failed', async () => {
     context = personal;
     reauthorizationRequired = true;
+    // The home's own call to the workspace (the prompt's model list) is what finds it.
+    cloudflareReauthorizationRequiredStore.set(true);
     await render('user-reauthorize');
     await vi.waitFor(() => expect(document.body.textContent).toContain(REAUTHORIZE_CLOUDFLARE_MESSAGE));
 

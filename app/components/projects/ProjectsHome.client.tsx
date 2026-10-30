@@ -15,22 +15,17 @@ import {
   TrashIcon,
   UploadIcon,
 } from '@radix-ui/react-icons';
-import { Button, buttonClassNames } from '@ui/Button';
+import { Button } from '@ui/Button';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { Menu, MenuItem } from '@ui/Menu';
-import { Link } from '@tanstack/react-router';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient } from '~/lib/auth-client';
-import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
-import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import {
   deleteProject,
-  loadApps,
   loadDeletionPreview,
   loadTeamProjects,
   openTeamProject,
   setProjectVisibility,
-  type App,
   type ProjectVisibility,
   type TeamProject,
 } from '~/lib/cloudflare/org-projects.client';
@@ -50,7 +45,7 @@ import { isImportReturn, IMPORT_RETURN_PARAM } from '~/lib/github-app.client';
 import { messageOf } from '~/lib/json-request';
 import { CloneDialog } from './CloneDialog.client';
 import { CopyProjectDialog } from './CopyProjectDialog.client';
-import { AppDeletionNotice, DeleteProjectDialog } from './DeleteProjectDialog.client';
+import { DeleteProjectDialog } from './DeleteProjectDialog.client';
 import { DeployLogDialog } from './DeployLogDialog.client';
 import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } from './ProjectCard';
@@ -59,7 +54,7 @@ import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
 
 type OpenDialog =
-  | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean; canFork: boolean }
+  | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean }
   | { kind: 'clone'; project: ProjectRef; name: string; fullName: string | null }
   | { kind: 'share'; orgId: string; project: { id: string; name: string } }
   | { kind: 'import' }
@@ -67,7 +62,6 @@ type OpenDialog =
   | { kind: 'copy'; project: { id: string; name: string } }
   | { kind: 'make-public'; name: string; makePublic: () => void }
   | { kind: 'delete'; project: TeamProject; connection: ConnectionProjects }
-  | { kind: 'delete-app'; initialId: string; name: string }
   | { kind: 'deploy-log'; orgProjectId: string; deploymentId: string; name: string; live?: boolean }
   | {
       kind: 'use-wanted-worker';
@@ -78,16 +72,13 @@ type OpenDialog =
     };
 
 /**
- * The signed-in home's projects, below the prompt that starts a new one: the person's own projects in the
- * account they're working in, and in a team, the team projects they may view or edit. In a team its projects
- * come first, and the person's own appear only once there are some.
+ * The signed-in home's projects, below the prompt that starts a new one: the projects of the account the person is
+ * working in, their own outside a team, and in a team the team projects they may view or edit.
  */
-export function ProjectsHome({ userId }: { userId: string }) {
+export function ProjectsHome() {
   const { data: session } = authClient.useSession();
   const context = session?.context ?? null;
   const team = context?.kind === 'organization' ? context : null;
-  // A member limited to the team's projects can't start or import projects of their own.
-  const draftsAllowed = team === null || team.draftsAllowed;
   // In a team only its admins import, since a team's projects are theirs to add.
   const canImport = team === null || team.role === 'admin';
   // Back from installing the GitHub App: the import dialog opens again, and the address forgets the visit.
@@ -121,23 +112,14 @@ export function ProjectsHome({ userId }: { userId: string }) {
           reauthorization={reauthorize ? 'prompt' : null}
           onDialog={setDialog}
         />
-      ) : null}
-      {draftsAllowed ? (
-        <OwnProjects
-          userId={userId}
-          hideWhenEmpty={team !== null}
-          action={team ? null : addProject}
-          reauthorization={reauthorize ? (team ? 'quiet' : 'prompt') : null}
-          onDialog={setDialog}
-        />
-      ) : null}
+      ) : (
+        <OwnProjects action={addProject} reauthorization={reauthorize ? 'prompt' : null} onDialog={setDialog} />
+      )}
       {dialog?.kind === 'history' ? (
         <ProjectHistoryDialog
           project={dialog.project}
           name={dialog.name}
           canRevert={dialog.canRevert}
-          canFork={dialog.canFork}
-          onOpenProject={openProjectWorkspace}
           onClose={() => setDialog(null)}
         />
       ) : null}
@@ -220,15 +202,6 @@ export function ProjectsHome({ userId }: { userId: string }) {
           onClose={() => setDialog(null)}
         />
       ) : null}
-      {dialog?.kind === 'delete-app' ? (
-        <DeleteProjectDialog
-          name={dialog.name}
-          summary={<AppDeletionNotice />}
-          onDelete={() => removeWorkspaceHistoryItem(userId, dialog.initialId)}
-          onDeleted={() => setDialog(null)}
-          onClose={() => setDialog(null)}
-        />
-      ) : null}
       {dialog?.kind === 'upload' ? (
         <UploadZipDialog onOpenProject={openProjectWorkspace} onClose={() => setDialog(null)} />
       ) : null}
@@ -236,8 +209,8 @@ export function ProjectsHome({ userId }: { userId: string }) {
   );
 }
 
-/** Whether Cloudflare must be reauthorized before the lists load: the section that prompts, the others quiet. */
-type Reauthorization = 'prompt' | 'quiet' | null;
+/** Whether Cloudflare must be reauthorized before the list loads, which the section then says. */
+type Reauthorization = 'prompt' | null;
 
 /** One quiet control for bringing in code made elsewhere: from GitHub, or a ZIP. */
 function AddProjectMenu({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
@@ -273,69 +246,21 @@ function download(project: ProjectRef, name: string) {
 }
 
 function OwnProjects({
-  userId,
-  hideWhenEmpty,
   action,
   reauthorization,
   onDialog,
 }: {
-  userId: string;
-  /**
-   * In a team, where its projects come first, the person's own show only once they have some. Outside one, the
-   * projects added to the person's own account (imported or uploaded) are listed with them.
-   */
-  hideWhenEmpty: boolean;
   action: ReactNode;
-  /** Whether Cloudflare must be reauthorized first, and whether this section is the one that says so. */
+  /** Whether Cloudflare must be reauthorized first. */
   reauthorization: Reauthorization;
   onDialog: (dialog: OpenDialog) => void;
 }) {
-  const history = useWorkspaceHistory(userId);
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
-  const added = useConnectionProjects(!hideWhenEmpty, onDialog);
-  const chats = history.projects;
-  const apps = useApps(chats.map((chat) => chat.initialId).join(' '));
-  const addedProjects = added.projects ?? [];
-  const empty = chats.length === 0 && addedProjects.length === 0;
+  const added = useConnectionProjects(onDialog);
+  const projects = [...(added.projects ?? [])].sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   const blocked = reauthorization !== null;
-  const failed = !blocked && (history.error != null || added.loadFailed);
-
-  if (hideWhenEmpty && chats.length === 0 && (history.error == null || blocked)) {
-    return null;
-  }
-
-  const cards = [
-    ...chats.map((chat) => ({
-      key: chat.initialId,
-      at: chat.timestamp,
-      card: (
-        <OwnProjectCard
-          key={chat.initialId}
-          project={chat}
-          app={apps.apps?.get(chat.initialId) ?? null}
-          onChangeVisibility={apps.changeVisibility}
-          onDialog={onDialog}
-        />
-      ),
-    })),
-    ...addedProjects.map((project) => ({
-      key: project.id,
-      at: project.createdAt ?? '',
-      card: (
-        <ConnectionProjectCard
-          key={project.id}
-          project={project}
-          canEdit={project.role === 'edit'}
-          ownsAccount
-          badge={null}
-          orgId={null}
-          connection={added}
-          onDialog={onDialog}
-        />
-      ),
-    })),
-  ].sort((a, b) => b.at.localeCompare(a.at));
+  const failed = !blocked && added.loadFailed;
 
   return (
     <section aria-labelledby="my-projects" className="grid gap-4">
@@ -345,101 +270,38 @@ function OwnProjects({
       {failed ? (
         <div role="alert" className="flex flex-wrap items-center gap-2 text-sm text-content-secondary">
           <span>Projects could not be loaded.</span>
-          <Button
-            size="xs"
-            variant="neutral"
-            onClick={() => {
-              if (history.error != null) {
-                history.retry();
-              }
-              if (added.loadFailed) {
-                added.reload();
-              }
-            }}
-          >
+          <Button size="xs" variant="neutral" onClick={added.reload}>
             Try again
           </Button>
         </div>
       ) : null}
       {reauthorization === 'prompt' ? <CloudflareReauthorizePrompt /> : null}
-      {blocked ? null : history.isLoading && empty ? (
+      {blocked || failed ? null : added.projects === null ? (
         <>
           <p className="text-sm text-content-tertiary" role="status">
             {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
           </p>
           <ProjectCardSkeletons />
         </>
-      ) : !history.isLoading && !failed && empty && (hideWhenEmpty || added.projects !== null) ? (
+      ) : projects.length === 0 ? (
         <p className="text-sm text-content-secondary">No projects yet. Describe an app above to start one.</p>
-      ) : null}
-      {cards.length > 0 ? (
-        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{cards.map(({ card }) => card)}</ul>
-      ) : null}
-    </section>
-  );
-}
-
-function OwnProjectCard({
-  project,
-  app,
-  onChangeVisibility,
-  onDialog,
-}: {
-  project: WorkspaceSummary;
-  /** The app as CloudChef records it; null until it has. */
-  app: App | null;
-  onChangeVisibility: (app: App, name: string, visibility: ProjectVisibility) => Promise<void>;
-  onDialog: (dialog: OpenDialog) => void;
-}) {
-  const name = project.description?.trim() || 'Untitled project';
-  const ref = { chatInitialId: project.initialId };
-  return (
-    <ProjectCard
-      title={name}
-      updatedAt={project.timestamp}
-      siteUrl={project.productionUrl ?? null}
-      subtitle={app?.fullName}
-      isPublic={app?.visibility === 'public'}
-      primary={
-        <Link
-          to="/chat/$id"
-          params={{ id: project.initialId }}
-          className={buttonClassNames({ size: 'xs' })}
-          aria-label={`Edit ${name}`}
-        >
-          <Pencil1Icon />
-          Edit
-        </Link>
-      }
-      menuItems={
-        <>
-          <MenuItem action={() => onDialog({ kind: 'history', project: ref, name, canRevert: true, canFork: true })}>
-            <CounterClockwiseClockIcon />
-            History
-          </MenuItem>
-          <MenuItem action={() => onDialog({ kind: 'clone', project: ref, name, fullName: app?.fullName ?? null })}>
-            <CodeIcon />
-            Clone
-          </MenuItem>
-          <MenuItem action={() => download(ref, name)}>
-            <DownloadIcon />
-            Download ZIP
-          </MenuItem>
-          {app ? (
-            <PublicAndCopyItems
-              project={{ id: app.id, name }}
-              visibility={app.visibility}
-              onChangeVisibility={(visibility) => void onChangeVisibility(app, name, visibility)}
+      ) : (
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {projects.map((project) => (
+            <ConnectionProjectCard
+              key={project.id}
+              project={project}
+              canEdit={project.role === 'edit'}
+              ownsAccount
+              badge={null}
+              orgId={null}
+              connection={added}
               onDialog={onDialog}
             />
-          ) : null}
-          <MenuItem danger action={() => onDialog({ kind: 'delete-app', initialId: project.initialId, name })}>
-            <TrashIcon />
-            Delete
-          </MenuItem>
-        </>
-      }
-    />
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -503,55 +365,6 @@ async function changeVisibilityOf(
   }
 }
 
-/**
- * The person's apps as CloudChef records them, by id, asked for again when the chat list (`chatIds`) changes,
- * since a new chat is recorded once it is listed. Null until loaded; an app missing from it has no address or
- * visibility yet.
- */
-/** How long after the chat list a new app is asked for again, once its record has had time to be made. */
-const APPS_RETRY_MS = 4_000;
-
-function useApps(chatIds: string) {
-  const connectionId = authClient.useSession().data?.context?.connectionId ?? null;
-  const [apps, setApps] = useState<ReadonlyMap<string, App> | null>(null);
-
-  useEffect(() => {
-    if (chatIds === '') {
-      // No chats, so no apps to show.
-      return undefined;
-    }
-    const controller = new AbortController();
-    let retry: number | undefined;
-    const load = (again: boolean) =>
-      loadApps(controller.signal)
-        .then((loaded) => {
-          setApps(new Map(loaded.map((app) => [app.id, app])));
-          // Listing the chats tells CloudChef about a new app in the background: if one isn't known yet, ask once more.
-          const known = new Set(loaded.map((app) => app.id));
-          if (again && chatIds.split(' ').some((id) => !known.has(id))) {
-            retry = window.setTimeout(() => void load(false), APPS_RETRY_MS);
-          }
-        })
-        .catch(() => {
-          // Without them, the cards have no address and no public or copy actions; the next list asks again.
-        });
-    void load(true);
-    return () => {
-      controller.abort();
-      window.clearTimeout(retry);
-    };
-  }, [connectionId, chatIds]);
-
-  const changeVisibility = async (app: App, name: string, visibility: ProjectVisibility) => {
-    const changed = await changeVisibilityOf({ id: app.id, name }, visibility);
-    if (changed) {
-      setApps((current) => current && new Map(current).set(app.id, { ...app, visibility: changed }));
-    }
-  };
-
-  return { apps, changeVisibility };
-}
-
 /** The projects of the account the person works in, kept fresh while one is being published. */
 type ConnectionProjects = {
   projects: TeamProject[] | null;
@@ -569,7 +382,6 @@ type ConnectionProjects = {
 };
 
 function useConnectionProjects(
-  enabled: boolean,
   onDialog: (dialog: OpenDialog) => void,
   orgId: string | null = null,
 ): ConnectionProjects {
@@ -587,9 +399,6 @@ function useConnectionProjects(
   }, [projects]);
 
   useEffect(() => {
-    if (!enabled) {
-      return undefined;
-    }
     const controller = new AbortController();
     loadTeamProjects(controller.signal)
       .then((listed) => {
@@ -603,7 +412,7 @@ function useConnectionProjects(
         }
       });
     return () => controller.abort();
-  }, [enabled, orgId, attempt]);
+  }, [orgId, attempt]);
 
   // While any project is being published, the list is asked for again until none is.
   const publishing = projects?.some((project) => isCloudChef(project) && deployInProgress(project.deployment?.state));
@@ -801,11 +610,7 @@ function ConnectionProjectCard({
       }
       menuItems={
         <>
-          <MenuItem
-            action={() =>
-              onDialog({ kind: 'history', project: ref, name: project.name, canRevert: canEdit, canFork: false })
-            }
-          >
+          <MenuItem action={() => onDialog({ kind: 'history', project: ref, name: project.name, canRevert: canEdit })}>
             <CounterClockwiseClockIcon />
             History
           </MenuItem>
@@ -865,7 +670,7 @@ function TeamProjects({
   reauthorization: Reauthorization;
   onDialog: (dialog: OpenDialog) => void;
 }) {
-  const connection = useConnectionProjects(true, onDialog, orgId);
+  const connection = useConnectionProjects(onDialog, orgId);
   const { projects } = connection;
 
   return (

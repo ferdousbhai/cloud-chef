@@ -37,9 +37,8 @@ type RuntimeAdmissionOptions = {
 
 /**
  * Whether the agent's own turn is running: the turn and the validation it runs. Only the turn sets and
- * clears these. Deployments, approved Cloudflare requests and workspace seeding are counted while
- * their work actually runs (`BuilderRuntimeActivity.run`), not from their records in state, which
- * other paths rewrite while that work continues (an editor save clears the deployment record).
+ * clears these. Approved Cloudflare requests, build watches and workspace seeding are counted while
+ * their work actually runs (`BuilderRuntimeActivity.run`), not from their records in state.
  */
 export function isConversationAgentBusy(state: ConversationAgentState | undefined): boolean {
   return Boolean(state?.activeTurn || state?.validationProgress);

@@ -62,8 +62,6 @@ const projectSiteSchema = z.object({
 });
 type ProjectSite = z.infer<typeof projectSiteSchema>;
 
-const productionRequestSentSchema = z.object({ outcome: z.enum(['requested', 'updated', 'unchanged']) });
-
 const registeredImportSchema = z.object({
   projectId: z.string().min(1),
   importSource: importSourceSchema,
@@ -303,24 +301,6 @@ export async function nameChatProject(
   await readAnswer(response, z.object({ name: z.string() }), 'CloudChef could not name the project.');
 }
 
-/** Brings CloudChef's record of this person's apps in this account up to date with their chats. */
-export async function syncAccountApps(
-  env: RuntimeEnv,
-  identity: Identity,
-  apps: { id: string; name: string; siteUrl: string | null }[],
-): Promise<void> {
-  const response = await postRuntimeRoute(env, identity, 'runtime-projects/sync-apps', { apps }, OPEN_TIMEOUT_MS);
-  await readAnswer(response, z.object({ synced: z.number() }), 'CloudChef could not update your apps.');
-}
-
-/** The team project an app's repository became when an admin approved it as a draft, or null. */
-export async function appAdoption(env: RuntimeEnv, identity: Identity, repo: string): Promise<string | null> {
-  const response = await postRuntimeRoute(env, identity, 'runtime-projects/adoption', { repo }, OPEN_TIMEOUT_MS);
-  return (
-    await readAnswer(response, z.object({ orgProjectId: z.string().nullable() }), 'CloudChef could not check the app.')
-  ).orgProjectId;
-}
-
 /** What Workers Builds reports for a commit of the project so far. */
 export async function projectBuildStatus(
   env: RuntimeEnv,
@@ -350,27 +330,6 @@ export async function projectSite(
 ): Promise<ProjectSite> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/site', { orgProjectId }, timeoutMs);
   return readAnswer(response, projectSiteSchema, "CloudChef could not look up the project's site.");
-}
-
-/** Whether the admins now see a new request, this draft's request updated to the revision sent, or no change. */
-export type ProductionRequestOutcome = z.infer<typeof productionRequestSentSchema>['outcome'];
-
-/** Asks the team's admins to make a draft a real project; the draft's commit in its own repository is named. */
-export async function requestProductionReview(
-  env: RuntimeEnv,
-  identity: Identity,
-  body: {
-    draftId: string;
-    draftRevision: string;
-    title: string;
-    note: string;
-    previewUrl: string | null;
-    repo: string;
-    commit: string;
-  },
-): Promise<{ outcome: ProductionRequestOutcome }> {
-  const response = await postRuntimeRoute(env, identity, 'runtime-projects/request-production', body, OPEN_TIMEOUT_MS);
-  return readAnswer(response, productionRequestSentSchema, 'CloudChef could not send the request.');
 }
 
 /**

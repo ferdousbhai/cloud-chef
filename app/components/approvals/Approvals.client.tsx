@@ -1,21 +1,17 @@
 import { useEffect, useState } from 'react';
-import { z } from 'zod';
 import { Button } from '@ui/Button';
-import { TextInput } from '@ui/TextInput';
 import { StatusBadge } from '~/components/settings/SettingsLayout';
 import {
   decideApproval,
   loadApprovals,
   type Approval,
   type Approvals as ApprovalsList,
-  type ProductionRequest,
 } from '~/lib/cloudflare/approvals.client';
-import { messageOf, noContentSchema, postJson } from '~/lib/json-request';
+import { messageOf } from '~/lib/json-request';
 
 /**
  * The Approvals page: what members of the person's teams asked an admin for. A change to the team's Cloudflare
- * account is sent by CloudChef, once, when an admin approves it; a request to make a draft a team project is
- * approved or declined here too.
+ * account is sent by CloudChef, once, when an admin approves it.
  */
 export function Approvals() {
   const [approvals, setApprovals] = useState<ApprovalsList | null>(null);
@@ -38,7 +34,7 @@ export function Approvals() {
     return () => controller.abort();
   }, [attempt]);
 
-  const waitingCount = (approvals?.waiting.length ?? 0) + (approvals?.productionRequests.length ?? 0);
+  const waitingCount = approvals?.waiting.length ?? 0;
 
   return (
     <main className="mx-auto grid w-full max-w-3xl gap-6 px-4 py-8 sm:px-6">
@@ -76,9 +72,6 @@ export function Approvals() {
               <ul className="grid gap-3">
                 {approvals.waiting.map((approval) => (
                   <WaitingChange key={approval.id} approval={approval} onDecided={reload} />
-                ))}
-                {approvals.productionRequests.map((pending) => (
-                  <ProductionRequestRow key={pending.id} pending={pending} onDecided={reload} />
                 ))}
               </ul>
             )}
@@ -218,109 +211,6 @@ function DecidedChange({ approval }: { approval: Approval }) {
       </span>
       {approval.status === 'done' && approval.result !== 'succeeded' && approval.outcome ? (
         <span className="text-xs text-content-secondary">{approval.outcome.summary}</span>
-      ) : null}
-    </li>
-  );
-}
-
-const approvedSchema = z.object({ projectId: z.string() });
-
-/** A member's request to make a draft a team project, as an admin decides it. */
-function ProductionRequestRow({ pending, onDecided }: { pending: ProductionRequest; onDecided: () => void }) {
-  const [approving, setApproving] = useState(false);
-  const [declining, setDeclining] = useState(false);
-  const [decisionNote, setDecisionNote] = useState('');
-  const [problem, setProblem] = useState<string | null>(null);
-  const run = async (action: () => Promise<void>) => {
-    setProblem(null);
-    try {
-      await action();
-      onDecided();
-    } catch (cause) {
-      setProblem(messageOf(cause, 'That couldn’t be saved. Try again.'));
-    }
-  };
-  const approve = async () => {
-    setApproving(true);
-    await run(async () => {
-      await postJson(
-        '/api/organizations/production-requests/approve',
-        { orgId: pending.orgId, requestId: pending.id },
-        approvedSchema,
-      );
-    });
-    setApproving(false);
-  };
-  const decline = () =>
-    void run(async () => {
-      await postJson(
-        '/api/organizations/production-requests/decline',
-        { orgId: pending.orgId, requestId: pending.id, note: decisionNote.trim() },
-        noContentSchema,
-      );
-    });
-  const who = pending.requesterName || pending.requesterEmail;
-  return (
-    <li className="grid min-w-0 gap-1.5 rounded-md border bg-bolt-elements-background-depth-2 p-3 text-sm wrap-anywhere">
-      <span className="flex min-w-0 flex-wrap items-center gap-2">
-        <StatusBadge tone="warning">Team project request</StatusBadge>
-        <span className="text-xs text-content-tertiary">
-          {pending.orgName} · from {who} · {timeAgo(pending.updatedAt ?? pending.createdAt)}
-        </span>
-      </span>
-      <strong className="min-w-0">{pending.title}</strong>
-      <span className="text-xs text-content-secondary">
-        {who} asks to make this draft one of the team’s projects. Approving makes it a team project they can edit.
-      </span>
-      {pending.note ? <span className="text-xs text-content-secondary">{pending.note}</span> : null}
-      {pending.previewUrl ? (
-        <a className="text-xs underline" href={pending.previewUrl} target="_blank" rel="noopener noreferrer">
-          Try the draft
-        </a>
-      ) : null}
-      {declining ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <TextInput
-            maxLength={1_000}
-            placeholder="Why, for them (optional)"
-            aria-label={`Note to ${who} about ${pending.title}`}
-            value={decisionNote}
-            onChange={(event) => setDecisionNote(event.target.value)}
-            className="min-w-0 flex-1"
-          />
-          <Button size="xs" variant="danger" aria-label={`Decline request: ${pending.title}`} onClick={decline}>
-            Decline request
-          </Button>
-          <Button size="xs" variant="subtle" onClick={() => setDeclining(false)}>
-            Cancel
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="xs"
-            variant="primary"
-            loading={approving}
-            aria-label={`Approve: ${pending.title}`}
-            onClick={() => void approve()}
-          >
-            Approve
-          </Button>
-          <Button
-            size="xs"
-            variant="neutral"
-            disabled={approving}
-            aria-label={`Decline ${pending.title}`}
-            onClick={() => setDeclining(true)}
-          >
-            Decline
-          </Button>
-        </div>
-      )}
-      {problem ? (
-        <p role="alert" className="text-xs text-bolt-elements-icon-error">
-          {problem}
-        </p>
       ) : null}
     </li>
   );

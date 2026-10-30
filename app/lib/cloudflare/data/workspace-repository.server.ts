@@ -35,20 +35,12 @@ export async function ensureInitialWorkspace(
          )`,
       )
       .bind(args.creatorId, args.initialId),
-    // The discard queued this workspace's ConversationAgent and app resources for deletion. A revived workspace
-    // has to drop those receipts, or the sweep destroys the Agent it was just given back. An
-    // active workspace has candidates only because it was discarded, so this is scoped to the revival.
+    // The discard queued this workspace's ConversationAgent for deletion. A revived workspace has to drop that
+    // receipt, or the sweep destroys the Agent it was just given back. An active workspace has a candidate only
+    // because it was discarded, so this is scoped to the revival.
     db
       .prepare(
         `DELETE FROM agent_gc_candidates
-         WHERE workspace_id IN (
-           SELECT id FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
-         )`,
-      )
-      .bind(args.creatorId, args.initialId),
-    db
-      .prepare(
-        `DELETE FROM app_resource_gc_candidates
          WHERE workspace_id IN (
            SELECT id FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0
          )`,

@@ -7,15 +7,6 @@ type ChatSummary = {
   description?: string;
 };
 
-export type WorkspaceSummary = {
-  id: string;
-  initialId: string;
-  description?: string;
-  timestamp: string;
-  /** The live site's address once the project has been published. */
-  productionUrl?: string | null;
-};
-
 /** One commit of a project's history, newest first. `committedAt` is in unix seconds, as Artifacts gives it. */
 export type ProjectCommit = {
   hash: string;
@@ -46,15 +37,12 @@ export type ConversationSummary = {
 
 type DataOperationResults = {
   'messages.get': ChatSummary | null;
-  'messages.getAll': WorkspaceSummary[];
   'messages.initializeChat': { created: boolean };
   'messages.openLinkedChat': { initialId: string; created: boolean };
   'messages.discardEmptyChat': null;
-  'messages.remove': { kind: 'success' };
   'messages.setDescription': null;
   'projects.history': ProjectCommit[];
   'projects.gitAddress': ProjectGitAddress;
-  'projects.fork': { initialId: string };
   'projects.import': ProjectImportResult;
   'subchats.create': number;
   'subchats.get': ConversationSummary[];
@@ -69,17 +57,14 @@ type DataApiNamespace = Record<string, DataOperationPath>;
 export const api = {
   messages: {
     get: 'messages.get',
-    getAll: 'messages.getAll',
     initializeChat: 'messages.initializeChat',
     openLinkedChat: 'messages.openLinkedChat',
     discardEmptyChat: 'messages.discardEmptyChat',
-    remove: 'messages.remove',
     setDescription: 'messages.setDescription',
   },
   projects: {
     history: 'projects.history',
     gitAddress: 'projects.gitAddress',
-    fork: 'projects.fork',
     import: 'projects.import',
   },
   subchats: {

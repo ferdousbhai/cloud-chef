@@ -1,163 +1,50 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type {
-  BuilderWorkspaceApi,
-  BuilderWorkspaceCheckpoint,
-  BuilderWorkspaceFileMetadata,
-} from '~/agents/builder-workspace-api';
+import type { BuilderWorkspaceFileMetadata } from '~/agents/builder-workspace-api';
 import type {
   BuilderWorkspaceClientChange,
   BuilderWorkspaceFileInput,
-  BuilderWorkspaceSyncEntry,
+  BuilderWorkspaceLinkedProject,
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository';
 import { loadBuilderTemplate, STARTING_PROJECT_MESSAGE } from '~/agents/builder-template';
 import { sha256Hex } from '~/lib/hex-digest';
 import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
-import {
-  chatProjectControlPlane,
-  conversationAgentHarness,
-  CHAT_INITIAL_ID,
-  eventually,
-  type ConversationAgentHarness,
-} from './harness';
+import { chatProjectControlPlane, conversationAgentHarness } from './harness';
 
 /**
- * A CloudChef app's history: the commits on main of its own repository (`p-<chat>`), made when the agent
- * commits; a revert brings an earlier commit's files back, commits and publishes them; and a fork's chat
- * starts from its repository.
+ * A project's history: a new chat's project starts from CloudChef's starter as its first commit, and restoring a
+ * version brings an earlier commit's files back into the workspace, for the agent to publish like any change.
  */
-const REPO = `p-${CHAT_INITIAL_ID}`;
-const CHECKPOINT: BuilderWorkspaceCheckpoint = { workspaceRevision: 3, revision: 'a'.repeat(64) };
+const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
+const REPO = `t-${PROJECT_ID}`;
 const READY = { initialized: true, revision: 3, resetRevision: 0, fileCount: 2, totalBytes: 10, seeding: false };
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
 
-/** The control plane, unreachable: commits then name the person by their user id. */
-function noControlPlane() {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('unavailable', { status: 503 }));
-}
-
-/** A workspace holding `files` (project-relative path to text) at CHECKPOINT, based on main at `known`. */
-function holding(
-  files: Record<string, string>,
-  checkpoint: () => BuilderWorkspaceCheckpoint = () => CHECKPOINT,
-  known: string | null = null,
-) {
-  let main = known;
-  const entries: BuilderWorkspaceSyncEntry[] = Object.entries(files).map(([path, content]) => ({
-    kind: 'write',
-    path: `/home/project/${path}`,
-    content,
-    encoding: 'utf8',
-    size: content.length,
-    sha256: '',
-    revision: 1,
-  }));
-  const workspace: Partial<BuilderWorkspaceApi> = {
-    projectId: 'project-1',
-    linkedProject: async () => null,
-    checkpoint: async () => checkpoint(),
-    getSyncPage: async () => ({ state: READY, fromRevision: 0, targetRevision: 3, mode: 'snapshot', entries }),
-    knownMain: async () => main,
-    setMainFetched: async (commit) => {
-      main = commit;
-    },
-  };
-  return workspace;
-}
-
-async function publishedHarness(
-  workspace: Partial<BuilderWorkspaceApi>,
-  artifacts: FakeArtifacts = fakeArtifacts(),
-  onDeployed: () => void = () => undefined,
-) {
-  const harness = await conversationAgentHarness({
-    cloudflareIdentity: true,
-    workspace,
-    artifacts,
-    publisher: {
-      deploy: async () => {
-        onDeployed();
-        return { status: 'succeeded', id: 'deployment-1' };
-      },
-    },
-  });
-  harness.database.exec(`
-    INSERT INTO deployments (
-      id, workspace_id, user_id, connection_id, connection_generation, workspace_reference, status, plan_json,
-      plan_digest, created_at, updated_at
-    ) VALUES ('deployment-1', 'chat-1', 'owner-1', 'connection-1', 1, 'ref', 'succeeded', '{}', 'digest', 1, 1);
-  `);
-  return harness;
-}
-
-async function finishChangingTurn(harness: ConversationAgentHarness) {
-  harness.beginTurn();
-  harness.agent.setState({ ...harness.agent.state, publicationPending: true });
-  await harness.endTurn('completed');
+/** The control plane, answering only that the person may edit the project. */
+function editableProject() {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
+    String(input).endsWith('/runtime-projects/open')
+      ? Response.json({
+          orgProjectId: PROJECT_ID,
+          name: 'Ada site',
+          repo: REPO,
+          defaultBranch: 'main',
+          role: 'edit',
+          deploysWith: 'cloudchef',
+          createdFrom: 'chat',
+        })
+      : new Response('unavailable', { status: 503 }),
+  );
 }
 
 function repositories(artifacts: FakeArtifacts) {
   return new ProjectRepositories(artifacts, { fetch: artifacts.fetch });
 }
 
-/** CloudChef saving the workspace as a version on main, as restoring one and a production request do. */
-function saveVersion(harness: ConversationAgentHarness, message: string) {
-  // eslint-disable-next-line dot-notation
-  return harness.agent['commitWorkspaceToHistory']({ revision: CHECKPOINT.revision, message });
-}
-
-describe("a CloudChef app's history", () => {
-  it('saves the workspace to main as a version, with its message', async () => {
-    noControlPlane();
-    const harness = await publishedHarness(holding({ 'index.html': '<h1>Hi</h1>', '.dev.vars': 'TOKEN=1' }));
-
-    const result = await saveVersion(harness, 'Add a greeting');
-
-    const head = await harness.artifacts.head(REPO);
-    expect(result).toEqual({ hash: head, unchanged: false });
-    // Local secrets never go into a commit.
-    expect(await harness.artifacts.filesAt(REPO, 'main')).toEqual({ 'index.html': '<h1>Hi</h1>' });
-    const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 5 });
-    expect(entry?.message).toBe('Add a greeting');
-    expect(entry?.author).toEqual({ name: 'CloudChef member', email: 'owner-1@users.noreply.cloudchef.build' });
-
-    await expect(saveVersion(harness, 'Again')).resolves.toEqual({ hash: head, unchanged: true });
-    expect(await repositories(harness.artifacts).log(REPO, { limit: 5 })).toHaveLength(1);
-  });
-
-  it('names the member as the control plane knows them', async () => {
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
-      String(input).includes('runtime-access')
-        ? Response.json({ organizationAdmin: false, member: { name: 'Sara', email: 'sara@example.com' } })
-        : new Response('unavailable', { status: 503 }),
-    );
-    const harness = await publishedHarness(holding({ 'index.html': 'hi' }));
-    await saveVersion(harness, 'Hi');
-    const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
-    expect(entry?.author).toEqual({ name: 'Sara', email: 'sara@example.com' });
-  });
-
-  it('commits nothing by itself when production is published', async () => {
-    noControlPlane();
-    const harness = await publishedHarness(holding({ 'index.html': 'hi' }));
-    await finishChangingTurn(harness);
-    await eventually(() => harness.agent.state.productionRevision === CHECKPOINT.revision);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(harness.artifacts.repos.has(REPO)).toBe(false);
-  });
-
-  it('commits nothing when the workspace moved on from the version asked for', async () => {
-    noControlPlane();
-    const harness = await publishedHarness(
-      holding({ 'index.html': 'hi' }, () => ({ workspaceRevision: 4, revision: 'b'.repeat(64) })),
-    );
-    await expect(saveVersion(harness, 'Hi')).resolves.toBeNull();
-    expect(harness.artifacts.repos.has(REPO)).toBe(false);
-  });
-
+describe("a new chat's project", () => {
   it("makes a new chat's project, its repository starting with the whole template, and seeds the workspace from it", async () => {
     const controlPlane = chatProjectControlPlane();
     const appended: BuilderWorkspaceFileInput[] = [];
@@ -208,7 +95,7 @@ describe("a CloudChef app's history", () => {
 
 describe('reverting to a commit', () => {
   async function revertHarness(options: { baseUnknown?: boolean } = {}) {
-    noControlPlane();
+    editableProject();
     const artifacts = fakeArtifacts();
     const first = await repositories(artifacts).commitFiles({
       repo: REPO,
@@ -245,16 +132,20 @@ describe('reverting to a commit', () => {
         revision: 2,
       },
     ];
+    const linked: BuilderWorkspaceLinkedProject = {
+      orgProjectId: PROJECT_ID,
+      repository: REPO,
+      name: 'Ada site',
+      defaultBranch: 'main',
+      baseCommit: old,
+    };
     const applied: { baseRevision: number; changes: BuilderWorkspaceClientChange[] }[] = [];
     const harness = await conversationAgentHarness({
       artifacts,
       cloudflareIdentity: true,
       workspace: {
-        ...holding(
-          { 'index.html': 'old' },
-          () => CHECKPOINT,
-          options.baseUnknown || !('commit' in second) ? null : second.commit,
-        ),
+        linkedProject: async () => linked,
+        knownMain: async () => (options.baseUnknown || !('commit' in second) ? null : second.commit),
         listFiles: () => current,
         readFile: async (path) => ({
           path,
@@ -270,12 +161,11 @@ describe('reverting to a commit', () => {
           return { ok: true, state: READY, changedPaths: request.changes.map((change) => change.path) };
         },
       },
-      publisher: { deploy: async () => ({ status: 'succeeded', id: 'deployment-1' }) },
     });
     return { harness, old, applied };
   }
 
-  it("applies the commit's files as one change set, commits them as a revert and publishes them", async () => {
+  it("applies the commit's files as one change set, leaving main as it is for the agent to publish", async () => {
     const { harness, old, applied } = await revertHarness();
     await harness.agent.revertToCommit(old);
     expect(applied).toEqual([
@@ -287,9 +177,8 @@ describe('reverting to a commit', () => {
         ],
       },
     ]);
-    expect(harness.agent.state.publicationPending).toBe(true);
     const [entry] = await repositories(harness.artifacts).log(REPO, { limit: 1 });
-    expect(entry?.message).toBe(`Restore version ${old.slice(0, 7)}\n\nCloudChef-Revision: ${CHECKPOINT.revision}`);
+    expect(entry?.message).toBe('Second');
   });
 
   it('is refused, changing nothing, when main took a push from elsewhere that the workspace never brought in', async () => {
@@ -313,9 +202,6 @@ describe('reverting to a commit', () => {
     expect(harness.agent.state.untoldChanges).toEqual([
       expect.stringContaining('pushed from elsewhere since git here last fetched'),
     ]);
-    // Saving the workspace as a version, as a production request does, is refused the same way.
-    await expect(saveVersion(harness, 'Draft')).rejects.toMatchObject({ status: 409 });
-    expect(await harness.artifacts.head(REPO)).toBe(pushed);
   });
 
   it("says only that the copy needs bringing up to date when what it's based on isn't known", async () => {
@@ -340,43 +226,5 @@ describe('reverting to a commit', () => {
     await expect(harness.agent.revertToCommit(old)).rejects.toMatchObject({ status: 409 });
     await expect(harness.agent.revertToCommit('main')).rejects.toMatchObject({ status: 400 });
     expect(applied).toEqual([]);
-  });
-});
-
-describe("a draft's production request", () => {
-  it("commits the draft to its own repository and names that commit to the team's admins", async () => {
-    const sent: unknown[] = [];
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      if (String(input).includes('runtime-projects/request-production')) {
-        sent.push(JSON.parse(String(init?.body)));
-        return Response.json({ outcome: 'requested' });
-      }
-      // Not approved yet: the draft's repository is still only the app's.
-      if (String(input).includes('runtime-projects/adoption')) {
-        return Response.json({ orgProjectId: null });
-      }
-      return new Response('unavailable', { status: 503 });
-    });
-    const harness = await conversationAgentHarness({
-      cloudflareIdentity: true,
-      workspace: holding({ 'index.html': 'draft' }),
-    });
-    // A team's runtime is deployed with the shared-account flag.
-    harness.env.CLOUDCHEF_SHARED_ACCOUNT = '1';
-
-    await expect(harness.agent.requestProduction({ title: 'Bookings', note: 'Please' })).resolves.toEqual({
-      outcome: 'requested',
-    });
-    const head = await harness.artifacts.head(REPO);
-    expect(sent).toEqual([
-      expect.objectContaining({
-        draftId: CHAT_INITIAL_ID,
-        draftRevision: CHECKPOINT.revision,
-        title: 'Bookings',
-        repo: REPO,
-        commit: head,
-      }),
-    ]);
-    expect(await harness.artifacts.filesAt(REPO, 'main')).toEqual({ 'index.html': 'draft' });
   });
 });

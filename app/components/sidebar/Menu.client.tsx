@@ -1,27 +1,19 @@
 import { motion, MotionConfig, type Variants } from 'motion/react';
 import { memo, useEffect, useRef, useState } from 'react';
-import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import { cubicEasingFn } from '~/utils/easings';
-import { logger } from 'cloudchef-agent/utils/logger';
-import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
 import { classNames } from '~/utils/classNames';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { useWorkspaceId } from '~/lib/stores/workspaceId';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
 import { CheckCircledIcon, GlobeIcon, PlusIcon } from '@radix-ui/react-icons';
-import { removeWorkspaceHistoryItem, useWorkspaceHistory } from '~/lib/cloudflare/workspace-history-db';
-import { AppDeletionNotice, DeleteProjectDialog } from '~/components/projects/DeleteProjectDialog.client';
 import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
-import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { WorkspaceSwitcher } from '~/components/header/WorkspaceSwitcher';
 import { useStore } from '@nanostores/react';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient } from '~/lib/auth-client';
-import { leavePage } from '~/lib/hooks/useUnsavedEditsGuard';
 
 const menuVariants = {
   closed: {
@@ -51,37 +43,10 @@ interface MenuProps {
   onClose: () => void;
 }
 
-/** One row of the sidebar's projects: one of the person's own apps, or a project kept in the account. */
-type ListedProject =
-  | { kind: 'app'; key: string; timestamp: string; item: WorkspaceSummary }
-  | { kind: 'project'; key: string; timestamp: string; project: TeamProject };
-
-/**
- * Removes one of this person's projects. Removing the open one leaves it, so over editor edits not yet
- * saved it asks first, before anything is deleted; removing another needs no such question.
- */
-export async function removeProject(
-  sessionId: string,
-  workspaceId: string,
-  openChatId: string | undefined,
-  remove = removeWorkspaceHistoryItem,
-): Promise<void> {
-  if (openChatId !== workspaceId) {
-    await remove(sessionId, workspaceId);
-    return;
-  }
-  await leavePage(async () => {
-    await remove(sessionId, workspaceId);
-    window.location.replace('/');
-  });
-}
-
 export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const userId = useUserIdOrNullOrLoading();
   const accountUserId = userId ?? null;
-  const activeChatId = useWorkspaceId();
-  const history = useWorkspaceHistory(accountUserId);
   // Projects come from the workspace in the user's Cloudflare account; while it's set up or updated, say so.
   const workspacePreparing = useStore(userWorkspacePreparingStore);
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
@@ -94,51 +59,18 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
   const added = useEditableProjects(accountUserId);
   const { opening, open } = useOpenProject(onClose);
   // Every project in one list, however it began: made here, imported from GitHub, uploaded, or the team's.
-  const list: ListedProject[] = [
-    ...history.projects.map((item) => ({
-      kind: 'app' as const,
-      key: item.initialId,
-      timestamp: item.timestamp,
-      item,
-    })),
-    ...added.projects.map((project) => ({
-      kind: 'project' as const,
-      key: project.id,
-      timestamp: project.createdAt ?? new Date(0).toISOString(),
-      project,
-    })),
-  ];
-  const [deleteTarget, setDeleteTarget] = useState<WorkspaceSummary | null>(null);
+  const list = added.projects.map((project) => ({
+    key: project.id,
+    timestamp: project.createdAt ?? new Date(0).toISOString(),
+    project,
+  }));
 
   const [searchQuery, setSearchQuery] = useState('');
   const search = searchQuery.trim().toLowerCase();
-  const filteredList = search
-    ? list.filter((entry) =>
-        (entry.kind === 'app' ? (entry.item.description ?? '') : entry.project.name).toLowerCase().includes(search),
-      )
-    : list;
-
-  const deleteItem = async (item: WorkspaceSummary) => {
-    if (!accountUserId) {
-      return;
-    }
-    try {
-      await removeProject(accountUserId, item.initialId, activeChatId);
-    } catch (error) {
-      logger.error(error);
-      throw new Error('The project couldn’t be deleted. Try again.');
-    }
-  };
-
-  const closeDialog = () => {
-    setDeleteTarget(null);
-  };
+  const filteredList = search ? list.filter((entry) => entry.project.name.toLowerCase().includes(search)) : list;
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (deleteTarget) {
-        return;
-      }
       const target = event.target;
       if (!(target instanceof Element)) {
         return;
@@ -154,7 +86,7 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
     }
 
     function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !deleteTarget) {
+      if (event.key === 'Escape') {
         onClose();
       }
     }
@@ -168,11 +100,7 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [deleteTarget, isOpen, onClose]);
-
-  const handleDeleteClick = (item: WorkspaceSummary) => {
-    setDeleteTarget(item);
-  };
+  }, [isOpen, onClose]);
 
   if (!accountUserId) {
     return null;
@@ -240,25 +168,14 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
               </Button>
             </div>
           )}
-          {history.error != null && (
-            <div
-              className="mb-3 rounded-lg border border-(--cc-content-warning)/40 bg-(--cc-background-secondary) p-3 text-xs text-content-secondary"
-              role="alert"
-            >
-              <p>Projects could not be refreshed.</p>
-              <Button className="mt-2" size="xs" variant="neutral" onClick={history.retry}>
-                Try again
-              </Button>
-            </div>
-          )}
-          {history.isLoading && list.length === 0 && (
+          {added.isLoading && list.length === 0 && (
             <p className="px-4 text-sm text-content-tertiary" role="status">
               {workspacePreparing ? workspacePreparingMessage(workspaceUpgrading) : 'Loading projects…'}
             </p>
           )}
           {filteredList.length === 0 && (
             <div className="px-4 text-sm text-gray-500 dark:text-gray-400">
-              {!history.isLoading && !history.error && list.length === 0
+              {!added.isLoading && !added.loadFailed && list.length === 0
                 ? 'No previous projects'
                 : list.length > 0
                   ? 'No matches found'
@@ -272,35 +189,17 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
                 <span aria-hidden className="h-px flex-1 bg-border-transparent" />
               </div>
               <div className="space-y-1.5">
-                {items.map((entry) =>
-                  entry.kind === 'app' ? (
-                    <HistoryItem
-                      key={entry.key}
-                      item={entry.item}
-                      handleDeleteClick={handleDeleteClick}
-                      onNavigate={onClose}
-                    />
-                  ) : (
-                    <ProjectItem
-                      key={entry.key}
-                      project={entry.project}
-                      opening={opening}
-                      onOpen={(project) => void open(project)}
-                    />
-                  ),
-                )}
+                {items.map((entry) => (
+                  <ProjectItem
+                    key={entry.key}
+                    project={entry.project}
+                    opening={opening}
+                    onOpen={(project) => void open(project)}
+                  />
+                ))}
               </div>
             </section>
           ))}
-          {deleteTarget && (
-            <DeleteProjectDialog
-              name={deleteTarget.description || 'Untitled project'}
-              summary={<AppDeletionNotice />}
-              onDelete={() => deleteItem(deleteTarget)}
-              onDeleted={closeDialog}
-              onClose={closeDialog}
-            />
-          )}
         </div>
         <nav aria-label="More" className="shrink-0 space-y-1 border-t px-3 py-3">
           <LinkButton

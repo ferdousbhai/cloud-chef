@@ -33,6 +33,18 @@ export default defineConfig((config) => {
               // separate load redundant, which takes Chat past the 500 kB raw bundle budget. Keep it apart.
               chunkOptimization: { avoidRedundantChunkLoads: false },
             },
+            output: {
+              codeSplitting: {
+                groups: [
+                  // The chat's in-memory collections (TanStack DB) are only the chat's now that no other page lists
+                  // chats through them, and folded into Chat they take it past the 500 kB raw bundle budget.
+                  {
+                    name: 'tanstack-db',
+                    test: /node_modules[\\/].*@tanstack[\\/](db|db-ivm|query-db-collection|react-db)[\\/]/,
+                  },
+                ],
+              },
+            },
           },
         },
       },

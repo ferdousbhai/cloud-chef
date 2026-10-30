@@ -14,7 +14,7 @@ import { deleteProject, loadDeletionPreview } from '~/lib/cloudflare/org-project
 import { DeleteProjectDialog } from '~/components/projects/DeleteProjectDialog.client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
-import { MoreMenu, StatusBadge } from './SettingsLayout';
+import { MoreMenu } from './SettingsLayout';
 
 /** The GitHub accounts CloudChef's App is installed on for the team: imports read from all of them. */
 export const orgGitHubSchema = z.array(
@@ -32,13 +32,6 @@ export const orgProjectSchema = z.object({
   importRepoFullName: z.string().nullable(),
   access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),
 });
-export const ownRequestSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  status: z.enum(['pending', 'approved', 'declined']),
-  decisionNote: z.string().nullable(),
-});
-
 /** Where an admin connects a team project's repository to Workers Builds, which then deploys it. */
 const WORKERS_BUILDS_CREATE_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages/create';
 
@@ -266,41 +259,10 @@ function WorkersBuildsInstruction() {
 }
 
 /** A member's list of the projects they were given in an organization. */
-export function MyOrgProjects({
-  projects,
-  requests,
-}: {
-  projects: OrgProject[];
-  requests: z.infer<typeof ownRequestSchema>[];
-}) {
-  return (
-    <>
-      {projects.length > 0 ? (
-        <p className="mt-2 text-sm text-content-secondary wrap-anywhere">
-          Your projects: {projects.map((project) => project.name).join(', ')}
-        </p>
-      ) : null}
-      {requests.length > 0 ? (
-        <ul className="mt-2 grid gap-1.5 text-sm wrap-anywhere" aria-label="Your team project requests">
-          {requests.map((request) => (
-            <li key={request.id} className="flex min-w-0 flex-wrap items-center gap-2">
-              <span className="min-w-0">{request.title}</span>
-              {request.status === 'pending' ? (
-                <StatusBadge tone="warning">Waiting for an admin</StatusBadge>
-              ) : request.status === 'approved' ? (
-                <StatusBadge tone="success">Approved, now a project</StatusBadge>
-              ) : (
-                <>
-                  <StatusBadge tone="error">Declined</StatusBadge>
-                  {request.decisionNote ? (
-                    <span className="text-xs text-content-tertiary">{request.decisionNote}</span>
-                  ) : null}
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </>
-  );
+export function MyOrgProjects({ projects }: { projects: OrgProject[] }) {
+  return projects.length > 0 ? (
+    <p className="mt-2 text-sm text-content-secondary wrap-anywhere">
+      Your projects: {projects.map((project) => project.name).join(', ')}
+    </p>
+  ) : null;
 }

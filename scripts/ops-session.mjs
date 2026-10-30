@@ -7,7 +7,7 @@
  * - control-plane D1: the person, their workspace runtimes (Worker name, release, last session), and
  *   their organization's daily usage
  * - the workspace's own D1 (`cloudchef-data-<suffix>`, found with `cf d1 list` in the runtime's account):
- *   the chat, its transcripts, and its production deployments
+ *   the chat and its transcripts
  * - Workers Logs for the workspace Worker over the conversation's time span (a dry-run query that saves
  *   nothing, paged by `$metadata.id`): turns, turn budgets, model finishes, warnings, and errors
  * - AI Gateway logs filed under the chat (`metadata.chat`): every model request, and the conversation
@@ -475,20 +475,6 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
       ),
     ),
   );
-  const deployments = note(
-    'deployments',
-    await attemptRead(() =>
-      select(
-        cf,
-        databaseId,
-        `SELECT id, status, production_url, error_code, error_message, created_at, updated_at FROM deployments
-         WHERE workspace_id = ?1 ORDER BY created_at DESC LIMIT 5`,
-        [chat.id],
-        { accountId },
-      ),
-    ),
-  );
-
   const gateway = note(
     'AI Gateway logs',
     await attemptRead(() => readGatewayLogs(cf, { chatKey: chat.initial_id, accountId })),
@@ -517,7 +503,6 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
   const activity = [
     ...requests.map((request) => request.at),
     ...(transcripts ?? []).flatMap((row) => [Number(row.created_at), Number(row.updated_at)]),
-    ...(deployments ?? []).map((row) => Number(row.updated_at)),
     Date.parse(chat.timestamp),
   ].filter(Number.isFinite);
   const lastActivity = activity.length ? Math.max(...activity) : now;
@@ -546,7 +531,6 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
     usage,
     chat: { ...chat, workerName: runtime.worker_name, accountId, orgName: runtime.org_name ?? null },
     transcripts,
-    deployments,
     window,
     events: events ? { complete: events.complete, ...summarizeWorkspaceEvents(events.events) } : null,
     gateway: gateway
@@ -640,12 +624,6 @@ export function renderSession(session) {
           `  ${day.day}  ${day.turns} turns  ${day.input_tokens} in  ${day.output_tokens} out  ${day.cached_tokens} cached`,
         );
       }
-    }
-    for (const deployment of session.deployments ?? []) {
-      push(
-        `Deployment ${deployment.id} ${deployment.status} ${time(deployment.updated_at)}` +
-          `${deployment.error_code ? ` ${deployment.error_code}: ${bounded(deployment.error_message, 160)}` : ''}`,
-      );
     }
     push('');
     if (session.events) {

@@ -25,9 +25,6 @@ import { api } from '~/lib/cloudflare/data-api';
 import { subchatIndexStore, useIsSubchatLoaded } from '~/lib/stores/subchats';
 import type { BuildProgress } from './build-progress';
 import type { ConversationSummary } from './subchat-model';
-import type { BuilderDeploymentState } from '~/agents/builder-deployment-command';
-import type { BuilderPublicationState } from '~/agents/builder-publication-progress';
-import { DeploymentStatus, type ProductionRequestOutcome } from './DeploymentStatus.client';
 import { LinkedPublishStatus } from './LinkedPublishStatus';
 import type {
   CloudflareExecutionDecisionHandler,
@@ -55,10 +52,6 @@ interface BaseChatProps {
   messages: CloudChefMessage[];
   disabledReason: ReactNode | null;
   runtimeNotice: ReactNode;
-  deployment?: BuilderDeploymentState | null;
-  publication?: BuilderPublicationState | null;
-  onDeploy?: () => Promise<BuilderDeploymentState>;
-  onRequestProduction?: (input: { title: string; note: string }) => Promise<ProductionRequestOutcome>;
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
 
@@ -80,10 +73,6 @@ export function BaseChat({
   buildProgress,
   disabledReason,
   runtimeNotice,
-  deployment,
-  publication,
-  onDeploy,
-  onRequestProduction,
   cloudflareExecutions,
   onCloudflareExecutionDecision,
   subchats,
@@ -303,16 +292,6 @@ export function BaseChat({
                           {runtimeNotice}
                         </div>
                       )}
-                      {deployment && onDeploy && onRequestProduction ? (
-                        <div className="mb-2">
-                          <DeploymentStatus
-                            deployment={deployment}
-                            publication={publication}
-                            onRetry={onDeploy}
-                            onRequestProduction={onRequestProduction}
-                          />
-                        </div>
-                      ) : null}
                       {linkedProject && isSubchatLoaded ? <LinkedPublishStatus messages={messages} /> : null}
                       {(!subchats || (currentSubchatIndex >= subchats.length - 1 && isSubchatLoaded)) && (
                         <>

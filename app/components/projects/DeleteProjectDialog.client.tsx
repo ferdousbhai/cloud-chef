@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Link } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
 import { Spinner } from '@ui/Spinner';
@@ -184,19 +183,4 @@ function resourceLabel(resource: ProjectDeletionPreview['resources'][number]): s
                 ? 'Database connection'
                 : 'Resource';
   return `${kind} ${resource.name}`;
-}
-
-/**
- * What deleting one of the person's own apps does. The grace period is `AGENT_GC_GRACE_PERIOD_MS`, after which the
- * sweeps delete its Cloudflare resources, its repository and its workspace. A team project's workspace is never
- * listed here; a team project is deleted from its card.
- */
-export function AppDeletionNotice() {
-  return (
-    <p className="text-content-secondary">
-      It leaves your projects now. After a 30-minute grace period, its live site, databases, stored files, code and
-      workspace are deleted for good. Provider-retained logs and browser data are not erased. See the{' '}
-      <Link to="/privacy">Privacy notice</Link>.
-    </p>
-  );
 }

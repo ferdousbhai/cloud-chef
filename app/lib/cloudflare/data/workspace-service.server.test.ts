@@ -3,7 +3,6 @@ import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import {
   createConversation,
   discardEmptyWorkspace,
-  getAllWorkspaces,
   getConversations,
   removeWorkspace,
 } from './workspace-service.server';
@@ -39,37 +38,10 @@ describe('empty chat lifecycle', () => {
     expect(database.sqlite.prepare(`SELECT workspace_id FROM agent_gc_candidates`).all()).toEqual([
       { workspace_id: 'empty-row' },
     ]);
-    expect(database.sqlite.prepare(`SELECT workspace_id FROM app_resource_gc_candidates`).all()).toEqual([
-      { workspace_id: 'empty-row' },
-    ]);
   });
 });
 
 describe('chat reads', () => {
-  it('lists every chat of ones own newest first', async () => {
-    const all = vi.fn().mockResolvedValue({
-      results: ['c', 'b', 'a'].map((id) => ({
-        initial_id: `initial-${id}`,
-        description: null,
-        timestamp: '2026-02-03T04:05:06.000Z',
-      })),
-    });
-    const bind = vi.fn(() => ({ all }));
-    const prepare = vi.fn(() => ({ bind }));
-    // SAFETY: getAllWorkspaces calls only prepare().bind().all(), which this stub provides.
-    const db = { prepare } as unknown as D1Database;
-
-    const chats = await getAllWorkspaces(db, { sessionId: 'user-1' });
-
-    expect(chats.map((chat) => chat.initialId)).toEqual(['initial-c', 'initial-b', 'initial-a']);
-    expect(prepare).toHaveBeenCalledWith(
-      expect.stringContaining('ORDER BY workspaces.timestamp DESC, workspaces.id DESC'),
-    );
-    // A GitHub project's chat is listed with the GitHub projects, never also as one of the user's apps.
-    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('AND workspaces.org_project_id IS NULL'));
-    expect(bind).toHaveBeenCalledWith('user-1');
-  });
-
   it('lists every conversation of a chat in order', async () => {
     const subchatRows = [0, 1, 2].map((conversationIndex) => ({
       conversation_index: conversationIndex,
@@ -125,13 +97,12 @@ describe('chat deletion', () => {
 
     await removeWorkspace(db, { sessionId: 'owner', id: 'chat' });
 
-    expect(statements).toHaveLength(3);
+    expect(statements).toHaveLength(2);
     expect(statements[0].query).toContain('INSERT INTO agent_gc_candidates');
     expect(statements[0].query).toContain('JOIN conversations');
     expect(Number(statements[0].values[0]) - Number(statements[0].values[1])).toBe(AGENT_GC_GRACE_PERIOD_MS);
-    expect(statements[1].query).toContain('INSERT INTO app_resource_gc_candidates');
-    expect(statements[2].query).toContain('SET is_deleted = 1');
-    expect(statements[2].query).not.toContain('snapshot_key');
+    expect(statements[1].query).toContain('SET is_deleted = 1');
+    expect(statements[1].query).not.toContain('snapshot_key');
   });
 });
 
@@ -209,12 +180,6 @@ function emptyChatDatabase(): { sqlite: DatabaseSync; db: D1Database } {
       created_at INTEGER NOT NULL,
       attempts INTEGER NOT NULL,
       PRIMARY KEY (workspace_id, conversation_index)
-    );
-    CREATE TABLE app_resource_gc_candidates (
-      workspace_id TEXT PRIMARY KEY,
-      not_before INTEGER NOT NULL,
-      created_at INTEGER NOT NULL,
-      attempts INTEGER NOT NULL
     );
   `);
   const db = {

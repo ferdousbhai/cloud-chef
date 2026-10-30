@@ -69,18 +69,17 @@ export async function loadBuilderTranscriptBinding(
 }
 
 /**
- * The team project a transcript's chat works on (null for a CloudChef app), whether a newer conversation
+ * The project a transcript's chat works on (null until a new chat has made its own), whether a newer conversation
  * in the chat has closed this one (it stays to read, and only the newest changes the project), and whether
- * the member deleted the chat (its agent lives on for a while, and nothing of it may change the project), and the
- * team project a CloudChef app became when an admin approved it as a draft (it is kept to read from then on).
+ * the member deleted the chat (its agent lives on for a while, and nothing of it may change the project).
  */
 export async function loadConversationScope(
   db: D1Database,
   args: { agentName: string; ownerId: string },
-): Promise<{ orgProjectId: string | null; closed: boolean; deleted: boolean; adoptedBy: string | null }> {
+): Promise<{ orgProjectId: string | null; closed: boolean; deleted: boolean }> {
   const row = await db
     .prepare(
-      `SELECT workspaces.org_project_id, workspaces.is_deleted, workspaces.adopted_by_org_project_id,
+      `SELECT workspaces.org_project_id, workspaces.is_deleted,
               transcripts.conversation_index < workspaces.last_conversation_index AS closed
        FROM conversations AS transcripts
        INNER JOIN workspaces ON workspaces.id = transcripts.workspace_id
@@ -91,18 +90,12 @@ export async function loadConversationScope(
     .first<{
       org_project_id: string | null;
       is_deleted: number;
-      adopted_by_org_project_id: string | null;
       closed: number;
     }>();
   if (!row || row.is_deleted !== 0) {
-    return { orgProjectId: null, closed: false, deleted: row !== null, adoptedBy: null };
+    return { orgProjectId: null, closed: false, deleted: row !== null };
   }
-  return {
-    orgProjectId: row.org_project_id,
-    closed: row.closed === 1,
-    deleted: false,
-    adoptedBy: row.adopted_by_org_project_id,
-  };
+  return { orgProjectId: row.org_project_id, closed: row.closed === 1, deleted: false };
 }
 
 /**
@@ -122,24 +115,6 @@ export async function linkWorkspaceToProject(
     .bind(args.orgProjectId, args.ownerId, args.agentName)
     .run();
   return linked.meta.changes === 1;
-}
-
-/**
- * Records that a CloudChef app's repository became the team project `orgProjectId` (an admin approved it as a
- * draft): the transcript's workspace is kept to read from then on.
- */
-export async function recordAppAdoption(
-  db: D1Database,
-  args: { agentName: string; ownerId: string; orgProjectId: string },
-): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE workspaces SET adopted_by_org_project_id = ?
-       WHERE id = (SELECT workspace_id FROM conversations WHERE agent_name = ?)
-         AND creator_id = ? AND org_project_id IS NULL AND adopted_by_org_project_id IS NULL`,
-    )
-    .bind(args.orgProjectId, args.agentName, args.ownerId)
-    .run();
 }
 
 /**

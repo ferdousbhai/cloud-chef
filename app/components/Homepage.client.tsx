@@ -37,7 +37,7 @@ export function Homepage({ initialId }: { initialId: string }) {
     >
       {userId ? (
         <Suspense fallback={null}>
-          <ProjectsHome userId={userId} />
+          <ProjectsHome />
         </Suspense>
       ) : null}
     </HomeIntro>

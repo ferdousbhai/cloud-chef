@@ -10,11 +10,9 @@
  */
 import { useEffect } from 'react';
 import { z } from 'zod';
-import { executeDataOperation } from './cloudflare/client';
-import { api } from './cloudflare/data-api';
 import { loadApprovals } from './cloudflare/approvals.client';
 import { loadPublicProjects, loadTeamProjects, openTeamProject } from './cloudflare/org-projects.client';
-import { loadProjectDeployLog, openProjectWorkspace } from './cloudflare/projects.client';
+import { loadProjectDeployLog } from './cloudflare/projects.client';
 import { leavePage } from './hooks/useUnsavedEditsGuard';
 import { messageOf } from './json-request';
 
@@ -102,39 +100,22 @@ const projectIdInput = z.object({
   projectId: z.string().min(1).max(512).describe('A project id from list_projects.'),
 });
 
-/** The person's projects in the account they work in now, as the sidebar lists them: the account's projects they
- * may view or edit, and the ones they made in a chat. */
+/** The projects of the account the person works in now that they may view or edit, as the sidebar lists them. */
 async function listProjects(person: WebMcpPerson) {
-  const [projects, chats] = await Promise.allSettled([
-    loadTeamProjects(),
-    executeDataOperation(api.messages.getAll, {}),
-  ]);
-  if (projects.status === 'rejected' && chats.status === 'rejected') {
-    throw projects.reason;
-  }
   return {
     account: person.account,
-    projects: [
-      ...(projects.status === 'fulfilled' ? projects.value : []).map((project) => ({
-        projectId: project.id,
-        name: project.name,
-        address: project.fullName ?? null,
-        role: project.role,
-        visibility: project.visibility ?? null,
-        site: project.siteUrl ?? null,
-        latestPublish: project.deployment
-          ? { state: project.deployment.state, reason: project.deployment.reason ?? null }
-          : null,
-        createdAt: project.createdAt ?? null,
-      })),
-      ...(chats.status === 'fulfilled' ? chats.value : []).map((chat) => ({
-        projectId: chat.initialId,
-        name: chat.description ?? 'Untitled project',
-        role: 'edit' as const,
-        site: chat.productionUrl ?? null,
-        updatedAt: chat.timestamp,
-      })),
-    ],
+    projects: (await loadTeamProjects()).map((project) => ({
+      projectId: project.id,
+      name: project.name,
+      address: project.fullName ?? null,
+      role: project.role,
+      visibility: project.visibility ?? null,
+      site: project.siteUrl ?? null,
+      latestPublish: project.deployment
+        ? { state: project.deployment.state, reason: project.deployment.reason ?? null }
+        : null,
+      createdAt: project.createdAt ?? null,
+    })),
   };
 }
 
@@ -203,7 +184,7 @@ function cloudchefTools(person: WebMcpPerson): WebMcpTool[] {
       name: 'list_approvals',
       title: 'List approvals',
       description:
-        "Lists what waits for the signed-in person as an admin of their teams: Cloudflare changes members asked for, and requests to publish a project's preview to its live site. Approving or declining is done by the person on the Approvals page.",
+        'Lists what waits for the signed-in person as an admin of their teams: Cloudflare changes members asked for. Approving or declining is done by the person on the Approvals page.',
       input: z.object({}),
       readOnly: true,
       run: async () => {
@@ -219,13 +200,6 @@ function cloudchefTools(person: WebMcpPerson): WebMcpTool[] {
             warning: approval.warning,
             expiresAt: new Date(approval.expiresAt).toISOString(),
           })),
-          publishRequests: approvals.productionRequests.map((request) => ({
-            team: request.orgName,
-            title: request.title,
-            note: request.note,
-            preview: request.previewUrl,
-            requester: request.requesterName,
-          })),
           page: `${window.location.origin}/approvals`,
         });
       },
@@ -239,18 +213,11 @@ function cloudchefTools(person: WebMcpPerson): WebMcpTool[] {
       readOnly: false,
       run: async ({ projectId }) => {
         const project = (await loadTeamProjects()).find((candidate) => candidate.id === projectId);
-        if (project) {
-          const left = await openTeamProject(project);
-          return text(left ? `Opening ${project.name}.` : 'The person chose to stay on this page.');
-        }
-        const chat = (await executeDataOperation(api.messages.getAll, {})).find(
-          (candidate) => candidate.initialId === projectId,
-        );
-        if (!chat) {
+        if (!project) {
           return refusal('No project with that id is in this account. Use list_projects for the ids.');
         }
-        const left = await leavePage(async () => openProjectWorkspace(chat.initialId));
-        return text(left ? 'Opening the project.' : 'The person chose to stay on this page.');
+        const left = await openTeamProject(project);
+        return text(left ? `Opening ${project.name}.` : 'The person chose to stay on this page.');
       },
     }),
   ];

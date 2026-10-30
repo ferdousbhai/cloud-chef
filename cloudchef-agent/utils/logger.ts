@@ -5,8 +5,6 @@ interface Logger {
   error: LoggerFunction;
 }
 
-export const logger: Logger = createScopedLogger(undefined);
-
 export function createScopedLogger(scope: string | undefined): Logger {
   const label = (level: 'warn' | 'error') => `[${level.toUpperCase()}] ${scope ? `[${scope}] ` : ''}`;
   return {

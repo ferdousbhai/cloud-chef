@@ -1,7 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
-import type { WorkspaceSummary } from '~/lib/cloudflare/data-api';
 import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL, type BuilderModel } from '~/lib/workers-ai-model';
 import { PENDING_SUBMIT_STORAGE_KEY } from '~/utils/constants';
@@ -14,7 +13,6 @@ const SESSION_DELAY_MS = 300;
 const MODELS_DELAY_MS = 800;
 const PROJECTS_DELAY_MS = 1_000;
 const RUNTIME_ORIGIN = 'https://e2e-steady-home.workers.dev';
-const dataRequestSchema = z.object({ path: z.string() });
 // Set to a directory to keep a screenshot of the loading and the settled home.
 const screenshotDirectory = process.env.STEADY_HOME_SCREENSHOTS;
 
@@ -25,12 +23,13 @@ const defaultModel: BuilderModel = {
   reasoningLevels: ['low', 'medium', 'high'],
 };
 
-const ownProjects: WorkspaceSummary[] = [
+const ownProjects: TeamProject[] = [
   {
-    id: 'chat-recipes',
-    initialId: 'chat-recipes',
-    description: 'Recipe planner',
-    timestamp: new Date(Date.now() - 86_400_000).toISOString(),
+    id: '00000000-0000-4000-8000-000000000002',
+    name: 'Recipe planner',
+    role: 'edit',
+    repo: 't-recipes',
+    createdAt: new Date(Date.now() - 86_400_000).toISOString(),
   },
 ];
 
@@ -65,23 +64,15 @@ async function stubHome(page: Page, context: WorkspaceContext | null) {
   );
   await page.route('**/api/org-projects', async (route) => {
     await delayed(PROJECTS_DELAY_MS);
-    await route.fulfill({ json: { projects: context?.kind === 'organization' ? teamProjects : [] } });
+    await route.fulfill({ json: { projects: context?.kind === 'organization' ? teamProjects : ownProjects } });
   });
-  await page.route('**/api/apps', (route) => route.fulfill({ json: { apps: [] } }));
   await page.route(`${RUNTIME_ORIGIN}/v1/models`, async (route) => {
     await delayed(MODELS_DELAY_MS);
     await route.fulfill({
       json: { defaultModelId: defaultModel.id, models: [defaultModel, DEFAULT_WORKERS_AI_MODEL] },
     });
   });
-  await page.route(`${RUNTIME_ORIGIN}/v1/data`, async (route) => {
-    const { path } = dataRequestSchema.parse(route.request().postDataJSON());
-    if (path === 'messages.getAll') {
-      await delayed(PROJECTS_DELAY_MS);
-      return route.fulfill({ json: { result: context?.kind === 'personal' ? ownProjects : [] } });
-    }
-    return route.fulfill({ json: { result: null } });
-  });
+  await page.route(`${RUNTIME_ORIGIN}/v1/data`, (route) => route.fulfill({ json: { result: null } }));
 }
 
 type Frame = z.infer<typeof frameSchema>;

@@ -6,7 +6,6 @@ import { updateRemoteRef, ZERO_OID } from './repository-wire';
 import {
   filesMatchTree,
   importedProjectRepo,
-  nativeProjectRepo,
   ProjectRepositories,
   ProjectRepositoryError,
   type RepositoryFileInput,
@@ -78,8 +77,7 @@ describe('ProjectRepositories', { timeout: 30_000 }, () => {
     expect(await artifacts.head('p-rewrite')).toBe(slim);
   });
 
-  it('names repositories after their chat or project', () => {
-    expect(nativeProjectRepo('6f1c2a7e-0000-4000-8000-000000000001')).toBe('p-6f1c2a7e-0000-4000-8000-000000000001');
+  it('names repositories after their project', () => {
     expect(importedProjectRepo('a b/c')).toBe('t-a-b-c');
   });
 

@@ -2,8 +2,7 @@
  * A ConversationAgent in Node: the real class, on an in-memory Durable Object state whose SQL storage is
  * SQLite, with the runtime's own D1 (`user-workspace-migrations/`) as `env.DB`. What lies outside the
  * agent is faked at its boundary: the ProjectWorkspace (`BuilderWorkspaceApi`, one per project id, as
- * the namespace gives it), Workers AI, the publication commands that reach the deployment executor and
- * the user's account, and the account's Artifacts (`app/test/fake-artifacts.ts`), which holds each
+ * the namespace gives it), Workers AI, and the account's Artifacts (`app/test/fake-artifacts.ts`), which holds each
  * project's repository.
  */
 import { createRequire } from 'node:module';
@@ -21,11 +20,6 @@ import type { ModelHandle } from '~/lib/.server/llm/pi-ai-models';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
 import { CLOUDFLARE_WORKERS_AI_MODEL, type BuilderModel, type BuilderModelId } from '~/lib/workers-ai-model';
 import { ConversationAgent } from '~/agents/conversation-agent';
-import type {
-  deployValidatedRevisionForBuilder,
-  settleDeploymentForBuilder,
-  terminalizeInterruptedDeploymentForBuilder,
-} from '~/agents/builder-deployment-command';
 import type { BuilderWorkspaceApi, BuilderWorkspaceCheckpoint } from '~/agents/builder-workspace-api';
 import type { BuilderWorkspaceState } from '@cloudchef/user-workspace-runtime/protocol';
 import {
@@ -38,13 +32,6 @@ import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository
 
 const require = createRequire(import.meta.url);
 const sqlite: typeof NodeSqlite = require('node:sqlite');
-
-// Workers' `scheduler.wait`, which a running publication uses to pace its progress reads; Node has none.
-if (!('scheduler' in globalThis)) {
-  Object.assign(globalThis, {
-    scheduler: { wait: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) },
-  });
-}
 
 const OWNER_ID = 'owner-1';
 export const AGENT_NAME = 'agent-chat-1';
@@ -197,7 +184,7 @@ const READY_WORKSPACE: BuilderWorkspaceState = {
   seeding: false,
 };
 
-export const VALIDATED_CHECKPOINT: BuilderWorkspaceCheckpoint = { workspaceRevision: 3, revision: 'rev-3' };
+const VALIDATED_CHECKPOINT: BuilderWorkspaceCheckpoint = { workspaceRevision: 3, revision: 'rev-3' };
 
 /** A ready, validated, unlinked ProjectWorkspace; each test overrides what its path reads. */
 function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<BuilderWorkspaceApi> {
@@ -214,30 +201,8 @@ function fakeWorkspace(overrides: Partial<BuilderWorkspaceApi> = {}): Partial<Bu
     setGitRepository: async () => undefined,
     takeGitPushes: async () => [],
     knownMain: async () => null,
-    setMainFetched: async () => undefined,
     checkpoint: async () => VALIDATED_CHECKPOINT,
-    hasSuccessfulValidation: async () => true,
     cancelActiveValidation: async () => undefined,
-    ...overrides,
-  };
-}
-
-/** The agent's publication commands (`builderPublisher`), which run the deployment executor in the user's account. */
-export type BuilderPublisher = {
-  deploy: typeof deployValidatedRevisionForBuilder;
-  terminalize: typeof terminalizeInterruptedDeploymentForBuilder;
-  settle: typeof settleDeploymentForBuilder;
-};
-
-/** Publications that succeed at once; each test overrides what its path needs. */
-function fakePublisher(overrides: Partial<BuilderPublisher> = {}): BuilderPublisher {
-  return {
-    deploy: async () => ({ status: 'succeeded', id: 'deployment-1', productionUrl: 'https://app.example.workers.dev' }),
-    terminalize: async () => ({ status: 'failed', error: 'Deployment was interrupted before execution started.' }),
-    settle: async () => ({
-      settled: false,
-      deployment: { status: 'failed', error: 'Deployment was interrupted before execution started.' },
-    }),
     ...overrides,
   };
 }
@@ -332,13 +297,7 @@ export async function conversationAgentHarness(
     newWorkspace?: () => Partial<BuilderWorkspaceApi>;
     ai?: Partial<Ai>;
     cloudflareIdentity?: boolean;
-    publisher?: Partial<BuilderPublisher>;
     artifacts?: FakeArtifacts;
-    /**
-     * Whether a CloudChef app's workspace holds exactly what its main does, which its publication needs:
-     * yes unless a test says otherwise, so a turn that owes a publication publishes.
-     */
-    workspaceMatchesMain?: boolean;
     /** The scripted model turns run on. */
     faux?: FauxProviderHandle;
   } = {},
@@ -378,9 +337,6 @@ export async function conversationAgentHarness(
     // before any call reaches it, with a fake of every member the exercised path calls.
     const ownWorkspace = fakeWorkspace(options.newWorkspace?.() ?? options.workspace);
     Reflect.set(agent, 'workspace', ownWorkspace);
-    Reflect.set(agent, 'workspaceMatchesMain', async () => options.workspaceMatchesMain ?? true);
-    // SAFETY: as above, for the publication commands; the fake implements every one the agent calls.
-    Reflect.set(agent, 'publisher', fakePublisher(options.publisher));
     // SAFETY: as above, for the account's repositories: the real client, over a fake Artifacts.
     Reflect.set(agent, 'repositories', () => new ProjectRepositories(artifacts, { fetch: artifacts.fetch }));
     await agent.lifecycle.start({ userId: OWNER_ID });

@@ -30,7 +30,7 @@ export const ToolUseContents = memo(function ToolUseContents({
   /** The changes to the Cloudflare account this command asked for, in the order it asked. */
   cloudflareExecutions?: readonly CloudflareExecutionPublicState[];
   onCloudflareExecutionDecision?: CloudflareExecutionDecisionHandler;
-  /** A team project's publish, as of now (useLinkedPublishView), or null for any other call. */
+  /** What the command pushed, as of now (useLinkedPublishView), or null for any other call. */
   publish: LinkedPublishView | null;
 }) {
   // A stopped or finished call keeps whatever invocation state the provider last streamed, so the
@@ -64,9 +64,6 @@ export const ToolUseContents = memo(function ToolUseContents({
   }
   if (attachedValidation(invocation)) {
     return <ValidationToolContents invocation={invocation} />;
-  }
-  if (invocation.toolName === 'publish' || invocation.toolName === 'publish_preview') {
-    return publish ? <PublishContents view={publish} /> : <StructuredResultTool invocation={invocation} />;
   }
   if (invocation.toolName === 'exec') {
     // A command that pushed to the project: what became of the push first, then the command itself.
@@ -469,7 +466,7 @@ function StructuredResultTool({ invocation }: { invocation: CloudChefToolInvocat
   );
 }
 
-/** What became of a team project's publish, in the person's words, with the links its build reported. */
+/** What became of a push, in the person's words, with the links its build reported. */
 function PublishContents({ view }: { view: LinkedPublishView }) {
   return (
     <ToolResultFrame>

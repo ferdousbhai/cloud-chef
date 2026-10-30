@@ -3,7 +3,7 @@ import { executeDataOperation, runtimeFailureSchema, UserRuntimeRequestError } f
 import { api, type ProjectCommit, type ProjectImportResult } from './data-api';
 import { fetchUserRuntime } from './runtime-session';
 
-/** Which project a history, clone or download names: one of the person's own chats, or a team project. */
+/** Which project a history, clone or download names: the open chat's, or a project by its id. */
 export type ProjectRef = { chatInitialId: string } | { orgProjectId: string };
 
 export const HISTORY_PAGE_SIZE = 30;
@@ -13,8 +13,6 @@ export const HISTORY_PAGE_SIZE = 30;
 const IMPORT_TIMEOUT_MS = 35 * 60_000;
 /** An upload sends the ZIP, then the runtime unpacks it and writes the project's first version. */
 const UPLOAD_TIMEOUT_MS = 10 * 60_000;
-/** A fork copies the repository inside Artifacts and then seeds a new workspace from it. */
-const FORK_TIMEOUT_MS = 2 * 60_000;
 
 export function loadProjectHistory(ref: ProjectRef, offset: number, signal?: AbortSignal): Promise<ProjectCommit[]> {
   return executeDataOperation(api.projects.history, { ...ref, limit: HISTORY_PAGE_SIZE, offset }, { signal });
@@ -25,10 +23,6 @@ export async function loadGitProjectId(ref: ProjectRef): Promise<string> {
   return 'orgProjectId' in ref
     ? ref.orgProjectId
     : (await executeDataOperation(api.projects.gitAddress, ref)).projectId;
-}
-
-export function forkProject(chatInitialId: string, commit: string) {
-  return executeDataOperation(api.projects.fork, { chatInitialId, commit }, { timeoutMs: FORK_TIMEOUT_MS });
 }
 
 export function importProject(args: { url: string; name?: string }) {

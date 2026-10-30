@@ -8,13 +8,7 @@ import { TextInput } from '@ui/TextInput';
 import { authClient, createCloudflareReturnURL, refreshSession, signInWithCloudflare } from '~/lib/auth-client';
 import { switchAccount } from '~/lib/account-actions.client';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
-import {
-  MyOrgProjects,
-  OrgProjectsSection,
-  orgGitHubSchema,
-  orgProjectSchema,
-  ownRequestSchema,
-} from './OrgProjectsSection.client';
+import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
 import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
@@ -55,7 +49,6 @@ const organizationsSchema = z.object({
         .nullable(),
       github: orgGitHubSchema,
       projects: z.array(orgProjectSchema),
-      ownRequests: z.array(ownRequestSchema),
     }),
   ),
 });
@@ -452,7 +445,7 @@ function OrganizationRow({
           />
         </>
       ) : (
-        <MyOrgProjects projects={projects} requests={organization.ownRequests} />
+        <MyOrgProjects projects={projects} />
       )}
       {dialog === 'invite' ? (
         <InviteDialog organization={organization} onChanged={onChanged} onClose={() => setDialog(null)} />
@@ -808,9 +801,8 @@ function DeleteTeam({
         {intro ? <p className="text-content-primary">{intro}</p> : null}
         <p>
           Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there, is deleted. Its
-          members, invites, projects, team project requests and usage are removed from CloudChef, and CloudChef&apos;s
-          access to the Cloudflare account is revoked, unless someone still builds in it outside this team. This
-          can&apos;t be undone.
+          members, invites, projects and usage are removed from CloudChef, and CloudChef&apos;s access to the Cloudflare
+          account is revoked, unless someone still builds in it outside this team. This can&apos;t be undone.
         </p>
         <p>
           What stays: each project&apos;s code and history, deployed apps with their databases and storage, and AI
