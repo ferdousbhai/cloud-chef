@@ -24,7 +24,10 @@ import {
   recordImportedRepo,
   recordMainPush,
   removeProject,
+  nameChatProject,
+  recordProductionPublish,
   requireProjectScope,
+  type ProjectScope,
   type Project,
   type ProjectRole,
 } from '~/lib/cloudflare/data/org-projects.server';
@@ -66,6 +69,8 @@ const registerUploadSchema = z.strictObject({
   copiedFrom: z.string().uuid().optional(),
   /** Made empty, for history pushed from the person's own computer. */
   pushed: z.literal(true).optional(),
+  /** Made in a chat with the agent, from CloudChef's starter. */
+  chat: z.literal(true).optional(),
 });
 const MAX_PENDING_REQUESTS_PER_MEMBER = 5;
 const productionRequestSchema = z.strictObject({
@@ -109,6 +114,7 @@ export async function runtimeOpenProjectAction(args: {
     role: project.role,
     member: await memberIdentity(args.env.DB, identity.userId),
     deploysWith: project.deploysWith,
+    createdFrom: project.createdFrom,
   };
   if (project.repo !== null || project.role !== 'edit') {
     return json(answer, 200);
@@ -391,7 +397,18 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
     return json({ error: 'That is not where this project is kept.' }, 409);
   }
   return answeringOrganizationErrors(async () => {
-    const scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
+    // Anyone in a team who may make projects of their own there makes a chat's project as one of the team's, which
+    // they may edit; adding any other project in a team takes one of its admins.
+    let scope: ProjectScope;
+    if (body.chat && connection.orgId) {
+      const membership = await findMembership(args.env.DB, connection.orgId, identity.userId);
+      if (!membership?.draftsAllowed) {
+        return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its team projects only.' }, 403);
+      }
+      scope = { connectionId: connection.id, orgId: connection.orgId };
+    } else {
+      scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
+    }
     if (scope.connectionId !== connection.id) {
       return json({ error: "This workspace can't add projects in that account." }, 403);
     }
@@ -405,7 +422,7 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
       name: body.name,
       repo: body.repo,
       copiedFrom: body.copiedFrom ?? null,
-      createdFrom: body.copiedFrom ? 'copy' : body.pushed ? 'push' : 'zip',
+      createdFrom: body.chat ? 'chat' : body.copiedFrom ? 'copy' : body.pushed ? 'push' : 'zip',
     });
     return json({ projectId: body.orgProjectId }, 201);
   });
@@ -472,6 +489,25 @@ export async function runtimeAbandonImportAction(args: { request: Request; env: 
   return json({ removed }, 200);
 }
 
+const nameSchema = z.strictObject({ ...projectFields, name: z.string().trim().min(1).max(80) });
+
+/** `runtime-projects/name`: the agent's title for a project made in a chat, set by the person who made it. */
+export async function runtimeNameProjectAction(args: { request: Request; env: Env }): Promise<Response> {
+  const opened = await openProject(args, nameSchema);
+  if (opened instanceof Response) {
+    return opened;
+  }
+  const { project, body, identity } = opened;
+  const named = await nameChatProject(args.env.DB, {
+    projectId: project.id,
+    actorId: identity.userId,
+    name: body.name,
+  });
+  return named
+    ? json({ name: body.name }, 200)
+    : json({ error: 'Only a project its maker started in a chat is named this way.' }, 409);
+}
+
 const mainPushedSchema = z.strictObject({ ...projectFields, oldCommit: COMMIT.nullable(), newCommit: COMMIT });
 
 /**
@@ -513,11 +549,24 @@ export async function runtimeProjectStatusAction(args: {
   if (project.deploysWith === 'cloudchef') {
     return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
   }
-  return withWorkersBuilds(args, connection, project, async (api, worker) =>
-    worker
-      ? json(await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit }), 200)
-      : json({ state: 'none' }, 200),
-  );
+  return withWorkersBuilds(args, connection, project, async (api, worker) => {
+    if (!worker) {
+      return json({ state: 'none' }, 200);
+    }
+    const status = await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit });
+    // A production build of main's pushed commit is that push going live, recorded once.
+    if (status.state === 'succeeded' && status.url) {
+      await recordProductionPublish(args.env.DB, {
+        projectId: project.id,
+        commit: body.commit,
+        siteUrl: null,
+        siteFrameable: null,
+        publishedAt: Date.now(),
+        deployedBy: 'workers_builds',
+      });
+    }
+    return json(status, 200);
+  });
 }
 
 /**

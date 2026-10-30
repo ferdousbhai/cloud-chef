@@ -5,7 +5,12 @@ import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-im
 import { createCommandLineToken } from '~/lib/cloudflare/data/command-line-tokens.server';
 import { ORG, teamFixture } from '~/test/project-fixture';
 import { z } from 'zod';
-import { latestMainChanges, listMainChanges, recordMainRewrite } from '~/lib/cloudflare/data/org-projects.server';
+import {
+  latestMainChanges,
+  listMainChanges,
+  recordMainRewrite,
+  recordProductionPublish,
+} from '~/lib/cloudflare/data/org-projects.server';
 import { commandLineRewriteMainAction, runtimeMainRewriteAction, runtimeMainRewrittenAction } from './main-rewrite';
 import { listMyProjectsAction, listProjectMainChangesAction } from './projects';
 import { runtimeMainPushedAction } from './runtime-projects';
@@ -234,5 +239,37 @@ describe('a runtime telling of a push to main', () => {
     expect(await viewed.json()).toEqual({ changes: changes.slice(0, 2), publishes: {} });
     database.prepare('DELETE FROM org_project_access WHERE user_id = ?').run(sara.userId);
     expect((await read(sara.cookie)).status).toBe(404);
+  });
+
+  it('records the pushed commit going live once, with who pushed it and the site', async () => {
+    const { runtime, env, admin, database } = await world();
+    await runtimeMainPushedAction({
+      request: await runtime(
+        '/api/cloudflare/runtime-projects/main-pushed',
+        { orgProjectId: SITE, oldCommit: MAIN, newCommit: SLIM },
+        { userId: admin.userId },
+      ),
+      env,
+    });
+    const publish = {
+      projectId: SITE,
+      commit: SLIM,
+      siteUrl: 'https://site.ada.workers.dev',
+      siteFrameable: true,
+      publishedAt: 40_000,
+      deployedBy: 'cloudchef' as const,
+    };
+    expect(await recordProductionPublish(env.DB, publish)).toEqual({ ...publish, pushedBy: admin.userId });
+    expect(await recordProductionPublish(env.DB, publish)).toBeNull();
+    expect(database.prepare('SELECT site_url FROM org_projects WHERE id = ?').get(SITE)).toEqual({
+      site_url: 'https://site.ada.workers.dev',
+    });
+    // A commit never pushed through CloudChef: CloudChef's own deploy of it counts, Workers Builds' status doesn't.
+    expect(
+      await recordProductionPublish(env.DB, { ...publish, commit: MAIN, deployedBy: 'workers_builds' }),
+    ).toBeNull();
+    expect(await recordProductionPublish(env.DB, { ...publish, commit: 'c'.repeat(40) })).toMatchObject({
+      pushedBy: null,
+    });
   });
 });

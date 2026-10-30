@@ -13,7 +13,13 @@ import { ProjectRepositories } from '~/lib/.server/cloudflare/project-repository
 import { loadBuilderTemplate, STARTING_PROJECT_MESSAGE } from '~/agents/builder-template';
 import { sha256Hex } from '~/lib/hex-digest';
 import { fakeArtifacts, type FakeArtifacts } from '~/test/fake-artifacts';
-import { conversationAgentHarness, CHAT_INITIAL_ID, eventually, type ConversationAgentHarness } from './harness';
+import {
+  chatProjectControlPlane,
+  conversationAgentHarness,
+  CHAT_INITIAL_ID,
+  eventually,
+  type ConversationAgentHarness,
+} from './harness';
 
 /**
  * A CloudChef app's history: the commits on main of its own repository (`p-<chat>`), made when the agent
@@ -152,46 +158,8 @@ describe("a CloudChef app's history", () => {
     expect(harness.artifacts.repos.has(REPO)).toBe(false);
   });
 
-  it("starts a fork's chat from its repository", async () => {
-    const artifacts = fakeArtifacts();
-    await repositories(artifacts).commitFiles({
-      repo: REPO,
-      branch: 'main',
-      parent: null,
-      files: [
-        { path: 'index.html', mode: 0o644, bytes: new TextEncoder().encode('<h1>Forked</h1>') },
-        { path: 'run.sh', mode: 0o755, bytes: new TextEncoder().encode('#!') },
-      ],
-      message: 'Forked',
-      author: { name: 'Sara', email: 'sara@example.com' },
-    });
-    const appended: BuilderWorkspaceFileInput[] = [];
-    let initialized = false;
-    const harness = await conversationAgentHarness({
-      artifacts,
-      workspace: {
-        refresh: async () => ({ ...READY, initialized }),
-        beginSeed: async (seedId) => ({ status: 'started', seedId, state: READY }),
-        appendSeed: async (_seedId, entries) => {
-          appended.push(...entries);
-          return READY;
-        },
-        commitSeed: async () => {
-          initialized = true;
-          return READY;
-        },
-      },
-    });
-    await harness.agent.prepareWorkspace();
-    expect(appended.map((entry) => [entry.path, entry.mode])).toEqual([
-      ['/home/project/index.html', 0o644],
-      ['/home/project/run.sh', 0o755],
-    ]);
-    expect(atob(appended[0]?.content ?? '')).toBe('<h1>Forked</h1>');
-  });
-
-  it("starts a new app's repository with the whole template as its first commit, and seeds the workspace from it", async () => {
-    noControlPlane();
+  it("makes a new chat's project, its repository starting with the whole template, and seeds the workspace from it", async () => {
+    const controlPlane = chatProjectControlPlane();
     const appended: BuilderWorkspaceFileInput[] = [];
     let initialized = false;
     let seededAs = '';
@@ -211,21 +179,29 @@ describe("a CloudChef app's history", () => {
           return READY;
         },
       },
+      cloudflareIdentity: true,
     });
     await harness.agent.prepareWorkspace();
 
+    // The chat's project is a project like any other, made from 'chat', and the chat's workspace is now its.
+    const [project] = controlPlane.registered;
+    expect(project).toMatchObject({ name: 'New project', repo: `t-${project?.orgProjectId}`, chat: true });
+    expect(harness.database.prepare('SELECT org_project_id FROM workspaces').all()).toEqual([
+      { org_project_id: project?.orgProjectId },
+    ]);
+    const repo = project?.repo ?? '';
     const template = await loadBuilderTemplate();
-    const history = await repositories(harness.artifacts).log(REPO, { limit: 5 });
+    const history = await repositories(harness.artifacts).log(repo, { limit: 5 });
     expect(history.map((commit) => [commit.message, commit.parents])).toEqual([[STARTING_PROJECT_MESSAGE, []]]);
-    const committed = await harness.artifacts.filesAt(REPO, 'main');
+    const committed = await harness.artifacts.filesAt(repo, 'main');
     expect(Object.keys(committed).sort()).toEqual(
       template.map((entry) => entry.path.slice('/home/project/'.length)).sort(),
     );
     expect(committed['package.json']).toBe(
       template.find((entry) => entry.path === '/home/project/package.json')?.content,
     );
-    // The workspace holds exactly that commit.
-    expect(seededAs).toBe(`repository_${history[0]?.hash}`);
+    // The workspace is seeded from the project's main, as any project's is.
+    expect(seededAs).toBe(`linked_${project?.orgProjectId}`);
     expect(appended.map((entry) => entry.path).sort()).toEqual(template.map((entry) => entry.path).sort());
   });
 });

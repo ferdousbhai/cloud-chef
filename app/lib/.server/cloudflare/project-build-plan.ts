@@ -1,5 +1,6 @@
 import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
+import type { DeploymentProjectProfile } from './deployment-project-profile';
 
 /**
  * How CloudChef builds and deploys a commit of a project it deploys itself, worked out from the commit's own
@@ -13,6 +14,7 @@ export const BUILD_PLAN_FILES = [
   'wrangler.json',
   'wrangler.jsonc',
   'wrangler.toml',
+  'cloudflare.project.json',
   'package-lock.json',
   'npm-shrinkwrap.json',
   'pnpm-lock.yaml',
@@ -34,11 +36,17 @@ export type BuildPlan =
       build: string | null;
       /** The Wrangler config's own `build.command`, run in the build step too, so deploy runs none. */
       configBuild: string | null;
-      configFile: 'wrangler.json' | 'wrangler.jsonc' | 'wrangler.toml';
-      /** The Worker the config names. */
+      /** The project's Wrangler config; none for a CloudChef app, whose config CloudChef writes. */
+      configFile: 'wrangler.json' | 'wrangler.jsonc' | 'wrangler.toml' | null;
+      /** The Worker the config names (for a CloudChef app, the project's name in addresses). */
       workerName: string;
-      /** The D1 bindings with migrations, applied before the new code goes live. */
+      /** The D1 bindings with migrations, applied with Wrangler before the new code goes live. */
       migrations: { binding: string; databaseName: string }[];
+      /**
+       * A CloudChef app (made from CloudChef's starter): the capabilities its `cloudflare.project.json` declares,
+       * whose resources, migrations and Wrangler config CloudChef makes itself (`app-build.ts`).
+       */
+      app?: DeploymentProjectProfile;
     }
   | { deployable: false; reason: string };
 
@@ -112,6 +120,59 @@ export function buildPlan(files: Partial<Record<BuildPlanFile, string>>): BuildP
       .filter((database) => database.database_name)
       .map((database) => ({ binding: database.binding, databaseName: database.database_name! })),
   };
+}
+
+/**
+ * The plan for a commit of a CloudChef app: a commit with CloudChef's `cloudflare.project.json` and no Wrangler config
+ * of its own. It installs as any project does and builds with its `build` script; CloudChef deploys it as
+ * `workerName` (the project's name in addresses, when the project has no Worker yet) with the resources `profile`
+ * asks for.
+ */
+export function appBuildPlan(
+  files: Partial<Record<BuildPlanFile, string>>,
+  profile: DeploymentProjectProfile,
+  workerName: string,
+): BuildPlan {
+  let manifest: z.infer<typeof packageSchema>;
+  try {
+    manifest = packageSchema.parse(JSON.parse(files['package.json'] ?? ''));
+  } catch {
+    return { deployable: false, reason: 'CloudChef couldn’t read package.json.' };
+  }
+  if (!manifest.scripts?.build) {
+    return { deployable: false, reason: 'package.json has no build script, so CloudChef can’t build this app.' };
+  }
+  const packageManager = chosenPackageManager(files, manifest.packageManager);
+  return {
+    deployable: true,
+    packageManager,
+    install: installCommand(packageManager, files),
+    build: `${packageManager} run build`,
+    configBuild: null,
+    configFile: null,
+    workerName,
+    migrations: [],
+    app: profile,
+  };
+}
+
+/** Whether a commit's top-level files make it a CloudChef app: CloudChef's project file, and no Wrangler config. */
+export function isAppCommit(files: Partial<Record<BuildPlanFile, string>>): boolean {
+  return (
+    files['cloudflare.project.json'] !== undefined &&
+    !(['wrangler.jsonc', 'wrangler.json', 'wrangler.toml'] as const).some((name) => files[name] !== undefined)
+  );
+}
+
+/** A name for an app's Worker from the project's name in addresses: a Worker name Cloudflare accepts. */
+export function appWorkerName(slug: string | null): string {
+  const name = (slug ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50)
+    .replace(/-+$/, '');
+  return name && WORKER_NAME.test(name) ? name : 'app';
 }
 
 function chosenPackageManager(

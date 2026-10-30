@@ -25,7 +25,7 @@ export type ProjectScope = { connectionId: string; orgId: string | null };
  * A project: an Artifacts repository in the account of the connection it belongs to, and where it was
  * imported from on GitHub, if it was.
  */
-export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push';
+export type ProjectCreatedFrom = 'github' | 'zip' | 'draft' | 'copy' | 'push' | 'chat';
 
 export type Project = {
   id: string;
@@ -479,7 +479,7 @@ export async function addUploadedProject(
     repo: string;
     /** For a copy, the project it copies; null otherwise. */
     copiedFrom: string | null;
-    createdFrom: Extract<ProjectCreatedFrom, 'zip' | 'copy' | 'push'>;
+    createdFrom: Extract<ProjectCreatedFrom, 'zip' | 'copy' | 'push' | 'chat'>;
   },
 ): Promise<void> {
   const inserted = await db
@@ -505,6 +505,36 @@ export async function addUploadedProject(
   if (inserted.meta.changes !== 1) {
     throw new OrganizationError('That project is here already.', 409);
   }
+  // A team member's own project (one made in a chat) is theirs to edit, as an admin's grant would make it.
+  if (args.scope.orgId) {
+    await db
+      .prepare(
+        `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
+         VALUES (?, ?, 'edit', ?, ?) ON CONFLICT(project_id, user_id) DO NOTHING`,
+      )
+      .bind(args.projectId, args.actorId, args.actorId, Date.now())
+      .run();
+  }
+}
+
+/**
+ * Names a project made in a chat, which starts out unnamed: only by the person who made it, and only a 'chat' one.
+ * Until it has been published its address name follows (its Worker is named after it at the first publish); after,
+ * the address stays, as it may be in use.
+ */
+export async function nameChatProject(
+  db: D1Database,
+  args: { projectId: string; actorId: string; name: string },
+): Promise<boolean> {
+  const slug = await freeSlug(db, args.actorId, args.name);
+  const named = await db
+    .prepare(
+      `UPDATE org_projects SET name = ?, slug = CASE WHEN deploy_worker_name IS NULL THEN ? ELSE slug END
+       WHERE id = ? AND created_by = ? AND created_from = 'chat'`,
+    )
+    .bind(args.name, slug, args.projectId, args.actorId)
+    .run();
+  return named.meta.changes === 1;
 }
 
 /** Deletes a project's record, once its repository and resources are gone; access grants and deployments go with it. */
@@ -591,6 +621,55 @@ export async function recordMainPush(db: D1Database, push: MainPush): Promise<vo
     )
     .bind(crypto.randomUUID(), push.projectId, push.userId, push.oldCommit, push.newCommit, push.pushedAt)
     .run();
+}
+
+/** A commit of a project's main seen live in production: who pushed it (when CloudChef saw the push) and where. */
+export type ProductionPublish = {
+  projectId: string;
+  commit: string;
+  /** Who pushed the commit to main; null when its push wasn't made through CloudChef. */
+  pushedBy: string | null;
+  siteUrl: string | null;
+  siteFrameable: boolean | null;
+  publishedAt: number;
+  /** What deployed it: CloudChef's builder, or Workers Builds. */
+  deployedBy: 'cloudchef' | 'workers_builds';
+};
+
+/**
+ * The one place a project's successful production publish is recorded, whoever deployed it: CloudChef's own
+ * builder (its report that a deploy of main succeeded) or Workers Builds (a status read that finds main's pushed
+ * commit built). It keeps the live site's address, and marks the push of that commit as published, once. Answers
+ * the publish when this is the first time that commit was recorded live (so work hooked here, such as a public
+ * project's showcase post, runs once per published commit), and null when it was already recorded.
+ */
+export async function recordProductionPublish(
+  db: D1Database,
+  publish: Omit<ProductionPublish, 'pushedBy'>,
+): Promise<ProductionPublish | null> {
+  if (publish.siteUrl) {
+    await recordProjectSiteUrl(db, publish.projectId, { url: publish.siteUrl, frameable: publish.siteFrameable });
+  }
+  const pushed = await db
+    .prepare(
+      `UPDATE project_main_pushes SET published_at = ?
+       WHERE id = (
+         SELECT id FROM project_main_pushes WHERE project_id = ? AND new_commit = ? ORDER BY pushed_at DESC LIMIT 1
+       ) AND published_at IS NULL
+       RETURNING pushed_by`,
+    )
+    .bind(publish.publishedAt, publish.projectId, publish.commit)
+    .first<{ pushed_by: string | null }>();
+  if (pushed) {
+    return { ...publish, pushedBy: pushed.pushed_by };
+  }
+  const known = await db
+    .prepare('SELECT 1 FROM project_main_pushes WHERE project_id = ? AND new_commit = ?')
+    .bind(publish.projectId, publish.commit)
+    .first();
+  // A commit with no push recorded (a project's first upload or copy) is recorded once, as CloudChef's builder
+  // reports each deploy's success once; Workers Builds' status is read again and again, so only a pushed commit counts.
+  return known || publish.deployedBy === 'workers_builds' ? null : { ...publish, pushedBy: null };
 }
 
 /**

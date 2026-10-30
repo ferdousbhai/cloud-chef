@@ -55,9 +55,7 @@ import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-r
 import { generateModelTitle } from '~/lib/.server/llm/workers-ai-title';
 import { markWorkspaceStarted } from '~/lib/cloudflare/data/workspace-repository.server';
 import {
-  setGeneratedProjectDescription,
   setGeneratedConversationDescription,
-  setHeuristicProjectDescriptionIfMissing,
   setHeuristicConversationDescriptionIfMissing,
 } from '~/lib/cloudflare/data/workspace-service.server';
 import { getToolInvocation, replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
@@ -69,6 +67,7 @@ import {
 } from 'cloudchef-agent/transcript';
 import {
   loadBuilderTranscriptBinding,
+  linkWorkspaceToProject,
   loadConversationScope,
   recordAppAdoption,
   requireBuilderRequestScope,
@@ -81,7 +80,7 @@ import {
   isConversationAgentBusy,
   RuntimeUpgradeWaitExceededError,
 } from './builder-runtime-activity';
-import { rethrowAgentRejection } from './conversation-agent-rejection';
+import { AgentRefusal, rethrowAgentRejection } from './conversation-agent-rejection';
 import {
   ConversationAgentIdentityMismatchError,
   ConversationAgentIdentityRepository,
@@ -96,14 +95,13 @@ import type {
 } from './builder-workspace-api';
 import { UserWorkspaceRuntimeClient } from '~/lib/.server/cloudflare/user-workspace-runtime-client';
 import type {
-  BuilderWorkspaceFileInput,
   BuilderWorkspaceApplyResult,
   BuilderWorkspaceLinkedProject,
   BuilderWorkspaceState,
   BuilderWorkspaceSyncPage,
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { commitBuilderTemplate } from './builder-template';
-import { seedBuilderWorkspace, WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
+import { WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
 import {
   isExcludedProjectPath,
   revertChanges,
@@ -132,21 +130,22 @@ import {
   projectBuildStatus,
   projectSite,
   commitAuthor,
+  nameChatProject,
+  registerUploadedProject,
   requestProductionReview,
   type ProductionRequestOutcome,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
+  importedProjectRepo,
   MAIN_BRANCH,
   nativeProjectRepo,
   ProjectRepositories,
   ProjectRepositoryError,
   filesMatchTree,
-  workspaceFileMode,
   type RepositoryFileInput,
 } from '~/lib/.server/cloudflare/project-repository';
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
-import { bytesToBase64 } from '~/lib/hex-digest';
 import {
   BUILDER_TURN_INACTIVITY_MS,
   BUILDER_TURN_WALL_CLOCK_MS,
@@ -157,7 +156,7 @@ import { createWorkersAiTools } from '~/lib/.server/llm/workers-ai-tools';
 import { builderModels } from '~/lib/.server/llm/builder-models';
 import { getPiModel, type ModelHandle, type WorkersAiAccountCredentials } from '~/lib/.server/llm/pi-ai-models';
 import { createBuilderSkillContext } from '~/lib/.server/llm/builder-skills';
-import { systemPrompt } from 'cloudchef-agent/prompts/system';
+import { systemPrompt, type ProjectFacts } from 'cloudchef-agent/prompts/system';
 import {
   contextTokens,
   handoffOpening,
@@ -585,6 +584,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
   /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
   private workspaceSeed: Promise<BuilderWorkspaceState> | null = null;
+  /** What the prompt says about the project, read once the workspace is the project's. */
+  #projectFacts: ProjectFacts | null = null;
   /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
   private destroying = false;
   /** Set once a newer conversation took the project over from this one, which publishes from then on. */
@@ -746,10 +747,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   private async initializeGcIdentity(ownerId: string): Promise<void> {
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
-      throw new Response('Invalid transcript owner', { status: 400 });
+      throw new AgentRefusal('Invalid transcript owner', 400);
     }
     if (this.userId && this.userId !== ownerId) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     const owned = await this.env.DB.prepare(
       `SELECT 1 AS found
@@ -762,7 +763,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       .first<{ found: number }>();
     // Only a deleted chat's agent: one revived since its sweep read the outbox keeps its project.
     if (!owned) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     this.userId = ownerId;
   }
@@ -843,11 +844,11 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const durableIdentity = await this.requireDurableIdentity('chat_message');
     const parsed = builderMessageInputSchema.safeParse(input);
     if (!parsed.success) {
-      throw new Response('Invalid message', { status: 400 });
+      throw new AgentRefusal('Invalid message', 400);
     }
     const text = parsed.data.text.trim();
     if (!text || text.length > MAX_USER_MESSAGE_CHARACTERS) {
-      throw new Response('Invalid message', { status: 400 });
+      throw new AgentRefusal('Invalid message', 400);
     }
     if (this.state.activeTurn) {
       await this.steerActiveTurn({ text, turnContext: parsed.data.turnContext });
@@ -927,7 +928,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           onWaiting: (waiting) => this.setUpgradeWaiting(waiting),
         })
         .catch((error: Error) => {
-          throw error instanceof RuntimeUpgradeWaitExceededError ? new Response(error.message, { status: 503 }) : error;
+          throw error instanceof RuntimeUpgradeWaitExceededError ? new AgentRefusal(error.message, 503) : error;
         });
       // Again now that the turn is visible: a newer conversation that took over meanwhile either saw this turn and
       // stopped it, or closed this one before this read.
@@ -1039,8 +1040,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           ),
         ),
         systemPrompt: async () => {
-          const linkedProject = await this.linkedProjectSummary();
-          return systemPrompt((await this.skillContext()).prompt, linkedProject);
+          return systemPrompt((await this.skillContext()).prompt, await this.projectFacts());
         },
         afterResponse: (message) => this.reportModelUsage(recordModelResponse(message)),
         afterTools: async () => {
@@ -1068,7 +1068,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   private async skillContext() {
-    return createBuilderSkillContext({ linkedProject: (await this.linkedProjectSummary()) !== undefined });
+    return createBuilderSkillContext({ starterApp: (await this.projectFacts()).starterApp });
   }
 
   protected useModel(turnModel: BuilderTurnModel, credentials: WorkersAiAccountCredentials, model: BuilderModel): void {
@@ -1342,14 +1342,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.requireDurableIdentity('steer_active_turn');
     const steering = steeringRequestSchema.safeParse(input);
     if (!steering.success) {
-      throw new Response('Invalid steering message', { status: 400 });
+      throw new AgentRefusal('Invalid steering message', 400);
     }
     const text = steering.data.text.trim();
     if (!text || text.length > MAX_USER_MESSAGE_CHARACTERS) {
-      throw new Response('Invalid steering message', { status: 400 });
+      throw new AgentRefusal('Invalid steering message', 400);
     }
     if (!this.state.activeTurn) {
-      throw new Response('The builder is not currently running.', { status: 409 });
+      throw new AgentRefusal('The builder is not currently running.', 409);
     }
     await this.refuseIfClosed();
     await this.piHarness.submit(withTurnContext(text, steering.data.turnContext), {
@@ -1363,7 +1363,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   async approveCloudflareExecution(input: { executionId: string }): Promise<CloudflareExecutionDecisionResult> {
     const parsed = cloudflareExecutionDecisionSchema.safeParse(input);
     if (!parsed.success) {
-      throw new Response('Invalid Cloudflare execution decision.', { status: 400 });
+      throw new AgentRefusal('Invalid Cloudflare execution decision.', 400);
     }
     const binding = await this.requireCurrentCloudflareExecutionBinding('approve_cloudflare_execution');
     await this.refuseIfClosed();
@@ -1374,7 +1374,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       proposal.status === 'failed' ||
       proposal.status === 'indeterminate'
     ) {
-      throw new Response('This Cloudflare execution can no longer be approved.', { status: 409 });
+      throw new AgentRefusal('This Cloudflare execution can no longer be approved.', 409);
     }
     const job: CloudflareExecutionFiberJob = {
       executionId: proposal.executionId,
@@ -1414,7 +1414,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   async rejectCloudflareExecution(input: { executionId: string }): Promise<CloudflareExecutionDecisionResult> {
     const parsed = cloudflareExecutionDecisionSchema.safeParse(input);
     if (!parsed.success) {
-      throw new Response('Invalid Cloudflare execution decision.', { status: 400 });
+      throw new AgentRefusal('Invalid Cloudflare execution decision.', 400);
     }
     const binding = await this.requireCurrentCloudflareExecutionBinding('reject_cloudflare_execution');
     const { record } = await this.cloudflareExecutions.reject(parsed.data.executionId, binding);
@@ -1470,7 +1470,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
    */
   async settleForSuccessor(ownerId: string): Promise<BuilderPublicationHandover | null> {
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
-      throw new Response('Invalid transcript owner', { status: 400 });
+      throw new AgentRefusal('Invalid transcript owner', 400);
     }
     const identity = await this.hydrateDurableIdentity();
     if (!identity) {
@@ -1478,10 +1478,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       return null;
     }
     if (identity.userId !== ownerId) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     if (!(await loadConversationScope(this.env.DB, { agentName: this.name, ownerId })).closed) {
-      throw new Response('This conversation is still the newest one.', { status: 409 });
+      throw new AgentRefusal('This conversation is still the newest one.', 409);
     }
     this.closed = true;
     if (!this.state.conversationClosed) {
@@ -1545,7 +1545,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private async refuseIfClosed(): Promise<void> {
     const closed = await this.closedConversationMessage();
     if (closed) {
-      throw new Response(closed, { status: 409 });
+      throw new AgentRefusal(closed, 409);
     }
   }
 
@@ -1760,7 +1760,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   @callable()
   async prepareWorkspace(): Promise<BuilderWorkspaceState | WorkspaceSeedFailure> {
     if (!this.transcriptBinding) {
-      throw new Response('Agent authentication is required.', { status: 401 });
+      throw new AgentRefusal('Agent authentication is required.', 401);
     }
     let state: BuilderWorkspaceState;
     try {
@@ -1894,14 +1894,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   private async initializeIdentity(props: ConversationAgentProps): Promise<void> {
     if (!transcriptOwnerIdSchema.safeParse(props.userId).success) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     const transcriptBinding = await loadBuilderTranscriptBinding(this.env.DB, {
       agentName: this.name,
       ownerId: props.userId,
     });
     if (!transcriptBinding) {
-      throw new Response('Agent not found.', { status: 404 });
+      throw new AgentRefusal('Agent not found.', 404);
     }
     const identity: ConversationAgentDurableIdentity = { userId: props.userId, transcript: transcriptBinding };
     try {
@@ -1976,7 +1976,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       incidentId,
       reason,
     });
-    throw new Response(status === 401 ? 'Agent authentication is required.' : 'Agent not found.', { status });
+    throw new AgentRefusal(status === 401 ? 'Agent authentication is required.' : 'Agent not found.', status);
   }
 
   protected async scheduleTitleGeneration(
@@ -2014,22 +2014,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const generateTitle = (subject: TitleSubject) =>
       generateModelTitle(args.prompt, subject, args.accountCredentials, args.gatewayLogging, countUsage);
     const conversationTitlePromise = generateTitle('conversation');
-    // A team or imported project's workspace goes by the project's own name, so only an app of one's own is named.
-    const namesProject =
-      args.firstPrompt && args.conversationIndex === 0 && !(await this.workspace.linkedProject().catch(() => null));
+    // A project made in this chat is named after it; any other project keeps its own name, which the control plane
+    // alone tells apart, so naming one is refused there.
+    const namesProject = args.firstPrompt && args.conversationIndex === 0;
     const projectTitlePromise = namesProject ? generateTitle('project') : null;
     const provisionalTitle = args.firstPrompt ? deriveProvisionalTitle(args.prompt) : null;
 
     if (provisionalTitle) {
       try {
         const [, savedHeuristicSubchat] = await Promise.all([
-          namesProject
-            ? setHeuristicProjectDescriptionIfMissing(this.env.DB, {
-                sessionId: ownerId,
-                id: args.chatInitialId,
-                description: provisionalTitle,
-              })
-            : Promise.resolve(false),
+          namesProject ? this.nameChatProject(provisionalTitle) : Promise.resolve(false),
           setHeuristicConversationDescriptionIfMissing(this.env.DB, {
             sessionId: ownerId,
             id: args.chatInitialId,
@@ -2087,15 +2081,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     }
 
     if (projectResult.status === 'fulfilled' && projectResult.value) {
-      try {
-        await setGeneratedProjectDescription(this.env.DB, {
-          sessionId: ownerId,
-          id: args.chatInitialId,
-          description: projectResult.value,
-        });
-      } catch {
-        logger.warn('Generated project title could not be saved');
-      }
+      await this.nameChatProject(projectResult.value);
     } else if (projectResult.status === 'rejected') {
       logger.warn('Project title generation failed; keeping the first-prompt title');
     }
@@ -2124,14 +2110,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   private async seedNewWorkspace(binding: BuilderTranscriptBinding): Promise<BuilderWorkspaceState> {
-    const { orgProjectId } = this.userId
-      ? await loadConversationScope(this.env.DB, { agentName: binding.agentName, ownerId: this.userId })
-      : { orgProjectId: null };
-    if (orgProjectId) {
-      const identity = runtimeConnectionIdentity(this.env);
-      if (!identity) {
-        throw new ProjectRefusalError('This workspace is not connected to CloudChef, so it cannot open the project.');
-      }
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity || !this.userId) {
+      throw new ProjectRefusalError('This workspace is not connected to CloudChef, so it cannot open the project.');
+    }
+    const { orgProjectId: opened } = await loadConversationScope(this.env.DB, {
+      agentName: binding.agentName,
+      ownerId: this.userId,
+    });
+    const orgProjectId = opened ?? (await this.createChatProject(identity, binding));
+    {
       const project = await openProject(this.env, identity, orgProjectId);
       if (project.role !== 'edit') {
         throw new ProjectRefusalError('You can view this project but not edit it.');
@@ -2142,28 +2130,60 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       const repo = await ensureProjectRepository(this.env, identity, repositories, project);
       return seedLinkedWorkspace(this.workspace, repositories, { orgProjectId, name: project.name, repo });
     }
-    // A fork starts from its own repository, which the fork made before the chat existed; a new app's starts
-    // with the template as its first commit, so the workspace and git in its container begin from that commit.
-    const repositories = this.repositories();
-    const own = nativeProjectRepo(binding.chatInitialId);
-    if (!(await repositories.head(own))) {
-      await commitBuilderTemplate(repositories, own, await commitAuthor(this.env));
+  }
+
+  /**
+   * Names the project this chat made after what it is about, once its workspace is the project's: the first prompt's
+   * words at once, the generated title after. A project the chat didn't make keeps its name (the control plane
+   * refuses), as does one whose workspace isn't seeded yet.
+   */
+  private async nameChatProject(name: string): Promise<boolean> {
+    const identity = runtimeConnectionIdentity(this.env);
+    const seeding = this.workspaceSeed;
+    if (seeding) {
+      await seeding.catch(() => undefined);
     }
-    const { commit, files } = await repositories.readFilesAt(own, MAIN_BRANCH, (path) => !isExcludedProjectPath(path));
-    const seeded = await seedBuilderWorkspace(
-      this.workspace,
-      `repository_${commit.hash}`,
-      files.map((file): BuilderWorkspaceFileInput => ({
-        path: `${WORK_DIR}/${file.path}`,
-        content: bytesToBase64(file.bytes),
-        encoding: 'base64',
-        mode: workspaceFileMode(file.mode),
-      })),
-    );
-    // The files are main's at that commit: what saving them to main later checks main hasn't moved past.
-    await this.workspace.setGitRepository({ repo: own, orgProjectId: null });
-    await this.workspace.setMainFetched(commit.hash);
-    return seeded;
+    const linked = await this.workspace.linkedProject().catch(() => null);
+    if (!identity || !linked) {
+      return false;
+    }
+    try {
+      await nameChatProject(this.env, identity, { orgProjectId: linked.orgProjectId, name });
+    } catch {
+      return false;
+    }
+    await this.workspace.setLinkedProject({ ...linked, name }).catch(() => undefined);
+    this.showLinkedProject({ repository: name, repo: linked.repository, defaultBranch: linked.defaultBranch });
+    return true;
+  }
+
+  /**
+   * A new chat's own project (`created_from = 'chat'`, a person's own or, in a team, the team's that its maker may
+   * edit): its repository starts with CloudChef's starter as its first commit, and the chat's workspace becomes the
+   * project's, so it is worked on and published as every project is, by pushing to main. Nothing is published until
+   * the first push.
+   */
+  private async createChatProject(identity: RuntimeConnectionIdentity, binding: BuilderTranscriptBinding) {
+    const orgProjectId = crypto.randomUUID();
+    const repo = importedProjectRepo(orgProjectId);
+    const repositories = this.repositories();
+    await commitBuilderTemplate(repositories, repo, await commitAuthor(this.env));
+    try {
+      await registerUploadedProject(this.env, identity, { orgProjectId, name: 'New project', repo, chat: true });
+    } catch (error) {
+      await repositories.deleteRepo(repo).catch(() => undefined);
+      throw error;
+    }
+    if (
+      !(await linkWorkspaceToProject(this.env.DB, {
+        agentName: binding.agentName,
+        ownerId: identity.userId,
+        orgProjectId,
+      }))
+    ) {
+      throw new ProjectRefusalError('This chat already has a project. Open it again.');
+    }
+    return orgProjectId;
   }
 
   /**
@@ -2180,9 +2200,28 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /** A team project's name and default branch, for the prompt; none for a CloudChef app. */
-  private async linkedProjectSummary(): Promise<{ repository: string; defaultBranch: string } | undefined> {
+  /**
+   * What the prompt says about the project: its name and main branch, and whether it is made from CloudChef's
+   * starter (it has the starter's `cloudflare.project.json`), read once the workspace is the project's.
+   */
+  private async projectFacts(): Promise<ProjectFacts> {
+    if (this.#projectFacts) {
+      return this.#projectFacts;
+    }
     const linked = await this.workspace.linkedProject();
-    return linked ? { repository: linked.name ?? linked.repository, defaultBranch: linked.defaultBranch } : undefined;
+    const starterApp = await this.workspace.readText(`${WORK_DIR}/cloudflare.project.json`).then(
+      () => true,
+      () => false,
+    );
+    const facts = {
+      name: linked?.name ?? linked?.repository ?? 'This project',
+      defaultBranch: linked?.defaultBranch ?? MAIN_BRANCH,
+      starterApp,
+    };
+    if (linked) {
+      this.#projectFacts = facts;
+    }
+    return facts;
   }
 
   /**
@@ -2436,7 +2475,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   protected async requireModelAccess(): Promise<{ contentLogging: boolean }> {
     const access = await modelRequestAccess(this.env);
     if (!access.allowed) {
-      throw new Response("You no longer have access to this team's account.", { status: 403 });
+      throw new AgentRefusal("You no longer have access to this team's account.", 403);
     }
     return { contentLogging: access.contentLogging };
   }
@@ -2765,7 +2804,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const transcript = this.transcriptBinding;
     const identity = await readCloudflareApiRuntimeIdentity(this.env, () => this.isOrganizationAdmin());
     if (!transcript || !identity || identity.userId !== durableIdentity.userId) {
-      throw new Response('The Cloudflare execution identity is unavailable.', { status: 409 });
+      throw new AgentRefusal('The Cloudflare execution identity is unavailable.', 409);
     }
     return { ...identity, transcript };
   }
@@ -3082,7 +3121,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     };
     const refused = () => {
       if (this.destroying) {
-        throw new Response('This project is being deleted.', { status: 409 });
+        throw new AgentRefusal('This project is being deleted.', 409);
       }
       return inFlight() || (epoch !== undefined && this.automaticPublicationStopped(epoch));
     };
@@ -3383,7 +3422,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }): Promise<{ hash: string; unchanged: boolean } | null> {
     const transcript = this.transcriptBinding;
     if (!transcript) {
-      throw new Response('Agent authentication is required.', { status: 401 });
+      throw new AgentRefusal('Agent authentication is required.', 401);
     }
     const checkpoint = await this.workspace.checkpoint();
     if (checkpoint.revision !== args.revision) {
@@ -3461,7 +3500,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private requireDeploymentContext(): BuilderDeploymentContext {
     const context = this.deploymentContext();
     if (!context) {
-      throw new Response('Agent authentication is required.', { status: 401 });
+      throw new AgentRefusal('Agent authentication is required.', 401);
     }
     return context;
   }
@@ -3638,18 +3677,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 }
 
 const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
-/**
- * A callable's refusal, in words for the person: the Agents SDK sends a thrown Error's message to the browser,
- * where a thrown Response would read only "Unknown error occurred".
- */
-class AgentRefusal extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-  }
-}
 
 /** Why the workspace can't be saved over main that moved elsewhere, in words for the person. */
 const MAIN_MOVED_ELSEWHERE =

@@ -106,6 +106,25 @@ export async function loadConversationScope(
 }
 
 /**
+ * Records the project a new chat's workspace made for itself (`created_from = 'chat'`): from then on the workspace is
+ * that project's, as one opened from the projects home is. Only a workspace with no project yet.
+ */
+export async function linkWorkspaceToProject(
+  db: D1Database,
+  args: { agentName: string; ownerId: string; orgProjectId: string },
+): Promise<boolean> {
+  const linked = await db
+    .prepare(
+      `UPDATE workspaces SET org_project_id = ?
+       WHERE creator_id = ? AND org_project_id IS NULL
+         AND id = (SELECT workspace_id FROM conversations WHERE agent_name = ?)`,
+    )
+    .bind(args.orgProjectId, args.ownerId, args.agentName)
+    .run();
+  return linked.meta.changes === 1;
+}
+
+/**
  * Records that a CloudChef app's repository became the team project `orgProjectId` (an admin approved it as a
  * draft): the transcript's workspace is kept to read from then on.
  */
