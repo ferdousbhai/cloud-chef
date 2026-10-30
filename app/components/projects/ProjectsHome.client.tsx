@@ -7,6 +7,7 @@ import {
   CounterClockwiseClockIcon,
   DownloadIcon,
   GitHubLogoIcon,
+  ImageIcon,
   LockClosedIcon,
   LockOpen1Icon,
   Pencil1Icon,
@@ -202,8 +203,9 @@ export function ProjectsHome({ userId }: { userId: string }) {
           dialogTitle={`Make ${dialog.name} public?`}
           dialogBody={
             <p>
-              Anyone signed in to CloudChef will be able to find it in Explore, open its site, read its code and make
-              their own copy. Only people you’ve given access can change it.
+              Each time it’s published it shows on your page, where anyone can see its site, a picture of it and its
+              caption. Anyone signed in can also read its code and make their own copy. Only people you’ve given access
+              can change it.
             </p>
           }
         />
@@ -453,7 +455,7 @@ function PublicAndCopyItems({
   onChangeVisibility,
   onDialog,
 }: {
-  project: { id: string; name: string };
+  project: { id: string; name: string; fullName?: string | null };
   visibility: ProjectVisibility;
   /** Left out for someone who may not make it public or private. */
   onChangeVisibility?: (visibility: ProjectVisibility) => void;
@@ -478,6 +480,12 @@ function PublicAndCopyItems({
           </MenuItem>
         )
       ) : null}
+      {visibility === 'public' && project.fullName ? (
+        <MenuItem action={() => window.location.assign(`/${project.fullName}`)}>
+          <ImageIcon />
+          View post
+        </MenuItem>
+      ) : null}
       <MenuItem action={() => onDialog({ kind: 'copy', project })}>
         <CopyIcon />
         Make a copy
@@ -493,7 +501,11 @@ async function changeVisibilityOf(
 ): Promise<ProjectVisibility | null> {
   try {
     const changed = await setProjectVisibility(project.id, visibility);
-    toast.success(changed === 'public' ? `${project.name} is public.` : `${project.name} is private again.`);
+    toast.success(
+      changed === 'public'
+        ? `${project.name} is public. It goes on your page the next time it’s published.`
+        : `${project.name} is private again, and off your page.`,
+    );
     return changed;
   } catch (error) {
     toast.error(
@@ -831,7 +843,7 @@ function ConnectionProjectCard({
             </MenuItem>
           ) : null}
           <PublicAndCopyItems
-            project={{ id: project.id, name: project.name }}
+            project={{ id: project.id, name: project.name, fullName: project.fullName ?? null }}
             visibility={project.visibility ?? 'private'}
             onChangeVisibility={
               project.canManage ? (visibility) => void connection.changeVisibility(project, visibility) : undefined

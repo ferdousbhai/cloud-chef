@@ -43,3 +43,43 @@ export function createPrivatePageHead(title: string, description: string) {
     meta: [{ title }, { name: 'description', content: description }, { name: 'robots', content: 'noindex, nofollow' }],
   };
 }
+
+/**
+ * A public showcase page (a person's page, a post, Explore): indexable, with a link preview. A post's preview is its
+ * screenshot; without one, CloudChef's own picture.
+ */
+export function createPublicPageHead({
+  title,
+  description,
+  path,
+  image,
+}: {
+  title: string;
+  description: string;
+  path: string;
+  image?: { path: string; width: number; height: number; alt: string; type: string } | null;
+}) {
+  const head = createSocialPageHead({
+    title,
+    description,
+    path,
+    imagePath: image?.path ?? '/social-preview-home-v4.png',
+    imageAlt: image?.alt ?? 'CloudChef — build and ship Cloudflare apps',
+  });
+  if (!image) {
+    return head;
+  }
+  const sized = new Map([
+    ['og:image:type', image.type],
+    ['og:image:width', String(image.width)],
+    ['og:image:height', String(image.height)],
+  ]);
+  return {
+    ...head,
+    meta: head.meta.map((tag) => {
+      const property = 'property' in tag ? tag.property : undefined;
+      const replaced = property ? sized.get(property) : undefined;
+      return property && replaced !== undefined ? { property, content: replaced } : tag;
+    }),
+  };
+}

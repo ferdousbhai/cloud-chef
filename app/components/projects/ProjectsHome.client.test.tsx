@@ -494,7 +494,7 @@ describe('ProjectsHome', () => {
     await moreChoices('Storefront');
     await choose('Make public');
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-    expect(dialog?.textContent).toContain('Anyone signed in to CloudChef will be able to find it in Explore');
+    expect(dialog?.textContent).toContain('Each time it’s published it shows on your page');
     expect(visibilityRequests).toEqual([]);
 
     await click(dialog!, 'Make public');
@@ -604,7 +604,7 @@ describe('ProjectsHome', () => {
     await choose('Make public');
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
     expect(dialog?.textContent).toContain('Make Booking site public?');
-    expect(dialog?.textContent).toContain('Anyone signed in to CloudChef will be able to find it in Explore');
+    expect(dialog?.textContent).toContain('Each time it’s published it shows on your page');
     expect(visibilityRequests).toEqual([]);
 
     await click(dialog!, 'Make public');

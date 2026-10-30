@@ -31,6 +31,8 @@ import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import { usableWorkspaceRuntime } from './cloudflare-integration';
 import { signedIn } from './signed-in';
 import { usernameProblem } from '~/lib/usernames';
+import { hidePostOfPrivateProject, recordCopy } from '~/lib/cloudflare/data/posts.server';
+import { deleteGoneMediaBestEffort } from '~/lib/.server/showcase/media';
 
 /**
  * Working on projects from the person's own computer, with their own tools: git clones and pushes the project's
@@ -766,7 +768,12 @@ async function copyReadable(
   }
   const { tokenId, ...from } = access.data;
   try {
-    return await copyFrom(request, env, { ...args, from });
+    const copied = await copyFrom(request, env, { ...args, from });
+    if (!('refusal' in copied) && !app) {
+      // A copy of a posted project counts on its post, and its author is told.
+      await recordCopy(env.DB, { sourceProjectId: args.source.id, copierId: args.userId }).catch(() => undefined);
+    }
+    return copied;
   } finally {
     // The token was for this one copy, made or not: the copier's runtime, in their own account, read with it.
     if (tokenId) {
@@ -852,6 +859,24 @@ export function copyProjectAction({ request, env }: { request: Request; env: Env
   });
 }
 
+/** A copy, made now in the account `connectionId`, of a project `userId` asked to copy before they had one. */
+export async function copyProjectFor(
+  request: Request,
+  env: Env,
+  args: { userId: string; projectId: string; connectionId: string; name: string },
+): Promise<{ projectId: string; initialId: string; fullName: string | null } | { refusal: string; status: number }> {
+  const source = await findReadable(env.DB, { id: args.projectId }, args.userId);
+  if (!source) {
+    return { refusal: 'That project isn’t one you can copy any more.', status: 404 };
+  }
+  return copyReadable(request, env, {
+    userId: args.userId,
+    source,
+    connectionId: args.connectionId,
+    name: args.name || source.name,
+  });
+}
+
 const commandLineCopySchema = z.strictObject({
   project: z.string().uuid(),
   name: z.string().trim().max(80).optional(),
@@ -919,12 +944,18 @@ async function accountNamed(env: Env, userId: string, name: string) {
 
 const visibilitySchema = z.strictObject({ projectId: z.string().uuid(), visibility: z.enum(['private', 'public']) });
 
-/** A project its manager, or else an app its owner, makes public or private; false when neither is theirs. */
-async function setVisibility(db: D1Database, userId: string, id: string, visibility: ProjectVisibility) {
-  return (
-    (await setProjectVisibility(db, { userId, projectId: id, visibility })) ||
-    setAppVisibility(db, { userId, appId: id, visibility })
-  );
+/**
+ * A project its manager, or else an app its owner, makes public or private; false when neither is theirs. A project
+ * made private takes its post off its author's page, and the post's pictures and videos are deleted.
+ */
+async function setVisibility(env: Env, userId: string, id: string, visibility: ProjectVisibility) {
+  if (await setProjectVisibility(env.DB, { userId, projectId: id, visibility })) {
+    if (visibility === 'private' && (await hidePostOfPrivateProject(env.DB, id))) {
+      await deleteGoneMediaBestEffort(env);
+    }
+    return true;
+  }
+  return setAppVisibility(env.DB, { userId, appId: id, visibility });
 }
 
 /** `POST /api/projects/visibility`: the owner of a personal project, or a team's admin, makes it public or private. */
@@ -934,7 +965,7 @@ export function setVisibilityAction({ request, env }: { request: Request; env: E
     if ('response' in body) {
       return body.response;
     }
-    return (await setVisibility(env.DB, session.user.id, body.data.projectId, body.data.visibility))
+    return (await setVisibility(env, session.user.id, body.data.projectId, body.data.visibility))
       ? Response.json({ visibility: body.data.visibility })
       : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
   });
@@ -955,7 +986,7 @@ export async function commandLineVisibilityAction({ request, env }: { request: R
   if ('response' in body) {
     return body.response;
   }
-  return (await setVisibility(env.DB, userId, body.data.project, body.data.visibility))
+  return (await setVisibility(env, userId, body.data.project, body.data.visibility))
     ? Response.json({ visibility: body.data.visibility })
     : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
 }

@@ -8,9 +8,10 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
  * `cloudflare:workers` for the durable provisioning entrypoint. Node's ESM loader cannot resolve
  * that scheme, and workerd is not what this check is for: it exercises `fetch` route rendering,
  * never a Workflow. Stubbing the runtime base classes is enough — nothing here constructs the
- * entrypoint.
+ * entrypoint. Its `env` is empty, so the showcase pages render as with nobody there.
  */
-const WORKERS_MODULE_STUB = 'export class WorkerEntrypoint {}; export class WorkflowEntrypoint {}';
+const WORKERS_MODULE_STUB =
+  'export class WorkerEntrypoint {}; export class WorkflowEntrypoint {}; export class DurableObject {}; export const env = {};';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -29,6 +30,8 @@ const routeCases = [
   { path: '/settings', status: 200, content: 'Settings | CloudChef' },
   { path: '/chat/ssr-smoke-project', status: 200, content: 'Project | CloudChef' },
   { path: '/does-not-exist', status: 404, content: 'This page does not exist' },
+  { path: '/explore', status: 200, content: 'Explore | CloudChef' },
+  { path: '/nobody/no-project', status: 404, content: 'This page does not exist' },
 ];
 
 async function verifyBuiltSsr() {

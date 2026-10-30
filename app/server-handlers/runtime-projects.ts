@@ -36,6 +36,7 @@ import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/pro
 import { answeringOrganizationErrors } from './signed-in';
 import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
+import { projectPublished } from '~/lib/.server/showcase/jobs';
 
 /**
  * A member's workspace runtime working on a project kept in Artifacts. The runtime reads and writes the
@@ -509,15 +510,28 @@ export async function runtimeProjectStatusAction(args: {
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, connection } = opened;
+  const { project, body, connection, identity } = opened;
+  // A production publish that succeeded posts a public project to its author's page (app/lib/.server/showcase/jobs.ts).
+  const published = (siteUrl: string) =>
+    projectPublished(args.env, { projectId: project.id, commit: body.commit, by: identity.userId, siteUrl });
   if (project.deploysWith === 'cloudchef') {
-    return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
+    const status = await cloudchefBuildStatus(args.env.DB, project.id, body.commit);
+    if (status.state === 'succeeded' && status.url) {
+      await published(status.url);
+    }
+    return json(status, 200);
   }
-  return withWorkersBuilds(args, connection, project, async (api, worker) =>
-    worker
-      ? json(await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit }), 200)
-      : json({ state: 'none' }, 200),
-  );
+  return withWorkersBuilds(args, connection, project, async (api, worker) => {
+    if (!worker) {
+      return json({ state: 'none' }, 200);
+    }
+    const status = await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit });
+    // Only a build of main has a production `url`; a branch's build has a Preview's.
+    if (status.state === 'succeeded' && status.url) {
+      await published(status.url);
+    }
+    return json(status, 200);
+  });
 }
 
 /**

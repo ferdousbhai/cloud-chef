@@ -4,6 +4,7 @@ import { requireRecentlyAuthenticatedSession } from '~/lib/.server/account-reaut
 import { eraseControlPlaneAccount, OrganizationAdminRequiredError } from '~/lib/.server/cloudflare/account-deletion';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import { ACCOUNT_DELETION_CONFIRMATION } from '~/lib/account-data';
+import { deleteGoneMediaBestEffort } from '~/lib/.server/showcase/media';
 
 const MAX_ACCOUNT_DELETION_BYTES = 1024;
 const accountDeletionSchema = z
@@ -41,6 +42,8 @@ export async function deleteAccountAction({ request, env }: { request: Request; 
     }
     throw error;
   }
+  // Their posts' pictures and videos in CloudChef's own storage go with the posts the erasure deleted.
+  await deleteGoneMediaBestEffort(env);
   console.info({
     event: 'control_plane_account_erased',
     erasedAt: new Date().toISOString(),

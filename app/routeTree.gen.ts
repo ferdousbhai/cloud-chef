@@ -12,12 +12,17 @@ import { Route as rootRouteImport } from './routes/__root';
 import { Route as IndexRouteImport } from './routes/index';
 import { Route as ApprovalsRouteImport } from './routes/approvals';
 import { Route as ExploreRouteImport } from './routes/explore';
+import { Route as FeedRouteImport } from './routes/feed';
 import { Route as JoinRouteImport } from './routes/join';
+import { Route as NotificationsRouteImport } from './routes/notifications';
 import { Route as PrivacyRouteImport } from './routes/privacy';
+import { Route as ReportsRouteImport } from './routes/reports';
 import { Route as SecurityRouteImport } from './routes/security';
 import { Route as SettingsRouteImport } from './routes/settings';
 import { Route as SupportRouteImport } from './routes/support';
 import { Route as TermsRouteImport } from './routes/terms';
+import { Route as UsernameIndexRouteImport } from './routes/$username.index';
+import { Route as UsernameSlugRouteImport } from './routes/$username.$slug';
 import { Route as ChatIdRouteImport } from './routes/chat.$id';
 import { Route as LoginDeviceRouteImport } from './routes/login.device';
 import { Route as SignInIndexRouteImport } from './routes/sign-in.index';
@@ -38,14 +43,29 @@ const ExploreRoute = ExploreRouteImport.update({
   path: '/explore',
   getParentRoute: () => rootRouteImport,
 } as any);
+const FeedRoute = FeedRouteImport.update({
+  id: '/feed',
+  path: '/feed',
+  getParentRoute: () => rootRouteImport,
+} as any);
 const JoinRoute = JoinRouteImport.update({
   id: '/join',
   path: '/join',
   getParentRoute: () => rootRouteImport,
 } as any);
+const NotificationsRoute = NotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any);
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any);
+const ReportsRoute = ReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
   getParentRoute: () => rootRouteImport,
 } as any);
 const SecurityRoute = SecurityRouteImport.update({
@@ -66,6 +86,16 @@ const SupportRoute = SupportRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any);
+const UsernameIndexRoute = UsernameIndexRouteImport.update({
+  id: '/$username/',
+  path: '/$username/',
+  getParentRoute: () => rootRouteImport,
+} as any);
+const UsernameSlugRoute = UsernameSlugRouteImport.update({
+  id: '/$username/$slug',
+  path: '/$username/$slug',
   getParentRoute: () => rootRouteImport,
 } as any);
 const ChatIdRoute = ChatIdRouteImport.update({
@@ -93,30 +123,40 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute;
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
+  '/feed': typeof FeedRoute;
   '/join': typeof JoinRoute;
+  '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
+  '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
+  '/$username/$slug': typeof UsernameSlugRoute;
   '/chat/$id': typeof ChatIdRoute;
   '/login/device': typeof LoginDeviceRoute;
   '/sign-in/email': typeof SignInEmailRoute;
+  '/$username/': typeof UsernameIndexRoute;
   '/sign-in/': typeof SignInIndexRoute;
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute;
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
+  '/feed': typeof FeedRoute;
   '/join': typeof JoinRoute;
+  '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
+  '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
+  '/$username/$slug': typeof UsernameSlugRoute;
   '/chat/$id': typeof ChatIdRoute;
   '/login/device': typeof LoginDeviceRoute;
   '/sign-in/email': typeof SignInEmailRoute;
+  '/$username': typeof UsernameIndexRoute;
   '/sign-in': typeof SignInIndexRoute;
 }
 export interface FileRoutesById {
@@ -124,15 +164,20 @@ export interface FileRoutesById {
   '/': typeof IndexRoute;
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
+  '/feed': typeof FeedRoute;
   '/join': typeof JoinRoute;
+  '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
+  '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
+  '/$username/$slug': typeof UsernameSlugRoute;
   '/chat/$id': typeof ChatIdRoute;
   '/login/device': typeof LoginDeviceRoute;
   '/sign-in/email': typeof SignInEmailRoute;
+  '/$username/': typeof UsernameIndexRoute;
   '/sign-in/': typeof SignInIndexRoute;
 }
 export interface FileRouteTypes {
@@ -141,45 +186,60 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/explore'
+    | '/feed'
     | '/join'
+    | '/notifications'
     | '/privacy'
+    | '/reports'
     | '/security'
     | '/settings'
     | '/support'
     | '/terms'
+    | '/$username/$slug'
     | '/chat/$id'
     | '/login/device'
     | '/sign-in/email'
+    | '/$username/'
     | '/sign-in/';
   fileRoutesByTo: FileRoutesByTo;
   to:
     | '/'
     | '/approvals'
     | '/explore'
+    | '/feed'
     | '/join'
+    | '/notifications'
     | '/privacy'
+    | '/reports'
     | '/security'
     | '/settings'
     | '/support'
     | '/terms'
+    | '/$username/$slug'
     | '/chat/$id'
     | '/login/device'
     | '/sign-in/email'
+    | '/$username'
     | '/sign-in';
   id:
     | '__root__'
     | '/'
     | '/approvals'
     | '/explore'
+    | '/feed'
     | '/join'
+    | '/notifications'
     | '/privacy'
+    | '/reports'
     | '/security'
     | '/settings'
     | '/support'
     | '/terms'
+    | '/$username/$slug'
     | '/chat/$id'
     | '/login/device'
     | '/sign-in/email'
+    | '/$username/'
     | '/sign-in/';
   fileRoutesById: FileRoutesById;
 }
@@ -187,15 +247,20 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   ApprovalsRoute: typeof ApprovalsRoute;
   ExploreRoute: typeof ExploreRoute;
+  FeedRoute: typeof FeedRoute;
   JoinRoute: typeof JoinRoute;
+  NotificationsRoute: typeof NotificationsRoute;
   PrivacyRoute: typeof PrivacyRoute;
+  ReportsRoute: typeof ReportsRoute;
   SecurityRoute: typeof SecurityRoute;
   SettingsRoute: typeof SettingsRoute;
   SupportRoute: typeof SupportRoute;
   TermsRoute: typeof TermsRoute;
+  UsernameSlugRoute: typeof UsernameSlugRoute;
   ChatIdRoute: typeof ChatIdRoute;
   LoginDeviceRoute: typeof LoginDeviceRoute;
   SignInEmailRoute: typeof SignInEmailRoute;
+  UsernameIndexRoute: typeof UsernameIndexRoute;
   SignInIndexRoute: typeof SignInIndexRoute;
 }
 
@@ -222,6 +287,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ExploreRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/feed': {
+      id: '/feed';
+      path: '/feed';
+      fullPath: '/feed';
+      preLoaderRoute: typeof FeedRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     '/join': {
       id: '/join';
       path: '/join';
@@ -229,11 +301,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/notifications': {
+      id: '/notifications';
+      path: '/notifications';
+      fullPath: '/notifications';
+      preLoaderRoute: typeof NotificationsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     '/privacy': {
       id: '/privacy';
       path: '/privacy';
       fullPath: '/privacy';
       preLoaderRoute: typeof PrivacyRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    '/reports': {
+      id: '/reports';
+      path: '/reports';
+      fullPath: '/reports';
+      preLoaderRoute: typeof ReportsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/security': {
@@ -262,6 +348,20 @@ declare module '@tanstack/react-router' {
       path: '/terms';
       fullPath: '/terms';
       preLoaderRoute: typeof TermsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    '/$username/': {
+      id: '/$username/';
+      path: '/$username';
+      fullPath: '/$username/';
+      preLoaderRoute: typeof UsernameIndexRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    '/$username/$slug': {
+      id: '/$username/$slug';
+      path: '/$username/$slug';
+      fullPath: '/$username/$slug';
+      preLoaderRoute: typeof UsernameSlugRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/chat/$id': {
@@ -299,15 +399,20 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
   ExploreRoute: ExploreRoute,
+  FeedRoute: FeedRoute,
   JoinRoute: JoinRoute,
+  NotificationsRoute: NotificationsRoute,
   PrivacyRoute: PrivacyRoute,
+  ReportsRoute: ReportsRoute,
   SecurityRoute: SecurityRoute,
   SettingsRoute: SettingsRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
+  UsernameSlugRoute: UsernameSlugRoute,
   ChatIdRoute: ChatIdRoute,
   LoginDeviceRoute: LoginDeviceRoute,
   SignInEmailRoute: SignInEmailRoute,
+  UsernameIndexRoute: UsernameIndexRoute,
   SignInIndexRoute: SignInIndexRoute,
 };
 export const routeTree = rootRouteImport

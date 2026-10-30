@@ -168,7 +168,7 @@ export function ProjectCard({
  * What a project looks like live: its site, shown small once the card scrolls into view; its address, for a
  * site that refuses to be framed; or, unpublished, `placeholder` when given and `unpublished` otherwise.
  */
-export function ProjectThumbnail({
+function ProjectThumbnail({
   siteUrl,
   siteFramed = true,
   placeholder,
