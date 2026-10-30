@@ -1,23 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Preview } from './Preview';
 
-const presentation = { url: null, revision: null, status: 'idle' as const, error: null };
-
-function render(linkedSite: Parameters<typeof Preview>[0]['linkedSite']) {
-  return renderToStaticMarkup(
-    <Preview
-      presentation={presentation}
-      publication={null}
-      reloadKey={0}
-      requesting={false}
-      onPublish={vi.fn()}
-      linkedSite={linkedSite}
-    />,
-  );
+function render(site: Parameters<typeof Preview>[0]['site']) {
+  return renderToStaticMarkup(<Preview site={site} reloadKey={0} />);
 }
 
-describe('Preview of a team or uploaded project', () => {
+describe('Preview', () => {
   it('shows its live site beside the chat, with a link to open it', () => {
     const html = render({ url: 'https://alberta.ferdousbhai.com/', frameable: true, kind: 'live' });
 

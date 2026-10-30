@@ -94,7 +94,6 @@ async function render(element: ReactNode) {
 
 function project(overrides: Partial<PublicProject>): PublicProject {
   return {
-    kind: 'project',
     id: 'project-1',
     name: 'Storefront',
     fullName: 'ada/storefront',
@@ -186,7 +185,6 @@ describe('Explore', () => {
   it('shows an app made in a chat like a project, and makes a copy of it', async () => {
     publicProjects = [
       project({
-        kind: 'app',
         id: 'chat-1',
         name: 'Garden club',
         fullName: 'grace/garden-club',

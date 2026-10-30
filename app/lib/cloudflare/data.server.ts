@@ -1,12 +1,9 @@
 import {
   TRANSCRIPT_HISTORY_FORMAT_VERSION,
-  transcriptAgentName,
   transcriptIdentitiesEqual,
   type TranscriptIdentity,
 } from 'cloudchef-agent/transcript';
 import { z } from 'zod';
-import { runtimeConnectionIdentity } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { syncAccountApps } from '~/lib/.server/cloudflare/linked-project-client';
 import type { ConversationAgent } from '~/agents/conversation-agent';
 import { readJsonBodyWithLimit } from '~/lib/bounded-body';
 import type { DataOperationPath, DataOperationResult } from './data-api';
@@ -15,23 +12,14 @@ import { findWorkspace, openLinkedWorkspace, requireWorkspace } from './data/wor
 import {
   createConversation,
   discardEmptyWorkspace,
-  getAllWorkspaces,
   getWorkspace,
   getConversations,
   initializeWorkspace,
-  removeWorkspace,
   setDescription,
   setConversationDescription,
 } from './data/workspace-service.server';
 import { sweepAgentGcCandidatesBestEffort } from './data/agent-gc.server';
-import {
-  forkProject,
-  importProject,
-  projectGitAddress,
-  projectHistory,
-  withRepositoryErrors,
-} from './data/projects.server';
-import { sweepAppResourceGcCandidatesBestEffort } from './data/app-resource-gc.server';
+import { importProject, projectGitAddress, projectHistory, withRepositoryErrors } from './data/projects.server';
 import { ensureDataBindings, internalErrorResponse } from './data/http.server';
 import { requireConversation, transcriptIdentity } from './data/conversation-repository.server';
 import { retryDurableObjectRpc } from './durable-object-rpc.server';
@@ -57,39 +45,12 @@ export async function userRuntimeDataAction(args: {
     );
     ensureDataBindings(args.env);
     const result = runKnownDataOperation(args.env, body.path, body.args, args.userId);
-    if (body.path === 'messages.getAll') {
-      // CloudChef keeps a record of the person's apps, so they can be public, copied and reached from the command line.
-      args.executionCtx?.waitUntil(syncAppsBestEffort(args.env, result));
-    }
     args.executionCtx?.waitUntil(sweepAgentGcCandidatesBestEffort(args.env));
-    args.executionCtx?.waitUntil(sweepAppResourceGcCandidatesBestEffort(args.env));
     return Response.json({ result: await result });
   } catch (error) {
     return internalErrorResponse(error, 'Unknown data error');
   }
 }
-
-/** Tells CloudChef the apps a workspace list has, with their live addresses; a failure only waits for the next list. */
-async function syncAppsBestEffort(env: Env, listed: Promise<DataOperationResult<DataOperationPath>>): Promise<void> {
-  const workspaces = workspaceListSchema.safeParse(await listed.catch(() => null));
-  const identity = runtimeConnectionIdentity(env);
-  if (!workspaces.success || !identity) {
-    return;
-  }
-  await syncAccountApps(
-    env,
-    identity,
-    workspaces.data.map((workspace) => ({
-      id: workspace.initialId,
-      name: workspace.description ?? 'Untitled app',
-      siteUrl: workspace.productionUrl ?? null,
-    })),
-  ).catch((error: Error) => console.warn({ event: 'apps_sync_failed', message: error.message }));
-}
-
-const workspaceListSchema = z.array(
-  z.object({ initialId: z.string(), description: z.string().optional(), productionUrl: z.string().optional() }),
-);
 
 export async function userRuntimeInitialMessagesAction(args: {
   request: Request;
@@ -163,12 +124,8 @@ function runKnownDataOperation(
       return discardEmptyWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.get':
       return getWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
-    case 'messages.getAll':
-      return getAllWorkspaces(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'messages.setDescription':
       return setDescription(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
-    case 'messages.remove':
-      return removeWorkspace(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.get':
       return getConversations(env.DB, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
     case 'subchats.create':
@@ -179,8 +136,6 @@ function runKnownDataOperation(
       return withRepositoryErrors(projectHistory(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     case 'projects.gitAddress':
       return projectGitAddress(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId });
-    case 'projects.fork':
-      return withRepositoryErrors(forkProject(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     case 'projects.import':
       return withRepositoryErrors(importProject(env, { ...dataOperationArgSchemas[path].parse(rawArgs), sessionId }));
     default:
@@ -191,7 +146,7 @@ function runKnownDataOperation(
 
 /**
  * Starts the workspace's next conversation, which continues the same project with a fresh context. The one it
- * follows is closed from then on: it stops, and hands over its publication state to the new one.
+ * follows is closed from then on: it stops what it has under way.
  */
 async function createConversationFromAgent(
   env: Env,
@@ -216,15 +171,10 @@ async function createConversationFromAgent(
   // The earlier conversation is closed now, so it refuses new work whatever happens below; this stops what it
   // has under way, so that nothing but the new conversation changes the project from here.
   try {
-    const handover = await env.ConversationAgent.getByName(identity.agentName).settleForSuccessor(args.sessionId);
-    if (handover) {
-      await env.ConversationAgent.getByName(
-        transcriptAgentName(workspace.initial_id, conversationIndex),
-      ).continuePublication(args.sessionId, handover);
-    }
+    await env.ConversationAgent.getByName(identity.agentName).closeForSuccessor(args.sessionId);
   } catch {
-    // The new conversation exists either way; without the handover, its first turn publishes the project again.
-    console.warn('The earlier conversation did not hand the project over; the new one publishes it again');
+    // The new conversation exists either way, and the earlier one refuses changes from now on.
+    console.warn('The earlier conversation did not settle before the new one started');
   }
   return conversationIndex;
 }

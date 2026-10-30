@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { abortableSleep } from '~/lib/abortable-sleep';
-import { replaceToolCallPart, type CloudChefMessage, type CloudChefPart } from 'cloudchef-agent/ai-compat';
+import { replaceToolCallPart, type CloudChefMessage } from 'cloudchef-agent/ai-compat';
 import { toolFailure, toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import type { ProjectBuildStatus } from '~/lib/.server/cloudflare/linked-project-client';
 import { LINKED_BUILD_WATCH_MS, type LinkedPublishData } from '~/lib/common/linked-publish';
@@ -154,36 +154,20 @@ const pendingOutputSchema = z.looseObject({ data: z.looseObject({ build: z.liter
 const execReportSchema = z.looseObject({ push: z.unknown() });
 
 /**
- * The transcript with the watched publish's output replaced by `output`, or null when there is nothing to
- * replace: the call isn't in the transcript, or a settled result already landed. A call whose turn was
- * stopped or cut off after its commit was made shows as failed; it takes the real result too, since the
- * commit is in the repository whatever happened to the turn. `onlyFailed` replaces only such a call.
+ * The transcript with what the watched command pushed replaced by `output`, or null when there is nothing to
+ * replace: the call isn't in the transcript, or a settled result already landed. The command keeps its own
+ * output; only what it pushed takes the build's result.
  */
 export function withLinkedBuildResult(
   messages: readonly CloudChefMessage[],
   toolCallId: string,
   output: CloudChefToolResult,
-  options: { onlyFailed?: boolean } = {},
 ): CloudChefMessage[] | null {
   return replaceToolCallPart(messages, toolCallId, (part, invocation) => {
-    if (invocation.toolName === 'exec') {
-      // A command that pushed keeps its own output; only what it pushed takes the build's result.
-      const report = execReportSchema.safeParse(part.output).data;
-      if (invocation.state !== 'output-available' || !report || !pendingOutputSchema.safeParse(report.push).success) {
-        return null;
-      }
-      return options.onlyFailed ? null : { ...part, output: { ...report, push: output } };
-    }
-    if (invocation.toolName !== 'publish_preview' && invocation.toolName !== 'publish') {
+    const report = invocation.toolName === 'exec' ? execReportSchema.safeParse(part.output).data : undefined;
+    if (invocation.state !== 'output-available' || !report || !pendingOutputSchema.safeParse(report.push).success) {
       return null;
     }
-    const failed = invocation.state === 'output-error';
-    const pending = invocation.state === 'output-available' && pendingOutputSchema.safeParse(part.output).success;
-    if (!(failed || (pending && !options.onlyFailed))) {
-      return null;
-    }
-    const landed: CloudChefPart = { ...part, state: 'output-available', output };
-    delete landed.errorText;
-    return landed;
+    return { ...part, output: { ...report, push: output } };
   });
 }

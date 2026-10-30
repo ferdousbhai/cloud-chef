@@ -1,10 +1,6 @@
 {
-  "total": 758,
+  "total": 700,
   "counts": {
-    "app/agents/builder-deployment-command.test.ts": {
-      "anti-slop/no-module-mocking": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 1
-    },
     "app/agents/builder-request-policy.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
@@ -24,9 +20,6 @@
     "app/agents/conversation-agent-identity.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 5
-    },
-    "app/agents/conversation-agent.ts": {
-      "anti-slop/no-unknown-parameters": 2
     },
     "app/components/chat/SubchatBar.test.tsx": {
       "anti-slop/no-module-mocking": 1,
@@ -95,22 +88,8 @@
       "anti-slop/no-chained-type-assertions": 2,
       "anti-slop/require-safety-comment-for-type-assertion": 16
     },
-    "app/lib/.server/cloudflare/deployment-artifact.ts": {
-      "anti-slop/no-runtime-typeof": 8
-    },
-    "app/lib/.server/cloudflare/deployment-config.ts": {
-      "anti-slop/no-runtime-typeof": 1,
-      "anti-slop/no-unknown-parameters": 3
-    },
-    "app/lib/.server/cloudflare/deployment-plan.ts": {
-      "anti-slop/no-unknown-parameters": 1
-    },
     "app/lib/.server/cloudflare/deployment-project-profile.ts": {
       "anti-slop/no-unsafe-dictionary-type": 1
-    },
-    "app/lib/.server/cloudflare/deployment-repository.test.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 4
     },
     "app/lib/.server/cloudflare/user-account-api.test.ts": {
       "anti-slop/no-unsafe-dictionary-type": 2,
@@ -121,15 +100,6 @@
       "anti-slop/no-unknown-parameters": 7,
       "anti-slop/no-unsafe-dictionary-type": 3,
       "anti-slop/require-safety-comment-for-type-assertion": 4
-    },
-    "app/lib/.server/cloudflare/user-workspace-deployment-executor.flow.test.ts": {
-      "anti-slop/no-chained-type-assertions": 3,
-      "anti-slop/no-module-mocking": 3,
-      "anti-slop/no-unsafe-dictionary-type": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 9
-    },
-    "app/lib/.server/cloudflare/user-workspace-deployment-executor.ts": {
-      "anti-slop/no-unknown-parameters": 1
     },
     "app/lib/.server/cloudflare/user-workspace-runtime-client.test.ts": {
       "anti-slop/no-chained-type-assertions": 5,
@@ -212,7 +182,7 @@
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "app/lib/cloudflare/data/workspace-service.server.test.ts": {
-      "anti-slop/no-chained-type-assertions": 5,
+      "anti-slop/no-chained-type-assertions": 4,
       "anti-slop/no-known-value-widening": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 7
     },
@@ -303,14 +273,6 @@
     },
     "app/server-handlers/cloudflare-integration.ts": {
       "anti-slop/no-unknown-parameters": 2
-    },
-    "app/server-handlers/deployments.test.ts": {
-      "anti-slop/no-chained-type-assertions": 2,
-      "anti-slop/no-module-mocking": 2,
-      "anti-slop/require-safety-comment-for-type-assertion": 4
-    },
-    "app/server-handlers/deployments.ts": {
-      "anti-slop/no-unknown-parameters": 1
     },
     "app/server-handlers/runtime-credential.test.ts": {
       "anti-slop/no-module-mocking": 2
@@ -481,7 +443,7 @@
       "anti-slop/no-chained-type-assertions": 2,
       "anti-slop/no-conditional-empty-object-spread": 1,
       "anti-slop/no-runtime-typeof": 9,
-      "anti-slop/no-unknown-parameters": 51,
+      "anti-slop/no-unknown-parameters": 43,
       "anti-slop/no-unknown-returns": 1,
       "anti-slop/no-unsafe-dictionary-type": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
@@ -502,7 +464,7 @@
     },
     "user-workspace-runtime/src/scheduled-maintenance.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/no-module-mocking": 2,
+      "anti-slop/no-module-mocking": 1,
       "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "user-workspace-runtime/src/tool-operation-journal.test.ts": {

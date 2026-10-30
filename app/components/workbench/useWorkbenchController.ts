@@ -1,5 +1,5 @@
 import { useStore } from '@nanostores/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getAbsolutePath } from 'cloudchef-agent/utils/workDir';
 import { createScopedLogger } from 'cloudchef-agent/utils/logger';
 import { toast } from 'sonner';
@@ -11,13 +11,11 @@ import type {
 import useViewport from '~/lib/hooks/useViewport';
 import { workbenchStore, type WorkbenchViewType } from '~/lib/stores/workbench.client';
 import { chatStore, useWorkspaceId } from '~/lib/stores/workspaceId';
-import { messageOf } from '~/lib/json-request';
 
 const logger = createScopedLogger('WorkbenchController');
 
 export function useWorkbenchController(isStreaming?: boolean) {
   const projectId = useWorkspaceId();
-  const siteState = useStore(workbenchStore.siteState);
   const showWorkbench = useStore(workbenchStore.showWorkbench);
   const selectedFile = useStore(workbenchStore.selectedFile);
   const currentDocument = useStore(workbenchStore.currentDocument);
@@ -29,48 +27,8 @@ export function useWorkbenchController(isStreaming?: boolean) {
   const linkedSite = useStore(workbenchStore.linkedSite);
   const conversationClosed = useStore(workbenchStore.conversationClosed);
   const isSmallViewport = useViewport();
-  const workspaceId = workbenchStore.getActiveWorkspaceId();
   const [hasLoadedPreview, setHasLoadedPreview] = useState(false);
   const [hasLoadedTerminal, setHasLoadedTerminal] = useState(false);
-  const [publishRequestState, setPublishRequestState] = useState({ projectId, workspaceId, requesting: false });
-  const publishRequestVersionRef = useRef(0);
-  const manualPublishRequestRef = useRef<symbol | null>(null);
-  const publishRequesting =
-    publishRequestState.projectId === projectId &&
-    publishRequestState.workspaceId === workspaceId &&
-    publishRequestState.requesting;
-  const hasSite = siteState.url !== null;
-  const invalidatePublishRequests = useCallback(() => {
-    publishRequestVersionRef.current++;
-    manualPublishRequestRef.current = null;
-  }, []);
-  /**
-   * Claim the publish lane for one request. Its failure is reported only while the workspace it was
-   * issued against is still the active one and no later request has superseded it.
-   */
-  const beginPublishRequest = useCallback(() => {
-    const workspaceId = workbenchStore.getActiveWorkspaceId();
-    const requestVersion = ++publishRequestVersionRef.current;
-    return {
-      workspaceId,
-      isCurrentRequest: () =>
-        workspaceId !== null &&
-        workbenchStore.isWorkspaceActive(workspaceId) &&
-        publishRequestVersionRef.current === requestVersion,
-    };
-  }, []);
-
-  useEffect(() => {
-    invalidatePublishRequests();
-    return invalidatePublishRequests;
-  }, [invalidatePublishRequests, projectId, workspaceId]);
-
-  useEffect(() => {
-    if (hasSite) {
-      workbenchStore.currentView.set('preview');
-    }
-  }, [hasSite]);
-
   if (selectedView === 'preview' && !hasLoadedPreview) {
     setHasLoadedPreview(true);
   }
@@ -110,50 +68,14 @@ export function useWorkbenchController(isStreaming?: boolean) {
       return;
     }
     workbenchStore.flushPendingEditorChange();
-    const { isCurrentRequest } = beginPublishRequest();
-    void (async () => {
-      try {
-        await workbenchStore.saveCurrentDocument();
-      } catch (error) {
-        logger.error('Failed to save the file', error);
-        if (isCurrentRequest()) {
-          toast.error('Save failed');
-        }
-        return;
+    const workspaceId = workbenchStore.getActiveWorkspaceId();
+    void workbenchStore.saveCurrentDocument().catch((error) => {
+      logger.error('Failed to save the file', error);
+      if (workspaceId !== null && workbenchStore.isWorkspaceActive(workspaceId)) {
+        toast.error('Save failed');
       }
-      // A GitHub project publishes through its repository's pipeline, so a save publishes nothing here.
-      if (!isCurrentRequest() || workbenchStore.linkedProject.get()) {
-        return;
-      }
-      try {
-        await workbenchStore.publishSite();
-      } catch (error) {
-        logger.warn('Failed to publish the app after a file save', error);
-        if (isCurrentRequest()) {
-          toast.error('Publishing the app failed');
-        }
-      }
-    })();
-  }, [beginPublishRequest]);
-
-  const onPublishRequest = useCallback(async () => {
-    const { workspaceId, isCurrentRequest } = beginPublishRequest();
-    const manualRequest = Symbol('manual-publish-request');
-    manualPublishRequestRef.current = manualRequest;
-    setPublishRequestState({ projectId, workspaceId, requesting: true });
-    try {
-      await workbenchStore.publishSite();
-    } catch (error) {
-      if (isCurrentRequest()) {
-        toast.error(messageOf(error, 'Unable to publish the app.'));
-      }
-    } finally {
-      if (manualPublishRequestRef.current === manualRequest) {
-        manualPublishRequestRef.current = null;
-        setPublishRequestState({ projectId, workspaceId, requesting: false });
-      }
-    }
-  }, [beginPublishRequest, projectId]);
+    });
+  }, []);
 
   return {
     close: () => {
@@ -174,9 +96,6 @@ export function useWorkbenchController(isStreaming?: boolean) {
     onFileReset: () => workbenchStore.resetCurrentDocument(),
     onFileSave,
     onFileSelect,
-    onPublishRequest,
-    publishRequesting,
-    siteState,
     projectId,
     selectedFile,
     selectedView,

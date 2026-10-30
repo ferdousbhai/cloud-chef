@@ -3,8 +3,8 @@ import { getToolInvocation, type CloudChefMessage, type CloudChefToolInvocation 
 import { isCloudChefToolResult } from 'cloudchef-agent/tool-result';
 
 /**
- * What a team project's `publish_preview` / `publish` tool output carries, and how the chat shows it.
- * The output's `summary` is written for the model; everything a person reads comes from `data` here.
+ * What a command's push to the project's repository carries in its output (`push`), and how the chat shows it.
+ * The result's `summary` is written for the model; everything a person reads comes from `data` here.
  */
 
 /** How long a pipeline gets to report a finished build before the watch gives up. */
@@ -25,7 +25,7 @@ const linkedBuildStateSchema = z.enum([
   'unfollowed',
 ]);
 
-/** A publish whose commit is in the project's repository. Fields after `detailsUrl` are absent from outputs saved before them. */
+/** A push whose commit is in the project's repository. Fields after `detailsUrl` are absent from outputs saved before them. */
 const linkedPublishDataSchema = z.looseObject({
   branch: z.string(),
   commit: z.string(),
@@ -40,8 +40,7 @@ const linkedPublishDataSchema = z.looseObject({
 export type LinkedPublishData = z.infer<typeof linkedPublishDataSchema>;
 
 export type LinkedPublishView = {
-  /** `not_sent`: nothing reached the repository. Every other kind has a commit there. */
-  kind: 'not_sent' | 'building' | 'built' | 'failed' | 'unknown';
+  kind: 'building' | 'built' | 'failed' | 'unknown';
   title: string;
   /** A sentence for the person, never the model's instructions. */
   detail: string;
@@ -66,46 +65,19 @@ function webUrl(value: string | null | undefined): string | null {
 }
 
 /**
- * How a publish tool's settled output reads to a person, or null when the call has not returned (or isn't a
- * publish). `now` decides whether a `pending` build is still followed.
+ * How what a command pushed reads to a person, or null when the call has not returned or pushed nothing. `now`
+ * decides whether a `pending` build is still followed.
  */
 export function linkedPublishView(invocation: CloudChefToolInvocation, now: number): LinkedPublishView | null {
-  if (invocation.toolName === 'exec') {
-    // A command that pushed to the project's repository carries what it pushed as a publish does.
-    const push =
-      invocation.state === 'output-available' ? execPushSchema.safeParse(invocation.output).data?.push : null;
-    if (!push || !isCloudChefToolResult(push)) {
-      return null;
-    }
-    const data = linkedPublishDataSchema.safeParse(push.data).data;
-    return data ? builtView(data, now) : null;
-  }
-  if (invocation.toolName !== 'publish' && invocation.toolName !== 'publish_preview') {
+  if (invocation.toolName !== 'exec' || invocation.state !== 'output-available') {
     return null;
   }
-  const live = invocation.toolName === 'publish';
-  if (invocation.state === 'output-error') {
-    return notSent(live, invocation.errorText ?? 'It stopped before anything was sent.');
-  }
-  if (invocation.state !== 'output-available' || !isCloudChefToolResult(invocation.output)) {
+  const push = execPushSchema.safeParse(invocation.output).data?.push;
+  if (!push || !isCloudChefToolResult(push)) {
     return null;
   }
-  const output = invocation.output;
-  const data = linkedPublishDataSchema.safeParse(output.data).data;
-  if (!data) {
-    return output.ok
-      ? {
-          kind: 'unknown',
-          title: live ? 'Sent to go live' : 'Sent for a preview',
-          detail: output.summary,
-          building: false,
-          followDeadline: null,
-          previewUrl: null,
-          detailsUrl: null,
-        }
-      : notSent(live, output.summary);
-  }
-  return builtView(data, now);
+  const data = linkedPublishDataSchema.safeParse(push.data).data;
+  return data ? builtView(data, now) : null;
 }
 
 const execPushSchema = z.looseObject({ push: z.unknown() });
@@ -184,7 +156,7 @@ function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
   }
 }
 
-/** The conversation's latest publish that reached the repository, for the composer's dock; null before there is one. */
+/** The conversation's latest push to the repository, for the composer's dock; null before there is one. */
 export function latestLinkedPublishView(messages: readonly CloudChefMessage[], now: number): LinkedPublishView | null {
   for (const message of messages.toReversed()) {
     if (message.role !== 'assistant') {
@@ -193,24 +165,12 @@ export function latestLinkedPublishView(messages: readonly CloudChefMessage[], n
     for (const part of message.parts.toReversed()) {
       const invocation = getToolInvocation(part);
       const view = invocation ? linkedPublishView(invocation, now) : null;
-      if (view && view.kind !== 'not_sent') {
+      if (view) {
         return view;
       }
     }
   }
   return null;
-}
-
-function notSent(live: boolean, detail: string): LinkedPublishView {
-  return {
-    kind: 'not_sent',
-    title: live ? 'Not published' : 'Preview not made',
-    detail,
-    building: false,
-    followDeadline: null,
-    previewUrl: null,
-    detailsUrl: null,
-  };
 }
 
 function unknown(

@@ -10,6 +10,7 @@ import type {
   CloudflareRequestFiled,
   CloudflareRequestFinalResult,
 } from 'cloudchef-agent/cloudflare-api';
+import type { LinkedPublishData } from '~/lib/common/linked-publish';
 import { toolActivityStore } from '~/lib/stores/tool-activity.client';
 import { ToolCall } from './ToolCall';
 
@@ -300,146 +301,91 @@ describe('ToolCall', () => {
     expect(container.textContent).toContain('Stopped before this tool returned a result.');
     expect(container.textContent).toContain('Saving stopped');
   });
-  it('titles a publish by what happened to it, and links what the build reported instead of dumping it', async () => {
-    const failed: CloudChefToolInvocation = {
+  it("titles a command's push by what happened to its build, and links what the build reported instead of dumping it", async () => {
+    const push = (data: Partial<LinkedPublishData>, ok = true): CloudChefToolInvocation => ({
+      type: 'dynamic-tool',
+      state: 'output-available',
+      toolCallId: `push-${String(data.build)}-${String(data.live)}`,
+      toolName: 'exec',
+      input: { command: 'git push' },
+      output: {
+        command: 'git push',
+        exitCode: 0,
+        stdout: '',
+        stderr: '',
+        push: {
+          version: 1,
+          ok,
+          summary: 'Pushed. Tell the user.',
+          data: { branch: 'cloudchef/sara', commit: 'c'.repeat(40), previewUrl: null, detailsUrl: null, ...data },
+        },
+      },
+    });
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-8', 0)}
+          invocation={push({ live: true, build: 'failure', detailsUrl: 'https://dash.cloudflare.com/builds/1' }, false)}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain('Publishing failed');
+
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-9', 0)}
+          invocation={push({
+            live: false,
+            build: 'success',
+            previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
+            detailsUrl: 'javascript:alert(1)',
+          })}
+        />,
+      ),
+    );
+    await act(async () => container.querySelector('button')?.click());
+    expect(container.textContent).toContain('Preview ready');
+    const links = [...container.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')]);
+    expect(links).toEqual([['Open the preview', 'https://cloudchef-ada-site.ada.workers.dev']]);
+
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-10', 0)}
+          invocation={push({ live: false, build: 'pending', startedAt: Date.now() })}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain('Making a preview…');
+    expect(container.querySelector('.text-bolt-elements-icon-success')).toBeNull();
+
+    // A build CloudChef no longer follows stops spinning.
+    await act(async () =>
+      root.render(
+        <ToolCall
+          partId={makePartId('message-14', 0)}
+          invocation={push({ live: false, build: 'pending', startedAt: Date.now() - 5 * 60 * 60_000 })}
+        />,
+      ),
+    );
+    expect(container.textContent).toContain('Sent for a preview');
+    expect(container.textContent).not.toContain('Making a preview');
+  });
+
+  it('shows a tool an old chat used, no longer offered, by its name and its saved result', async () => {
+    const old: CloudChefToolInvocation = {
       type: 'dynamic-tool',
       state: 'output-available',
       toolCallId: 'publish-1',
       toolName: 'publish',
       input: { message: 'Update the hero' },
-      output: { version: 1, ok: false, summary: 'Nothing has changed since this workspace was opened.' },
+      output: { version: 1, ok: true, summary: 'Published the latest changes.' },
     };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-8', 0)} invocation={failed} />));
-    expect(container.textContent).toContain('Not published');
-
-    const deployFailed: CloudChefToolInvocation = {
-      ...failed,
-      toolCallId: 'publish-3',
-      output: {
-        version: 1,
-        ok: false,
-        summary: "Committed merged into main, but the pipeline's build failed.",
-        data: {
-          branch: 'cloudchef/sara',
-          commit: 'c'.repeat(40),
-          live: true,
-          build: 'failure',
-          previewUrl: null,
-          detailsUrl: 'https://dash.cloudflare.com/builds/1',
-          defaultBranch: 'main',
-        },
-      },
-    };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-13', 0)} invocation={deployFailed} />));
-    expect(container.textContent).toContain('Publishing failed');
-    expect(container.textContent).not.toContain('Not published');
-
-    const sent: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'publish-preview-1',
-      toolName: 'publish_preview',
-      input: { message: 'Update the hero' },
-      output: {
-        version: 1,
-        ok: true,
-        summary: 'Committed on the branch cloudchef/sara; the pipeline built it. Tell the user.',
-        data: {
-          branch: 'cloudchef/sara',
-          commit: 'c'.repeat(40),
-          live: false,
-          build: 'success',
-          previewUrl: 'https://cloudchef-ada-site.ada.workers.dev',
-          detailsUrl: 'javascript:alert(1)',
-        },
-      },
-    };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-9', 0)} invocation={sent} />));
+    await act(async () => root.render(<ToolCall partId={makePartId('message-11', 0)} invocation={old} />));
+    expect(container.textContent).toContain('publish');
     await act(async () => container.querySelector('button')?.click());
-    expect(container.textContent).toContain('Preview ready');
-    const links = [...container.querySelectorAll('a')].map((link) => [link.textContent, link.getAttribute('href')]);
-    expect(links).toEqual([['Open the preview', 'https://cloudchef-ada-site.ada.workers.dev']]);
-    expect(container.textContent).not.toContain('"commit"');
-    expect(container.textContent).not.toContain('Tell the user');
-  });
-
-  it("shows a team project's preview as being made until its build result lands, and names the site page it read", async () => {
-    const building: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'publish-preview-2',
-      toolName: 'publish_preview',
-      input: { message: 'Update the hero' },
-      output: {
-        version: 1,
-        ok: true,
-        summary: "Committed on the branch cloudchef/sara. Don't wait or poll for it.",
-        data: {
-          branch: 'cloudchef/sara',
-          commit: 'c'.repeat(40),
-          live: false,
-          build: 'pending',
-          previewUrl: null,
-          detailsUrl: null,
-          startedAt: Date.now(),
-        },
-      },
-    };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-10', 0)} invocation={building} />));
-    expect(container.textContent).toContain('Making a preview…');
-    expect(container.querySelector('.text-bolt-elements-icon-success')).toBeNull();
-    await act(async () => container.querySelector('button')?.click());
-    expect(container.textContent).not.toContain("Don't wait or poll");
-
-    const live: CloudChefToolInvocation = {
-      ...building,
-      toolName: 'publish',
-      toolCallId: 'publish-2',
-      output: {
-        version: 1,
-        ok: true,
-        summary: 'Committed.',
-        data: {
-          branch: 'cloudchef/sara',
-          commit: 'c'.repeat(40),
-          live: true,
-          build: 'pending',
-          previewUrl: null,
-          detailsUrl: null,
-          startedAt: Date.now(),
-          defaultBranch: 'main',
-        },
-      },
-    };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-11', 0)} invocation={live} />));
-    expect(container.textContent).toContain('Publishing…');
-  });
-
-  it("stops spinning on a team project's build CloudChef no longer follows", async () => {
-    const stale: CloudChefToolInvocation = {
-      type: 'dynamic-tool',
-      state: 'output-available',
-      toolCallId: 'publish-preview-3',
-      toolName: 'publish_preview',
-      input: { message: 'Update the hero' },
-      output: {
-        version: 1,
-        ok: true,
-        summary: 'Committed.',
-        data: {
-          branch: 'cloudchef/sara',
-          commit: 'c'.repeat(40),
-          live: false,
-          build: 'pending',
-          previewUrl: null,
-          detailsUrl: null,
-          startedAt: Date.now() - 5 * 60 * 60_000,
-        },
-      },
-    };
-    await act(async () => root.render(<ToolCall partId={makePartId('message-14', 0)} invocation={stale} />));
-    expect(container.textContent).toContain('Sent for a preview');
-    expect(container.textContent).not.toContain('Making a preview');
+    expect(container.textContent).toContain('Published the latest changes.');
   });
 
   it('titles a failed validation as failed, with no success check', async () => {

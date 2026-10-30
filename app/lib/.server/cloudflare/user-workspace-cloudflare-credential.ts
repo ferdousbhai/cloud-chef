@@ -27,7 +27,7 @@ const tokenWithheldSchema = z.object({ code: z.literal('cloudflare_token_withhel
 type RuntimeCredentialEnv = Pick<Env, 'CLOUDCHEF_CONTROL_PLANE_ENDPOINT' | 'CONTROL_PLANE_SECRET'>;
 
 /** Whether this runtime can reach its credential broker: the pinned control plane, with the runtime's secret. */
-export function runtimeCredentialBrokerConfigured(env: RuntimeCredentialEnv): boolean {
+function runtimeCredentialBrokerConfigured(env: RuntimeCredentialEnv): boolean {
   return env.CLOUDCHEF_CONTROL_PLANE_ENDPOINT === CLOUDCHEF_CONTROL_PLANE_ENDPOINT && Boolean(env.CONTROL_PLANE_SECRET);
 }
 
@@ -262,11 +262,8 @@ type RuntimeRoute =
   | 'runtime-projects/register-import'
   | 'runtime-projects/register-upload'
   | 'runtime-projects/name'
-  | 'runtime-projects/sync-apps'
-  | 'runtime-projects/adoption'
   | 'runtime-projects/status'
   | 'runtime-projects/site'
-  | 'runtime-projects/request-production'
   | 'runtime-projects/deployments/claim'
   | 'runtime-projects/deployments/retry'
   | 'runtime-projects/deployments/report'

@@ -122,7 +122,7 @@ describe('an earlier conversation on a team project', () => {
 
     await close(harness);
     let settled = false;
-    const settling = harness.agent.settleForSuccessor('owner-1').then(() => {
+    const settling = harness.agent.closeForSuccessor('owner-1').then(() => {
       settled = true;
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -143,28 +143,15 @@ describe('an earlier conversation on a team project', () => {
       linkedProject: { repository: 'Ada site', repo: REPO, defaultBranch: 'main' },
     });
     // Still the current conversation: nothing stops it.
-    await expect(harness.agent.settleForSuccessor('owner-1')).rejects.toMatchObject({ status: 409 });
+    await expect(harness.agent.closeForSuccessor('owner-1')).rejects.toMatchObject({ status: 409 });
     expect(harness.agent.state.activeTurn).not.toBeNull();
 
     await close(harness);
-    await expect(harness.agent.settleForSuccessor('someone-else')).rejects.toMatchObject({ status: 404 });
-    await harness.agent.settleForSuccessor('owner-1');
+    await expect(harness.agent.closeForSuccessor('someone-else')).rejects.toMatchObject({ status: 404 });
+    await harness.agent.closeForSuccessor('owner-1');
     expect(harness.agent.state.activeTurn).toBeNull();
     expect(harness.agent.state.lastCompletedTurn).toMatchObject({ id: 'turn-1', status: 'aborted' });
     expect(harness.agent.state.conversationClosed).toBe(true);
-  });
-});
-
-describe("a team project's publication", () => {
-  it('leaves nothing waiting for a CloudChef deployment, which a team project never has', async () => {
-    const harness = await harnessWith(await linkedWorkspace());
-    // Recorded by a turn before team projects stopped asking for CloudChef's publication.
-    harness.agent.setState({ ...harness.agent.state, publicationPending: true });
-
-    harness.beginTurn();
-    await harness.endTurn();
-
-    expect(harness.agent.state.publicationPending).toBe(false);
   });
 });
 
@@ -203,18 +190,7 @@ describe("a team project's git push", () => {
     expect((await pushResult(harness, 'call-branch'))?.data).toMatchObject({ branch: 'feature', live: false });
   });
 
-  it("tells a CloudChef app's agent its push to main goes live when the turn ends, and reports no branch deleted", async () => {
-    const app = await harnessWith({
-      ...(await linkedWorkspace()),
-      linkedProject: async () => null,
-      takeGitPushes: async () => [{ ref: 'refs/heads/main', oldOid: BASE, newOid: 'b'.repeat(40) }],
-    });
-    const pushed = await pushResult(app, 'call-1');
-    expect(pushed?.summary).toContain('publishes it to the live site when this turn ends');
-    // Owed at once, in the agent's state, so a restart before the turn ends still publishes it.
-    expect(app.agent.state.publicationPending).toBe(true);
-    // A CloudChef app's publish card is its deployment, not a team project's build.
-    expect(pushed?.data).toBeUndefined();
+  it('reports no branch deleted', async () => {
     const deleted = await harnessWith({
       ...(await linkedWorkspace()),
       takeGitPushes: async () => [{ ref: 'refs/heads/old', oldOid: BASE, newOid: '0'.repeat(40) }],

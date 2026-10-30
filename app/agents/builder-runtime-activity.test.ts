@@ -35,13 +35,10 @@ describe('builder agent runtime activity', () => {
 
   it("counts only the agent's own turn from its state", () => {
     expect(isConversationAgentBusy(undefined)).toBe(false);
-    expect(isConversationAgentBusy({ activeTurn: null, deployment: null })).toBe(false);
+    expect(isConversationAgentBusy({ activeTurn: null })).toBe(false);
     expect(isConversationAgentBusy({ activeTurn: createBuilderTurn('request-1') })).toBe(true);
     expect(isConversationAgentBusy({ validationProgress: { toolCallId: 'tool-1', stage: 'installing' } })).toBe(true);
-    // Records other paths rewrite while the work behind them continues are not what counts: that work is
-    // counted while it runs.
-    expect(isConversationAgentBusy({ publication: { message: 'Uploading', percent: 40, updatedAt: 1 } })).toBe(false);
-    expect(isConversationAgentBusy({ deployment: { status: 'deploying' } })).toBe(false);
+    // Records of work that runs beside the turn are not what counts: that work is counted while it runs.
     expect(isConversationAgentBusy({ cloudflareExecutions: [execution('executing')] })).toBe(false);
   });
 

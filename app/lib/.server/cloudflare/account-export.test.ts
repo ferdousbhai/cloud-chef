@@ -99,12 +99,6 @@ describe('control-plane account export', () => {
       truncated: false,
       projects: [],
     });
-    expect(exported.sections.productionRequests).toEqual({
-      status: 'exported',
-      total: 0,
-      truncated: false,
-      requests: [],
-    });
     expect(exported.sections.githubConnections).toEqual({
       status: 'exported',
       total: 0,
@@ -237,7 +231,6 @@ describe('control-plane account export', () => {
       'organizationQuotaEvents',
       'organizationUsage',
       'organizationProjects',
-      'productionRequests',
       'githubConnections',
       'emailSignInLinks',
       'authSessions',
@@ -246,7 +239,7 @@ describe('control-plane account export', () => {
     warn.mockRestore();
   });
 
-  it("exports a team member's records: membership, invite, draft and its source, and sign-ins in progress", async () => {
+  it("exports a team member's records: membership, invite, projects and their source, and sign-ins in progress", async () => {
     const { database, db } = controlPlaneDatabase();
     seedAccount(database);
     database.exec(`
@@ -267,12 +260,6 @@ describe('control-plane account export', () => {
       INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('project-1', 'user-1', 'view', 7);
       INSERT INTO org_projects (id, connection_id, name, import_repo_full_name, import_branch, created_from, created_at)
         VALUES ('project-2', 'connection-user-1', 'Mine', 'me/mine', 'main', 'github', 8);
-      INSERT INTO production_requests (id, org_id, requested_by, title, note, preview_url, repo, commit_sha, status,
-        created_at, draft_id, draft_revision, updated_at)
-        VALUES ('request-1', 'acme', 'user-1', 'Site', 'Please', 'https://preview.example', 'p-site', 'abc',
-                'pending', 3, 'draft-1', 'rev-2', 4);
-      INSERT INTO production_requests (id, org_id, requested_by, title, status, decision_note, decided_at, created_at)
-        VALUES ('request-0', 'acme', 'user-1', 'Old', 'declined', 'Not now', 3, 1);
       INSERT INTO github_install_states (id, connection_id, org_id, user_id, return_to, expires_at, created_at)
         VALUES ('${GITHUB_STATE}', 'connection-user-1', NULL, 'user-1', '/settings', 20, 2);
       INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
@@ -306,21 +293,6 @@ describe('control-plane account export', () => {
       events: [
         { kind: 'invite', organizationId: 'acme', createdAt: '1970-01-01T00:00:00.006Z' },
         { kind: 'team', organizationId: 'gone-team', createdAt: '1970-01-01T00:00:00.005Z' },
-      ],
-    });
-    expect(exported.sections.productionRequests).toMatchObject({
-      total: 2,
-      requests: [
-        {
-          id: 'request-1',
-          previewUrl: 'https://preview.example',
-          draftId: 'draft-1',
-          draftRevision: 'rev-2',
-          updatedAt: '1970-01-01T00:00:00.004Z',
-          repository: 'p-site',
-          commit: 'abc',
-        },
-        { id: 'request-0', status: 'declined', decisionNote: 'Not now', repository: null },
       ],
     });
     // Their own projects and the team's they were given, with their role.

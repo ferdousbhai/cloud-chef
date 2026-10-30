@@ -48,7 +48,7 @@ type CommandReport = { command: string; exitCode: number; stdout: string; stderr
 
 function transcript(
   output: CloudChefToolResult | CommandReport,
-  toolName = 'publish_preview',
+  toolName = 'exec',
   toolCallId = 'call-1',
 ): CloudChefMessage[] {
   return [
@@ -225,39 +225,26 @@ describe("a team project's publish", () => {
   it("puts the result in place of that one call's waiting output, once", () => {
     const started = linkedBuildStartedResult(watch);
     const settled = linkedBuildSettledResult(watch, built);
-    const before = transcript(started);
+    const report = (push: CloudChefToolResult): CommandReport => ({
+      command: 'git push',
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      push,
+    });
+    const before = transcript(report(started), 'exec');
     const after = withLinkedBuildResult(before, 'call-1', settled);
-    expect(after?.[1]?.parts[1]?.output).toEqual(settled);
+    expect(after?.[1]?.parts[1]?.output).toEqual(report(settled));
     // Everything else is as it was, and the input transcript is untouched.
     expect(after?.[0]).toEqual(before[0]);
     expect(after?.[1]?.parts[0]).toEqual(before[1]?.parts[0]);
-    expect(before[1]?.parts[1]?.output).toEqual(started);
+    expect(before[1]?.parts[1]?.output).toEqual(report(started));
 
     // Already settled (a recovered watch landing twice), another call, another tool, or no call at all.
     expect(withLinkedBuildResult(after ?? [], 'call-1', settled)).toBeNull();
     expect(withLinkedBuildResult(before, 'call-2', settled)).toBeNull();
-    expect(withLinkedBuildResult(transcript(started, 'exec'), 'call-1', settled)).toBeNull();
-    expect(withLinkedBuildResult(transcript(started, 'publish', 'call-1'), 'call-1', settled)).not.toBeNull();
+    expect(withLinkedBuildResult(transcript(report(started), 'publish'), 'call-1', settled)).toBeNull();
     expect(withLinkedBuildResult([], 'call-1', settled)).toBeNull();
-    const errored: CloudChefMessage[] = [
-      {
-        id: 'a2',
-        role: 'assistant',
-        parts: [{ type: 'dynamic-tool', toolName: 'publish_preview', toolCallId: 'call-1', state: 'output-error' }],
-      },
-    ];
-    // A call stopped after its commit shows as failed; the real result replaces its error.
-    const landed = withLinkedBuildResult(errored, 'call-1', settled);
-    expect(landed?.[0]?.parts[0]).toEqual({
-      type: 'dynamic-tool',
-      toolName: 'publish_preview',
-      toolCallId: 'call-1',
-      state: 'output-available',
-      output: settled,
-    });
-    // `onlyFailed` lands the started result on a stopped call only, never over a waiting or settled output.
-    expect(withLinkedBuildResult(errored, 'call-1', started, { onlyFailed: true })).not.toBeNull();
-    expect(withLinkedBuildResult(before, 'call-1', started, { onlyFailed: true })).toBeNull();
   });
 
   it('says what landed, for the chat to show: when, the default branch, and why a build failed', () => {

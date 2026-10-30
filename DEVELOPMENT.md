@@ -69,7 +69,7 @@ Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, sc
 - teams (organizations), their members and invites, daily per-member model usage (`organization_usage_daily`), and
   the invites sent and teams created that count toward their limits (`organization_quota_events`);
 - projects (each a connection's, personal or a team's): their Artifacts repository or the GitHub repository they
-  are imported from, the Worker Workers Builds builds them into, members' roles, production requests, and GitHub
+  are imported from, the Worker Workers Builds builds them into, members' roles, their publishes, and GitHub
   App installations;
 - per-person settings such as AI Gateway content logging;
 - user workspace runtime discovery and upgrade state.
@@ -218,9 +218,9 @@ the current secrets before passing it.
 Rollback changes the Worker version but not D1 data. If a release also changed control-plane data, use the recovery
 bookmark recorded by the release pipeline (below).
 
-Generated applications deploy independently inside the user workspace runtime. AppAgent projects provision `DB` for
-application data and `AGENT_SECURITY_DB` for Agent sessions, retention, and inference accounting. CloudChef validates
-the artifact, supplies the trusted bindings, and promotes the exact uploaded Worker version.
+Generated applications deploy independently, from their own repositories, through each runtime's ProjectBuilder
+(ARCHITECTURE.md, Deployment Boundary). AppAgent projects provision `DB` for application data and `AGENT_SECURITY_DB`
+for Agent sessions, retention, and inference accounting; CloudChef supplies the trusted bindings and settings.
 
 ### Failed release after migrations
 

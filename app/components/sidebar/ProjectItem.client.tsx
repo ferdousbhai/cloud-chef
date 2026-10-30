@@ -11,11 +11,11 @@ import { classNames } from '~/utils/classNames';
 
 /**
  * The projects kept in the account this person works in that they may edit: imported or uploaded ones in Personal,
- * the team's in a team (the ones they may only view are on the projects home). Listed with their own apps, by when
- * each was added.
+ * the team's in a team (the ones they may only view are on the projects home), by when each was added.
  */
 export function useEditableProjects(userId: string | null) {
   const [projects, setProjects] = useState<TeamProject[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
 
@@ -28,10 +28,12 @@ export function useEditableProjects(userId: string | null) {
       .then((listed) => {
         setProjects(listed.filter((project) => project.role === 'edit'));
         setLoadFailed(false);
+        setIsLoading(false);
       })
       .catch(() => {
         if (!controller.signal.aborted) {
           setLoadFailed(true);
+          setIsLoading(false);
         }
       });
     return () => controller.abort();
@@ -42,7 +44,7 @@ export function useEditableProjects(userId: string | null) {
     setAttempt((count) => count + 1);
   }, []);
 
-  return { projects, loadFailed, retry };
+  return { projects, isLoading, loadFailed, retry };
 }
 
 /** Which project is being opened; while one is, the others wait. */

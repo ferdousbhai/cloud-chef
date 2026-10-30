@@ -21,19 +21,17 @@ const STOPPED_TOOL_TITLES = new Map<string, string>([
   ['write', 'File write stopped'],
   ['edit', 'File edit stopped'],
   ['exec', 'Command stopped'],
-  ['publish_preview', 'Preview stopped'],
-  ['publish', 'Publishing stopped'],
   ['commit', 'Saving stopped'],
 ]);
 
-/** A team project's publish that was not sent, or whose build failed. */
+/** A push whose build failed. */
 function publishFailed(publish: LinkedPublishView): boolean {
-  return publish.kind === 'not_sent' || publish.kind === 'failed';
+  return publish.kind === 'failed';
 }
 
 /**
- * `publish` is the view of a GitHub publish as of now (see useLinkedPublishView), or null for any other
- * call. A publish whose pipeline is still building shows its spinner in the title, never a check beside it.
+ * `publish` is the view of what a command pushed as of now (see useLinkedPublishView), or null for any other
+ * call. A push whose build is still running shows its spinner in the title, never a check beside it.
  */
 export function statusIcon(
   status: ToolActivityStatus,
@@ -105,16 +103,8 @@ export function toolTitle(
               alreadySaved(invocation) ? 'Already saved' : 'Saved a version',
               <CheckIcon className="text-content-secondary" />,
             );
-    case 'publish_preview':
-    case 'publish':
-      if (publish) {
-        return publishTitle(publish);
-      }
-      return titleRow(
-        invocation.toolName === 'publish' ? 'Publishing' : 'Making a preview',
-        <Pencil1Icon className="text-content-secondary" />,
-      );
     default:
+      // A tool no longer offered, kept in an old chat: shown by its name, with its result as it was saved.
       return invocation.toolName;
   }
 }

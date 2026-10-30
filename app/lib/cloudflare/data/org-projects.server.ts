@@ -36,7 +36,7 @@ export type Project = {
   /** The Artifacts repository in the `cloudchef` namespace; null until it has been imported. */
   repo: string | null;
   defaultBranch: string;
-  /** What it was made from: a GitHub import, a ZIP upload, or a team member's draft an admin approved. */
+  /** What it was made from: a GitHub import, a ZIP upload, a copy, a push, a chat, or a team member's draft an admin approved (before chats made projects). */
   createdFrom: ProjectCreatedFrom;
   /** The GitHub repository it was (or is still to be) imported from; null unless made from GitHub. */
   importSource: { repoId: number | null; fullName: string; branch: string } | null;
@@ -203,25 +203,6 @@ const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, p
   projects.created_by, projects.created_at,
   (SELECT username FROM "user" WHERE "user".id = projects.created_by) AS owner_username`;
 
-/**
- * The project of an account whose repository `repo` is, if any: an app's own repository is one once an admin
- * approved the app as a draft, which adopts the repository as it is.
- */
-export async function findProjectOfRepository(
-  db: D1Database,
-  connectionId: string,
-  repo: string,
-): Promise<Project | null> {
-  const row = await db
-    .prepare(
-      `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
-       WHERE projects.connection_id = ? AND projects.artifact_repo = ?`,
-    )
-    .bind(connectionId, repo)
-    .first<ProjectRow>();
-  return row ? toProject(row) : null;
-}
-
 /** Every project of a scope, with who else may view or edit it: an admin's or owner's view. */
 export async function listScopeProjects(db: D1Database, scope: ProjectScope): Promise<ManagedProject[]> {
   const [{ results: projects }, { results: access }] = await Promise.all([
@@ -317,16 +298,13 @@ function projectSlug(name: string): string {
 }
 
 /**
- * The address name for a new project or app of `authorId` called `name`: its slug, or with -2, -3… when one of
- * their projects or apps has it.
+ * The address name for a new project of `authorId` called `name`: its slug, or with -2, -3… when one of their
+ * projects has it.
  */
-export async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
+async function freeSlug(db: D1Database, authorId: string, name: string): Promise<string> {
   const slug = projectSlug(name);
   const { results } = await db
-    .prepare(
-      `SELECT slug FROM org_projects WHERE created_by = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')
-       UNION SELECT slug FROM apps WHERE user_id = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')`,
-    )
+    .prepare(`SELECT slug FROM org_projects WHERE created_by = ?1 AND (slug = ?2 OR slug LIKE ?2 || '-%')`)
     .bind(authorId, slug)
     .all<{ slug: string }>();
   const taken = new Set(results.map((row) => row.slug));
@@ -887,189 +865,4 @@ function toProject(row: ProjectRow): Project {
     createdBy: row.created_by,
     createdAt: row.created_at,
   };
-}
-
-/**
- * A request whose requester is still in its organization: one from someone who left or was removed
- * is never offered for approval (leaving declines it).
- */
-const REQUESTER_IS_MEMBER = `EXISTS (
-  SELECT 1 FROM organization_members AS requester
-  WHERE requester.org_id = production_requests.org_id AND requester.user_id = production_requests.requested_by
-)`;
-
-/** A draft a member asked to make a real project, as an admin reviews it. */
-type ProductionRequest = {
-  id: string;
-  title: string;
-  note: string | null;
-  previewUrl: string | null;
-  /** The draft's own Artifacts repository, and the commit of it the member sent. */
-  repo: string | null;
-  commit: string | null;
-  requesterName: string;
-  requesterEmail: string;
-  createdAt: number;
-  /** When the member last sent a newer commit of the draft, or null. */
-  updatedAt: number | null;
-};
-
-/** One of a member's own production requests, with what was decided. */
-type OwnProductionRequest = {
-  id: string;
-  title: string;
-  status: 'pending' | 'approved' | 'declined';
-  decisionNote: string | null;
-};
-
-/** The organization's requests waiting for an admin. */
-export async function listPendingProductionRequests(db: D1Database, orgId: string): Promise<ProductionRequest[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT requests.id, requests.title, requests.note, requests.preview_url, requests.repo, requests.commit_sha,
-              requests.created_at, requests.updated_at, users.name, users.email
-       FROM production_requests AS requests
-       JOIN "user" AS users ON users.id = requests.requested_by
-       JOIN organization_members AS requester
-         ON requester.org_id = requests.org_id AND requester.user_id = requests.requested_by
-       WHERE requests.org_id = ? AND requests.status = 'pending'
-       ORDER BY requests.created_at`,
-    )
-    .bind(orgId)
-    .all<{
-      id: string;
-      title: string;
-      note: string | null;
-      preview_url: string | null;
-      repo: string | null;
-      commit_sha: string | null;
-      created_at: number;
-      updated_at: number | null;
-      name: string;
-      email: string;
-    }>();
-  return results.map((row) => ({
-    id: row.id,
-    title: row.title,
-    note: row.note,
-    previewUrl: row.preview_url,
-    repo: row.repo,
-    commit: row.commit_sha,
-    requesterName: row.name,
-    requesterEmail: row.email,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
-}
-
-/** A member's ten latest requests in an organization. */
-export async function listOwnProductionRequests(
-  db: D1Database,
-  orgId: string,
-  userId: string,
-): Promise<OwnProductionRequest[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT id, title, status, decision_note FROM production_requests
-       WHERE org_id = ? AND requested_by = ? ORDER BY created_at DESC LIMIT 10`,
-    )
-    .bind(orgId, userId)
-    .all<{ id: string; title: string; status: 'pending' | 'approved' | 'declined'; decision_note: string | null }>();
-  return results.map((row) => ({ id: row.id, title: row.title, status: row.status, decisionNote: row.decision_note }));
-}
-
-export async function declineProductionRequest(
-  db: D1Database,
-  args: { orgId: string; actorId: string; requestId: string; note: string },
-): Promise<void> {
-  await requireAdmin(db, args.orgId, args.actorId);
-  const declined = await db
-    .prepare(
-      // The decision keeps only the request's title: its note and preview link go. The draft stays the
-      // member's own, in its repository.
-      `UPDATE production_requests SET status = 'declined', decided_by = ?, decided_at = ?, decision_note = ?,
-         note = NULL, preview_url = NULL
-       WHERE id = ? AND org_id = ? AND status = 'pending'`,
-    )
-    .bind(args.actorId, Date.now(), args.note || null, args.requestId, args.orgId)
-    .run();
-  if (declined.meta.changes !== 1) {
-    throw new OrganizationError('That request was already decided.', 409);
-  }
-}
-
-/**
- * Approves a request: the draft's own Artifacts repository becomes a team project, adopted as it is, that
- * its requester may edit. Returns the project and its repository; null when the request was decided
- * already, its requester is no longer in the team, or its repository is a project already.
- */
-export async function approveProductionRequest(
-  db: D1Database,
-  args: { orgId: string; actorId: string; requestId: string },
-): Promise<{ projectId: string; repo: string } | null> {
-  await requireAdmin(db, args.orgId, args.actorId);
-  const now = Date.now();
-  const newProjectId = crypto.randomUUID();
-  // The decision is written first, and the project and its access only behind it, all in one batch: the
-  // request approved by this decision, with no project yet, is what the later statements look for.
-  const approvedNow = `EXISTS (
-    SELECT 1 FROM production_requests
-    WHERE id = ?1 AND status = 'approved' AND decided_at = ?2 AND project_id IS NULL
-  )`;
-  const request = `(SELECT repo FROM production_requests WHERE id = ?1)`;
-  const connection = `(SELECT id FROM cloudflare_connections WHERE org_id = ?3)`;
-  // A draft's repository that is a project already is never sent for review (`runtime-projects/request-production`
-  // refuses it, and a draft has one open request), so one found here is refused with the rest rather than approved
-  // into that project.
-  const title = await db
-    .prepare('SELECT title FROM production_requests WHERE id = ?')
-    .bind(args.requestId)
-    .first<{ title: string }>();
-  const slug = await freeSlug(db, args.actorId, title?.title ?? '');
-  const [approved] = await db.batch([
-    db
-      .prepare(
-        `UPDATE production_requests SET status = 'approved', decided_by = ?2, decided_at = ?3, note = NULL,
-           preview_url = NULL
-         WHERE id = ?1 AND org_id = ?4 AND status = 'pending' AND repo IS NOT NULL AND ${REQUESTER_IS_MEMBER}
-           AND EXISTS (SELECT 1 FROM cloudflare_connections WHERE org_id = ?4)
-           AND NOT EXISTS (
-             SELECT 1 FROM org_projects
-             WHERE connection_id = (SELECT id FROM cloudflare_connections WHERE org_id = ?4)
-               AND artifact_repo = production_requests.repo
-           )`,
-      )
-      .bind(args.requestId, args.actorId, now, args.orgId),
-    db
-      .prepare(
-        `INSERT INTO org_projects
-           (id, connection_id, org_id, name, slug, artifact_repo, created_from, created_by, created_at)
-         SELECT ?4, ${connection}, ?3, title, ?6, repo, 'draft', ?5, ?2 FROM production_requests
-         WHERE id = ?1 AND ${approvedNow}`,
-      )
-      .bind(args.requestId, now, args.orgId, newProjectId, args.actorId, slug),
-    db
-      .prepare(
-        `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
-         SELECT ?4, requested_by, 'edit', ?5, ?2 FROM production_requests
-         WHERE id = ?1 AND ${approvedNow}`,
-      )
-      .bind(args.requestId, now, args.orgId, newProjectId, args.actorId),
-    // The draft's repository is the project's now, so the drafter's app of it goes: it can't be made public, copied
-    // or reached from the command line as theirs. Their runtime keeps the app's chat to read (`runtime-projects/adoption`).
-    db
-      .prepare(`DELETE FROM apps WHERE connection_id = ${connection} AND repo = ${request} AND ${approvedNow}`)
-      .bind(args.requestId, now, args.orgId),
-    db
-      .prepare(`UPDATE production_requests SET project_id = ?4 WHERE id = ?1 AND ${approvedNow}`)
-      .bind(args.requestId, now, args.orgId, newProjectId),
-  ]);
-  if (approved?.meta.changes !== 1) {
-    return null;
-  }
-  const project = await db
-    .prepare('SELECT project_id, repo FROM production_requests WHERE id = ?')
-    .bind(args.requestId)
-    .first<{ project_id: string | null; repo: string }>();
-  return project?.project_id ? { projectId: project.project_id, repo: project.repo } : null;
 }

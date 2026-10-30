@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  deploymentAssetHash,
-  validatePreparedDeploymentArtifact,
-  type DeploymentArtifactFile,
-} from './deployment-artifact';
+import { deploymentAssetHash, type DeploymentArtifactFile } from './deployment-artifact';
 
 async function file(path: string, contents: string): Promise<DeploymentArtifactFile> {
   const bytes = new TextEncoder().encode(contents);
@@ -16,7 +12,7 @@ async function file(path: string, contents: string): Promise<DeploymentArtifactF
   };
 }
 
-describe('deployment artifact boundary', () => {
+describe('deployment asset hashes', () => {
   it.each([
     ['assets/app.js', 'console.log("cloudchef")', '5ca2b008d319d8d6c1f5ad3a5d8c1cb6'],
     ['index.html', '<h1>CloudChef</h1>', '8cc74b7ba69fed67b2314fa923e48abf'],
@@ -34,63 +30,5 @@ describe('deployment artifact boundary', () => {
     await expect(deploymentAssetHash(first)).resolves.toBe('294c70315fabb0e34fe77cab66676f1b');
     await expect(deploymentAssetHash(duplicate)).resolves.toBe('294c70315fabb0e34fe77cab66676f1b');
     await expect(deploymentAssetHash(differentExtension)).resolves.toBe('91d7ba6fd041bc194050195f6fe406e0');
-  });
-
-  it('rejects path traversal, byte tampering, and Worker-only static assets', async () => {
-    const main = await file('index.js', 'export default {}');
-    const asset = await file('index.html', '<h1>CloudChef</h1>');
-    await expect(
-      validatePreparedDeploymentArtifact(
-        {
-          revision: 'a'.repeat(64),
-          mainModule: 'index.js',
-          modules: [main],
-          assets: [asset],
-          migrations: { DB: [], AGENT_SECURITY_DB: [] },
-        },
-        { revision: 'a'.repeat(64), projectType: 'worker' },
-      ),
-    ).rejects.toThrow('cannot contain static assets');
-
-    await expect(
-      validatePreparedDeploymentArtifact(
-        {
-          revision: 'a'.repeat(64),
-          mainModule: 'index.js',
-          modules: [{ ...(await file('index.js', 'export default {}')), path: '../index.js' }],
-          assets: [],
-          migrations: { DB: [], AGENT_SECURITY_DB: [] },
-        },
-        { revision: 'a'.repeat(64), projectType: 'web_app' },
-      ),
-    ).rejects.toThrow('invalid');
-
-    await expect(
-      validatePreparedDeploymentArtifact(
-        {
-          revision: 'a'.repeat(64),
-          mainModule: 'index.js',
-          modules: [await file('index.js', 'export default {}')],
-          assets: [await file('INDEX.JS', 'asset')],
-          migrations: { DB: [], AGENT_SECURITY_DB: [] },
-        },
-        { revision: 'a'.repeat(64), projectType: 'web_app' },
-      ),
-    ).rejects.toThrow('invalid');
-
-    const tampered = await file('index.js', 'export default {}');
-    tampered.bytes[0] = 0;
-    await expect(
-      validatePreparedDeploymentArtifact(
-        {
-          revision: 'a'.repeat(64),
-          mainModule: 'index.js',
-          modules: [tampered],
-          assets: [],
-          migrations: { DB: [], AGENT_SECURITY_DB: [] },
-        },
-        { revision: 'a'.repeat(64), projectType: 'web_app' },
-      ),
-    ).rejects.toThrow('invalid');
   });
 });

@@ -694,20 +694,6 @@ export class UserWorkspaceRuntimeClient implements BuilderWorkspaceApi {
     return (await this.#stub()).knownMain();
   }
 
-  async setMainFetched(commit: string): Promise<void> {
-    await (await this.#stub()).setMainFetched(commit);
-  }
-
-  hasSuccessfulValidation(revision: string): Promise<boolean> {
-    return this.#stub()
-      .then((stub) => stub.validationStatus(revision))
-      .then((result) => result.valid);
-  }
-
-  prepareDeployment(revision: string): ReturnType<BuilderWorkspaceApi['prepareDeployment']> {
-    return this.#stub().then((stub) => stub.deploymentPlan(revision));
-  }
-
   async deleteProject(): Promise<void> {
     await (await this.#stub()).deleteProject();
     this.#state = null;
@@ -1039,21 +1025,15 @@ const BUSY_RETRY_INITIAL_DELAY_MS = 25;
 
 /**
  * Lane kinds worth waiting on, and for how long. `write` covers the batched file mutations above
- * and completes in milliseconds. `deployment` is a publication finishing up: a new turn cancels the
- * automatic one it would wait for, which then stops at its next step or, past the point where
- * stopping would leave production half changed, finishes its last API calls within a minute or so.
- * Every other kind — `exec`, `install`, `validate`, `seed`, `delete` — can legitimately hold the
+ * and completes in milliseconds. Every other kind — `exec`, `install`, `validate`, `seed`, `delete` — can legitimately hold the
  * lane for many minutes, so a caller that queued behind one would burn its whole window and still
  * fail. Those keep failing immediately, exactly as before.
  */
-const BUSY_RETRY_WAITS = new Map([
-  ['write', { windowMs: 10_000, maxDelayMs: 250 }],
-  ['deployment', { windowMs: 90_000, maxDelayMs: 2_000 }],
-]);
+const BUSY_RETRY_WAITS = new Map([['write', { windowMs: 10_000, maxDelayMs: 250 }]]);
 
 /**
- * The longest retry a busy error suggests. `retryAfterMs` is when the holder's lease lapses — 45
- * minutes for a deployment — which no holder that is still working takes; told that, the model
+ * The longest retry a busy error suggests. `retryAfterMs` is when the holder's lease lapses — up to
+ * 30 minutes for a validation — which no holder that is still working takes; told that, the model
  * would give up on the workspace instead of trying again shortly.
  */
 const BUSY_RETRY_HINT_MAX_MS = 60_000;

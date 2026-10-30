@@ -23,7 +23,6 @@ import {
 import {
   listAccessibleProjects,
   listGitHubInstallations,
-  listOwnProductionRequests,
   listScopeProjects,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -81,7 +80,7 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
         const admin = organization.members !== null;
         const connection = await findCloudflareConnectionForOrganization(env.DB, organization.orgId);
         const scope = connection ? { connectionId: connection.id, orgId: organization.orgId } : null;
-        const [github, projects, ownRequests] = await Promise.all([
+        const [github, projects] = await Promise.all([
           scope ? listGitHubInstallations(env.DB, scope.connectionId) : [],
           !scope
             ? []
@@ -90,7 +89,6 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
               : listAccessibleProjects(env.DB, scope.connectionId, session.user.id).then((accessible) =>
                   accessible.map((project) => ({ ...project, access: [] })),
                 ),
-          listOwnProductionRequests(env.DB, organization.orgId, session.user.id),
         ]);
         return {
           ...organization,
@@ -104,7 +102,6 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
             importRepoFullName: importSource?.fullName ?? null,
             access,
           })),
-          ownRequests,
         };
       }),
     );

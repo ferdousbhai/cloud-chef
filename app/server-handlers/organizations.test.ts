@@ -21,7 +21,6 @@ import {
   updateMemberAction,
 } from './organizations';
 import { completeEmailSignInAction, startEmailSignInAction } from './email-auth';
-import { listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
 import { sha256Hex } from '~/lib/hex-digest';
 
@@ -718,58 +717,6 @@ describe('organizations', () => {
     expect(await accepted.json()).toEqual(lapsed);
   });
 
-  it("declines a removed member's open production requests, and never offers one for approval", async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
-    const request = (id: string, status: string) =>
-      database
-        .prepare(
-          `INSERT INTO production_requests (id, org_id, requested_by, title, repo, commit_sha, status, created_at)
-           VALUES (?, ?, ?, 'Site', 'p-site', '${'c'.repeat(40)}', ?, 1)`,
-        )
-        .run(id, orgId, sam.userId, status);
-    request('11111111-1111-4111-8111-111111111111', 'pending');
-    request('22222222-2222-4222-8222-222222222222', 'approved');
-    expect(await listPendingProductionRequests(env.DB, orgId)).toHaveLength(1);
-
-    const removed = await updateMemberAction({
-      request: post(admin.cookie, '/api/organizations/member', { orgId, userId: sam.userId, action: 'remove' }),
-      env,
-      deleteWorkspace: async () => undefined,
-    });
-    expect(removed.status).toBe(200);
-
-    expect(
-      database.prepare('SELECT id, status, decided_by, decision_note, repo FROM production_requests').all(),
-    ).toEqual([
-      {
-        id: '11111111-1111-4111-8111-111111111111',
-        status: 'declined',
-        decided_by: admin.userId,
-        decision_note: 'They were removed from the team.',
-        repo: 'p-site',
-      },
-      {
-        id: '22222222-2222-4222-8222-222222222222',
-        status: 'approved',
-        decided_by: null,
-        decision_note: null,
-        repo: 'p-site',
-      },
-    ]);
-    // A request left open from someone no longer in the team (from before removal declined them) is
-    // not listed.
-    request('33333333-3333-4333-8333-333333333333', 'pending');
-    expect(await listPendingProductionRequests(env.DB, orgId)).toEqual([]);
-  });
-
   it("removes a member together with their grants or not at all, so none come back if they're invited again", async () => {
     const { database, env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
@@ -998,12 +945,6 @@ describe('a team’s name and deletion', () => {
       .run(sam.userId);
     database
       .prepare(
-        `INSERT INTO production_requests (id, org_id, requested_by, title, repo, status, created_at)
-         VALUES ('55555555-5555-4555-8555-555555555555', ?, ?, 'Draft', 'p-draft', 'pending', 1)`,
-      )
-      .run(orgId, sam.userId);
-    database
-      .prepare(
         `INSERT INTO user_computer_runtimes
            (user_id, connection_id, connection_generation, worker_name, endpoint, runtime_version, status,
             last_error, created_at, updated_at)
@@ -1039,7 +980,6 @@ describe('a team’s name and deletion', () => {
       'github_installations',
       'org_projects',
       'org_project_access',
-      'production_requests',
       'cloudflare_connections',
       'cloudflare_credentials',
       'user_computer_runtimes',

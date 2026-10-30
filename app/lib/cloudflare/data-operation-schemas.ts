@@ -8,7 +8,6 @@ const descriptionSchema = z.string().max(MAX_DESCRIPTION_LENGTH);
 const conversationIndexSchema = z.number().int().nonnegative().max(MAX_CONVERSATION_INDEX);
 const chatIdentityArgsSchema = z.object({ id: identifierSchema });
 const chatArgsSchema = z.object({ workspaceId: identifierSchema });
-const commitSchema = z.string().regex(/^[0-9a-f]{40}$/);
 /** A project by its chat (a CloudChef app, or the team project it works on) or by its team project id. */
 const projectTargetSchema = z.object({
   chatInitialId: identifierSchema.optional(),
@@ -24,9 +23,7 @@ export const dataOperationArgSchemas = {
   'messages.openLinkedChat': chatIdentityArgsSchema.extend({ orgProjectId: z.string().uuid() }),
   'messages.discardEmptyChat': chatIdentityArgsSchema,
   'messages.get': chatIdentityArgsSchema,
-  'messages.getAll': z.object({}),
   'messages.setDescription': chatIdentityArgsSchema.extend({ description: descriptionSchema }),
-  'messages.remove': chatIdentityArgsSchema,
   'subchats.get': chatArgsSchema,
   'subchats.create': chatArgsSchema,
   'subchats.setDescription': chatArgsSchema.extend({
@@ -40,7 +37,6 @@ export const dataOperationArgSchemas = {
     })
     .refine(oneProject, ONE_PROJECT),
   'projects.gitAddress': projectTargetSchema.refine(oneProject, ONE_PROJECT),
-  'projects.fork': projectTargetSchema.extend({ commit: commitSchema }).refine(oneProject, ONE_PROJECT),
   'projects.import': z.object({
     url: z.url({ protocol: /^https$/ }).max(2048),
     name: z.string().trim().min(1).max(100).optional(),

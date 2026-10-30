@@ -30,28 +30,6 @@ import {
 } from './builder-turn-state';
 import { chatTurnContextSchema, type ChatTurnContext } from 'cloudchef-agent/turn-context';
 import { getUserWorkersAiCredentials } from '~/lib/.server/cloudflare/workers-ai-billing-context';
-import {
-  buildCheckpointForBuilder,
-  deployValidatedRevisionForBuilder,
-  settleDeploymentForBuilder,
-  terminalizeInterruptedDeploymentForBuilder,
-  type BuilderDeploymentContext,
-  type BuilderDeploymentState,
-} from './builder-deployment-command';
-import { publicationProgress, type BuilderPublicationState } from './builder-publication-progress';
-import {
-  DeploymentConcurrencyLimitError,
-  findActiveProjectDeployment,
-  latestDeploymentActivity,
-} from '~/lib/.server/cloudflare/deployment-repository';
-import {
-  automaticDeploymentRetrySchema,
-  nextAutomaticDeploymentRetry,
-  PublicationSupersededError,
-  type AutomaticDeploymentRetry,
-  type DeploymentFailure,
-} from './builder-publication-retry';
-import { isRetryableDurableObjectError } from '~/lib/cloudflare/durable-object-rpc.server';
 import { generateModelTitle } from '~/lib/.server/llm/workers-ai-title';
 import { markWorkspaceStarted } from '~/lib/cloudflare/data/workspace-repository.server';
 import {
@@ -69,7 +47,6 @@ import {
   loadBuilderTranscriptBinding,
   linkWorkspaceToProject,
   loadConversationScope,
-  recordAppAdoption,
   requireBuilderRequestScope,
   requireBuilderTranscriptIdentity,
   type BuilderTranscriptBinding,
@@ -89,7 +66,6 @@ import {
 } from './conversation-agent-identity';
 import type {
   BuilderWorkspaceApi,
-  BuilderWorkspaceCheckpoint,
   WorkspaceApplyChangesRequest,
   WorkspaceSyncPageRequest,
 } from './builder-workspace-api';
@@ -102,12 +78,7 @@ import type {
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { commitBuilderTemplate } from './builder-template';
 import { WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
-import {
-  isExcludedProjectPath,
-  revertChanges,
-  seedLinkedWorkspace,
-  workspaceCommitFiles,
-} from './linked-project-workspace';
+import { isExcludedProjectPath, revertChanges, seedLinkedWorkspace } from './linked-project-workspace';
 import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
   linkedBuildSettledResult,
@@ -119,9 +90,7 @@ import {
   withLinkedBuildResult,
   type LinkedBuildWatch,
 } from './linked-project-build';
-import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import {
-  appAdoption,
   ensureProjectRepository,
   openProject,
   ProjectAccessError,
@@ -132,17 +101,12 @@ import {
   commitAuthor,
   nameChatProject,
   registerUploadedProject,
-  requestProductionReview,
-  type ProductionRequestOutcome,
 } from '~/lib/.server/cloudflare/linked-project-client';
 import {
   importedProjectRepo,
   MAIN_BRANCH,
-  nativeProjectRepo,
   ProjectRepositories,
   ProjectRepositoryError,
-  filesMatchTree,
-  type RepositoryFileInput,
 } from '~/lib/.server/cloudflare/project-repository';
 import { ZERO_OID } from '~/lib/.server/cloudflare/repository-wire';
 import { WORK_DIR } from 'cloudchef-agent/constants';
@@ -177,8 +141,7 @@ import type { BuilderValidationStage } from '~/lib/common/builder-validation-pro
 import { MAX_EPHEMERAL_CONTEXT_CHARACTERS, MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import { isRecord } from 'cloudchef-agent/utils/isRecord';
-import type { DeploymentExecution } from '~/server-handlers/deployments';
-import { toolSuccess, type CloudChefToolResult } from 'cloudchef-agent/tool-result';
+import type { CloudChefToolResult } from 'cloudchef-agent/tool-result';
 import { reviewDomainChange } from './cloudflare-domain-review';
 import {
   BuilderCloudflareExecutionRepository,
@@ -232,30 +195,6 @@ function refusedChange(status: number, message: string): CloudflareChangeAnswer 
   return { kind: 'answer', status, body: cloudflareApiErrorBody(message) };
 }
 
-/**
- * The tool-call identity every publication of one validated revision shares. Deployment and its
- * recovery resolve to the same deterministic deployment plan because they name the same checkpoint here.
- */
-function deploymentToolCallId(workspaceRevision: number, revision: string): string {
-  return `deploy-command:${workspaceRevision}:${revision}`;
-}
-
-const DEPLOYMENT_FIBER = 'background:builder_deployment';
-const DEPLOYMENT_INTERRUPTED_MESSAGE = 'Deployment was interrupted. Retry to reconcile the exact revision.';
-/**
- * How long a deployment of another revision holding the project's deployment slot must have shown no
- * sign of work before a deployment it refuses settles it. No fiber here runs it, but one started
- * through the runtime's deployment route runs outside this agent, and records each step it enters.
- */
-const BLOCKING_DEPLOYMENT_STALE_MS = 15 * 60_000;
-/** How long after a deployment fiber threw its record is settled, once that fiber has ended. */
-const DEPLOYMENT_RECORD_SETTLE_DELAY_SECONDS = 5;
-/**
- * How long a new turn waits for the automatic publication it stopped to let go of the workspace. A
- * publication stops at its next step, or finishes its last API calls once it has started changing
- * production; a turn change that still meets it waits a while longer in the runtime client.
- */
-const PUBLICATION_STOP_WAIT_MS = 30_000;
 const TITLE_GENERATION_FIBER = 'background:title_generation';
 const CLOUDFLARE_EXECUTION_FIBER = 'background:cloudflare_execution';
 const LINKED_BUILD_FIBER = 'background:linked_build';
@@ -264,56 +203,20 @@ const LINKED_BUILD_MISSING_GRACE_MS = 30_000;
 const LINKED_BUILD_LANDING_POLL_MS = 2_000;
 const TITLE_GENERATION_JOB_MAX_PROMPT_CHARACTERS = 4_000;
 /**
- * How often a running publication re-reads the step it last recorded. Publication steps take tens
- * of seconds each, so this is a heartbeat against one indexed row, not a poll for a result.
- */
-const PUBLICATION_ACTIVITY_INTERVAL_MS = 2_000;
-/**
  * How long a turn waits for a workspace upgrade to finish before it gives up with a message to send
  * again. An upgrade's window lapses five minutes after its last renewal, but one that keeps renewing it
  * must not hold a turn indefinitely.
  */
 const TURN_UPGRADE_WAIT_MS = 3 * 60_000;
 /**
- * How long a closed conversation waits for a publish to the repository already under way before it reports
- * that it has not settled: the commit call's own timeout (two minutes), and a little for what follows it.
+ * How long a closed conversation waits for an editor save already under way before it reports that it has not
+ * settled: a save is one compare-and-swap change set, well within this.
  */
-const LINKED_PUBLISH_SETTLE_MS = 2.5 * 60_000;
+const WORKSPACE_WRITES_SETTLE_MS = 2.5 * 60_000;
 const CLOSED_CONVERSATION_MESSAGE = 'A newer chat continues this project. Open the newest chat to keep working.';
 const DELETED_CONVERSATION_MESSAGE = 'This conversation was deleted.';
 
-/** Fiber metadata survives a Durable Object restart, so every job is re-parsed before it is resumed. */
-const deploymentJobSchema = z.object({
-  workspaceRevision: z.number().int().min(0),
-  revision: z.string().regex(/^[a-f0-9]{64}$/),
-}) satisfies z.ZodType<BuilderWorkspaceCheckpoint>;
-type DeploymentJob = z.infer<typeof deploymentJobSchema>;
-/** A deployment job's execution that threw, kept for settling exactly its record a few seconds later. */
-const deploymentRecordSettleSchema = deploymentJobSchema.extend({
-  deploymentId: z.string().min(1),
-  executionGeneration: z.number().int().min(0),
-}) satisfies z.ZodType<DeploymentJob & DeploymentExecution>;
-type DeploymentRecordSettle = z.infer<typeof deploymentRecordSettleSchema>;
-/** Kept beside the job in a deployment fiber's metadata: whether a turn started it, and how many retries preceded it. */
-const deploymentRunSchema = z.object({
-  automatic: z.boolean(),
-  attempt: z.number().int().min(0),
-});
-type DeploymentRun = z.infer<typeof deploymentRunSchema>;
 const revertRequestSchema = z.string().regex(/^[0-9a-f]{40}$/);
-
-/**
- * The publication commands, the agent's boundary with the deployment executor and the user's
- * account. The ConversationAgent harness replaces them, as it replaces the ProjectWorkspace.
- */
-const builderPublisher = {
-  deploy: deployValidatedRevisionForBuilder,
-  terminalize: terminalizeInterruptedDeploymentForBuilder,
-  settle: settleDeploymentForBuilder,
-};
-
-/** A publication this agent instance is running: a new turn stops the automatic ones and waits for them. */
-type RunningPublication = { automatic: boolean; controller: AbortController; settled: Promise<void> };
 
 /** Owner identifiers reach this Durable Object over RPC, so they are re-checked at every entry point. */
 const transcriptOwnerIdSchema = z.string().min(1).max(512);
@@ -420,53 +323,28 @@ export type ConversationAgentState = {
   /** Why the last turn failed, in words for the person; cleared when the next one starts. */
   turnError?: string | null;
   /**
-   * What became of changes commands left waiting in the chat, decided since the model last ran, and saves of the
-   * workspace to main CloudChef refused: told at its next turn.
+   * What became of changes commands left waiting in the chat, decided since the model last ran, and restores
+   * CloudChef refused because main moved elsewhere: told at its next turn.
    */
   untoldChanges?: string[];
   validationProgress?: {
     toolCallId: string;
     stage: BuilderValidationStage;
   } | null;
-  deployment?: BuilderDeploymentState | null;
-  /** The revision production last promoted, kept so a publication that never finished is redone. */
-  productionRevision?: string | null;
-  /** The address production serves at, as its last deployment recorded it: the app's one site. */
-  productionUrl?: string | null;
-  /**
-   * A turn changed this CloudChef app and production has not caught up yet. Set as the turn settles
-   * and cleared only once production serves the current revision, so a cancelled, failed, or
-   * restart-interrupted publication is redone at the next turn's end or the agent's next start.
-   */
-  publicationPending?: boolean;
-  /**
-   * Why the last turn's push to main did not go live: the workspace held changes main doesn't. Told to the
-   * model at its next turn, and cleared once a publication starts.
-   */
-  heldPublication?: string | null;
-  /**
-   * The revision whose automatic publication last failed. Waking the
-   * agent does not publish it again, since it would only fail the same way; the next turn's end does.
-   */
-  failedPublicationRevision?: string | null;
-  /** The step the running deployment last recorded, while it is running. */
-  publication?: BuilderPublicationState | null;
   /**
    * A turn is waiting for an upgrade of the workspace runtime to finish before it starts, for at most
    * a few minutes. The browser shows that the workspace is upgrading.
    */
   upgradeWaiting?: boolean;
   cloudflareExecutions?: CloudflareExecutionPublicState[];
-  /** The team project this workspace works on, once it's prepared; null for a CloudChef app. */
+  /** The project this workspace works on, once it's prepared. */
   linkedProject?: BuilderLinkedProjectSummary | null;
   linkedSite?: BuilderLinkedSite | null;
   /**
    * A newer conversation in the chat continues the project, so this one is kept to read: only the newest
-   * conversation changes the project. Also set for an app a team adopted as one of its projects.
+   * conversation changes the project.
    */
   conversationClosed?: boolean;
-  /** An admin approved this CloudChef app as a draft: it is the team's project now, changed only from there. */
-  conversationAdopted?: boolean;
 };
 
 /**
@@ -484,15 +362,6 @@ export type BuilderLinkedProjectSummary = {
  * made, else the live site; with whether it may be framed (null until CloudChef checked).
  */
 export type BuilderLinkedSite = { url: string; frameable: boolean | null; kind: 'live' | 'preview' };
-
-/**
- * What a conversation hands the newer one that continues its project: where production stands and
- * where it serves, and whether a publication is still owed. The newer conversation publishes from then on.
- */
-type BuilderPublicationHandover = Pick<
-  ConversationAgentState,
-  'deployment' | 'productionRevision' | 'productionUrl' | 'publicationPending' | 'failedPublicationRevision'
->;
 
 /** Durable transcript as the agent currently holds it, returned after a cancel or an explicit reload. */
 type BuilderTranscriptSnapshot = {
@@ -521,13 +390,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     turnModel: null,
     turnError: null,
     validationProgress: null,
-    deployment: null,
-    productionRevision: null,
-    productionUrl: null,
-    publicationPending: false,
-    heldPublication: null,
-    failedPublicationRevision: null,
-    publication: null,
     upgradeWaiting: false,
     cloudflareExecutions: [],
     linkedProject: null,
@@ -566,29 +428,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private readonly workspace: BuilderWorkspaceApi;
   private userId: string | null = null;
   private transcriptBinding: BuilderTranscriptBinding | null = null;
-  private readonly publisher = builderPublisher;
   /** The account's project repositories (Artifacts); the ConversationAgent harness replaces it with a fake. */
   private readonly repositories = (): ProjectRepositories => new ProjectRepositories(this.env.ARTIFACTS);
-  private readonly runningPublications = new Set<RunningPublication>();
-  /**
-   * Advanced each time a new turn stops the automatic publications. Automatic publication work notes
-   * it before it starts and gives up once it changed, so nothing a stopped publication had in flight
-   * (waiting to be admitted, or for its fiber to start) starts after the stop.
-   */
-  private publicationEpoch = 0;
-  /** Chat requests between stopping the automatic publications and recording their turn as active. */
+  /** Chat requests between their checks and recording their turn as active: a restore waits for none. */
   private startingTurns = 0;
-  /** Publishes to the project's repository under way: a closed conversation waits for them before the newer one starts. */
   /** Editor saves under way, from before their closed check: a closed conversation waits for them too. */
   private readonly runningSaves = new Set<Promise<BuilderWorkspaceApplyResult>>();
   /** The seed of a new workspace under way, which every caller needing the workspace seeded shares. */
   private workspaceSeed: Promise<BuilderWorkspaceState> | null = null;
   /** What the prompt says about the project, read once the workspace is the project's. */
   #projectFacts: ProjectFacts | null = null;
-  /** Set once the GC outbox deletes this project: nothing may start publishing it again. */
-  private destroying = false;
-  /** Set once a newer conversation took the project over from this one, which publishes from then on. */
-  private closed = false;
   /** Tells the control plane, through the runtime, when a redeploy would cut this agent's work off. */
   private readonly runtimeActivity: BuilderRuntimeActivity;
 
@@ -644,13 +493,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await this.chat.start();
       this.resumeTurn();
     }
-    // A publication a turn asked for may not have reached production before this instance stopped. Once a
-    // newer conversation took the project over, it is that one's to finish.
-    if (this.state.publicationPending && this.userId && !this.state.conversationClosed) {
-      this.ctx.waitUntil(
-        this.resumeUnfinishedPublication().catch(() => logger.warn('Unable to resume the unfinished publication')),
-      );
-    }
   }
 
   override onError(...args: [connection: Connection, cause: unknown] | [cause: unknown]): void {
@@ -684,14 +526,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
    */
   async scheduleDestroyForGc(ownerId: string): Promise<void> {
     await this.initializeGcIdentity(ownerId);
-    this.destroying = true;
-    for (const publication of this.runningPublications) {
-      publication.controller.abort(new Error('Project deletion'));
-    }
-    // Every background job that would publish or watch this project stops with it.
+    // Every background job that watches this project's builds stops with it.
     const live = await this.listFibers({ status: ['pending', 'running', 'interrupted'] }).catch(() => []);
     for (const fiber of live) {
-      if (fiber.name === DEPLOYMENT_FIBER || fiber.name === LINKED_BUILD_FIBER) {
+      if (fiber.name === LINKED_BUILD_FIBER) {
         await this.cancelFiber(fiber.fiberId, 'Project deletion').catch(() => undefined);
       }
     }
@@ -743,32 +581,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       });
       return { status: 'completed' };
     }
-    if (ctx.name === DEPLOYMENT_FIBER) {
-      const job = deploymentJobSchema.safeParse(ctx.metadata).data;
-      const run = deploymentRunSchema.safeParse(ctx.metadata).data;
-      if (!job || !run || !this.userId || !this.transcriptBinding) {
-        return { status: 'error', error: 'missing deployment recovery data' };
-      }
-      const error = new Error(DEPLOYMENT_INTERRUPTED_MESSAGE);
-      let terminalized: BuilderDeploymentState;
-      try {
-        terminalized = await this.runtimeActivity.run(() => this.retry(() => this.terminalizeDeployment(job)));
-      } catch {
-        logger.error('Unable to terminalize the interrupted deployment');
-        const pending = new Error('Interrupted deployment recovery is pending. Retry to continue.');
-        this.failDeployment(job, pending);
-        await this.scheduleAutomaticDeploymentRetry(job, run, { message: pending.message, retryable: false });
-        return { status: 'error', error: 'Interrupted deployment recovery did not settle safely.' };
-      }
-      if (terminalized.status === 'succeeded') {
-        // It finished in the user's account before this instance stopped: production serves it.
-        await this.recordDeploymentSucceeded(job, terminalized);
-        return { status: 'completed' };
-      }
-      this.failDeployment(job, error);
-      await this.scheduleAutomaticDeploymentRetry(job, run, { message: error.message, retryable: false });
-      return { status: 'error', error: error.message };
-    }
     if (ctx.name === LINKED_BUILD_FIBER) {
       const watch = linkedBuildWatchSchema.safeParse(ctx.metadata).data;
       if (!watch) {
@@ -812,9 +624,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await this.steerActiveTurn({ text, turnContext: parsed.data.turnContext });
       return { accepted: true };
     }
-    // A conversation a newer one took over is kept to read: only the newest one changes the project. So is an app
-    // a team adopted as one of its projects.
-    await this.learnAdoption();
+    // A conversation a newer one took over is kept to read: only the newest one changes the project.
     await this.refuseIfClosed();
     const { chatInitialId, conversationIndex, transcript, modelId, reasoningLevel } = requireBuilderRequestScope(
       parsed.data,
@@ -830,15 +640,11 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
     await this.settleChatCloudflareChanges();
     const siteNote = this.linkedSiteNote();
-    const mainNote = this.mainMovedTurnNote(chatInitialId);
-    // From the stop until the turn is recorded active, no automatic publication may start: this turn's end publishes.
+    const mainNote = this.mainMovedTurnNote();
+    // Until the turn is recorded active, a restore must not start: it would change the files this turn edits.
     this.startingTurns += 1;
     let turn: BuilderTurnState;
-    let started = false;
     try {
-      // The person is talking to the builder again: the publication of the last turn must not hold the workspace
-      // this turn edits. It publishes again, with this turn's changes, when this turn ends.
-      await this.stopAutomaticPublications();
       await markWorkspaceStarted(this.env.DB, {
         sessionId: durableIdentity.userId,
         workspaceId: chatInitialId,
@@ -846,30 +652,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       });
       turn = createBuilderTurn(parsed.data.requestId);
       this.setState({ ...this.state, activeTurn: turn, turnError: null });
-      started = true;
     } finally {
       this.startingTurns -= 1;
-      if (!started) {
-        // It stopped the automatic publications and failed before it began: nothing ends to publish them.
-        this.publishAfterInterruptedTurn();
-      }
-    }
-    const publicationFailure = this.publicationFailure();
-    if (this.state.heldPublication) {
-      // Said once: a later turn that pushed nothing to main has nothing held to be told about.
-      this.setState({ ...this.state, heldPublication: null });
     }
     const untoldChanges = this.state.untoldChanges ?? [];
     if (untoldChanges.length > 0) {
       this.setState({ ...this.state, untoldChanges: [] });
     }
-    const turnContext = withNotes(parsed.data.turnContext, [
-      publicationFailure &&
-        `CloudChef publication status: ${publicationFailure.slice(-MAX_PUBLICATION_FAILURE_CHARACTERS)}`,
-      await siteNote,
-      await mainNote,
-      ...untoldChanges,
-    ]);
+    const turnContext = withNotes(parsed.data.turnContext, [await siteNote, await mainNote, ...untoldChanges]);
     const shown = await this.chat.messages();
     const userMessages = shown.filter((message) => message.role === 'user').length + 1;
     console.info({ event: 'builder_chat_turn_started', firstUserMessage: userMessages === 1 });
@@ -894,7 +684,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       const { contentLogging } = await this.requireModelAccess();
       // The browser prepares the workspace before it sends, but nothing else seeds a new one.
       await this.initializeWorkspace(durableIdentity.transcript);
-      await this.nameGitRepository(chatInitialId);
+      await this.nameGitRepository();
       if (shouldGenerateConversationTitle(text, userMessages)) {
         await this.scheduleTitleGeneration(
           {
@@ -935,7 +725,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     } catch (error) {
       if (this.isActiveTurn(turn.id)) {
         this.finishTurn(turn, { status: 'error' });
-        this.publishAfterInterruptedTurn();
       }
       throw error;
     } finally {
@@ -1281,17 +1070,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       : providerFailureText(errorText);
   }
 
-  /** The turn's run settled: record how, and publish what it pushed. */
+  /**
+   * The turn's run settled: record how. What it pushed publishes on its own, from the project's repository (a push of
+   * main goes live, another branch makes a preview), followed by the build watch its command started.
+   */
   protected async endTurn(turn: BuilderTurnState, status: BuilderTurnStatus): Promise<void> {
     this.finishTurn(turn, { status });
-    const validatedSnapshot = await this.refreshDeploymentReadiness();
-    // A turn that pushed a CloudChef app's main, or one before it whose publication never reached production,
-    // publishes it however the turn ended: the deployment builds the exact revision (unless the model already
-    // validated it) and publishes it to production. A team project previews and deploys through Workers Builds,
-    // when the agent pushes or publishes to it.
-    if (this.state.publicationPending) {
-      await this.publishLatestRevision(validatedSnapshot);
-    }
   }
 
   /** A message the person sent while the turn runs: it joins the running work after the current round of tool calls. */
@@ -1396,10 +1180,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     }
     await this.piHarness.abort();
     await validationCancellation;
-    if (activeTurn) {
-      // Its end found no turn to finish, so nothing redid the publication it stopped.
-      this.publishAfterInterruptedTurn();
-    }
     return { stopped: activeTurn !== null };
   }
 
@@ -1418,22 +1198,21 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /**
-   * A newer conversation in this chat has taken the project over (this one is closed): stop the turn and
-   * the automatic publications running here, and return once nothing more can change the workspace, with
-   * what the newer conversation needs to go on publishing. Saves, steering, approvals and publishing are
-   * already refused here. A team project's build watch keeps running: it only reads the build's status and
-   * fills in this transcript's publish result.
+   * A newer conversation in this chat has taken the project over (this one is closed): stop the turn running
+   * here, and return once nothing more can change the workspace. Saves, steering and approvals are already
+   * refused here. A project's build watch keeps running: it only reads the build's status and fills in this
+   * transcript's push result.
    *
    * An internal Durable Object RPC, not `@callable`: the data API calls it when the new conversation starts.
    */
-  async settleForSuccessor(ownerId: string): Promise<BuilderPublicationHandover | null> {
+  async closeForSuccessor(ownerId: string): Promise<void> {
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
       throw new AgentRefusal('Invalid transcript owner', 400);
     }
     const identity = await this.hydrateDurableIdentity();
     if (!identity) {
-      // Never started, so nothing runs or was published here.
-      return null;
+      // Never started, so nothing runs here.
+      return;
     }
     if (identity.userId !== ownerId) {
       throw new AgentRefusal('Agent not found.', 404);
@@ -1441,64 +1220,26 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (!(await loadConversationScope(this.env.DB, { agentName: this.name, ownerId })).closed) {
       throw new AgentRefusal('This conversation is still the newest one.', 409);
     }
-    this.closed = true;
     if (!this.state.conversationClosed) {
       this.setState({ ...this.state, conversationClosed: true });
     }
     // The running turn stops, and pi-durable resolves the abort once nothing more runs.
     await this.cancelActiveTurn();
-    await this.stopAutomaticPublications();
-    // A publish whose commit was already on its way runs to the end whatever the Stop, and so does a save
-    // that found this conversation current: reported saved, it must be in the workspace before the newer
-    // conversation works on it.
-    if (!(await this.waitForWorkspaceWrites(LINKED_PUBLISH_SETTLE_MS))) {
+    // A save that found this conversation current runs to the end whatever the Stop: reported saved, it must be
+    // in the workspace before the newer conversation works on it.
+    if (!(await this.waitForWorkspaceWrites(WORKSPACE_WRITES_SETTLE_MS))) {
       throw new Error('The earlier conversation did not settle in time.');
     }
-    const handover: BuilderPublicationHandover = {
-      deployment:
-        this.state.deployment?.status === 'succeeded' || this.state.deployment?.status === 'failed'
-          ? this.state.deployment
-          : null,
-      productionRevision: this.state.productionRevision ?? null,
-      productionUrl: this.state.productionUrl ?? null,
-      publicationPending: this.state.publicationPending ?? false,
-      failedPublicationRevision: this.state.failedPublicationRevision ?? null,
-    };
-    // Owed by the newer conversation now: a restart here must not publish it again.
-    if (this.state.publicationPending) {
-      this.setState({ ...this.state, publicationPending: false });
-    }
-    return handover;
   }
 
-  /**
-   * Takes over the publication state `settleForSuccessor` handed over from the conversation this one
-   * continues, and publishes what that one still owed. A conversation that has publication state of its own
-   * keeps it.
-   *
-   * An internal Durable Object RPC, not `@callable`: the data API calls it when this conversation starts.
-   */
-  async continuePublication(ownerId: string, handover: BuilderPublicationHandover): Promise<void> {
-    await this.initializeIdentity({ userId: ownerId });
-    if (this.state.productionRevision || this.state.deployment || this.state.publicationPending) {
-      return;
-    }
-    this.setState({ ...this.state, ...handover });
-    if (handover.publicationPending) {
-      this.ctx.waitUntil(
-        this.resumeUnfinishedPublication().catch(() => logger.warn('Unable to resume the unfinished publication')),
-      );
-    }
-  }
-
-  /** Whether every publish to the repository and editor save under way settled within `timeoutMs`. */
+  /** Whether every editor save under way settled within `timeoutMs`. */
   private async waitForWorkspaceWrites(timeoutMs: number): Promise<boolean> {
     return settledWithin([...this.runningSaves], timeoutMs);
   }
 
   /**
    * A conversation a newer one took over is kept to read, and a deleted chat's agent lives on for a while,
-   * its turn too: nothing may change the project of either or publish it.
+   * its turn too: nothing may change the project of either.
    */
   private async refuseIfClosed(): Promise<void> {
     const closed = await this.closedConversationMessage();
@@ -1510,93 +1251,26 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   /** Why this conversation may no longer change its project, or null while it may. */
   private async closedConversationMessage(): Promise<string | null> {
     const ownerId = this.userId ?? (await this.requireDurableIdentity('closed_check')).userId;
-    const { closed, deleted, adoptedBy } = await loadConversationScope(this.env.DB, {
+    const { closed, deleted } = await loadConversationScope(this.env.DB, {
       agentName: this.name,
       ownerId,
     });
     if (deleted) {
       return DELETED_CONVERSATION_MESSAGE;
     }
-    if (adoptedBy) {
-      return ADOPTED_APP_MESSAGE;
-    }
     return closed ? CLOSED_CONVERSATION_MESSAGE : null;
-  }
-
-  /**
-   * In a team's account, asks CloudChef whether an admin has approved this CloudChef app as a draft: its repository
-   * is then the team project's, so its workspace is recorded as kept to read (`adopted_by_org_project_id`). Asked
-   * before anything here changes the app's repository or publishes it.
-   */
-  private async learnAdoption(): Promise<void> {
-    const identity = runtimeConnectionIdentity(this.env);
-    const transcript = this.transcriptBinding;
-    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity || !transcript || !this.userId) {
-      return;
-    }
-    const ownerId = this.userId;
-    const scope = await loadConversationScope(this.env.DB, { agentName: this.name, ownerId });
-    if (scope.orgProjectId || scope.adoptedBy || scope.deleted) {
-      return;
-    }
-    const orgProjectId = await appAdoption(this.env, identity, nativeProjectRepo(transcript.chatInitialId));
-    if (orgProjectId) {
-      await recordAppAdoption(this.env.DB, { agentName: this.name, ownerId, orgProjectId });
-    }
-  }
-
-  /**
-   * Asks the team's admins to make this draft a real project: the draft is committed to main of its own
-   * repository first, and approved, that repository becomes the project, which Workers Builds deploys.
-   */
-  @callable()
-  async requestProduction(input: { title: string; note: string }): Promise<{ outcome: ProductionRequestOutcome }> {
-    const durableIdentity = await this.requireDurableIdentity('request_production');
-    const identity = runtimeConnectionIdentity(this.env);
-    if (this.env.CLOUDCHEF_SHARED_ACCOUNT !== '1' || !identity) {
-      throw new Error("Only a team's drafts can be sent to become team projects.");
-    }
-    if (await this.workspace.linkedProject()) {
-      throw new Error("This is already one of the team's projects: ask the agent to publish it.");
-    }
-    // Sent again once approved, it would commit this workspace over what the team has done since.
-    await this.learnAdoption();
-    await this.refuseIfClosed();
-    const checkpoint = await this.workspace.checkpoint();
-    const title = input.title.trim().slice(0, 80);
-    if (!title) {
-      throw new Error('Name the app for your admin.');
-    }
-    const commit = await this.commitWorkspaceToHistory({
-      revision: checkpoint.revision,
-      message: `${title}\n\nCloudChef-Revision: ${checkpoint.revision}`,
-    });
-    if (!commit) {
-      throw new Error('The draft kept changing while it was being saved. Try again.');
-    }
-    // The chat is the draft: sent again from it, the request is replaced rather than repeated.
-    const { outcome } = await requestProductionReview(this.env, identity, {
-      draftId: durableIdentity.transcript.chatInitialId,
-      draftRevision: checkpoint.revision,
-      title,
-      note: input.note.trim().slice(0, 1_000),
-      previewUrl: this.state.productionUrl ?? this.state.deployment?.productionUrl ?? null,
-      repo: nativeProjectRepo(durableIdentity.transcript.chatInitialId),
-      commit: commit.hash,
-    });
-    return { outcome };
   }
 
   /**
    * Makes the workspace hold exactly the files of `commit` in the project's history, as one change set
    * through the same compare-and-swap path as an editor save: files the commit lacks are deleted, except
    * what no commit holds (installed and built output, local secrets, ignored files). Refused while a turn
-   * runs. A CloudChef app commits the result to main as a revert, then publishes it as after any turn; a
-   * team project's revert is published by the agent like any other change.
+   * runs, and while main has commits the workspace's files aren't based on, which restoring would silently
+   * undo. The restored files are published by the agent like any other change, by pushing them.
    */
   @callable()
   async revertToCommit(commit: string): Promise<BuilderWorkspaceApplyResult> {
-    const durableIdentity = await this.requireDurableIdentity('revert_to_commit');
+    await this.requireDurableIdentity('revert_to_commit');
     const parsed = revertRequestSchema.safeParse(commit);
     if (!parsed.success) {
       throw new AgentRefusal('Invalid commit.', 400);
@@ -1604,50 +1278,33 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (this.state.activeTurn || this.startingTurns > 0) {
       throw new AgentRefusal('Stop the agent before restoring a version.', 409);
     }
-    await this.learnAdoption();
     await this.refuseIfClosed();
     const linked = await this.workspace.linkedProject();
-    let repo = nativeProjectRepo(durableIdentity.transcript.chatInitialId);
-    if (linked) {
-      const identity = runtimeConnectionIdentity(this.env);
-      const project = identity ? await openProject(this.env, identity, linked.orgProjectId) : null;
-      if (!project?.repo || project.role !== 'edit') {
-        throw new AgentRefusal('You can view this project but not change it.', 403);
-      }
-      repo = project.repo;
-    } else {
-      // Refused before the files change: the revert's commit would undo what main took elsewhere.
-      await this.refuseIfMainMovedElsewhere(await this.repositories().head(repo));
+    const identity = runtimeConnectionIdentity(this.env);
+    const project = linked && identity ? await openProject(this.env, identity, linked.orgProjectId) : null;
+    if (!project?.repo || project.role !== 'edit') {
+      throw new AgentRefusal('You can view this project but not change it.', 403);
     }
+    const repo = project.repo;
+    // Refused before the files change: what main took elsewhere would be undone by the restore once it is pushed.
+    await this.refuseIfMainMovedElsewhere(await this.repositories().head(repo));
     const { files } = await this.repositories().readFilesAt(repo, parsed.data, (path) => !isExcludedProjectPath(path));
     const { baseRevision, changes } = await revertChanges(this.workspace, files);
     const result = await this.applyWorkspaceClientChanges({ baseRevision, changes });
     if (!result.ok) {
       throw new AgentRefusal('The project changed while this version was being restored. Try again.', 409);
     }
-    if (!linked && result.changedPaths.length > 0) {
-      const checkpoint = await this.workspace.checkpoint();
-      await this.commitWorkspaceToHistory({
-        revision: checkpoint.revision,
-        message: `Restore version ${parsed.data.slice(0, 7)}\n\nCloudChef-Revision: ${checkpoint.revision}`,
-      }).catch(() => logger.warn('Unable to commit the revert to the project history'));
-      this.setState({ ...this.state, publicationPending: true });
-      this.ctx.waitUntil(
-        this.publishLatestRevision(null).catch(() => logger.warn('Unable to publish the reverted revision')),
-      );
-    }
     return result;
   }
 
-  /** The team project this workspace works on, or null for a CloudChef app. */
+  /** The project this workspace works on, or null before it is prepared. */
   getLinkedProject(): Promise<BuilderWorkspaceLinkedProject | null> {
     return this.workspace.linkedProject();
   }
 
   /**
-   * Tells the browser whether this is a team project, so it never offers what only a CloudChef app has, and
-   * whether a newer conversation continues the project or a team adopted this app as one of its projects, so it
-   * offers nothing here that would change it.
+   * Tells the browser which project this workspace works on and its live site, and whether a newer conversation
+   * continues the project, so it offers nothing here that would change it.
    */
   private async publishWorkspaceSummary(): Promise<void> {
     const linked = await this.workspace.linkedProject();
@@ -1659,17 +1316,13 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (linked && this.state.linkedSite?.kind !== 'preview') {
       void this.showLiveSite(linked.orgProjectId);
     }
-    if (!linked) {
-      await this.learnAdoption().catch(() => logger.warn('Unable to ask whether a team adopted this app'));
-    }
     const scope =
       this.userId === null
         ? null
         : await loadConversationScope(this.env.DB, { agentName: this.name, ownerId: this.userId });
-    const adopted = scope?.adoptedBy != null;
-    const closed = scope !== null && (scope.closed || adopted);
-    if ((this.state.conversationClosed ?? false) !== closed || (this.state.conversationAdopted ?? false) !== adopted) {
-      this.setState({ ...this.state, conversationClosed: closed, conversationAdopted: adopted });
+    const closed = scope?.closed === true;
+    if ((this.state.conversationClosed ?? false) !== closed) {
+      this.setState({ ...this.state, conversationClosed: closed });
     }
   }
 
@@ -1736,7 +1389,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     // here would just move the wait rather than remove it. `warmContainer` never rejects.
     this.ctx.waitUntil(this.workspace.warmContainer());
     this.ctx.waitUntil(this.startUndeployedVersion());
-    await this.refreshDeploymentReadiness();
     return state;
   }
 
@@ -1788,38 +1440,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   private async applyClientChanges(request: WorkspaceApplyChangesRequest): Promise<BuilderWorkspaceApplyResult> {
     await this.refuseIfClosed();
-    const result = await this.workspace.applyClientChanges(request);
-    if (result.ok && result.changedPaths.length > 0) {
-      this.setState({
-        ...this.state,
-        deployment: null,
-      });
-    }
-    return result;
-  }
-
-  @callable()
-  async deployValidatedRevision(): Promise<BuilderDeploymentState> {
-    await this.requireDurableIdentity('deploy_validated_revision');
-    await this.learnAdoption();
-    await this.refuseIfClosed();
-    if (await this.workspace.linkedProject()) {
-      throw new Error('Ask the agent to publish this project.');
-    }
-    // The deployment builds the revision first when nothing has validated it yet.
-    const snapshot = await this.workspace.checkpoint();
-    const current = this.state.deployment;
-    const retry = current?.revision === snapshot.revision && current.status === 'failed';
-    if (retry) {
-      const settled = await this.terminalizeDeployment(snapshot);
-      if (settled.status === 'succeeded') {
-        // It finished in the user's account after all: production already serves it.
-        await this.recordDeploymentSucceeded(snapshot, settled);
-        return this.state.deployment ?? { ...settled, ...snapshot };
-      }
-    }
-    await this.scheduleDeployment(snapshot, { retry, run: { automatic: false, attempt: 0 } });
-    return this.state.deployment ?? { status: 'deploying', ...snapshot };
+    return this.workspace.applyClientChanges(request);
   }
 
   /**
@@ -2145,19 +1766,16 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /**
-   * Tells the workspace which repository git in its container reaches through the git proxy: a team
-   * project's, or this CloudChef app's own. Each turn, so a workspace seeded before the proxy existed learns it.
+   * Tells the workspace which repository git in its container reaches through the git proxy: its project's.
+   * Each turn, so a workspace seeded before the proxy existed learns it.
    */
-  private async nameGitRepository(chatInitialId: string): Promise<void> {
+  private async nameGitRepository(): Promise<void> {
     const linked = await this.workspace.linkedProject();
-    await this.workspace.setGitRepository(
-      linked
-        ? { repo: linked.repository, orgProjectId: linked.orgProjectId }
-        : { repo: nativeProjectRepo(chatInitialId), orgProjectId: null },
-    );
+    if (linked) {
+      await this.workspace.setGitRepository({ repo: linked.repository, orgProjectId: linked.orgProjectId });
+    }
   }
 
-  /** A team project's name and default branch, for the prompt; none for a CloudChef app. */
   /**
    * What the prompt says about the project: its name and main branch, and whether it is made from CloudChef's
    * starter (it has the starter's `cloudflare.project.json`), read once the workspace is the project's.
@@ -2183,58 +1801,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /**
-   * Whether this CloudChef app's workspace holds exactly what main of its repository does, as git would see
-   * it: a file main tracks counts whatever `.gitignore` says, and installed or built output never does.
-   */
-  private async workspaceMatchesMain(): Promise<boolean> {
-    const transcript = this.transcriptBinding;
-    const main = transcript
-      ? await this.repositories()
-          .readTreeAt(nativeProjectRepo(transcript.chatInitialId), MAIN_BRANCH)
-          .catch(() => null)
-      : null;
-    if (!main) {
-      return false;
-    }
-    const tracked = main.files.filter((file) => !isExcludedProjectPath(file.path));
-    const read = await workspaceCommitFiles(this.workspace, new Set(tracked.map((file) => file.path))).catch(
-      () => null,
-    );
-    return read !== null && (await filesMatchTree(read.files, tracked));
-  }
-
-  /**
-   * A CloudChef app's push to main: its turn publishes it when it ends, which the model is told, with what
-   * stops that while the workspace holds changes main doesn't.
-   */
-  private async appPushResult(): Promise<CloudChefToolResult | undefined> {
-    const pushes = await this.workspace.takeGitPushes();
-    if (!pushes.some((push) => push.ref === `refs/heads/${MAIN_BRANCH}` && push.newOid !== ZERO_OID)) {
-      return undefined;
-    }
-    // Owed from the moment main moved, in the agent's durable state: the turn's end publishes it, and so does
-    // an agent that restarted before it could. A team project publishes through Workers Builds instead.
-    if (!this.state.publicationPending) {
-      this.setState({ ...this.state, publicationPending: true });
-    }
-    return (await this.workspaceMatchesMain())
-      ? toolSuccess('Pushed to main: CloudChef publishes it to the live site when this turn ends.')
-      : toolSuccess(
-          "Pushed to main, but the workspace holds changes main doesn't (not committed, or committed but not " +
-            'pushed). Only what main holds goes live, and only once the workspace matches it: commit and push ' +
-            'them before the turn ends, or the live site stays as it is.',
-        );
-  }
-
-  /**
-   * What the command `toolCallId` pushed to a team project's repository, reported as a publish is: its
-   * default branch (it goes live) or else the last branch pushed (a preview), with its build followed in the
-   * background. Nothing for a CloudChef app's pushes, or a command that pushed no branch.
+   * What the command `toolCallId` pushed to the project's repository, reported as a publish is: its default
+   * branch (it goes live) or else the last branch pushed (a preview), with its build followed in the
+   * background. Nothing for a command that pushed no branch.
    */
   private async gitPushResult(toolCallId: string): Promise<CloudChefToolResult | undefined> {
     const linked = await this.workspace.linkedProject();
     if (!linked) {
-      return this.appPushResult();
+      return undefined;
     }
     const branches = (await this.workspace.takeGitPushes()).filter(
       (push) => push.ref.startsWith('refs/heads/') && push.newOid !== ZERO_OID,
@@ -2285,9 +1859,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const build = identity
       ? await watchLinkedBuild({
           poll: async () => {
-            // A call stopped after its commit shows as failed until its result lands: while the pipeline
-            // builds, it at least says what is in the repository.
-            await this.landLinkedBuildOutput(watch, linkedBuildStartedResult(watch), { onlyFailed: true });
             return linkedBuildStatus(
               await projectBuildStatus(this.env, identity, watch.orgProjectId, watch.sha),
               watch.live,
@@ -2333,16 +1904,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     }
   }
 
-  /** Puts `output` in place of a watched publish's output once no turn is running; whether it landed. */
-  private async landLinkedBuildOutput(
-    watch: LinkedBuildWatch,
-    output: CloudChefToolResult,
-    options: { onlyFailed?: boolean } = {},
-  ): Promise<boolean> {
+  /** Puts `output` in place of what a watched command pushed once no turn is running; whether it landed. */
+  private async landLinkedBuildOutput(watch: LinkedBuildWatch, output: CloudChefToolResult): Promise<boolean> {
     if (this.state.activeTurn) {
       return false;
     }
-    const messages = withLinkedBuildResult(await this.chat.messages(), watch.toolCallId, output, options);
+    const messages = withLinkedBuildResult(await this.chat.messages(), watch.toolCallId, output);
     if (!messages) {
       return false;
     }
@@ -2398,10 +1965,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
    * The commits main took since git in the workspace last fetched or pushed it, and who made them, for the turn's
    * context. Null when there are none, or they can't be learned quickly, so a turn never waits on it.
    */
-  private async mainMovedTurnNote(chatInitialId: string): Promise<string | null> {
+  private async mainMovedTurnNote(): Promise<string | null> {
     const note = (async () => {
       const [linked, known] = await Promise.all([this.workspace.linkedProject(), this.workspace.knownMain()]);
-      return mainMovedNote(this.repositories(), linked?.repository ?? nativeProjectRepo(chatInitialId), known);
+      return linked ? mainMovedNote(this.repositories(), linked.repository, known) : null;
     })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<null>((resolve) => {
@@ -2828,602 +2395,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     this.setState({ ...this.state, cloudflareExecutions });
   }
 
-  private async terminalizeDeployment(job: DeploymentJob): Promise<BuilderDeploymentState> {
-    return this.publisher.terminalize({
-      context: this.requireDeploymentContext(),
-      workspace: this.workspace,
-      toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
-      validatedRevision: job.revision,
-    });
-  }
-
   /**
-   * Publish the current revision of a CloudChef app unless production already serves it. Never while
-   * a turn runs: its end publishes, and a publication would hold the workspace the turn edits.
-   */
-  private async publishLatestRevision(
-    validated: BuilderWorkspaceCheckpoint | null,
-    options: { resume?: boolean; epoch?: number } = {},
-  ): Promise<void> {
-    const epoch = options.epoch ?? this.publicationEpoch;
-    if (this.automaticPublicationStopped(epoch)) {
-      return;
-    }
-    if (await this.workspace.linkedProject().catch(() => null)) {
-      // A team project publishes through Workers Builds: nothing here is waiting for production.
-      if (this.state.publicationPending) {
-        this.setState({ ...this.state, publicationPending: false });
-      }
-      return;
-    }
-    const snapshot = validated ?? (await this.workspace.checkpoint().catch(() => null));
-    if (!snapshot || this.automaticPublicationStopped(epoch)) {
-      return;
-    }
-    if (snapshot.revision === this.state.productionRevision) {
-      if (this.state.publicationPending) {
-        this.setState({ ...this.state, publicationPending: false });
-      }
-      return;
-    }
-    // Production serves main: a workspace holding changes main doesn't would put live what no version holds.
-    if (!(await this.workspaceMatchesMain())) {
-      this.setState({
-        ...this.state,
-        publicationPending: false,
-        heldPublication:
-          "main was pushed, but the workspace holds changes that main doesn't (not committed, or committed but " +
-          'not pushed), so nothing went live. Commit and push them to main to publish.',
-      });
-      return;
-    }
-    const failedBefore = this.state.failedPublicationRevision === snapshot.revision;
-    if (options.resume && failedBefore) {
-      // It failed to publish already and nothing has changed it since: the next turn's end tries again.
-      return;
-    }
-    if (!this.state.publicationPending || failedBefore || this.state.heldPublication) {
-      this.setState({
-        ...this.state,
-        publicationPending: true,
-        failedPublicationRevision: null,
-        heldPublication: null,
-      });
-    }
-    await this.scheduleAutomaticDeployment(snapshot, 0, epoch);
-  }
-
-  /**
-   * Whether automatic publication work noted at `epoch` must not start: the project is being deleted, a
-   * turn is running or starting (its end publishes), or a new turn stopped the automatic publications.
-   */
-  private automaticPublicationStopped(epoch: number): boolean {
-    return (
-      this.destroying ||
-      this.closed ||
-      Boolean(this.state.activeTurn) ||
-      this.startingTurns > 0 ||
-      epoch !== this.publicationEpoch
-    );
-  }
-
-  /** The automatic publication of `revision` failed: waking the agent does not try it again. */
-  private recordFailedPublication(revision: string): void {
-    if (this.state.failedPublicationRevision !== revision) {
-      this.setState({ ...this.state, failedPublicationRevision: revision });
-    }
-  }
-
-  /**
-   * A restarted agent finishes what a turn asked for: a publication interrupted before it reached
-   * production, or one whose fiber never started, runs again. One still running or awaiting its
-   * recovery hook finishes on its own.
-   */
-  private async resumeUnfinishedPublication(): Promise<void> {
-    // Noted before anything is awaited: a chat request that woke this instance stops it at once.
-    const epoch = this.publicationEpoch;
-    if (!this.state.publicationPending || this.automaticPublicationStopped(epoch)) {
-      return;
-    }
-    const live = await this.listFibers({
-      status: ['pending', 'running', 'interrupted'],
-    });
-    if (this.automaticPublicationStopped(epoch) || live.some((fiber) => fiber.name === DEPLOYMENT_FIBER)) {
-      return;
-    }
-    await this.refreshDeploymentReadiness();
-    await this.publishLatestRevision(null, { resume: true, epoch });
-  }
-
-  /**
-   * A turn ended without its end-of-turn hook publishing (a Stop, or a failure before it streamed): the
-   * publication it stopped when it began, or one still waiting for production, runs again now.
-   */
-  private publishAfterInterruptedTurn(): void {
-    const epoch = this.publicationEpoch;
-    if (!this.state.publicationPending || !this.userId || this.automaticPublicationStopped(epoch)) {
-      return;
-    }
-    this.ctx.waitUntil(
-      (async () => {
-        await this.refreshDeploymentReadiness();
-        await this.publishLatestRevision(null, { epoch });
-      })().catch(() => logger.warn('Unable to publish after the interrupted turn')),
-    );
-  }
-
-  /** Stop the automatic publications this instance is running, and give them a moment to let go of the workspace. */
-  private async stopAutomaticPublications(): Promise<void> {
-    this.publicationEpoch += 1;
-    const stopping = [...this.runningPublications].filter((publication) => publication.automatic);
-    if (stopping.length === 0) {
-      return;
-    }
-    for (const publication of stopping) {
-      publication.controller.abort(new PublicationSupersededError());
-    }
-    await settledWithin(
-      stopping.map((publication) => publication.settled),
-      PUBLICATION_STOP_WAIT_MS,
-    );
-  }
-
-  /**
-   * Run one publication where a new turn can stop it: its signal also aborts when the turn's stop does.
-   * It is registered before `run` starts, so a stop while it still waits to be admitted reaches it, and
-   * one already stopped (a new turn since `epoch`, or the project's deletion) starts aborted.
-   */
-  private async trackPublication(
-    automatic: boolean,
-    signal: AbortSignal | undefined,
-    run: (signal: AbortSignal) => Promise<void>,
-    epoch?: number,
-  ): Promise<void> {
-    const controller = new AbortController();
-    let settle: () => void = () => undefined;
-    const publication: RunningPublication = {
-      automatic,
-      controller,
-      settled: new Promise<void>((resolve) => {
-        settle = resolve;
-      }),
-    };
-    this.runningPublications.add(publication);
-    if (this.destroying) {
-      controller.abort(new Error('Project deletion'));
-    } else if (automatic && epoch !== undefined && this.automaticPublicationStopped(epoch)) {
-      controller.abort(new PublicationSupersededError());
-    }
-    try {
-      await run(signal ? AbortSignal.any([signal, controller.signal]) : controller.signal);
-    } finally {
-      this.runningPublications.delete(publication);
-      settle();
-    }
-  }
-
-  /**
-   * Production follows the turn that asked for it, unless a newer turn is running or production already
-   * serves it. A failed deployment of the same revision is redone, once its record in the user's
-   * account is settled.
-   */
-  private async scheduleAutomaticDeployment(
-    job: DeploymentJob,
-    attempt = 0,
-    epoch = this.publicationEpoch,
-  ): Promise<void> {
-    if (this.automaticPublicationStopped(epoch)) {
-      return;
-    }
-    if (job.revision === this.state.productionRevision) {
-      // Nothing will deploy it again, so nothing else would record the publication done.
-      await this.recordProductionRevision(job.revision);
-      return;
-    }
-    let retry = attempt > 0;
-    const run: DeploymentRun = { automatic: true, attempt };
-    const current = this.state.deployment;
-    if (current?.revision === job.revision && current.status === 'failed') {
-      // Counted busy, and retried, as an interrupted deployment's recovery settles its record.
-      const settled = await this.runtimeActivity
-        .run(() => this.retry(() => this.terminalizeDeployment(job)))
-        .catch(() => {
-          logger.warn('Unable to terminalize the failed deployment');
-          return null;
-        });
-      if (this.automaticPublicationStopped(epoch)) {
-        return;
-      }
-      if (!settled || settled.status === 'deploying') {
-        // Its record is not settled yet (or could not be read): it is asked again later, as a deployment
-        // that failed for a reason that passes, and a wake leaves it for that retry or the next turn.
-        this.recordFailedPublication(job.revision);
-        await this.scheduleAutomaticDeploymentRetry(job, run, {
-          message: 'Interrupted deployment recovery is pending.',
-          retryable: true,
-        });
-        return;
-      }
-      if (settled.status === 'succeeded') {
-        await this.recordDeploymentSucceeded(job, settled);
-        return;
-      }
-      // Something else started deploying this revision, or settled it, while the record was read.
-      const now = this.state.deployment;
-      if (now?.revision === job.revision && now.status !== 'failed') {
-        return;
-      }
-      retry = true;
-    }
-    await this.scheduleDeployment(job, { retry, run, epoch }).catch(() =>
-      logger.warn('Unable to queue the automatic deployment'),
-    );
-  }
-
-  /**
-   * Start the deployment fiber for `job`. An automatic one (`epoch` set) gives up, without a word, when a
-   * new turn stopped the automatic publications meanwhile; any refuses once the project is being deleted.
-   */
-  private async scheduleDeployment(
-    job: DeploymentJob,
-    options: { retry?: boolean; run: DeploymentRun; epoch?: number },
-  ): Promise<void> {
-    const { run, epoch } = options;
-    // A retry redoes a deployment that failed, so only another one deploying it now stops it.
-    const inFlight = () => {
-      const current = this.state.deployment;
-      return (
-        current?.revision === job.revision &&
-        (options.retry ? current.status === 'deploying' : current.status !== 'ready')
-      );
-    };
-    const refused = () => {
-      if (this.destroying) {
-        throw new AgentRefusal('This project is being deleted.', 409);
-      }
-      return inFlight() || (epoch !== undefined && this.automaticPublicationStopped(epoch));
-    };
-    if (refused()) {
-      return;
-    }
-    await this.runtimeActivity.admit();
-    // Admission can wait out an upgrade: whatever changed meanwhile decides again. A retry also stops
-    // for a fiber still deploying the revision, which a failure recorded meanwhile may hide; one started
-    // while that is read shows as deploying by the time it answers.
-    if (refused() || (options.retry && (await this.deploymentFibersRunning(job.revision)) > 0) || refused()) {
-      return;
-    }
-    this.setState({
-      ...this.state,
-      deployment: { status: 'deploying', ...job },
-    });
-    try {
-      // No per-revision fiber key: it would hand back a settled fiber without running it.
-      await this.startFiber(
-        DEPLOYMENT_FIBER,
-        async (fiber) => {
-          await this.trackPublication(
-            run.automatic,
-            fiber.signal,
-            async (signal) => {
-              // The execution it ran last, the one whose record a throw may leave holding the project.
-              let execution: DeploymentExecution | undefined;
-              try {
-                // Counted busy while it runs, whatever later rewrites the deployment record. A stop while
-                // it still waits for an upgrade window calls it off before it starts.
-                // A deployment that fails throws: the executor never returns a failed one.
-                await this.runtimeActivity.run(
-                  () =>
-                    this.runDeployment(job, signal, (running) => {
-                      execution = running;
-                    }),
-                  { signal },
-                );
-              } catch (error) {
-                if (execution) {
-                  await this.scheduleDeploymentRecordSettle({ ...job, ...execution });
-                }
-                if (signal.aborted && error === signal.reason) {
-                  // Stopped before it changed production: not a failure, and the latest revision
-                  // publishes when the turn that stopped it ends. One stopped past that point fails
-                  // with its own error, and is a failure like any other.
-                  this.setDeploymentResult(job, null);
-                  return;
-                }
-                this.failDeployment(job, error);
-                if (run.automatic) {
-                  this.recordFailedPublication(job.revision);
-                }
-                await this.scheduleAutomaticDeploymentRetry(job, run, {
-                  message: deploymentErrorMessage(error),
-                  retryable: isRetryableDurableObjectError(error),
-                });
-                throw error;
-              }
-            },
-            epoch,
-          );
-        },
-        { metadata: { ...job, ...run } },
-      );
-    } catch (error) {
-      this.failDeployment(job, error);
-      throw error;
-    }
-  }
-
-  /** Retry an automatic deployment that failed for a reason that may pass, with backoff. */
-  private async scheduleAutomaticDeploymentRetry(
-    job: DeploymentJob,
-    run: DeploymentRun,
-    failure: DeploymentFailure,
-  ): Promise<void> {
-    const next =
-      run.automatic && !this.destroying
-        ? nextAutomaticDeploymentRetry({ ...job, attempt: run.attempt }, failure)
-        : null;
-    if (!next) {
-      return;
-    }
-    await this.schedule(next.delaySeconds, 'retryAutomaticDeployment', next.retry, { idempotent: true }).catch(() =>
-      logger.warn('Unable to schedule the automatic deployment retry'),
-    );
-  }
-
-  /**
-   * A scheduled retry of an automatic deployment. It runs only while the failed revision is still the
-   * one to publish and nothing else is publishing it; a turn running now publishes when it ends.
-   */
-  async retryAutomaticDeployment(payload: AutomaticDeploymentRetry): Promise<void> {
-    const retry = automaticDeploymentRetrySchema.safeParse(payload).data;
-    if (!retry) {
-      return;
-    }
-    await this.hydrateDurableIdentity();
-    if (!this.userId || !this.transcriptBinding || !this.state.publicationPending) {
-      return;
-    }
-    const job: DeploymentJob = { workspaceRevision: retry.workspaceRevision, revision: retry.revision };
-    const snapshot = await this.workspace.checkpoint().catch(() => null);
-    const current = this.state.deployment;
-    if (
-      snapshot?.revision !== job.revision ||
-      snapshot.workspaceRevision !== job.workspaceRevision ||
-      (current?.revision === job.revision && current.status === 'deploying') ||
-      (await this.workspace.linkedProject().catch(() => null))
-    ) {
-      return;
-    }
-    await this.scheduleAutomaticDeployment(job, retry.attempt);
-  }
-
-  /**
-   * A deployment that threw may leave its record holding the project's deployment slot: one promoted
-   * whose success write didn't land stays deploying, a claim whose acknowledgement was lost may have
-   * committed, and a failure write may not have landed. Only a deployment of the same revision settles
-   * it otherwise, so once this fiber has ended its record is settled whatever revision the project has
-   * moved on to: the execution that threw, never a later one of the record.
-   */
-  private async scheduleDeploymentRecordSettle(record: DeploymentRecordSettle): Promise<void> {
-    if (this.destroying) {
-      return;
-    }
-    await this.schedule(DEPLOYMENT_RECORD_SETTLE_DELAY_SECONDS, 'settleDeploymentRecord', record, {
-      idempotent: true,
-    }).catch(() => logger.warn('Unable to schedule settling the deployment record'));
-  }
-
-  /**
-   * Settles the execution a deployment fiber that threw left holding its record, unless a deployment of
-   * its revision runs again.
-   */
-  async settleDeploymentRecord(payload: DeploymentRecordSettle): Promise<void> {
-    const record = deploymentRecordSettleSchema.safeParse(payload).data;
-    if (!record) {
-      return;
-    }
-    await this.hydrateDurableIdentity();
-    const context = this.deploymentContext();
-    if (!context || this.destroying) {
-      return;
-    }
-    const { deploymentId, executionGeneration, ...job } = record;
-    const settle = () =>
-      this.publisher.settle({
-        context,
-        deploymentId,
-        executionGeneration,
-      });
-    // Admission can wait out an upgrade window, or D1 being unavailable: a deployment of the revision
-    // started meanwhile runs on.
-    const settled = await this.runtimeActivity
-      .run(async () => ((await this.deploymentFibersRunning(job.revision)) > 0 ? null : this.retry(settle)))
-      .catch(() => {
-        logger.warn('Unable to settle the deployment record');
-        return null;
-      });
-    if (settled?.settled && settled.deployment.status === 'succeeded') {
-      // Production serves it: it was promoted before its success could be recorded. A record found
-      // succeeded was settled by a later execution, which a later deployment may have replaced since.
-      await this.recordDeploymentSucceeded(job, settled.deployment);
-    }
-  }
-
-  /**
-   * Settle the deployment record holding the project's deployment slot, which refused the record
-   * `deploymentId` of `job`, when nothing is running it: no other fiber here deploys its revision, and
-   * it has shown no sign of work for a while. It may be of `job`'s own revision, planned under the id it
-   * had before. It settles as an interrupted one does, as succeeded when production serves it.
-   * Answers null when the slot is still held; otherwise `serves`, the record it settled as succeeded
-   * when that is `job`'s own revision, which production then already serves, or null when the refused
-   * deployment is worth trying again.
-   */
-  private async settleBlockingDeployment(
-    job: DeploymentJob,
-    deploymentId: string | null,
-  ): Promise<{ serves: BuilderDeploymentState | null } | null> {
-    const context = this.deploymentContext();
-    if (!context) {
-      return null;
-    }
-    const blocking = await findActiveProjectDeployment(this.env.DB, {
-      userId: context.userId,
-      projectId: this.workspace.projectId,
-    });
-    if (
-      !blocking ||
-      blocking.id === deploymentId ||
-      Date.now() - blocking.lastActiveAt < BLOCKING_DEPLOYMENT_STALE_MS ||
-      // This deployment's own fiber deploys `job`'s revision, under another record.
-      (await this.deploymentFibersRunning(blocking.revision)) > (blocking.revision === job.revision ? 1 : 0)
-    ) {
-      return null;
-    }
-    const blockingJob: DeploymentJob = { workspaceRevision: blocking.workspaceRevision, revision: blocking.revision };
-    // Only the execution seen holding the slot: one started since is left to run.
-    const settled = await this.publisher.settle({
-      context,
-      deploymentId: blocking.id,
-      executionGeneration: blocking.executionGeneration,
-    });
-    if (settled.settled && settled.deployment.status === 'succeeded') {
-      if (blocking.revision === job.revision) {
-        return { serves: settled.deployment };
-      }
-      await this.recordDeploymentSucceeded(blockingJob, settled.deployment);
-    }
-    return settled.deployment.status === 'succeeded' || settled.deployment.status === 'failed'
-      ? { serves: null }
-      : null;
-  }
-
-  /** Interrupted fibers count: their recovery hook, not the readiness check, settles them. */
-  private async deploymentFibersRunning(revision: string): Promise<number> {
-    const live = await this.listFibers({ name: DEPLOYMENT_FIBER, status: ['pending', 'running', 'interrupted'] });
-    return live.filter((fiber) => deploymentJobSchema.safeParse(fiber.metadata).data?.revision === revision).length;
-  }
-
-  private async runDeployment(
-    job: DeploymentJob,
-    abortSignal: AbortSignal,
-    onExecution: (execution: DeploymentExecution) => void,
-  ): Promise<BuilderDeploymentState> {
-    const context = this.requireDeploymentContext();
-    const startedAt = Date.now();
-    // Validation changes nothing in production: however a stop cuts it short, it is a stop.
-    await this.buildCheckpoint(
-      job,
-      `${deploymentToolCallId(job.workspaceRevision, job.revision)}:validation`,
-      abortSignal,
-    ).catch((error) => {
-      throw abortSignal.aborted ? abortSignal.reason : error;
-    });
-    let planned: string | null = null;
-    const deploy = () =>
-      this.withPublicationActivity((onPlanned) =>
-        this.keepAliveWhile(() =>
-          this.publisher.deploy({
-            context,
-            workspace: this.workspace,
-            toolCallId: deploymentToolCallId(job.workspaceRevision, job.revision),
-            validatedRevision: job.revision,
-            onPlanned: (deploymentId) => {
-              planned = deploymentId;
-              onPlanned(deploymentId);
-            },
-            onExecution,
-            abortSignal,
-          }),
-        ),
-      );
-    const deployment = await deploy().catch(async (error) => {
-      // Another record holds the project: another revision's, or this one's under an earlier plan's id.
-      // One nothing runs any more would refuse every deployment for good, since only a deployment of
-      // its own revision and id settles it otherwise.
-      const settled =
-        error instanceof DeploymentConcurrencyLimitError
-          ? await this.settleBlockingDeployment(job, planned).catch(() => null)
-          : null;
-      if (!settled) {
-        throw error;
-      }
-      // This revision's record under an earlier plan was promoted: production already serves it.
-      return settled.serves ?? deploy();
-    });
-    const revisionBoundDeployment = { ...deployment, ...job };
-    if (deployment.status === 'succeeded') {
-      await this.recordDeploymentSucceeded(job, deployment);
-    } else {
-      this.setDeploymentResult(job, revisionBoundDeployment);
-    }
-    console.info({
-      event: 'builder_deployment_settled',
-      status: revisionBoundDeployment.status,
-      durationMs: Date.now() - startedAt,
-    });
-    return revisionBoundDeployment;
-  }
-
-  /** The deployment of `job` succeeded, as it ran or as its record in the user's account says. */
-  private async recordDeploymentSucceeded(job: DeploymentJob, deployment: BuilderDeploymentState): Promise<void> {
-    await this.recordProductionRevision(job.revision, { ...deployment, ...job });
-  }
-
-  /**
-   * Commits the workspace to main of this app's own repository, while it holds `revision`: the commit, or
-   * null when the workspace has moved on (or moved while it was read). A tree main already has is not
-   * committed again: main's head is the answer, `unchanged`.
-   */
-  private async commitWorkspaceToHistory(args: {
-    revision: string;
-    message: string;
-  }): Promise<{ hash: string; unchanged: boolean } | null> {
-    const transcript = this.transcriptBinding;
-    if (!transcript) {
-      throw new AgentRefusal('Agent authentication is required.', 401);
-    }
-    const checkpoint = await this.workspace.checkpoint();
-    if (checkpoint.revision !== args.revision) {
-      return null;
-    }
-    const repositories = this.repositories();
-    const repo = nativeProjectRepo(transcript.chatInitialId);
-    // What main holds that the workspace can't: files it tracks stay saved whatever `.gitignore` says, and its
-    // symbolic links and submodules, which no workspace holds, go on as they are.
-    const main = (await repositories.head(repo)) ? await repositories.readTreeAt(repo, MAIN_BRANCH) : null;
-    const tracked = new Set(main?.files.map((file) => file.path) ?? []);
-    const links: RepositoryFileInput[] = (main?.files ?? [])
-      .filter((file) => file.mode === '120000' || file.mode === '160000')
-      .map((file) => ({ path: file.path, mode: Number.parseInt(file.mode, 8), oid: file.oid }));
-    const read = await workspaceCommitFiles(this.workspace, tracked);
-    if (!read || read.targetRevision !== checkpoint.workspaceRevision) {
-      return null;
-    }
-    const author = await commitAuthor(this.env);
-    // Two commits can race for main (a publish's and a production request's): the loser goes again on top.
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const parent = await repositories.head(repo);
-      await this.refuseIfMainMovedElsewhere(parent);
-      const result = await repositories.commitFiles({
-        repo,
-        branch: MAIN_BRANCH,
-        parent,
-        files: [...read.files, ...links],
-        message: args.message,
-        author,
-      });
-      if ('commit' in result) {
-        await this.workspace.setMainFetched(result.commit);
-        return { hash: result.commit, unchanged: result.unchanged === true };
-      }
-    }
-    throw new Error('main of the project repository kept moving.');
-  }
-
-  /**
-   * Refuses saving the workspace over main (at `head`, null before main exists) when main took commits the
-   * workspace's files aren't based on, pushed from the person's computer or another chat: committing the files on
-   * top would silently undo them. The model is told at its next turn.
+   * Refuses restoring a version over main (at `head`, null before main exists) when main took commits the
+   * workspace's files aren't based on, pushed from the person's computer or another chat: the restored files,
+   * pushed, would silently undo them. The model is told at its next turn.
    */
   private async refuseIfMainMovedElsewhere(head: string | null): Promise<void> {
     const known = head === null ? null : await this.workspace.knownMain();
@@ -3441,176 +2416,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       ...this.state,
       untoldChanges: [
         ...(this.state.untoldChanges ?? []),
-        `CloudChef refused to save the workspace to main (to restore a version, or for a production request): ${why} ` +
-          '`git pull` brings it up to date.',
+        `CloudChef refused to restore an earlier version: ${why} ` + '`git pull` brings it up to date.',
       ],
     });
     throw new AgentRefusal(known === null ? MAIN_BASE_UNKNOWN : MAIN_MOVED_ELSEWHERE, 409);
-  }
-
-  /** Who a publication runs for and the chat it records, once this agent knows its identity. */
-  private deploymentContext(): BuilderDeploymentContext | null {
-    return this.userId && this.transcriptBinding
-      ? { env: this.env, userId: this.userId, chatInitialId: this.transcriptBinding.chatInitialId }
-      : null;
-  }
-
-  private requireDeploymentContext(): BuilderDeploymentContext {
-    const context = this.deploymentContext();
-    if (!context) {
-      throw new AgentRefusal('Agent authentication is required.', 401);
-    }
-    return context;
-  }
-
-  /**
-   * Production serves this revision now; the publication a turn asked for is done once it is the current one.
-   * The deployment that put it there, if given, is recorded in the same write, so no stop falls between them.
-   */
-  private async recordProductionRevision(revision: string, deployment?: BuilderDeploymentState): Promise<void> {
-    const current = await this.workspace.checkpoint().catch(() => null);
-    const recordsDeployment = deployment !== undefined && this.state.deployment?.revision === revision;
-    this.setState({
-      ...this.state,
-      deployment: recordsDeployment ? deployment : this.state.deployment,
-      productionRevision: revision,
-      productionUrl: deployment?.productionUrl ?? this.state.productionUrl ?? null,
-      publicationPending: current?.revision === revision ? false : this.state.publicationPending,
-    });
-  }
-
-  private failDeployment(job: DeploymentJob, error: unknown): void {
-    this.setDeploymentResult(job, { status: 'failed', ...job, error: deploymentErrorMessage(error) });
-  }
-
-  private setDeploymentResult(job: DeploymentJob, deployment: BuilderDeploymentState | null): void {
-    if (this.state.deployment?.revision !== job.revision) {
-      return;
-    }
-    this.setState({ ...this.state, deployment });
-  }
-
-  /**
-   * The last automatic deployment failure of a CloudChef app, or the warning a succeeded deployment
-   * carries for a step after it went live, for the model to act on.
-   */
-  private publicationFailure(): string | null {
-    if (this.state.heldPublication) {
-      return this.state.heldPublication;
-    }
-    const deployment = this.state.deployment;
-    if (deployment?.status === 'failed' && deployment.error) {
-      return `the production deployment of the latest changes failed. ${deployment.error}`;
-    }
-    if (deployment?.status === 'succeeded' && deployment.error) {
-      return `the production deployment of the latest changes went live. ${deployment.error}`;
-    }
-    return null;
-  }
-
-  /** Builds the exact checkpoint a deployment was asked for, showing the build's stages while it runs. */
-  private async buildCheckpoint(
-    snapshot: BuilderWorkspaceCheckpoint,
-    toolCallId: string,
-    abortSignal?: AbortSignal,
-  ): Promise<BuilderWorkspaceCheckpoint> {
-    const needsBuild = !(await this.workspace.hasSuccessfulValidation(snapshot.revision));
-    if (needsBuild) {
-      this.setValidationProgress(toolCallId, 'computer validation');
-    }
-    try {
-      return await this.keepAliveWhile(() =>
-        buildCheckpointForBuilder({
-          workspace: this.workspace,
-          requestedSnapshot: { workspaceRevision: snapshot.workspaceRevision, revision: snapshot.revision },
-          toolCallId,
-          onStage: (stage) => this.setValidationProgress(toolCallId, stage),
-          abortSignal,
-        }),
-      );
-    } finally {
-      if (needsBuild) {
-        this.setValidationProgress(toolCallId, null);
-      }
-    }
-  }
-
-  private async refreshDeploymentReadiness(): Promise<BuilderWorkspaceCheckpoint | null> {
-    // A team project deploys through Workers Builds: CloudChef's deployment record stays empty.
-    if (await this.workspace.linkedProject().catch(() => null)) {
-      if (this.state.deployment) {
-        this.setState({ ...this.state, deployment: null });
-      }
-      return null;
-    }
-    const snapshot = await this.workspace.checkpoint().catch(() => undefined);
-    const validated =
-      snapshot && (await this.workspace.hasSuccessfulValidation(snapshot.revision).catch(() => undefined));
-    if (!snapshot || validated === undefined) {
-      // An unreadable workspace says nothing about the deployment, so keep the recorded one.
-      logger.warn('Unable to refresh deployment readiness');
-      return null;
-    }
-    const currentDeployment = this.state.deployment;
-    // A deployment of the current revision is kept even before its build has finished.
-    let deployment =
-      currentDeployment?.revision === snapshot.revision
-        ? currentDeployment
-        : validated
-          ? { status: 'ready' as const, ...snapshot }
-          : null;
-    // A deploying record with no fiber working on its revision is orphaned: nothing would ever settle it.
-    if (deployment?.status === 'deploying' && (await this.deploymentFibersRunning(snapshot.revision)) === 0) {
-      deployment = { ...deployment, status: 'failed', error: DEPLOYMENT_INTERRUPTED_MESSAGE };
-    }
-    this.setState({
-      ...this.state,
-      deployment,
-    });
-    return validated ? snapshot : null;
-  }
-
-  /**
-   * Publishing takes minutes of Cloudflare work the user cannot see. Both the deployment executor
-   * and the workspace runtime record each step they enter as durable activity, so following those
-   * rows while the publication runs turns the wait into the list of things actually happening.
-   * The read is one indexed row per interval — a heartbeat, not a busy loop — and it always stops
-   * with the publication that started it.
-   */
-  private async withPublicationActivity<T>(run: (onPlanned: (deploymentId: string) => void) => Promise<T>): Promise<T> {
-    let deploymentId: string | null = null;
-    let running = true;
-    let stopFollowing: () => void = () => undefined;
-    const stopped = new Promise<void>((resolve) => {
-      stopFollowing = resolve;
-    });
-    const follow = async () => {
-      while (running) {
-        await Promise.race([scheduler.wait(PUBLICATION_ACTIVITY_INTERVAL_MS), stopped]);
-        const id = deploymentId;
-        if (!running || !id) {
-          continue;
-        }
-        const latest = await latestDeploymentActivity(this.env.DB, id).catch(() => null);
-        const progress = latest ? publicationProgress(latest) : null;
-        if (running && progress && progress.updatedAt !== this.state.publication?.updatedAt) {
-          this.setState({ ...this.state, publication: progress });
-        }
-      }
-    };
-    const followed = follow();
-    try {
-      return await run((id) => {
-        deploymentId = id;
-      });
-    } finally {
-      running = false;
-      stopFollowing();
-      await followed.catch(() => undefined);
-      if (this.state.publication) {
-        this.setState({ ...this.state, publication: null });
-      }
-    }
   }
 
   private setValidationProgress(toolCallId: string, stage: BuilderValidationStage | null): void {
@@ -3634,21 +2443,19 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 }
 
-const MAX_PUBLICATION_FAILURE_CHARACTERS = 4_000;
-
-/** Why the workspace can't be saved over main that moved elsewhere, in words for the person. */
+/** Why a version can't be restored over main that moved elsewhere, in words for the person. */
 const MAIN_MOVED_ELSEWHERE =
   'This project changed somewhere else since your copy was last updated, from your computer or another chat. ' +
   'Ask CloudChef to bring in the latest changes, then try again.';
-/** Why the workspace can't be saved over main when what its files are based on isn't known, in words for the person. */
+/** Why a version can't be restored when what the workspace's files are based on isn't known, in words for the person. */
 const MAIN_BASE_UNKNOWN =
   'CloudChef needs to bring your copy up to date with the project first. Ask it to, then try again.';
 /** How long a turn's start waits for a team project's addresses, or what main took since git last fetched it. */
 const SITE_NOTE_TIMEOUT_MS = 5_000;
 
 /**
- * Puts CloudChef's own notes for this turn (the last automatic publication's failure, a team project's
- * addresses, the commits main took since git last fetched it) ahead of the turn's workspace context.
+ * Puts CloudChef's own notes for this turn (the project's addresses, the commits main took since git last
+ * fetched it, what became of changes left waiting) ahead of the turn's workspace context.
  */
 function withNotes(
   turnContext: ChatTurnContext | undefined,
@@ -3688,10 +2495,6 @@ function isSeedRefusal(error: Error): boolean {
     error instanceof z.ZodError ||
     error instanceof ProjectRepositoryError
   );
-}
-
-function deploymentErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Deployment failed.';
 }
 
 /** Whether every one of `promises` settled within `timeoutMs`. */

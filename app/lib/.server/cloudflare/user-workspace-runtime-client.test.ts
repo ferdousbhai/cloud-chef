@@ -88,15 +88,14 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
     });
   });
 
-  it("waits out a publication finishing its upload instead of failing the next turn's change", async () => {
-    // A new turn cancels the automatic publication; one already promoting production finishes its
-    // last API calls first, and holds the lane under a 45-minute lease while it does.
+  it('waits out a batched write finishing instead of failing the next change', async () => {
+    // A batched file write holds the lane for milliseconds, under a 10-minute lease.
     let remainingConflicts = 4;
     const { client, calls } = harness((operation) => {
       if (operation === 'getWorkspaceSnapshot') {
         if (remainingConflicts > 0) {
           remainingConflicts -= 1;
-          throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+          throw new Error('[workspace_operation_conflict] write is running; retry after 600000ms.');
         }
         return {
           state: { initialized: true, revision: 1, resetRevision: 0, fileCount: 0, totalBytes: 0, seeding: false },
@@ -110,24 +109,24 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
     expect(calls.filter((request) => request.operation === 'getWorkspaceSnapshot')).toHaveLength(5);
   });
 
-  it('gives up on a publication that holds the lane past its wait window', async () => {
+  it('gives up on a write that holds the lane past its wait window', async () => {
     vi.useFakeTimers();
     try {
       const attempts: string[] = [];
       const { client } = harness((operation) => {
         if (operation === 'getWorkspaceSnapshot') {
           attempts.push(operation);
-          throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+          throw new Error('[workspace_operation_conflict] write is running; retry after 600000ms.');
         }
         return undefined;
       });
 
       const refresh = expect(client.refresh()).rejects.toMatchObject({
-        activeKind: 'deployment',
-        message: 'The project workspace is busy with deployment. Retry in 60 seconds.',
+        activeKind: 'write',
+        message: 'The project workspace is busy with write. Retry in 60 seconds.',
       });
-      await vi.advanceTimersByTimeAsync(89_000);
-      expect(attempts.length).toBeGreaterThan(40);
+      await vi.advanceTimersByTimeAsync(9_000);
+      expect(attempts.length).toBeGreaterThan(10);
       await vi.advanceTimersByTimeAsync(2_000);
       await refresh;
     } finally {
@@ -135,7 +134,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
     }
   });
 
-  it("stops waiting out a publication for a write once the write's tool is stopped, so it never lands later", async () => {
+  it("stops waiting out a busy lane for a write once the write's tool is stopped, so it never lands later", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -153,7 +152,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
         }
         if (operation === 'applyChanges') {
           attempts += 1;
-          throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+          throw new Error('[workspace_operation_conflict] write is running; retry after 600000ms.');
         }
         return { status: 'settled' };
       });
@@ -179,7 +178,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
     }
   });
 
-  it("keeps waiting out a publication for the person's editor save when the running tool is stopped", async () => {
+  it("keeps waiting out a busy lane for the person's editor save when the running tool is stopped", async () => {
     vi.useFakeTimers();
     try {
       const controller = new AbortController();
@@ -197,7 +196,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
         if (operation === 'applyChanges') {
           attempts[record(value).operationKey === 'tool:call-stopped-write' ? 'tool' : 'editor'] += 1;
           if (laneBusy) {
-            throw new Error('[workspace_operation_conflict] deployment is running; retry after 2700000ms.');
+            throw new Error('[workspace_operation_conflict] write is running; retry after 600000ms.');
           }
           return { ok: true, state, changedPaths: [] };
         }
@@ -227,7 +226,7 @@ describe('UserWorkspaceRuntimeClient direct ProjectWorkspace RPC', { timeout: 30
       const toolAttemptsAtStop = attempts.tool;
       const editorAttemptsAtStop = attempts.editor;
 
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(3_000);
       laneBusy = false;
       await vi.advanceTimersByTimeAsync(5_000);
       await expect(editorSave).resolves.toMatchObject({ ok: true });

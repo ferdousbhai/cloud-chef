@@ -8,14 +8,13 @@ import {
   type RefUpdate,
   workspaceRefsPrefix,
 } from '../../app/lib/.server/cloudflare/git-proxy';
-import { appGitRefusal } from '../../app/lib/.server/cloudflare/app-git-access';
 import {
   commitAuthor,
   openProject,
   ProjectAccessError,
   reportMainPushed,
 } from '../../app/lib/.server/cloudflare/linked-project-client';
-import { nativeProjectRepo, ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
+import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-repository';
 import type { ProjectWorkspace } from './index';
 import type { ProjectBuilder } from './project-builder';
 
@@ -48,7 +47,7 @@ async function gitRefusal(
     return 'This workspace is not connected to CloudChef.';
   }
   if (target.orgProjectId === null) {
-    return appGitRefusal(env, identity, target.repo);
+    return 'This workspace is not tied to a project. Open the project again.';
   }
   try {
     const project = await openProject(env, identity, target.orgProjectId);
@@ -73,7 +72,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
     const repositories = new ProjectRepositories(this.env.ARTIFACTS);
     // A project CloudChef deploys itself builds each branch pushed to it: main to go live, another for a preview.
     let deployed: { orgProjectId: string } | null = null;
-    // The team project the workspace works on, once its access is checked; null for the person's own app.
+    // The project the workspace works on, once its access is checked.
     let teamProject: string | null = null;
     return handleGitProxyRequest(request, {
       repository: () => workspace.gitRepository(),
@@ -181,51 +180,6 @@ export async function handleCommandLineGit(
       await recordMainPush(env, orgProjectId, update);
       await publishPush(env, deployed, update);
     },
-    recordBase: async () => undefined,
-    recordMainFetched: async () => undefined,
-    fetch: (input, init) => fetch(input, init),
-    waitUntil: (promise) => ctx.waitUntil(promise),
-  });
-}
-
-/**
- * git on the person's own computer for one of their apps (a chat's own repository), as `/v1/git/app/<app id>/…`:
- * the same checks as git in a workspace. A push to it is kept; the app goes live from its workspace, as before.
- */
-export async function handleCommandLineAppGit(
-  request: Request,
-  env: GitProxyEnv,
-  ctx: Pick<ExecutionContext, 'waitUntil'>,
-  appId: string,
-  rest: string,
-): Promise<Response> {
-  const identity = runtimeConnectionIdentity(env);
-  if (!identity) {
-    return new Response('This workspace is not connected to CloudChef.', { status: 503 });
-  }
-  const app = await env.DB.prepare(
-    'SELECT 1 AS found FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
-  )
-    .bind(identity.userId, appId)
-    .first<{ found: number }>();
-  if (!app) {
-    return new Response('Repository not found.', { status: 404 });
-  }
-  const target = { repo: nativeProjectRepo(appId), orgProjectId: null, base: { branch: 'main', commit: null } };
-  const repositories = new ProjectRepositories(env.ARTIFACTS);
-  const url = new URL(request.url);
-  const forwarded = new Request(`http://${GIT_PROXY_HOST}/project.git/${rest}${url.search}`, request);
-  return handleGitProxyRequest(forwarded, {
-    repository: async () => target,
-    author: () => commitAuthor(env),
-    refusal: (repository, write) => gitRefusal(env, repository, write),
-    access: (repo, scope) => repositories.gitAccess(repo, scope),
-    revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
-    isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
-    secretFilesPushed: (repo, base, commit) => repositories.secretFilesPushed(repo, base, commit),
-    mainHead: (repo) => repositories.head(repo),
-    workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
-    recordPush: async () => undefined,
     recordBase: async () => undefined,
     recordMainFetched: async () => undefined,
     fetch: (input, init) => fetch(input, init),

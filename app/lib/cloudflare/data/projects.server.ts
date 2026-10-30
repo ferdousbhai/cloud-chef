@@ -3,10 +3,8 @@ import {
   runtimeConnectionIdentity,
   type RuntimeConnectionEnv,
 } from '~/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { ADOPTED_APP_MESSAGE } from '~/lib/common/adopted-app';
 import {
   abandonProjectImport,
-  appAdoption,
   ensureProjectRepository,
   openProject,
   ProjectAccessError,
@@ -24,12 +22,11 @@ import {
 import {
   importedProjectRepo,
   MAIN_BRANCH,
-  nativeProjectRepo,
   ProjectRepositories,
   ProjectRepositoryError,
 } from '~/lib/.server/cloudflare/project-repository';
 import type { DataOperationResult, ProjectCommit, ProjectGitAddress } from '~/lib/cloudflare/data-api';
-import { ensureInitialWorkspace, findWorkspace, openLinkedWorkspace } from './workspace-repository.server';
+import { findWorkspace, openLinkedWorkspace } from './workspace-repository.server';
 import { removeWorkspace } from './workspace-service.server';
 import { extractZip, ZipReadError } from '~/lib/.server/cloudflare/zip-extract';
 import { PayloadTooLargeError, readBodyBytesWithLimit } from '~/lib/bounded-body';
@@ -43,21 +40,18 @@ import { secretFileRefusal } from '~/lib/.server/cloudflare/git-proxy';
 import { IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 
 /**
- * A project's history and its ways out, for the browser: its commits, its git address, a ZIP of any
- * commit, and a fork into a new project. A CloudChef app (a workspace's own repository, `p-<workspace>`) is its
- * creator's alone; a team's project is whatever the control plane says this person may do with it, and
- * view is enough for all of these but a fork, which needs edit.
+ * A project's history and its ways out, for the browser: its commits, its git address and a ZIP of any commit,
+ * for whoever the control plane says may view it.
  */
 
-/** Which project: a workspace (a CloudChef app, or the team project it works on) or a team project by id. */
+/** Which project: the one a workspace works on, or a project by id. */
 type ProjectTarget = { chatInitialId?: string; orgProjectId?: string };
 
 type ResolvedProject = {
   repo: string | null;
   name: string;
-  role: 'owner' | 'view' | 'edit';
-  /** The team project it is; null for a CloudChef app. */
-  orgProjectId: string | null;
+  role: 'view' | 'edit';
+  orgProjectId: string;
 };
 
 const REVISION_TRAILER = /^CloudChef-Revision: ([0-9a-f]{64})$/m;
@@ -78,14 +72,6 @@ async function resolveProject(env: Env, sessionId: string, target: ProjectTarget
       .bind(workspace.id)
       .first<{ org_project_id: string | null }>();
     orgProjectId = row?.org_project_id ?? null;
-    if (!orgProjectId) {
-      return {
-        repo: nativeProjectRepo(workspace.initial_id),
-        name: workspace.description?.trim() || 'project',
-        role: 'owner',
-        orgProjectId: null,
-      };
-    }
   }
   if (!orgProjectId) {
     throw new DataNotFoundError('Project not found');
@@ -132,55 +118,15 @@ export async function projectHistory(
 }
 
 /**
- * The id CloudChef's git address names the project by (`cloudchef.build/git/<id>.git`): its team project's, or a
- * CloudChef app's own. Cloning goes through that address, which checks the person's access on every request, so no
- * token of the repository's own leaves CloudChef.
+ * The id CloudChef's git address names the project by (`cloudchef.build/git/<id>.git`). Cloning goes through that
+ * address, which checks the person's access on every request, so no token of the repository's own leaves CloudChef.
  */
 export async function projectGitAddress(
   env: Env,
   args: ProjectTarget & { sessionId: string },
 ): Promise<ProjectGitAddress> {
   const project = await resolveProject(env, args.sessionId, args);
-  const projectId = project.orgProjectId ?? args.chatInitialId;
-  if (!projectId) {
-    throw new DataNotFoundError('Project not found');
-  }
-  return { projectId };
-}
-
-/**
- * A new CloudChef app copied from the project at `commit`, with its history up to there: its own repository
- * (`p-<new workspace>`) and a new workspace, which starts from that repository's main when it opens.
- */
-export async function forkProject(
-  env: Env,
-  args: ProjectTarget & { sessionId: string; commit: string },
-  repositories: ProjectRepositoriesFactory = accountRepositories,
-): Promise<{ initialId: string }> {
-  const project = await resolveProject(env, args.sessionId, args);
-  if (project.role === 'view') {
-    throw new ProjectForbiddenError('You can view this project but not copy it.');
-  }
-  const store = repositories(env);
-  const head = project.repo ? await store.head(project.repo) : null;
-  const commit = head && project.repo ? await store.resolve(project.repo, args.commit) : null;
-  if (!project.repo || !head || !commit) {
-    throw new DataNotFoundError('That version is not in the project.');
-  }
-  const initialId = crypto.randomUUID();
-  await store.fork(project.repo, nativeProjectRepo(initialId), commit.hash === head ? {} : { commit: commit.hash });
-  const workspace = await ensureInitialWorkspace(env.DB, {
-    id: crypto.randomUUID(),
-    creatorId: args.sessionId,
-    initialId,
-  });
-  // It holds the copied app already, so it is listed as one and never discarded as empty.
-  await env.DB.prepare(
-    `UPDATE workspaces SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
-  )
-    .bind(`${project.name} (fork)`.slice(0, 200), workspace.id)
-    .run();
-  return { initialId };
+  return { projectId: project.orgProjectId };
 }
 
 /**
@@ -466,61 +412,10 @@ export async function userRuntimeProjectReadAccessAction(
   }
 }
 
-const appReadAccessSchema = z.strictObject({ appId: z.string().uuid() });
+const revokeReadAccessSchema = z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().uuid() });
 
 /**
- * `POST /v1/apps/read-access`: a read token for one of this person's apps (a workspace's own repository), good for one
- * import, for CloudChef to copy it; revoked as a project's is.
- */
-export async function userRuntimeAppReadAccessAction(
-  args: { request: Request; env: Env; userId: string },
-  repositories: ProjectRepositoriesFactory = accountRepositories,
-): Promise<Response> {
-  const parsed = appReadAccessSchema.safeParse(await args.request.json().catch(() => null));
-  if (!parsed.success) {
-    return Response.json({ error: 'Name the app.' }, { status: 400 });
-  }
-  try {
-    // One of this person's own apps: a workspace of theirs that isn't a team project's.
-    const app = await args.env.DB.prepare(
-      'SELECT 1 AS found FROM workspaces WHERE creator_id = ? AND initial_id = ? AND is_deleted = 0 AND org_project_id IS NULL',
-    )
-      .bind(args.userId, parsed.data.appId)
-      .first<{ found: number }>();
-    if (!app) {
-      throw new DataNotFoundError('That app is not here.');
-    }
-    // A team's draft an admin approved is the team project now: it is read and copied as the project, if at all.
-    const identity = runtimeConnectionIdentity(args.env);
-    if (
-      args.env.CLOUDCHEF_SHARED_ACCOUNT === '1' &&
-      (!identity || (await appAdoption(args.env, identity, nativeProjectRepo(parsed.data.appId))))
-    ) {
-      throw new ProjectForbiddenError(ADOPTED_APP_MESSAGE);
-    }
-    const access = await repositories(args.env).readAccess(nativeProjectRepo(parsed.data.appId));
-    return Response.json(
-      {
-        url: access.remote,
-        authorization: `Basic ${btoa(`x:${access.token}`)}`,
-        branch: MAIN_BRANCH,
-        tokenId: access.tokenId,
-        expiresAt: Date.parse(access.expiresAt),
-      },
-      { headers: { 'cache-control': 'no-store' } },
-    );
-  } catch (error) {
-    return internalErrorResponse(error, 'The app could not be read. Try again.');
-  }
-}
-
-const revokeReadAccessSchema = z.union([
-  z.strictObject({ orgProjectId: z.string().uuid(), tokenId: z.string().uuid() }),
-  z.strictObject({ appId: z.string().uuid(), tokenId: z.string().uuid() }),
-]);
-
-/**
- * `POST /v1/read-access/revoke`: ends a read token `/v1/projects/read-access` or `/v1/apps/read-access` gave out, once
+ * `POST /v1/read-access/revoke`: ends a read token `/v1/projects/read-access` gave out, once
  * the copy it was for is made or has failed, by deleting the read-only fork it was made on (`endReadAccess`). One
  * already gone is done.
  */
@@ -654,58 +549,6 @@ export async function sweepDeletedProjectWorkspacesBestEffort(env: DeletedProjec
     }
   } catch (error) {
     console.warn({ event: 'deleted_project_workspaces_not_swept', message: String(error) });
-  }
-}
-
-const appCopySchema = z.strictObject({
-  name: z.string().trim().min(1).max(80),
-  source: z.strictObject({
-    url: z.url({ protocol: /^https$/ }),
-    authorization: z.string().min(1).max(4_096),
-    branch: z.string().min(1).max(256),
-  }),
-});
-
-/**
- * `POST /v1/apps/copy`: a new app of this person's (its own repository `p-<new workspace>`, and a workspace on it) whose
- * history is another app's, read from where CloudChef says with the token it got for it. Its workspace starts
- * from that history when it opens, as a fork's does.
- */
-export async function userRuntimeAppCopyAction(
-  args: { request: Request; env: Env; userId: string },
-  repositories: ProjectRepositoriesFactory = accountRepositories,
-): Promise<Response> {
-  const parsed = appCopySchema.safeParse(await args.request.json().catch(() => null));
-  if (!parsed.success) {
-    return Response.json({ error: 'Say what to copy, and the new app’s name.' }, { status: 400 });
-  }
-  const { name, source } = parsed.data;
-  try {
-    const initialId = crypto.randomUUID();
-    const repo = nativeProjectRepo(initialId);
-    const store = repositories(args.env);
-    try {
-      await withRepositoryErrors(
-        store.importFromUrl({ url: source.url, authorization: source.authorization, branch: source.branch, repo }),
-      );
-    } catch (error) {
-      await store.deleteRepo(repo).catch(() => undefined);
-      throw error;
-    }
-    const workspace = await ensureInitialWorkspace(args.env.DB, {
-      id: crypto.randomUUID(),
-      creatorId: args.userId,
-      initialId,
-    });
-    // It holds the copied app already, so it is listed as one and never discarded as empty.
-    await args.env.DB.prepare(
-      `UPDATE workspaces SET description = ?, description_source = 'user', has_messages = 1 WHERE id = ?`,
-    )
-      .bind(name, workspace.id)
-      .run();
-    return Response.json({ initialId }, { status: 201, headers: { 'cache-control': 'no-store' } });
-  } catch (error) {
-    return internalErrorResponse(error, 'The copy could not be made. Try again.');
   }
 }
 

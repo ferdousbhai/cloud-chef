@@ -27,13 +27,6 @@ import {
   BUILDER_WORKSPACE_SYNC_BATCH_FILES,
 } from './protocol';
 import { routeUserRuntimeAgentRequest } from '../../app/lib/.server/agent-request-identity';
-import {
-  createTrustedDeploymentConfig,
-  requireString,
-  type DeploymentConfigInput,
-  type TrustedDeploymentConfig,
-} from '../../app/lib/.server/cloudflare/deployment-config';
-import { recordDeploymentActivity } from '../../app/lib/.server/cloudflare/deployment-repository';
 import type { BuilderValidationStage } from '../../app/lib/common/builder-validation-progress';
 import {
   workspaceRefsPrefix,
@@ -45,18 +38,7 @@ import type {
   BuilderWorkspaceGitRepository,
   WorkspaceValidationStageReporter,
 } from '../../app/agents/builder-workspace-api';
-import { deploymentProjectProfileFromProject } from '../../app/lib/.server/cloudflare/deployment-project-profile';
-import type { DeploymentProjectProfile } from '../../app/lib/.server/cloudflare/deployment-project-profile';
 import { WORK_DIR } from '../../cloudchef-agent/constants';
-import {
-  MAX_DEPLOYMENT_ARTIFACT_BYTES,
-  MAX_DEPLOYMENT_ARTIFACT_FILES,
-  preparedDeploymentArtifactDigest,
-  type DeploymentArtifactFile,
-  type PreparedDeploymentArtifact,
-  validatePreparedDeploymentArtifact,
-  WORKER_MAIN_MODULE,
-} from '../../app/lib/.server/cloudflare/deployment-artifact';
 import { addRequestedDependencies } from '../../app/lib/runtime/action-runner/dependency-manifest';
 import { stableJson } from '../../app/lib/stable-json';
 import { userRuntimeDataAction, userRuntimeInitialMessagesAction } from '../../app/lib/cloudflare/data.server';
@@ -65,8 +47,6 @@ import {
   userRuntimeProjectUploadAction,
   userRuntimeProjectDeployLogAction,
   userRuntimeProjectDeployRetryAction,
-  userRuntimeAppCopyAction,
-  userRuntimeAppReadAccessAction,
   userRuntimeProjectCopyAction,
   userRuntimeDeleteProjectRepositoryAction,
   userRuntimeRemoveProjectWorkspaceAction,
@@ -77,7 +57,6 @@ import {
 } from '../../app/lib/cloudflare/data/projects.server';
 import { findWorkspace } from '../../app/lib/cloudflare/data/workspace-repository.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
-import { userRuntimeDeploymentAction } from '../../app/server-handlers/deployments';
 import { builderModelCatalogResponse } from '../../app/lib/.server/llm/workers-ai-model-catalog';
 import { readAccountModelSettings } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import {
@@ -90,7 +69,6 @@ import { rejectedWorkspaceCommand } from '../../cloudchef-agent/workspace-bounda
 import { applyAtomicWorkspaceChanges, isMissingPath, type AtomicWorkspaceChange } from './atomic-workspace-changes';
 import { CONTAINER_PNPM_STORE_DIR } from './container-toolchain';
 import { bridgeTerminal, TERMINAL_PATH, terminalSize } from './workspace-terminal';
-import { matchDeploymentRoute } from './deployment-route';
 import {
   enumerateProjectFiles,
   projectFileDigests,
@@ -109,7 +87,6 @@ import {
 import { createCommittedMutationReceipt, type MutationReceiptFileInput } from './mutation-receipt';
 import {
   WorkspaceOperationConflictError,
-  WorkspaceOperationIndeterminateError,
   WorkspaceOperationLane,
   type WorkspaceOperationLease,
 } from './workspace-operation-lane';
@@ -117,7 +94,6 @@ import { OperationLeaseHeartbeat, type OperationLiveness } from './operation-lea
 import { InterruptedExecSettlement } from './interrupted-exec-settlement';
 import {
   CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS,
-  OPERATION_LEASE_MS,
   OPERATION_TOOL_BUDGET_MS,
   operationLeasePlan,
   type StatefulOperationKind,
@@ -147,14 +123,8 @@ import {
   projectContentDigest,
   projectContentDigestInput,
 } from './workspace-content-digest';
-import { parallelStagesTimeoutMs, parallelValidationStagesCommand } from './validation-stages';
 import { requireProjectSearchOptions, scanProjectFiles, type DiscoveryScope } from './workspace-discovery';
-import {
-  canonicalAbsolutePath,
-  projectPath,
-  requireDeploymentMigrationName,
-  requireWorkspaceFileEncoding,
-} from './workspace-input';
+import { canonicalAbsolutePath, projectPath, requireWorkspaceFileEncoding } from './workspace-input';
 import { withCors } from './http-cors';
 import {
   runTrackedSandboxCommand,
@@ -163,24 +133,15 @@ import {
   type TrackedSandboxProcess,
 } from './tracked-command';
 import { ValidationCancellation } from './validation-cancellation';
-import {
-  CF_BUILD_OUTPUT_WORKER_CONFIG,
-  CF_BUILT_ASSETS_DIR,
-  CF_BUILT_WORKER_MODULE,
-  CLOUDFLARE_PROJECT_FILE,
-  parseCloudflareProjectText,
-  PLACEHOLDER_D1_DATABASE_ID,
-  PLACEHOLDER_KV_NAMESPACE_ID,
-} from '../../template/scripts/lib/cloudflare-project.mjs';
 import { ComputerSandboxBase, CONTAINER_COMMAND_ENV, sandboxShellCommand } from './computer-sandbox';
 import type { ScheduledCallbackPayload } from './scheduled-callbacks';
-import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT, relativeIsolatedPath } from './isolated-project';
+import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT } from './isolated-project';
 import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
 export { CloudflareApiProxy } from './cloudflare-api-proxy';
-import { handleCommandLineAppGit, handleCommandLineGit } from './git-proxy';
+import { handleCommandLineGit } from './git-proxy';
 import type { WorkspaceAgentCommand } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 export { BuilderSourceProxy, DeployApiProxy, ProjectBuilder } from './project-builder';
 import type { ProjectBuilder } from './project-builder';
@@ -257,40 +218,8 @@ const INSTALL_COMMAND =
   'pnpm install --frozen-lockfile --ignore-scripts=true --ignore-pnpmfile --prefer-offline ' +
   `--store-dir ${CONTAINER_PNPM_STORE_DIR} --registry=https://registry.npmjs.org/`;
 const INSTALL_TIMEOUT_MS = CONTAINER_PACKAGE_INSTALL_TIMEOUT_MS;
-const WORKER_BUNDLE_SCRIPT = [
-  "import { createRequire } from 'node:module';",
-  "const require = createRequire(import.meta.resolve('vite'));",
-  "const { build } = require('esbuild');",
-  "await build({ entryPoints: [process.argv[1]], bundle: true, minify: true, format: 'esm', platform: 'node', external: ['cloudflare:*'], outfile: process.argv[2] });",
-].join('');
-const PREPARED_VALIDATION_ROOT = `${ISOLATED_PROJECT_ROOT}/validated-artifact`;
-const PREPARED_VALIDATION_ARTIFACT_ROOT = `${PREPARED_VALIDATION_ROOT}/.cloudchef-artifact`;
-// Per-stage validation ceilings. These run through the native Sandbox exec path
-// (`runTransientCommand`), where `timeout` is a remote process-lifetime deadline (the container
-// supervisor ends the process and reports `timedOut: true`) plus a local observation bound in
-// `tracked-command.ts`: a real total-runtime cap, unlike the container-shell `timeoutMs` hint
-// documented at `EXEC_COMMAND_TIMEOUT_MS` (#128).
-/**
- * `pnpm run typecheck` runs `tsr generate` and `cf workers types` before `tsc`, so the route tree
- * and binding declarations it writes are inputs to lint and to the production build. It is the one
- * validation stage that has to finish before the others start.
- */
-const REVISION_CODEGEN_COMMAND = { command: 'pnpm run typecheck', timeoutMs: 5 * 60_000 } as const;
-const PARALLEL_VALIDATION_STAGES = [
-  { name: 'verify_stack', command: 'pnpm run verify:stack', timeoutMs: 5 * 60_000 },
-  { name: 'lint', command: 'pnpm run lint', timeoutMs: 5 * 60_000 },
-] as const;
-const VALIDATION_STAGE_LOG_ROOT = `${ISOLATED_PROJECT_ROOT}/validation-stage-logs`;
-/**
- * Validation and deployment share `buildDeploymentArtifact`, so they share its activity sequence.
- * Deployment records those numbers durably; validation translates them into the stage the UI shows.
- */
-const BUILD_ARTIFACT_STAGES = new Map<number, BuilderValidationStage>([
-  [33, 'build'],
-  [34, 'packaging'],
-  [35, 'packaging'],
-  [36, 'finalizing'],
-]);
+/** Where the agent's full validation copies the project to run its checks, apart from the live workspace. */
+const VALIDATION_ROOT = `${ISOLATED_PROJECT_ROOT}/validation`;
 /**
  * `timeoutMs` for a container-shell exec is a process-lifetime hint shipped to
  * computerd over Computer's shell RPC. @cloudflare/computer 0.2.1 enforces a
@@ -334,21 +263,6 @@ type WorkspaceFile = {
   size: number;
   mode: number;
   sha256: string;
-};
-
-type PreparedValidationRow = {
-  revision: string;
-  workspace_revision: number;
-  artifact_digest: string | null;
-};
-
-type DeploymentSessionRow = {
-  operation_id: string;
-  owner: string;
-  idempotency_key: string;
-  expected_workspace_revision: number;
-  expected_snapshot_revision: string;
-  status: 'active' | 'completed' | 'failed' | 'indeterminate';
 };
 
 export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
@@ -426,41 +340,11 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
        VALUES (1, 0, 0)`,
     );
     this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS cloudchef_validations (
-         revision TEXT PRIMARY KEY,
-         workspace_revision INTEGER NOT NULL,
-         validated_at INTEGER NOT NULL
-      )`,
-    );
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS cloudchef_prepared_validation (
-         singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-         revision TEXT NOT NULL,
-         workspace_revision INTEGER NOT NULL,
-         snapshot_root TEXT NOT NULL,
-         artifact_digest TEXT
-       )`,
-    );
-    addMissingColumn(this.ctx.storage.sql, 'cloudchef_prepared_validation', 'artifact_digest', 'TEXT');
-    this.ctx.storage.sql.exec(
       `CREATE TABLE IF NOT EXISTS cloudchef_workspace_identity (
          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
          project_id TEXT NOT NULL,
          user_id TEXT NOT NULL,
          initialized_at INTEGER NOT NULL
-       )`,
-    );
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS cloudchef_deployment_sessions (
-         operation_id TEXT PRIMARY KEY,
-         owner TEXT NOT NULL,
-         idempotency_key TEXT NOT NULL UNIQUE,
-         expected_workspace_revision INTEGER NOT NULL,
-         expected_snapshot_revision TEXT NOT NULL,
-         acquired_at INTEGER NOT NULL,
-         deadline INTEGER NOT NULL,
-         status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'failed', 'indeterminate')),
-         updated_at INTEGER NOT NULL
        )`,
     );
     // A workspace opened from a team project: its project, repository and base commit.
@@ -1749,47 +1633,20 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
         const before = await this.checkpoint();
         cancellation.requireActive();
         const startedAt = Date.now();
-        const isolatedRoot = PREPARED_VALIDATION_ROOT;
-        let artifactPrepared = false;
+        const isolatedRoot = VALIDATION_ROOT;
         let cleanupAllowed = true;
         try {
           reportStage('preparing');
-          await this.discardPreparedValidationArtifact();
           await this.copyProjectToIsolatedRoot(isolatedRoot, cancellation);
           cancellation.requireActive();
           if ((await this.checkpoint()).revision !== before.revision) {
             throw new Error('The project changed while validation was being isolated. Validate the new revision.');
           }
-          if (this.linkedProject()) {
-            // A team project builds and deploys through its own pipeline, so it is validated with its
-            // own scripts rather than CloudChef's template checks.
-            const checks = await this.runLinkedProjectScripts(isolatedRoot, cancellation, reportStage);
-            liveness.observed();
-            return await this.recordPassedValidation({
-              before,
-              startedAt,
-              cancellation,
-              checks,
-              nextAction: 'publish',
-            });
-          }
-          const { checks, artifactDigest } = await this.validateGeneratedProject({
-            revision: before.revision,
-            isolatedRoot,
-            cancellation,
-            liveness,
-            reportStage,
-          });
-          const result = await this.recordPassedValidation({
-            before,
-            startedAt,
-            cancellation,
-            checks,
-            nextAction: 'prepare-deployment',
-            artifactDigest,
-          });
-          artifactPrepared = true;
-          return result;
+          // Every project builds and deploys through its own pipeline (Workers Builds, or CloudChef's project
+          // builder), so it is validated with its own scripts.
+          const checks = await this.runProjectScripts(isolatedRoot, cancellation, reportStage);
+          liveness.observed();
+          return await this.passedValidation({ before, startedAt, cancellation, checks });
         } catch (error) {
           cleanupAllowed = !(error instanceof SandboxProcessTerminationUnconfirmedError);
           if (error instanceof WorkspaceSyncPendingError) {
@@ -1804,7 +1661,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
             checks: [{ name: 'revision-finalization', status: 'failed' as const }],
           });
         } finally {
-          if (!artifactPrepared && cleanupAllowed) {
+          if (cleanupAllowed) {
             await this.runTransientCommand(PROJECT_ROOT, `rm -rf ${shellQuote(isolatedRoot)}`, 30_000).catch(
               () => undefined,
             );
@@ -1814,85 +1671,12 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     );
   }
 
-  /**
-   * CloudChef's template checks on a generated app copied to `isolatedRoot`, then its production build:
-   * the checks that passed and the digest of the deployment artifact the build left.
-   */
-  private async validateGeneratedProject(args: {
-    revision: string;
-    isolatedRoot: string;
-    cancellation: ValidationCancellation;
-    liveness: OperationLiveness;
-    reportStage: (stage: BuilderValidationStage) => void;
-  }): Promise<{ checks: string[]; artifactDigest: string }> {
-    const { isolatedRoot, cancellation, liveness, reportStage } = args;
-    reportStage('installing');
-    await this.runTransientCommand(isolatedRoot, INSTALL_COMMAND, INSTALL_TIMEOUT_MS, cancellation);
-    liveness.observed();
-    reportStage('typecheck');
-    await this.runTransientCommand(
-      isolatedRoot,
-      REVISION_CODEGEN_COMMAND.command,
-      REVISION_CODEGEN_COMMAND.timeoutMs,
-      cancellation,
-    );
-    liveness.observed();
-    reportStage('lint');
-    await this.runTransientCommand(
-      isolatedRoot,
-      parallelValidationStagesCommand(PARALLEL_VALIDATION_STAGES, {
-        logRoot: VALIDATION_STAGE_LOG_ROOT,
-      }),
-      parallelStagesTimeoutMs(PARALLEL_VALIDATION_STAGES),
-      cancellation,
-    );
-    liveness.observed();
-    const project = await this.readDeploymentProjectProfile();
-    const artifact = await this.buildDeploymentArtifact({
-      revision: args.revision,
-      isolatedRoot,
-      artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-      project,
-      deploymentConfig: createTrustedDeploymentConfig(validationDeploymentConfig(project)),
-      cancellation,
-      liveness,
-      // The build reports the same stage ladder the deployment records as activity, so the
-      // wait the user watches is the one the container is actually in.
-      activity: (sequence) => {
-        const stage = BUILD_ARTIFACT_STAGES.get(sequence);
-        if (stage) {
-          reportStage(stage);
-        }
-        return Promise.resolve();
-      },
-    });
-    return {
-      checks: [
-        'workspace-policy',
-        'dependency-installation',
-        'typecheck',
-        'stack-verification',
-        'lint',
-        'license-verification',
-        'production-build',
-        'worker-dry-run',
-        ...(project.type === 'web_app' ? ['worker-bundle'] : []),
-      ],
-      artifactDigest: await preparedDeploymentArtifactDigest(artifact),
-    };
-  }
-
-  /**
-   * Records a validation that passed, with the artifact it prepared if any, provided the project is still
-   * at the revision it validated.
-   */
-  private async recordPassedValidation(args: {
+  /** A validation that passed, provided the project is still at the revision it validated. */
+  private async passedValidation(args: {
     before: { revision: string };
     startedAt: number;
     cancellation: ValidationCancellation;
     checks: string[];
-    nextAction: 'publish' | 'prepare-deployment';
-    artifactDigest?: string;
   }): Promise<CloudChefToolResult> {
     args.cancellation.requireActive();
     const after = await this.checkpoint();
@@ -1900,13 +1684,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     if (after.revision !== args.before.revision) {
       throw new Error('The project changed while validation was running. Validate the new revision.');
     }
-    const { artifactDigest } = args;
-    this.ctx.storage.transactionSync(() => {
-      this.recordValidation(after);
-      if (artifactDigest !== undefined) {
-        this.storePreparedValidationArtifact(after, artifactDigest);
-      }
-    });
     return toolSuccess(`Project validation passed at durable source revision ${after.revision}.`, {
       level: 'full',
       revision: after.revision,
@@ -1914,16 +1691,16 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       buildEnvironment: 'cloudflare-computer-container',
       checks: args.checks.map((name) => ({ name, status: 'passed' as const })),
       durationMs: Date.now() - args.startedAt,
-      nextAction: args.nextAction,
+      nextAction: 'publish',
     });
   }
 
   /**
-   * The team project's own checks: install with the package manager its lockfile names, then whichever of
+   * The project's own checks: install with the package manager its lockfile names, then whichever of
    * `typecheck`, `lint`, `test` and `build` its package.json defines, in that order. A repository without
    * a package.json has nothing to run. Returns the checks that ran.
    */
-  private async runLinkedProjectScripts(
+  private async runProjectScripts(
     isolatedRoot: string,
     cancellation: ValidationCancellation,
     reportStage: (stage: BuilderValidationStage) => void,
@@ -1968,311 +1745,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     return ran;
   }
 
-  validationStatus(revision: unknown) {
-    return { valid: typeof revision === 'string' && this.hasSuccessfulValidation(revision) };
-  }
-
-  async deploymentPlan(revisionValue: unknown) {
-    const revision = requireString(revisionValue, 'revision', 64);
-    if (!this.hasSuccessfulValidation(revision)) {
-      throw new Error('Deployment requires successful validation of this exact revision.');
-    }
-    const checkpoint = await this.checkpoint();
-    if (checkpoint.revision !== revision) {
-      throw new Error('The durable project changed after validation. Run full validation again.');
-    }
-    return {
-      ...checkpoint,
-      project: await this.readDeploymentProjectProfile(),
-    };
-  }
-
-  async beginDeploymentSession(value: unknown) {
-    this.requireCompletedComputerSync();
-    const input = record(value);
-    const operationId = requireString(input.operationId, 'operationId', 256);
-    const expectedWorkspaceRevision = requireInteger(
-      input.expectedWorkspaceRevision,
-      'expectedWorkspaceRevision',
-      Number.MAX_SAFE_INTEGER,
-    );
-    const expectedSnapshotRevision = requireSnapshotRevision(input.expectedSnapshotRevision);
-    const idempotencyKey = `deployment-session:${operationId}`;
-    const owner = `deployment:${operationId}`;
-    const existing = this.deploymentSessionRow(operationId);
-    if (existing) {
-      assertDeploymentSessionIdentity(existing, expectedWorkspaceRevision, expectedSnapshotRevision);
-      if (existing.status !== 'active') {
-        throw new WorkspaceOperationIndeterminateError('deployment');
-      }
-      const lease = this.#operationLane.find(existing.idempotency_key, existing.owner);
-      if (!lease || lease.deadline <= Date.now()) {
-        this.ctx.storage.sql.exec(
-          `UPDATE cloudchef_deployment_sessions SET status = 'indeterminate', updated_at = ?
-           WHERE operation_id = ? AND status = 'active'`,
-          Date.now(),
-          operationId,
-        );
-        throw new WorkspaceOperationIndeterminateError('deployment');
-      }
-      await this.setKeepAlive(true);
-      await this.assertDeploymentSession({ sessionId: operationId });
-      return;
-    }
-
-    const lease = this.#operationLane.acquire({
-      owner,
-      idempotencyKey,
-      kind: 'deployment',
-      leaseMs: OPERATION_LEASE_MS.deployment,
-    });
-    this.ctx.storage.sql.exec(
-      `INSERT INTO cloudchef_deployment_sessions (
-         operation_id, owner, idempotency_key, expected_workspace_revision,
-         expected_snapshot_revision, acquired_at, deadline, status, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-      operationId,
-      owner,
-      idempotencyKey,
-      expectedWorkspaceRevision,
-      expectedSnapshotRevision,
-      lease.acquiredAt,
-      lease.deadline,
-      lease.acquiredAt,
-    );
-    try {
-      // A publication session keeps the validation artifact's container alive while the control
-      // plane performs migrations and version upload through the user's account API.
-      await this.setKeepAlive(true);
-      await this.assertDeploymentSession({ sessionId: operationId });
-    } catch (error) {
-      await this.finishDeploymentSession({ sessionId: operationId, status: 'failed' }).catch(() => undefined);
-      throw error;
-    }
-  }
-
-  async assertDeploymentSession(value: unknown) {
-    this.requireCompletedComputerSync();
-    const sessionId = requireString(record(value).sessionId, 'sessionId', 256);
-    const session = this.requireActiveDeploymentSession(sessionId);
-    this.#activeOperationOwners.add(session.owner);
-    try {
-      // The lease in the operation lane is what expires; the session row's deadline is only its first one.
-      this.#operationLane.renew(this.deploymentSessionLease(session), OPERATION_LEASE_MS.deployment);
-      const checkpoint = await this.checkpoint();
-      if (checkpoint.revision !== session.expected_snapshot_revision) {
-        console.error('ProjectWorkspace deployment checkpoint mismatch', {
-          sessionId,
-          expectedWorkspaceRevision: session.expected_workspace_revision,
-          currentWorkspaceRevision: checkpoint.workspaceRevision,
-          expectedSnapshotRevision: session.expected_snapshot_revision,
-          currentSnapshotRevision: checkpoint.revision,
-        });
-        throw new Error('The project changed during its deployment session. Publication was cancelled.');
-      }
-      return checkpoint;
-    } finally {
-      this.#activeOperationOwners.delete(session.owner);
-    }
-  }
-
-  async terminalizeInterruptedDeploymentSession(value: unknown) {
-    const sessionId = requireString(record(value).sessionId, 'sessionId', 256);
-    const session = this.deploymentSessionRow(sessionId);
-    if (!session) {
-      return;
-    }
-    if (session.status !== 'completed' && session.status !== 'failed') {
-      this.ctx.storage.sql.exec(
-        `UPDATE cloudchef_deployment_sessions SET status = 'failed', updated_at = ?
-         WHERE operation_id = ? AND status IN ('active', 'indeterminate')`,
-        Date.now(),
-        sessionId,
-      );
-    }
-    await this.releaseDeploymentSession(session);
-  }
-
-  async finishDeploymentSession(value: unknown) {
-    const input = record(value);
-    const sessionId = requireString(input.sessionId, 'sessionId', 256);
-    const status = input.status === 'completed' ? 'completed' : input.status === 'failed' ? 'failed' : null;
-    if (!status) {
-      throw new SyntaxError('Invalid deployment session status.');
-    }
-    const session = this.deploymentSessionRow(sessionId);
-    if (!session) {
-      throw new Error('The deployment session does not exist.');
-    }
-    if (session.status !== status) {
-      if (session.status !== 'active') {
-        throw new WorkspaceOperationIndeterminateError('deployment');
-      }
-      this.ctx.storage.sql.exec(
-        `UPDATE cloudchef_deployment_sessions SET status = ?, updated_at = ?
-         WHERE operation_id = ? AND status = 'active'`,
-        status,
-        Date.now(),
-        sessionId,
-      );
-    }
-    await this.releaseDeploymentSession(session);
-  }
-
-  /** Release a settled deployment session's lease and its hold on the container. */
-  private async releaseDeploymentSession(session: DeploymentSessionRow): Promise<void> {
-    const lease = this.#operationLane.find(session.idempotency_key, session.owner);
-    if (lease) {
-      this.#operationLane.release(lease);
-    }
-    this.#activeOperationOwners.delete(session.owner);
-    await this.releaseContainerKeepAliveIfIdle();
-  }
-
-  async prepareDeploymentArtifact(value: unknown): Promise<PreparedDeploymentArtifact> {
-    this.requireCompletedComputerSync();
-    const input = record(value);
-    const sessionId = requireString(input.sessionId, 'sessionId', 256);
-    const revision = requireString(input.revision, 'revision', 64);
-    const deploymentId = requireString(input.deploymentId, 'deploymentId', 128);
-    const executionGeneration = requireInteger(
-      input.executionGeneration,
-      'executionGeneration',
-      Number.MAX_SAFE_INTEGER,
-    );
-    const session = this.requireActiveDeploymentSession(sessionId);
-    if (revision !== session.expected_snapshot_revision) {
-      throw new Error('The deployment artifact revision does not match its active deployment session.');
-    }
-    const projectType = input.projectType === 'worker' ? 'worker' : input.projectType === 'web_app' ? 'web_app' : null;
-    if (!projectType) {
-      throw new SyntaxError('Invalid deployment project type.');
-    }
-    const d1DatabaseId = requireOptionalString(input.d1DatabaseId, 'd1DatabaseId', 64);
-    const agentSecurityD1DatabaseId = requireOptionalString(
-      input.agentSecurityD1DatabaseId,
-      'agentSecurityD1DatabaseId',
-      64,
-    );
-    const r2BucketName = requireOptionalString(input.r2BucketName, 'r2BucketName', 64);
-    const kvNamespaceId = requireOptionalString(input.kvNamespaceId, 'kvNamespaceId', 64);
-    const project: DeploymentProjectProfile = {
-      type: projectType,
-      bindings: {
-        ai: input.workersAi === true,
-        d1: d1DatabaseId !== undefined,
-        r2: r2BucketName !== undefined,
-        kv: kvNamespaceId !== undefined,
-        appAgent: input.appAgent === true,
-        assets: input.assets === true,
-      },
-    };
-    if (project.bindings.assets && project.type !== 'web_app') {
-      throw new Error('Only a web app deployment may declare static assets.');
-    }
-    if (project.bindings.appAgent !== (agentSecurityD1DatabaseId !== undefined)) {
-      throw new Error('The deployment artifact bindings do not match the AppAgent security profile.');
-    }
-    const deploymentConfig = createTrustedDeploymentConfig({
-      workerName: requireString(input.workerName, 'workerName', 64),
-      workersAi: project.bindings.ai,
-      appAgent: project.bindings.appAgent,
-      assets: project.bindings.assets,
-      d1DatabaseId,
-      d1DatabaseName:
-        d1DatabaseId === undefined ? undefined : requireString(input.d1DatabaseName, 'd1DatabaseName', 64),
-      agentSecurityD1DatabaseId,
-      agentSecurityD1DatabaseName:
-        agentSecurityD1DatabaseId === undefined
-          ? undefined
-          : requireString(input.agentSecurityD1DatabaseName, 'agentSecurityD1DatabaseName', 64),
-      r2BucketName,
-      kvNamespaceId,
-    });
-    const activity = (sequence: number, message: string) =>
-      recordDeploymentActivity({
-        db: this.env.DB,
-        deploymentId,
-        executionGeneration,
-        sequence,
-        message,
-      });
-
-    this.#activeOperationOwners.add(session.owner);
-    const operation = async () => {
-      await this.assertDeploymentSession({ sessionId });
-      if (!/^[a-f0-9]{64}$/.test(revision) || !this.hasSuccessfulValidation(revision)) {
-        throw new Error('Deployment requires successful validation of this exact revision.');
-      }
-      const checkpoint = await this.checkpoint();
-      if (checkpoint.revision !== revision || checkpoint.workspaceRevision !== session.expected_workspace_revision) {
-        throw new Error('The durable project changed after validation. Run full validation again.');
-      }
-
-      const prepared = this.preparedValidationArtifact();
-      const preparedMatchesRevision =
-        prepared?.revision === revision && prepared.workspace_revision === checkpoint.workspaceRevision;
-      const canReuse = preparedMatchesRevision && (await this.exists(PREPARED_VALIDATION_ARTIFACT_ROOT)).exists;
-      let artifact: PreparedDeploymentArtifact;
-      if (canReuse) {
-        await activity(31, 'Using the version that passed its checks');
-        artifact = await this.collectDeploymentArtifact({
-          revision,
-          isolatedRoot: PREPARED_VALIDATION_ROOT,
-          artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-          project,
-        });
-        if (prepared.artifact_digest !== (await preparedDeploymentArtifactDigest(artifact))) {
-          throw new Error('The retained deployment artifact no longer matches the bytes produced by validation.');
-        }
-      } else {
-        const expectedDigest = preparedMatchesRevision ? prepared.artifact_digest : null;
-        let cleanupAllowed = true;
-        try {
-          await activity(31, 'Loading the version that passed its checks');
-          await this.discardPreparedValidationArtifact();
-          // A recycled container loses only this cache. Rebuilding is allowed, but the resulting
-          // inventory must equal validation's durable digest when one survived the recycle.
-          await this.copyProjectToIsolatedRoot(PREPARED_VALIDATION_ROOT);
-          await this.assertDeploymentSession({ sessionId });
-          await activity(32, 'Installing what your app needs');
-          await this.runTransientCommand(PREPARED_VALIDATION_ROOT, INSTALL_COMMAND, INSTALL_TIMEOUT_MS);
-          artifact = await this.buildDeploymentArtifact({
-            revision,
-            isolatedRoot: PREPARED_VALIDATION_ROOT,
-            artifactRoot: PREPARED_VALIDATION_ARTIFACT_ROOT,
-            project,
-            deploymentConfig,
-            activity,
-          });
-          const observedDigest = await preparedDeploymentArtifactDigest(artifact);
-          if (expectedDigest !== null && expectedDigest !== observedDigest) {
-            throw new Error('The rebuilt deployment artifact differs from the bytes produced by validation.');
-          }
-          this.storePreparedValidationArtifact(checkpoint, observedDigest);
-        } catch (error) {
-          cleanupAllowed = !(error instanceof SandboxProcessTerminationUnconfirmedError);
-          throw error;
-        } finally {
-          if (cleanupAllowed && !(await this.exists(PREPARED_VALIDATION_ARTIFACT_ROOT)).exists) {
-            await this.discardPreparedValidationArtifact().catch(() => undefined);
-          }
-        }
-      }
-
-      if ((await this.checkpoint()).revision !== revision) {
-        throw new Error('The project changed while its deployment artifact was prepared. Validate the new revision.');
-      }
-      await this.assertDeploymentSession({ sessionId });
-      return artifact;
-    };
-    try {
-      return await this.withContainerKeepAlive(operation);
-    } finally {
-      this.#activeOperationOwners.delete(session.owner);
-    }
-  }
-
   /** Deletes the branches this workspace's container saved in its project's repository; its files stay. */
   async forgetSavedBranches(): Promise<void> {
     const repository = this.gitRepository();
@@ -2288,8 +1760,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const repository = this.gitRepository();
     await this.withStatefulOperation('delete', 'delete:project', async () => {
       await this.withComputer((workspace) => workspace.fs.rm(PROJECT_ROOT, { recursive: true, force: true }));
-      this.ctx.storage.sql.exec('DELETE FROM cloudchef_validations');
-      this.ctx.storage.sql.exec('DELETE FROM cloudchef_prepared_validation');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_project');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_linked_manifest');
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_git_repository');
@@ -2348,8 +1818,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
 
   /**
    * The repository the git proxy serves this workspace, and the commit git in its container starts from,
-   * or null before the agent has named one. Until a push from here, a team project's is the commit it was
-   * opened at; a CloudChef app's is none, and git starts from its `main`.
+   * or null before the agent has named one. Until a push from here, it is the commit the project was opened at;
+   * with none known, git starts from its `main`.
    */
   gitRepository(): GitWorkspaceRepository | null {
     const row = first(
@@ -2462,149 +1932,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       linked.name = row.project_name;
     }
     return linked;
-  }
-
-  private async readDeploymentProjectProfile(): Promise<DeploymentProjectProfile> {
-    const [packageFile, projectFile] = await Promise.all([
-      this.readText(`${PROJECT_ROOT}/package.json`),
-      this.readText(`${PROJECT_ROOT}/${CLOUDFLARE_PROJECT_FILE}`),
-    ]);
-    const packageJson: unknown = JSON.parse(packageFile.content);
-    const cloudchef = isRecord(packageJson) ? packageJson.cloudchef : undefined;
-    const configuredType = isRecord(cloudchef) ? cloudchef.projectType : undefined;
-    if (configuredType !== undefined && configuredType !== 'web_app' && configuredType !== 'worker') {
-      throw new Error('The generated project type is invalid.');
-    }
-    const parsed = parseCloudflareProjectText(projectFile.content);
-    if (parsed.errors.length > 0) {
-      throw new Error(`The generated project configuration is invalid: ${parsed.errors.join(' ')}`);
-    }
-    return deploymentProjectProfileFromProject(parsed.project, configuredType === 'worker' ? 'worker' : 'web_app');
-  }
-
-  private async buildDeploymentArtifact(args: {
-    revision: string;
-    isolatedRoot: string;
-    artifactRoot: string;
-    project: DeploymentProjectProfile;
-    deploymentConfig: TrustedDeploymentConfig;
-    cancellation?: ValidationCancellation;
-    liveness?: OperationLiveness;
-    activity?: (sequence: number, message: string) => Promise<void>;
-  }): Promise<PreparedDeploymentArtifact> {
-    await args.activity?.(33, 'Building your app');
-    await this.runTransientCommand(args.isolatedRoot, 'pnpm run build', 5 * 60_000, args.cancellation);
-    args.liveness?.observed();
-    args.cancellation?.requireActive();
-    // The build resolved the project's own cloudflare.config.ts; replace it with the trusted
-    // configuration so the dry run checks exactly what CloudChef will publish.
-    const configWrite = await this.writeFile(
-      `${args.isolatedRoot}/${CF_BUILD_OUTPUT_WORKER_CONFIG}`,
-      JSON.stringify(args.deploymentConfig),
-      { encoding: 'utf-8' },
-    );
-    if (!configWrite.success) {
-      throw new Error('The isolated deployment configuration could not be written.');
-    }
-    await args.activity?.(34, 'Checking the build');
-    await this.runTransientCommand(
-      args.isolatedRoot,
-      // The project's own pinned cf, run directly rather than paying a pnpm start-up.
-      'node_modules/.bin/cf deploy --prebuilt --mode production --dry-run',
-      10 * 60_000,
-      args.cancellation,
-    );
-    args.liveness?.observed();
-    args.cancellation?.requireActive();
-    // Collapse the built Worker to one module so the later versions API upload cannot acknowledge a
-    // multipart request while omitting a generated module.
-    const builtMainPath = `${args.isolatedRoot}/${CF_BUILT_WORKER_MODULE}`;
-    await args.activity?.(35, 'Packing up your app');
-    await this.runTransientCommand(
-      args.isolatedRoot,
-      [
-        `rm -rf ${shellQuote(args.artifactRoot)}`,
-        `mkdir -p ${shellQuote(args.artifactRoot)}`,
-        `node --input-type=module --eval ${shellQuote(WORKER_BUNDLE_SCRIPT)} ${shellQuote(builtMainPath)} ${shellQuote(`${args.artifactRoot}/${WORKER_MAIN_MODULE}`)}`,
-      ].join(' && '),
-      2 * 60_000,
-      args.cancellation,
-    );
-    args.liveness?.observed();
-    await args.activity?.(36, 'Build ready');
-    return this.collectDeploymentArtifact(args);
-  }
-
-  private async collectDeploymentArtifact(args: {
-    revision: string;
-    isolatedRoot: string;
-    artifactRoot: string;
-    project: DeploymentProjectProfile;
-  }): Promise<PreparedDeploymentArtifact> {
-    const artifact: PreparedDeploymentArtifact = {
-      revision: args.revision,
-      mainModule: WORKER_MAIN_MODULE,
-      modules: await collectSandboxFiles(this, args.artifactRoot, (path) => /\.(?:js|mjs|wasm)$/.test(path)),
-      assets:
-        args.project.type === 'web_app'
-          ? await collectSandboxFiles(
-              this,
-              `${args.isolatedRoot}/${CF_BUILT_ASSETS_DIR}`,
-              (path) => path !== '.assetsignore' && !path.endsWith('.map'),
-            )
-          : [],
-      migrations: {
-        DB: args.project.bindings.d1 ? await collectSandboxMigrations(this, `${args.isolatedRoot}/migrations`) : [],
-        AGENT_SECURITY_DB: args.project.bindings.appAgent
-          ? await collectSandboxMigrations(this, `${args.isolatedRoot}/agent-security-migrations`)
-          : [],
-      },
-    };
-    return validatePreparedDeploymentArtifact(artifact, {
-      revision: args.revision,
-      projectType: args.project.type,
-    });
-  }
-
-  /** The revision passed full validation. */
-  private recordValidation(checkpoint: { revision: string; workspaceRevision: number }): void {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO cloudchef_validations (revision, workspace_revision, validated_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(revision) DO UPDATE SET workspace_revision = excluded.workspace_revision,
-         validated_at = excluded.validated_at`,
-      checkpoint.revision,
-      checkpoint.workspaceRevision,
-      Date.now(),
-    );
-  }
-
-  private storePreparedValidationArtifact(
-    checkpoint: { revision: string; workspaceRevision: number },
-    artifactDigest: string,
-  ): void {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO cloudchef_prepared_validation (
-         singleton, revision, workspace_revision, snapshot_root, artifact_digest
-       ) VALUES (1, ?, ?, ?, ?)
-       ON CONFLICT(singleton) DO UPDATE SET revision = excluded.revision,
-         workspace_revision = excluded.workspace_revision,
-         snapshot_root = excluded.snapshot_root,
-         artifact_digest = excluded.artifact_digest`,
-      checkpoint.revision,
-      checkpoint.workspaceRevision,
-      PREPARED_VALIDATION_ROOT,
-      artifactDigest,
-    );
-  }
-
-  private async discardPreparedValidationArtifact(): Promise<void> {
-    // Keep the durable digest until a replacement artifact is complete. If this cleanup is
-    // followed by an interrupted rebuild, the next fallback must still prove its bytes equal the
-    // last successful validation rather than silently rebuilding without an expected identity.
-    await this.runTransientCommand('/', `rm -rf ${shellQuote(PREPARED_VALIDATION_ROOT)}`, 30_000).catch(
-      () => undefined,
-    );
   }
 
   private async copyProjectToIsolatedRoot(isolatedRoot: string, cancellation?: ValidationCancellation): Promise<void> {
@@ -2810,57 +2137,6 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     this.ctx.storage.transactionSync(() => {
       this.ctx.storage.sql.exec('DELETE FROM cloudchef_sandbox_processes');
     });
-  }
-
-  private hasSuccessfulValidation(revision: string): boolean {
-    return (
-      first(
-        this.ctx.storage.sql.exec<{ found: number }>(
-          'SELECT 1 AS found FROM cloudchef_validations WHERE revision = ? LIMIT 1',
-          revision,
-        ),
-      )?.found === 1
-    );
-  }
-
-  private preparedValidationArtifact(): PreparedValidationRow | null {
-    return (
-      first(
-        this.ctx.storage.sql.exec<PreparedValidationRow>(
-          `SELECT revision, workspace_revision, artifact_digest
-           FROM cloudchef_prepared_validation WHERE singleton = 1`,
-        ),
-      ) ?? null
-    );
-  }
-
-  private deploymentSessionRow(operationId: string): DeploymentSessionRow | null {
-    return (
-      first(
-        this.ctx.storage.sql.exec<DeploymentSessionRow>(
-          `SELECT operation_id, owner, idempotency_key, expected_workspace_revision,
-                  expected_snapshot_revision, status
-           FROM cloudchef_deployment_sessions WHERE operation_id = ?`,
-          operationId,
-        ),
-      ) ?? null
-    );
-  }
-
-  private requireActiveDeploymentSession(operationId: string): DeploymentSessionRow {
-    const session = this.deploymentSessionRow(operationId);
-    if (!session || session.status !== 'active') {
-      throw new WorkspaceOperationIndeterminateError('deployment');
-    }
-    return session;
-  }
-
-  private deploymentSessionLease(session: DeploymentSessionRow): WorkspaceOperationLease {
-    const lease = this.#operationLane.find(session.idempotency_key, session.owner);
-    if (!lease) {
-      throw new WorkspaceOperationIndeterminateError('deployment');
-    }
-    return lease;
   }
 
   private currentRevision(): number {
@@ -3083,12 +2359,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
   }
 
   private async releaseContainerKeepAliveIfIdle(): Promise<void> {
-    const deploymentActive = first(
-      this.ctx.storage.sql.exec<{ active: number }>(
-        `SELECT 1 AS active FROM cloudchef_deployment_sessions WHERE status = 'active' LIMIT 1`,
-      ),
-    );
-    if (this.#containerKeepAliveOperations === 0 && !deploymentActive) {
+    if (this.#containerKeepAliveOperations === 0) {
       await this.setKeepAlive(false).catch(() => undefined);
     }
   }
@@ -3305,10 +2576,6 @@ async function handleUserRequest(
     return userRuntimeTerminalAction(request, url, env, capability.subject);
   }
   // git from the person's own computer, which CloudChef sent on after checking their command-line token.
-  const appGit = /^\/v1\/git\/app\/([0-9a-f-]{36})\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);
-  if (appGit) {
-    return handleCommandLineAppGit(request, env, ctx, appGit[1]!, appGit[2]!);
-  }
   const git = /^\/v1\/git\/([A-Za-z0-9_-]{1,128})\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(url.pathname);
   if (git) {
     return handleCommandLineGit(request, env, ctx, git[1]!, git[2]!);
@@ -3338,10 +2605,6 @@ async function handleUserRequest(
     response = await forgetSavedBranchesAction(env);
   } else if (request.method === 'POST' && url.pathname === '/v1/approvals/settled') {
     response = await settleTeamApprovalAction(request, env, capability.subject);
-  } else if (request.method === 'POST' && url.pathname === '/v1/apps/read-access') {
-    response = await userRuntimeAppReadAccessAction({ request, env: sharedEnv, userId: capability.subject });
-  } else if (request.method === 'POST' && url.pathname === '/v1/apps/copy') {
-    response = await userRuntimeAppCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/read-access') {
     response = await userRuntimeProjectReadAccessAction({ request, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/read-access/revoke') {
@@ -3365,19 +2628,7 @@ async function handleUserRequest(
       userId: capability.subject,
     });
   } else {
-    const deployment = matchDeploymentRoute(request.method, url.pathname);
-    if (deployment && 'allow' in deployment) {
-      response = Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: deployment.allow } });
-    } else if (deployment) {
-      response = await userRuntimeDeploymentAction({
-        env: sharedEnv,
-        userId: capability.subject,
-        deploymentId: deployment.deploymentId,
-        operation: deployment.operation,
-      });
-    } else {
-      response = Response.json({ error: 'Not found' }, { status: 404 });
-    }
+    response = Response.json({ error: 'Not found' }, { status: 404 });
   }
   return withCors(response, capability.origin);
 }
@@ -3496,69 +2747,6 @@ async function readWorkspaceFile(workspace: WorkspaceClient, path: string): Prom
   const stream = await workspace.fs.readFile(path);
   const bytes = await readStream(stream, stat.size);
   return { path, bytes, size: bytes.byteLength, mode: stat.mode, sha256: await sha256Hex(new Uint8Array(bytes)) };
-}
-
-type SandboxFileAccess = Pick<ProjectWorkspace, 'exists' | 'listFiles' | 'readFile'>;
-
-async function collectSandboxFiles(
-  sandbox: SandboxFileAccess,
-  root: string,
-  include: (relativePath: string) => boolean,
-): Promise<DeploymentArtifactFile[]> {
-  const listing = await sandbox.listFiles(root, { recursive: true, includeHidden: true });
-  if (!listing.success) {
-    throw new Error('The prepared deployment artifact could not be listed.');
-  }
-  const entries = listing.files.filter((entry) => entry.type === 'file');
-  if (entries.length > MAX_DEPLOYMENT_ARTIFACT_FILES) {
-    throw new Error('The prepared deployment artifact has too many files.');
-  }
-  const files: DeploymentArtifactFile[] = [];
-  let totalBytes = 0;
-  for (const entry of entries) {
-    const relativePath = relativeIsolatedPath(root, entry.absolutePath);
-    if (!relativePath || !include(relativePath)) {
-      continue;
-    }
-    if (entry.size > MAX_FILE_BYTES) {
-      throw new Error(`Deployment artifact file is too large: ${relativePath}`);
-    }
-    const file = await sandbox.readFile(entry.absolutePath, { encoding: 'none' });
-    const bytes = await readStream(file.content, file.size);
-    totalBytes += bytes.byteLength;
-    if (totalBytes > MAX_DEPLOYMENT_ARTIFACT_BYTES) {
-      throw new Error('The prepared deployment artifact exceeds its aggregate size limit.');
-    }
-    files.push({ path: relativePath, bytes, size: bytes.byteLength, sha256: await sha256Hex(new Uint8Array(bytes)) });
-  }
-  return files.sort((left, right) => left.path.localeCompare(right.path));
-}
-
-async function collectSandboxMigrations(
-  sandbox: SandboxFileAccess,
-  root: string,
-): Promise<Array<{ name: string; sql: string }>> {
-  if (!(await sandbox.exists(root)).exists) {
-    return [];
-  }
-  const listing = await sandbox.listFiles(root, { recursive: true, includeHidden: true });
-  if (!listing.success) {
-    throw new Error('Deployment migrations could not be listed.');
-  }
-  const migrations: Array<{ name: string; sql: string }> = [];
-  for (const entry of listing.files.filter((candidate) => candidate.type === 'file')) {
-    const name = requireDeploymentMigrationName(relativeIsolatedPath(root, entry.absolutePath));
-    if (entry.size > MAX_FILE_BYTES) {
-      throw new Error(`Deployment migration is too large: ${name}`);
-    }
-    const file = await sandbox.readFile(entry.absolutePath, { encoding: 'none' });
-    const sql = decodeUtf8(await readStream(file.content, file.size));
-    if (!sql.trim()) {
-      throw new Error(`Deployment migration is empty: ${name}`);
-    }
-    migrations.push({ name, sql });
-  }
-  return migrations.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 async function writeWorkspaceFile(
@@ -3951,31 +3139,6 @@ function workspaceFileMetadata(file: WorkspaceFile, revision: number) {
   };
 }
 
-/** Placeholder identities: validation only proves the artifact builds, it binds nothing real. */
-function validationDeploymentConfig(project: DeploymentProjectProfile): DeploymentConfigInput {
-  const config: DeploymentConfigInput = {
-    workerName: 'cloudchef-validation',
-    workersAi: project.bindings.ai,
-    appAgent: project.bindings.appAgent,
-    assets: project.bindings.assets,
-  };
-  if (project.bindings.d1) {
-    config.d1DatabaseId = PLACEHOLDER_D1_DATABASE_ID;
-    config.d1DatabaseName = 'cloudchef-validation-db';
-  }
-  if (project.bindings.appAgent) {
-    config.agentSecurityD1DatabaseId = PLACEHOLDER_D1_DATABASE_ID;
-    config.agentSecurityD1DatabaseName = 'cloudchef-validation-agent';
-  }
-  if (project.bindings.r2) {
-    config.r2BucketName = 'cloudchef-validation-storage';
-  }
-  if (project.bindings.kv) {
-    config.kvNamespaceId = PLACEHOLDER_KV_NAMESPACE_ID;
-  }
-  return config;
-}
-
 /** One file a seed writes, parsed: its mode only when the seed carries one. */
 type SeedFileInput = { path: string; content: string; encoding: 'utf8' | 'base64'; mode?: number };
 
@@ -4177,8 +3340,11 @@ function validationStageReporter(onStage?: WorkspaceValidationStageReporter): (s
   };
 }
 
-function requireOptionalString(value: unknown, name: string, maxLength: number): string | undefined {
-  return value === undefined ? undefined : requireString(value, name, maxLength);
+function requireString(value: unknown, name: string, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength) {
+    throw new SyntaxError(`Invalid ${name}.`);
+  }
+  return value;
 }
 
 function requireStringArray(value: unknown, name: string, maxLength: number): string[] {
@@ -4197,27 +3363,6 @@ function requireInteger(value: unknown, name: string, max: number): number {
     throw new SyntaxError(`Invalid ${name}.`);
   }
   return value;
-}
-
-function requireSnapshotRevision(value: unknown): string {
-  const revision = requireString(value, 'expectedSnapshotRevision', 64);
-  if (!/^[a-f0-9]{64}$/.test(revision)) {
-    throw new SyntaxError('Invalid expectedSnapshotRevision.');
-  }
-  return revision;
-}
-
-function assertDeploymentSessionIdentity(
-  session: DeploymentSessionRow,
-  expectedWorkspaceRevision: number,
-  expectedSnapshotRevision: string,
-): void {
-  if (
-    session.expected_workspace_revision !== expectedWorkspaceRevision ||
-    session.expected_snapshot_revision !== expectedSnapshotRevision
-  ) {
-    throw new Error('A deployment operation identifier was reused for a different workspace revision.');
-  }
 }
 
 export { ConversationAgent };

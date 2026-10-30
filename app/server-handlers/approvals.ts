@@ -26,7 +26,6 @@ import {
   rejectApproval,
 } from '~/lib/cloudflare/data/approval-requests.server';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
-import { listPendingProductionRequests } from '~/lib/cloudflare/data/org-projects.server';
 import { runtimeFor } from './command-line';
 import { json } from './runtime-projects';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
@@ -54,25 +53,7 @@ export function listApprovalsAction({ request, env }: { request: Request; env: E
       .bind(session.user.id)
       .all<{ id: string; name: string }>();
     const { waiting, decided } = await listApprovals(env.DB, session.user.id);
-    const productionRequests = (
-      await Promise.all(
-        teams.map(async (team) =>
-          (await listPendingProductionRequests(env.DB, team.id)).map((pending) => ({
-            id: pending.id,
-            orgId: team.id,
-            orgName: team.name,
-            title: pending.title,
-            note: pending.note,
-            previewUrl: pending.previewUrl,
-            requesterName: pending.requesterName,
-            requesterEmail: pending.requesterEmail,
-            createdAt: pending.createdAt,
-            updatedAt: pending.updatedAt,
-          })),
-        ),
-      )
-    ).flat();
-    return Response.json({ admin: teams.length > 0, waiting, decided, productionRequests });
+    return Response.json({ admin: teams.length > 0, waiting, decided });
   });
 }
 

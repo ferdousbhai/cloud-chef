@@ -35,6 +35,22 @@ const CLOUDFLARE_EXECUTIONS_COLUMNS = `
  * them already, beside the migrations table its earlier versioned schema kept, which nothing reads.
  */
 const SCHEMA_STATEMENTS: readonly string[] = [
+  // AI Chat's session and message store of the builder before pi-durable: every chat's messages moved into its
+  // transcript (2026-10-30), and nothing reads these since. The full-text index goes with its shadow tables.
+  ...[
+    'cf_agents_session_fts',
+    'cf_agents_session_messages',
+    'cf_agents_session_message_chunks',
+    'cf_agents_session_compactions',
+    'cf_agents_session_config',
+    'cf_agents_session_attachment_chunks',
+    'cf_agents_session_attachment_meta',
+    'cf_agents_session_attachment_refs',
+    'cf_ai_chat_agent_messages',
+    'cf_ai_chat_agent_tool_runs',
+    'cf_ai_chat_agent_tool_milestones',
+    'cf_ai_chat_request_context',
+  ].map((table) => `DROP TABLE IF EXISTS ${table}`),
   `
     CREATE TABLE IF NOT EXISTS builder_identity (
       id TEXT PRIMARY KEY CHECK (id = 'active'),

@@ -212,8 +212,10 @@ each re-checks the member's role and that the project belongs to the connection 
 changes reach the repository as their agent pushes them with git: a branch it names for a preview, `main` to
 publish.
 
-CloudChef never builds or deploys a project kept in Artifacts. Workers Builds, connected to the repository,
-deploys `main` (the only production branch Artifacts supports) and builds other branches into Previews. The
+A project is built and deployed by one of two builders, recorded as a plain fact (`org_projects.deploys_with`):
+CloudChef's own ProjectBuilder for a project made in a chat, uploaded as a ZIP or pushed from a computer
+(`cloudchef`, Deployment Boundary), or Workers Builds for one imported from GitHub (`workers_builds`). Workers
+Builds, connected to the repository, deploys `main` (the only production branch Artifacts supports) and builds other branches into Previews. The
 control plane reads what it reports with the connection's own authorization (`workers-ci.read`), never handing
 a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
 repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
@@ -226,18 +228,16 @@ turn's context names so the agent knows where the live site is (it reads it with
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
 `/api/projects/<id>/workers-builds/switch` says when it is done, and otherwise how.
 
-A member's new app (a draft) can be sent for review: the request names the draft's own repository (`p-<chat>`) and
-the commit sent. Approving it, in one step, makes that repository a team project its requester may edit, adopted
-as it is; an admin then connects it to Workers Builds. An admin can also limit a member to the team's projects:
+A team member's new chat makes one of the team's projects that its maker may edit, published like any other
+without an admin's approval. An admin can also limit a member to the team's projects:
 that member's runtime is refused the team's Cloudflare token by the credential broker, so their work reaches
 production only through Workers Builds.
 
 ## Project Repositories
 
 Every project's code and history live in Cloudflare Artifacts in the account the project belongs to, through the
-runtime's `ARTIFACTS` binding (namespace `cloudchef`, created on first use). A CloudChef app's repository is
-`p-<chat initial id>`; a team project's is the one the control plane records for it (`t-<project id>` once
-imported). Artifacts reads trees, blobs and history and makes repositories, forks, imports and tokens, but has no
+runtime's `ARTIFACTS` binding (namespace `cloudchef`, created on first use). A project's repository is the one the
+control plane records for it: `t-<project id>` once made or imported. Artifacts reads trees, blobs and history and makes repositories, forks, imports and tokens, but has no
 server-side commit or merge, so `app/lib/.server/cloudflare/project-repository.ts` writes those with isomorphic-git
 into an in-memory object store (never the workspace, which holds no `.git`) and pushes them over git's smart HTTP
 with a short-lived write token. Every ref update names the value it read, so a branch someone else moved is a
@@ -281,38 +281,35 @@ others pushed or rewrote since the person's last one, said once as a closable ti
 (`findAccessibleProject`) reports or sees anyone, nothing anyone writes or says reaches the control plane, and scheduled
 maintenance forgets visits not made for 180 days. A
 push made to the repository outside CloudChef, with an Artifacts token of the account's own, is not recorded (nor
-checked). A CloudChef app's
-production serves main: a turn that pushed main publishes it, with its exact-revision deployment, and only while the
-workspace holds exactly what main does. `revertToCommit` applies an earlier commit's files as one compare-and-swap
-change set (refused while a turn runs), commits them as `Restore version <short commit>`, and the ordinary publication
-follows. A fork copies the repository to the new chat's own `p-<id>` (main moved back to the chosen commit) and the
-new chat's workspace seeds from it. A copy of a project or app (from the browser or the command line, into the
-copier's own account) imports it over git with a 35-minute read token, and Artifacts scopes a token to a repository, not to
+checked). A copy of a project (from the browser or the command line, into the copier's
+own account) imports it over git with a 35-minute read token, and Artifacts scopes a token to a repository, not to
 refs: so the source's runtime first forks the project's main alone into a read-only `c-<id>` repository, mints the
 token there, and deletes that fork once the copy is made or has failed (`ProjectRepositories.readAccess`,
 `endReadAccess`), so the token never reads the project's other branches or CloudChef's `refs/cloudchef/*`. A fork never
-ended is deleted by the next `readAccess` once its token has expired. A team project's workspace seeds from its main (importing it first, when the
+ended is deleted by the next `readAccess` once its token has expired. A project's workspace seeds from its main (importing it first, when the
 control plane gives an import source); a push of a branch makes a preview and a push of main publishes, each shown
-in the pushing command's card while a background watch reads Workers Builds' status for the commit from the control
-plane (`runtime-projects/status`). The browser
-reads history, a clone command, a fork and a ZIP of any commit through the runtime (`projects.*` data operations and
-`GET /v1/projects/archive`), with a chat's creator alone for a CloudChef app and the control plane's role (view or
-edit) for a team project.
+in the pushing command's card while a background watch reads the build's status for the commit from the control
+plane (`runtime-projects/status`). Restoring an earlier version (`revertToCommit`) applies that commit's files to
+the workspace as one compare-and-swap change set (refused while a turn runs), for the agent to publish like any
+change; it is refused while main holds commits the workspace's files aren't based on (`knownMain`, what git in the
+workspace last fetched or pushed), so a restore never silently undoes changes made elsewhere. The browser reads
+history, a clone command and a ZIP of any commit through the runtime (`projects.*` data operations and
+`GET /v1/projects/archive`), with the control plane's role (view or edit).
 
 ## State Ownership
 
-| State                                                                                             | Authoritative owner                                  |
-| ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| Identity, OAuth credentials, sessions, connection metadata, runtime locators                      | CloudChef control-plane D1                           |
-| Organizations, memberships, invites, per-member daily usage counts                                | CloudChef control-plane D1                           |
-| Projects, members' roles, GitHub installations, production requests                               | CloudChef control-plane D1                           |
-| Chat catalog, transcript identity, deployment plans and resources, Agent garbage-collection queue | User workspace D1                                    |
-| Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable)          | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
-| Project bytes, numeric revision, change index, tool journal, and validation receipts              | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
-| Dependency installation, validation, and deployable artifact preparation                          | User-owned `ProjectWorkspace` Container backend      |
-| Production-version upload and promotion                                                           | User's Cloudflare account APIs                       |
-| Query collections and editor files                                                                | Rebuildable in-memory browser presentation cache     |
-| Generated application's Worker, D1, R2, Agent, and related resources                              | User's Cloudflare account                            |
+| State                                                                                    | Authoritative owner                                  |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Identity, OAuth credentials, sessions, connection metadata, runtime locators             | CloudChef control-plane D1                           |
+| Organizations, memberships, invites, per-member daily usage counts                       | CloudChef control-plane D1                           |
+| Projects, members' roles, GitHub installations, publishes of projects CloudChef deploys  | CloudChef control-plane D1                           |
+| Chat catalog, transcript identity, Agent garbage-collection queue                        | User workspace D1                                    |
+| Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable) | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |
+| Project bytes, numeric revision, change index, and tool journal                          | User-owned `ProjectWorkspace` Computer VFS/DO SQLite |
+| Dependency installation and validation                                                   | User-owned `ProjectWorkspace` Container backend      |
+| Building and deploying a project CloudChef publishes                                     | User-owned `ProjectBuilder`, user's Cloudflare APIs  |
+| Query collections and editor files                                                       | Rebuildable in-memory browser presentation cache     |
+| Generated application's Worker, D1, R2, Agent, and related resources                     | User's Cloudflare account                            |
 
 Do not create a second authoritative store for the same state. Browser and process-local materializations must be
 rebuildable from their owner. Cloudflare Computer's SQLite VFS in `ProjectWorkspace` is the sole authority for project
@@ -342,10 +339,11 @@ messages are a rebuildable view of that.
   finished command's output as it is now: a team build's result, or an admin's decision), and `cloudchef.legacy` (a
   message of a chat from before pi-durable).
 - The agent keeps only the turn's own bookkeeping in its state: which pi operation the turn waits for, so a restarted
-  agent waits for it again and then publishes what the turn pushed.
+  agent waits for it again.
 - Every chat from before pi-durable was converted once (2026-10-30): AI Chat's messages became `cloudchef.legacy`
   entries, and such a chat goes on in a fresh context, so the model does not see the old messages. AI Chat's tables
-  (`cf_agents_session_*`) and the workspace D1's `legacy_chat_moves` are unread and are dropped in the next release.
+  (`cf_agents_session_*`, `cf_ai_chat_*`) are dropped as the agent starts (`conversation-agent-schema.ts`), and the
+  workspace D1's `legacy_chat_moves` by workspace migration 0025.
 - The checkpoint the data API returns for a transcript (reload, a subchat's branch point) is derived from the chat's
   messages; it is not stored.
 
@@ -372,8 +370,8 @@ occurrence when asked), `write` honours the turn's abort signal, and `exec` stre
 asked except a command that touches CloudChef's platform processes and state or asks `cf` for a credential
 (`cloudchef-agent/workspace-boundary.ts`). `exec` answers two commands itself rather than in the shell: `pnpm add`
 and `pnpm install --lockfile-only` resolve npm registry packages in a staging copy, and `cloudchef validate`, run as a
-command of its own, runs the project's full validation, the one a publish reuses for the same revision (the container's
-own `cloudchef` program only says so when it is reached any other way). Listing and searching files are ordinary
+command of its own, installs the project's dependencies and runs its own typecheck, lint, test and build scripts in a
+copy of the project (the container's own `cloudchef` program only says so when it is reached any other way). Listing and searching files are ordinary
 commands (`ls`, `find`, `grep`, `rg`). `@cloudflare/computer/tools` contributes only types.
 
 The container has internet access: commands run there, by the agent or typed by the person in the terminal, reach
@@ -395,11 +393,10 @@ from github.com/cloudflare/skills at a pinned commit into `app/lib/.server/llm/s
 by `pnpm run skills:sync` (optionally `-- <commit>`; never edited by hand), so they stay Cloudflare's current guidance
 rather than a hand-written copy. They are exposed
 through the existing `read` tool under `/__skills__/<skill>/`; no activation or separate resource-reader tool is
-added. That namespace is a read-only control-plane overlay: it never enters the project VFS, revision, or deployment
-artifact, project files cannot shadow it, and it is not in the container, so no command sees it. The system prompt (`cloudchef-agent/prompts/system.ts`) describes only the environment — the workspace and
-its tools, the kind of project (a CloudChef app, or a team's GitHub project, whose catalog omits project-stack), and
+added. That namespace is a read-only control-plane overlay: it never enters the project VFS or revision, project files cannot shadow it, and it is not in the container, so no command sees it. The system prompt (`cloudchef-agent/prompts/system.ts`) describes only the environment — the workspace and
+its tools, the kind of project (made from CloudChef's starter, or kept in its own repository, whose catalog omits project-stack), and
 how changes are published — and leaves to the model what it can decide itself; concrete product and API guidance
-comes from retrieval, while code and deployment boundaries remain enforced by project validation. A documentation search that fails returns a failed tool result the model can
+comes from retrieval, while code and deployment boundaries are enforced where a project is built and deployed. A documentation search that fails returns a failed tool result the model can
 act on, rather than ending the turn.
 
 Cloudflare account work goes through Cloudflare's `cf` CLI in the container. Its launcher installs the pinned CLI on
@@ -476,96 +473,54 @@ as soon as that handle becomes available. `pnpm add <packages>` and `pnpm instal
 dependency installer, which resolves npm registry packages with install scripts off and writes back only package.json
 and the lockfile; any other install that names a package must name one from the npm registry. The model decides when to run the full
 validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
-Production deployment is not a model capability: when a turn that changed a CloudChef app finishes, `ConversationAgent`
-admits a durable deployment fiber that runs one authenticated, idempotent server operation. It builds the exact revision it was asked for (reusing a validation of that revision when the model
-already ran one), prepares the exact-revision plan, and executes it in the user's account. A failed build or
-deployment is shown to the user and told to the model at the start of its next turn. The browser can request a retry but is not responsible for starting deployment.
-A turn that changes the app, however it ends, durably records that production must catch up (`publicationPending`),
-and only production serving the current revision (`productionRevision`) clears it, so a publication cut short is
-redone: at the next turn's end, even one that changed nothing, when that turn is stopped or fails before it
-streams, and when a restarted agent starts. A message refused before its turn begins stops nothing. No automatic
-publication starts while a turn runs, since it holds the workspace's operation lane. The person's next message stops
-the deployment in flight until just before its migrations and upload (past that it finishes, since stopping would
-leave production half changed). A deployment that
-failed for a reason that passes (a busy workspace, another deployment of the project, an interruption, an unreachable
-credential broker) is retried after 30 seconds, 2 minutes, and 8 minutes, and so is one whose failed record in the
-user's account cannot be settled yet before it is redone; a failed build waits for the next turn. A
-project deploys one revision at a time; a person's projects deploy independently. Validation and deployment use
-checkpoints from the same VFS, so a publication never ships a revision other than the one it was asked for.
+Deploying is not a model capability. The model publishes with git: a branch it pushes makes a preview, and a push of
+main goes live (Project Repositories); the project's builder takes the commit from the repository (Deployment
+Boundary, or Workers Builds). The agent follows the build of what a command pushed in the background and shows its
+result in that command's card, and the model reads it in that command's output at its next turn.
 
 ## Site Boundary
 
-A CloudChef app has one site: its production Worker at its `workers.dev` address, with the project's D1 databases, R2
-bucket, and KV namespace. There is no separate preview deployment; the chat's preview pane frames that production
-site, which every project's `application-response.ts` lets cloudchef.build (and only it) frame. Full validation
-copies the project to an isolated root, installs dependencies, runs typecheck/lint/stack verification, performs the
-production build and `cf deploy --prebuilt` dry run against a trusted `worker.config.json`, and retains the
-deployable module/asset/migration artifact under the content revision. The exact revision is asserted before and
-after validation and again before publication. The Worker serves no versioned preview URLs (`previews_enabled` is
-off), so no earlier version stays reachable against the data it was published with.
-
-Production consumes the retained artifact for the same source digest, substitutes production bindings, uploads an
-immutable version, and promotes that exact version. If Computer recycled after validation, artifact preparation
-may rebuild from the retained source checkpoint, but its byte inventory must match the durable validation digest.
+A project has one production site: its Worker in the person's account, at its `workers.dev` address or the domains
+attached to it, and for an app made from CloudChef's starter the project's D1 databases, R2 bucket and KV namespace.
+A push of another branch makes a preview version of that Worker, at its own address. The workspace frames the live
+site or the newest preview beside the chat, which every starter app's `application-response.ts` lets cloudchef.build
+(and only it) do.
 
 ## Deployment Boundary
 
-Deployment state and resource intent are recorded in the user workspace D1. Execution verifies that Computer's current
-content checkpoint still matches the validated revision, reuses the revision-keyed validation artifact, provisions the
-requested resources through the user's Cloudflare API authorization, applies migrations, uploads an immutable Worker
-version, and promotes that exact version. CloudChef stores no deployment archive outside the user-owned runtime's
-recoverable artifact cache.
+A project CloudChef deploys itself (`deploys_with = 'cloudchef'`) is built and deployed by its ProjectBuilder
+(`user-workspace-runtime/src/project-builder.ts`): one Durable Object per project, in the runtime of the person whose
+push it is, with a container of its own. A pushed branch claims a deploy of its commit at the control plane
+(`runtime-projects/deployments/claim`, `app/server-handlers/runtime-deployments.ts`, recorded in
+`project_deployments`), and a newer commit of the branch supersedes an older one. The builder reads how the commit
+builds from its own files (`app/lib/.server/cloudflare/project-build-plan.ts`), fetches it through a read-only git
+proxy, installs and builds it as an unprivileged user holding no credential, stops that user's processes, and deploys
+with CloudChef's own Wrangler, whose every request to Cloudflare it sends on itself with the account's authorization,
+only while the control plane says the deploy runs and only if it is one a deploy of that Worker may make
+(`app/lib/.server/cloudflare/deploy-api-policy.ts`): the token never leaves the builder. Main deploys to production;
+another branch uploads a preview version. How it went is reported back (`runtime-projects/deployments/report`), its
+log kept in the person's own account, and the control plane records once which version went live, who made it, and
+the site's address (`recordProductionPublish`). Each step runs in a scheduled call of its own, a lost container starts
+the step over a few times at most, and the runtime counts as busy while a step runs, so an upgrade never cuts a deploy
+off.
 
-The deployment executor derives resource names and security-sensitive configuration on the server. It records managed
-Worker intent before publishing, then reads back the deployed version, script etag, bindings, variables, and schedules.
-Ambiguous publish outcomes remain visible for owner review rather than being silently discarded. Once the version is
-promoted, production serves it, so the deployment is recorded as succeeded whatever follows: a later step (the
-schedule, the `workers.dev` address, its records) that fails twice becomes a warning the model and the person see, and
-the next deployment repeats it. The execution records a receipt of the promoted version and retries the success write
-a few times; if it still can't land, the record stays deploying, never failed, and a retry's recovery of the
-interrupted record reads the receipt as its success.
+A CloudChef app (a commit with the starter's `cloudflare.project.json` and no Wrangler config) is deployed in app mode
+(`user-workspace-runtime/src/app-build.ts`): the builder makes the resources its project file declares (`DB`,
+`AGENT_SECURITY_DB`, `APP_STORAGE`, `APP_CACHE`), named after the project, applies its databases' migrations, and
+writes the Wrangler config from CloudChef's own trusted settings, so nothing of the project's configuration decides
+what is deployed or how. The Worker and resources belong to the project, not to a commit: every deploy replaces the
+Worker's version in place and keeps the data. Each database records every migration applied to it: a deploy applies
+only the ones it lacks and refuses one that changed after it was applied, telling the agent to make the change in a
+new migration. Generated-app migrations, the template's included, are therefore append-only. Deleting a project
+deletes its Worker and the resources it binds (`app/lib/.server/cloudflare/project-deletion.ts`).
 
-A record left provisioning or deploying holds the project's one deployment slot, which otherwise only a deployment of
-its own revision settles. Two settles keep a project that moved on deployable. The ConversationAgent settles a record a few
-seconds after its fiber throws, whatever revision the project is at, unless a fiber of that revision runs again. A
-deployment the slot refuses settles the record holding it (another revision's, or its own revision's under an earlier
-id) once no fiber of the agent deploys that revision and the record has shown no work (an update or a recorded step)
-for 15 minutes, since a deployment started through the runtime's deployment route runs outside the agent; it then
-tries once more, unless it settled its own revision's record as succeeded, which production then serves. Each settles
-as recovery of an interrupted record does: succeeded when its receipt says production serves it, failed otherwise.
-Each settles only the execution it saw (the one that threw, or the one holding the slot): the write matches its
-execution generation, so a later execution runs on, and a settle that waited to be admitted looks again for a fiber of
-the revision before writing. Only a settle that itself settled the record as succeeded records production as serving
-its revision; a record it finds already succeeded was settled by a later execution, which a later deployment may have
-replaced.
-
-A CloudChef app's account resources (its Worker and so its `workers.dev` address, `DB`, `AGENT_SECURITY_DB`,
-`APP_STORAGE`, and `APP_CACHE`) belong to the project, the `ProjectWorkspace` a chat
-builds in, not to a revision: every deployment replaces the Worker's version in place and keeps the data. A chat is one
-project: its workspace is keyed on the chat (by the id of its first conversation's agent), and a new conversation (a
-subchat) is a new agent with a fresh context working in that same workspace, publishing onto the same Worker and
-resources and committing to the same repository. Only the newest conversation may change the project; the earlier ones
-are kept to read, and the one before stops and hands its publication state to the new one when it starts. A deployment
-id is only the record and idempotency key of one revision's publication. A plan names every resource after the project's own
-identity (`appResourceIdentity`), and must name the Worker. A stored plan is not
-replayed once the revision would get another (the Cloudflare connection, or the plan a release makes, changed since
-it was made): the revision is planned again under the next of its deterministic ids, and recovery terminalizes each
-of them, reporting the one it settled as succeeded, since production serves it. Each database keeps a receipt (name,
-digest, and the SQL, which receipts written before it kept do not have) of every migration it applied: a deployment applies only the ones it lacks, and
-refuses before applying any when one it applied has changed, telling the model to make the change in a new migration
-and restore the applied one, quoting its applied SQL when the receipt has it. Generated-app migrations, the template's
-included, are therefore append-only.
-
-Deleting a chat releases its deployments oldest first. A deployment leaves a resource that a deployment released after
-it also records or names, so a project's shared resources are deleted once, by the last of its deployments.
-
-The workspace Worker never stores the user's OAuth access token as a binding. At deployment time it exchanges its
-derived, generation-specific runtime secret at the control plane for a freshly resolved token. The broker rechecks the
-active user, connection, generation, and credential handle; returns `Cache-Control: no-store`; and never follows an
-alternate origin. Production pins that broker to `https://cloudchef.build` in
-`user-workspace-runtime-policy.ts`. An open-source fork must change that constant to its own HTTPS control-plane origin,
-regenerate the user runtime, and re-provision existing user runtimes. Redirecting the configured endpoint is
-intentionally unsupported because it would disclose the runtime secret.
+The workspace runtime never stores the user's OAuth access token as a binding. A deploy exchanges its derived,
+generation-specific runtime secret at the control plane for a freshly resolved token, only while that deploy runs
+(`runtime-projects/deployments/credential`). The broker rechecks the active user, connection, generation, and
+credential handle; returns `Cache-Control: no-store`; and never follows an alternate origin. Production pins that
+broker to `https://cloudchef.build` in `user-workspace-runtime-policy.ts`. An open-source fork must change that
+constant to its own HTTPS control-plane origin, regenerate the user runtime, and re-provision existing user runtimes.
+Redirecting the configured endpoint is intentionally unsupported because it would disclose the runtime secret.
 
 ## Generated-Application Boundary
 
