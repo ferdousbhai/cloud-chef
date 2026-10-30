@@ -4,7 +4,6 @@ import { describe, expect, test } from 'vitest';
 
 const controlPlaneTables = [
   'approval_requests',
-  'apps',
   'cloudflare_auth_sessions',
   'cloudflare_authorizations',
   'cloudflare_connections',
@@ -32,7 +31,6 @@ const controlPlaneTables = [
   'post_media_deletions',
   'post_reports',
   'posts',
-  'production_requests',
   'project_deployments',
   'project_main_pushes',
   'project_main_rewrites',

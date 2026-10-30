@@ -4,20 +4,16 @@ import { describe, expect, test } from 'vitest';
 
 const workloadTables = [
   'agent_gc_candidates',
-  'app_resource_gc_candidates',
   // The handle of the runtime's base container snapshot: no person's data, only which snapshot later starts restore.
   'base_container_snapshots',
   'conversations',
-  'deployment_activity',
-  'deployment_resources',
-  'deployments',
   'runtime_activity',
   'runtime_upgrade_window',
   'workspaces',
 ];
 
 describe('user-owned workspace D1 schema', () => {
-  test('contains only workspace and deployment workload metadata', () => {
+  test('contains only workspace workload metadata', () => {
     const db = database();
     const tables = db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -27,24 +23,33 @@ describe('user-owned workspace D1 schema', () => {
     expect(tables).toEqual(workloadTables);
   });
 
-  test('stores a workspace reference without retaining a build artifact or connection copy', () => {
-    const db = database();
+  test('drops the old app publishing records and adopted drafts, keeping every workspace', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    for (const name of readdirSync('user-workspace-migrations')
+      .filter((name) => name.endsWith('.sql') && name < '0026_drop_old_app_publishing.sql')
+      .sort()) {
+      db.exec(readFileSync(`user-workspace-migrations/${name}`, 'utf8'));
+    }
     db.prepare(
-      `INSERT INTO workspaces (id, creator_id, initial_id, timestamp)
-       VALUES ('chat-1', 'user-1', 'initial-1', '2026-08-01T00:00:00.000Z')`,
+      `INSERT INTO workspaces (id, creator_id, initial_id, timestamp, adopted_by_org_project_id)
+       VALUES ('chat-1', 'user-1', 'initial-1', '2026-08-01T00:00:00.000Z', 'project-1')`,
     ).run();
     db.prepare(
       `INSERT INTO deployments (
          id, workspace_id, user_id, connection_id, connection_generation, workspace_reference,
          status, plan_json, plan_digest, created_at, updated_at
-       ) VALUES ('deployment-1', 'chat-1', 'user-1', 'connection-1', 1, 'workspace-runtime:project:1:hash',
-         'awaiting_approval', '{}', 'digest', 1, 1)`,
+       ) VALUES ('deployment-1', 'chat-1', 'user-1', 'connection-1', 1, 'reference', 'succeeded', '{}', 'd', 1, 1)`,
     ).run();
 
-    expect(db.prepare('SELECT workspace_reference, status FROM deployments').get()).toEqual({
-      workspace_reference: 'workspace-runtime:project:1:hash',
-      status: 'awaiting_approval',
-    });
+    db.exec(readFileSync('user-workspace-migrations/0026_drop_old_app_publishing.sql', 'utf8'));
+
+    expect(db.prepare('SELECT id, creator_id FROM workspaces').all()).toEqual([{ id: 'chat-1', creator_id: 'user-1' }]);
+    const columns = db
+      .prepare('PRAGMA table_info(workspaces)')
+      .all()
+      .map((row) => String(row.name));
+    expect(columns).not.toContain('adopted_by_org_project_id');
     expect(db.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
