@@ -2,7 +2,7 @@ import { useStore } from '@nanostores/react';
 import { lazy, Suspense, useState } from 'react';
 import { chatStore } from '~/lib/stores/workspaceId';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
-import { BellIcon, ExitIcon, GearIcon, HamburgerMenuIcon, PersonIcon } from '@radix-ui/react-icons';
+import { BellIcon, ExitIcon, GearIcon, HamburgerMenuIcon, PersonIcon, RocketIcon } from '@radix-ui/react-icons';
 import { useWaitingApprovals } from '~/lib/cloudflare/approvals.client';
 import { Menu as MenuComponent, MenuItem as MenuItemComponent, MenuSeparator } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
@@ -131,6 +131,13 @@ export function Header() {
                 <div className="truncate">{user.email}</div>
               </div>
               <MenuSeparator />
+              {context ? null : (
+                // Signed in with nowhere to build yet: the one quiet place that says so, gone once chosen.
+                <MenuItemComponent action={() => void navigate({ to: '/sign-in' })}>
+                  <RocketIcon className="text-content-secondary" />
+                  Choose where to build
+                </MenuItemComponent>
+              )}
               {username ? (
                 <MenuItemComponent action={() => void navigate({ to: '/$username', params: { username } })}>
                   <PersonIcon className="text-content-secondary" />

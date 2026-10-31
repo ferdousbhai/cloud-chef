@@ -155,8 +155,9 @@ with it), and the person then chooses a username (`/<username>`) before anything
 context, a connection the person may use, chosen with the workspace switcher; a tab names the context it opened in
 on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a team's space,
-reached by its admin's invite, or their own Cloudflare account, connected there; a space CloudChef runs comes later
-(`docs/proposals/managed-spaces.md`).
+reached by its admin's invite, or their own Cloudflare account, connected there after a short list of what happens
+on Cloudflare's site; a space CloudChef runs comes later (`docs/proposals/managed-spaces.md`). It's asked when they
+try to build, and the account menu offers it until they have a space.
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own
 account and `sha256(accountId:userId:connectionId)` for an organization's (with the runtime secret bound the same

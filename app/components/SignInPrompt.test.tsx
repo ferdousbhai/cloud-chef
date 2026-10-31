@@ -82,10 +82,27 @@ describe('the sign-in prompt', () => {
     expect(text).toContain("In your team's space");
     expect(text).toContain('ask its admin to invite sam@acme.com');
     expect(text).toContain('In your own Cloudflare account');
-    expect(text).toContain("Needs Cloudflare's Workers Paid plan.");
+    expect(text).toContain('Cloudflare bills you for them');
     expect(buttons).toContain('Use my Cloudflare account');
     expect(buttons).toContain('Sign out');
     expect(text).not.toContain('Continue with Google');
+    expect(text).not.toContain('What happens next');
+  });
+
+  it("says what happens on Cloudflare's site before going there", async () => {
+    await renderPrompt(signedInWithoutAccount, { title: 'Sign in to open settings.' });
+    const choose = [...document.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Use my Cloudflare account',
+    );
+    await act(async () => choose?.click());
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('What happens next');
+    expect(text).toContain('Sign in to Cloudflare, or make a free account there.');
+    expect(text).toContain('Workers Paid plan');
+    expect(text).toContain('Approve CloudChef. You come straight back here.');
+    expect([...document.querySelectorAll('button')].map((button) => button.textContent)).toEqual(
+      expect.arrayContaining(['Continue to Cloudflare', 'Back']),
+    );
   });
 
   it('asks for a username first, as GitHub does, with a suggestion that can be saved as it is', async () => {

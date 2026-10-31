@@ -247,6 +247,8 @@ export function ChooseSpace({
   const { data: session } = authClient.useSession();
   const [busy, setBusy] = useState<'cloudflare' | 'sign-out' | null>(null);
   const [error, setError] = useState<string | null>(initialError);
+  // What happens on Cloudflare's site is said before going there, so its pages aren't a surprise.
+  const [showCloudflareSteps, setShowCloudflareSteps] = useState(false);
   // Connecting Cloudflare to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
 
@@ -296,22 +298,32 @@ export function ChooseSpace({
       </SpaceChoice>
       <SpaceChoice
         title="In your own Cloudflare account"
+        details={showCloudflareSteps ? <CloudflareSteps continuing={continuePrompt !== undefined} /> : null}
         action={
-          <Button
-            variant="neutral"
-            loading={busy === 'cloudflare'}
-            onClick={() =>
-              void run('cloudflare', () =>
-                signInWithCloudflare(returnURLFor(returnTo), continuePrompt ? { continuePrompt } : undefined),
-              )
-            }
-          >
-            Use my Cloudflare account
-          </Button>
+          showCloudflareSteps ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                loading={busy === 'cloudflare'}
+                onClick={() =>
+                  void run('cloudflare', () =>
+                    signInWithCloudflare(returnURLFor(returnTo), continuePrompt ? { continuePrompt } : undefined),
+                  )
+                }
+              >
+                Continue to Cloudflare
+              </Button>
+              <Button variant="neutral" disabled={busy === 'cloudflare'} onClick={() => setShowCloudflareSteps(false)}>
+                Back
+              </Button>
+            </div>
+          ) : (
+            <Button variant="neutral" onClick={() => setShowCloudflareSteps(true)}>
+              Use my Cloudflare account
+            </Button>
+          )
         }
       >
-        Your apps, their data and the AI that builds them run in your account. Needs Cloudflare&apos;s Workers Paid
-        plan.
+        Your apps, their data and the AI that builds them run in your account, and Cloudflare bills you for them.
       </SpaceChoice>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
         <CloudflareConnectLegalNotice planNote={false} />
@@ -328,11 +340,43 @@ export function ChooseSpace({
   );
 }
 
-function SpaceChoice({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+/** The trip to Cloudflare's site and back, in the order it happens. */
+function CloudflareSteps({ continuing }: { continuing: boolean }) {
+  return (
+    <div className="grid gap-2 rounded-md bg-bolt-elements-background-depth-2 p-3">
+      <h3 className="text-sm font-semibold text-content-primary">What happens next</h3>
+      <ol className="grid list-decimal gap-1.5 pl-5 text-sm text-content-secondary">
+        <li>Sign in to Cloudflare, or make a free account there.</li>
+        <li>
+          Turn on Cloudflare&apos;s Workers Paid plan if it isn&apos;t on yet. It starts at $5 a month, billed by
+          Cloudflare.
+        </li>
+        <li>Approve CloudChef. You come straight back here.</li>
+      </ol>
+      <p className="text-sm text-content-secondary">
+        Back here, CloudChef sets up your space, which takes a few minutes the first time.
+        {continuing ? ' Then what you asked for starts building.' : null}
+      </p>
+    </div>
+  );
+}
+
+function SpaceChoice({
+  title,
+  details,
+  action,
+  children,
+}: {
+  title: string;
+  details?: ReactNode;
+  action?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="grid gap-2 rounded-lg border border-bolt-elements-borderColor p-4">
       <h2 className="text-sm font-semibold text-content-primary">{title}</h2>
       <p className="wrap-break-word text-sm text-content-secondary">{children}</p>
+      {details}
       {action ? <div>{action}</div> : null}
     </section>
   );
