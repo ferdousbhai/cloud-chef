@@ -324,7 +324,8 @@ export function coreStatements(now) {
   return [
     `SELECT COUNT(*) AS total,
         SUM(CASE WHEN createdAt >= ${now - WEEK} THEN 1 ELSE 0 END) AS joined_this_week,
-        SUM(CASE WHEN createdAt >= ${now - 2 * WEEK} AND createdAt < ${now - WEEK} THEN 1 ELSE 0 END) AS joined_last_week
+        SUM(CASE WHEN createdAt >= ${now - 2 * WEEK} AND createdAt < ${now - WEEK} THEN 1 ELSE 0 END) AS joined_last_week,
+        SUM(CASE WHEN managed_space_waitlist_at IS NOT NULL THEN 1 ELSE 0 END) AS managed_space_waitlist
       FROM "user"`,
     `SELECT connections.status AS status, COUNT(*) AS count,
         SUM(CASE WHEN authorizations.credential_handle IS NULL THEN 1 ELSE 0 END) AS missing_credential
@@ -724,12 +725,21 @@ function buildUsersCheck(core) {
   const thisWeek = number(row.joined_this_week);
   const lastWeek = number(row.joined_last_week);
   const delta = thisWeek - lastWeek;
+  const waitlist = number(row.managed_space_waitlist);
   return check(
     'users',
     'Users',
     'ok',
-    `${total} ${plural(total, 'user')} in total; ${thisWeek} joined in the last 7 days (${delta >= 0 ? '+' : ''}${delta} versus the 7 days before).`,
-    { detail: { total, joinedThisWeek: thisWeek, joinedPreviousWeek: lastWeek, delta } },
+    `${total} ${plural(total, 'user')} in total; ${thisWeek} joined in the last 7 days (${delta >= 0 ? '+' : ''}${delta} versus the 7 days before); ${waitlist} waiting for a managed space.`,
+    {
+      detail: {
+        total,
+        joinedThisWeek: thisWeek,
+        joinedPreviousWeek: lastWeek,
+        delta,
+        managedSpaceWaitlist: waitlist,
+      },
+    },
   );
 }
 

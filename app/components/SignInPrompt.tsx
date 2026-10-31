@@ -1,4 +1,5 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { z } from 'zod';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
@@ -12,7 +13,7 @@ import {
   signOutOfCloudChef,
 } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
-import { messageOf } from '~/lib/json-request';
+import { getJson, messageOf, postJson } from '~/lib/json-request';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
 import { ReauthenticatePrompt } from '~/components/settings/ReauthenticatePrompt';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm';
@@ -325,6 +326,7 @@ export function ChooseSpace({
       >
         Your apps, their data and the AI that builds them run in your account, and Cloudflare bills you for them.
       </SpaceChoice>
+      <ManagedSpaceWaitlist email={session.user.email} />
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
         <CloudflareConnectLegalNotice planNote={false} />
         <button
@@ -337,6 +339,88 @@ export function ChooseSpace({
         </button>
       </div>
     </div>
+  );
+}
+
+const waitlistSchema = z.looseObject({ joined: z.boolean() });
+
+/**
+ * A space CloudChef runs, which isn't open yet: joining its waitlist is the whole choice for now
+ * (`docs/proposals/managed-spaces.md`).
+ */
+function ManagedSpaceWaitlist({ email }: { email: string }) {
+  const [joined, setJoined] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let canceled = false;
+    void getJson('/api/managed-spaces/waitlist', waitlistSchema)
+      .then((status) => {
+        if (!canceled) {
+          setJoined(status.joined);
+        }
+      })
+      .catch(() => {
+        // Not knowing only means offering to join; joining twice keeps the first time.
+        if (!canceled) {
+          setJoined(false);
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const update = async (join: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const status = await postJson('/api/managed-spaces/waitlist/update', { joined: join }, waitlistSchema);
+      setJoined(status.joined);
+    } catch (failure) {
+      setError(messageOf(failure, 'Unable to update the waitlist. Try again.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SpaceChoice
+      title="In a space CloudChef runs"
+      badge="Coming soon"
+      details={
+        error ? (
+          <p className="text-sm text-content-error" role="alert">
+            {error}
+          </p>
+        ) : null
+      }
+      action={
+        joined === null ? null : joined ? (
+          <button
+            type="button"
+            className="text-sm font-medium text-content-secondary underline hover:text-content-primary disabled:opacity-50"
+            disabled={saving}
+            onClick={() => void update(false)}
+          >
+            Leave the waitlist
+          </button>
+        ) : (
+          <Button variant="neutral" loading={saving} onClick={() => void update(true)}>
+            Join the waitlist
+          </Button>
+        )
+      }
+    >
+      {joined ? (
+        <>
+          You&apos;re on the waitlist. We&apos;ll email <span className="break-all">{email}</span> when it opens.
+        </>
+      ) : (
+        <>No Cloudflare account needed: CloudChef sets it up and runs it for you. It isn&apos;t open yet.</>
+      )}
+    </SpaceChoice>
   );
 }
 
@@ -363,18 +447,27 @@ function CloudflareSteps({ continuing }: { continuing: boolean }) {
 
 function SpaceChoice({
   title,
+  badge,
   details,
   action,
   children,
 }: {
   title: string;
+  badge?: string;
   details?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="grid gap-2 rounded-lg border border-bolt-elements-borderColor p-4">
-      <h2 className="text-sm font-semibold text-content-primary">{title}</h2>
+      <h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-content-primary">
+        {title}
+        {badge ? (
+          <span className="rounded-full border border-bolt-elements-borderColor px-2 py-0.5 text-xs font-medium text-content-tertiary">
+            {badge}
+          </span>
+        ) : null}
+      </h2>
       <p className="wrap-break-word text-sm text-content-secondary">{children}</p>
       {details}
       {action ? <div>{action}</div> : null}

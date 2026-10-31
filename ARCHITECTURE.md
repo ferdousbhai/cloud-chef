@@ -156,7 +156,9 @@ context, a connection the person may use, chosen with the workspace switcher; a 
 on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a team's space,
 reached by its admin's invite, or their own Cloudflare account, connected there after a short list of what happens
-on Cloudflare's site; a space CloudChef runs comes later (`docs/proposals/managed-spaces.md`). It's asked when they
+on Cloudflare's site; a space CloudChef runs comes later (`docs/proposals/managed-spaces.md`), and until then is a
+waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`; `pnpm run ops`
+counts it). It's asked when they
 try to build, and the account menu offers it until they have a space.
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own

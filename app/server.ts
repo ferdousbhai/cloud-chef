@@ -35,6 +35,7 @@ import {
   commandLineVisibilityAction,
   commandLineCopyProjectAction,
 } from './server-handlers/command-line';
+import { managedSpaceWaitlistAction, updateManagedSpaceWaitlistAction } from './server-handlers/managed-space-waitlist';
 import {
   commandLineRewriteMainAction,
   runtimeMainRewriteAction,
@@ -283,6 +284,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/command-line/runs/rerun': ['POST', commandLineRerunAction],
     '/api/command-line/user': ['GET', commandLineUserAction],
     '/api/profile/username': ['POST', setUsernameAction],
+    '/api/managed-spaces/waitlist': ['GET', managedSpaceWaitlistAction],
+    '/api/managed-spaces/waitlist/update': ['POST', updateManagedSpaceWaitlistAction],
     '/api/projects/visibility': ['POST', setVisibilityAction],
     '/api/projects/copy': ['POST', copyProjectAction],
     '/api/projects/delete/preview': ['POST', projectDeletionPreviewAction],

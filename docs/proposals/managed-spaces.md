@@ -328,8 +328,10 @@ path, published-site D1 with `cf d1 export`/import, R2 objects copied; chats do 
 
 ## First shippable slice
 
-1. Sign-up without an invitation (Google, emailed link), username, no space yet.
-2. Managed Personal spaces only, behind an allow-list of emails the owner adds.
+1. Sign-up without an invitation (Google, emailed link), username, no space yet. Shipped, with a waitlist people
+   join from "Where should your apps live?" (`user.managed_space_waitlist_at`).
+2. Managed Personal spaces only, behind an allow-list of emails the owner adds; the waitlist, oldest first, is who
+   to let in and email when they open.
 3. Stripe Checkout for the starter plan, webhook, ledger, balance in Settings, Add credit.
 4. Account creation through the Tenant API, account token, Workers Paid, Unified Billing gateway.
 5. Model cost charged per turn from the runtime report; Cloudflare meters collected daily; hard stop at zero.

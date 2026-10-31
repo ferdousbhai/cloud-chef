@@ -27,6 +27,7 @@ function PrivacyPage() {
         <ul>
           <li>your sign-in identity: Cloudflare, Google, or a verified email address</li>
           <li>your Cloudflare account details, if you connect one</li>
+          <li>when you joined the waitlist for a space CloudChef runs, if you did, until you leave it</li>
           <li>
             teams you belong to: their names, your role, whether you may build new apps of your own there, and invites
             sent to your address (with the role and projects they give)

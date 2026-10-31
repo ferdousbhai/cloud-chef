@@ -76,6 +76,7 @@ const migrationPolicies = [
       '0057_drop_old_app_publishing.sql': 'e59a64acc113ed30450f371270832b99c7b013506408e89dd7f9d17fb2835455',
       '0058_post_reels.sql': '63ce83c460a1a47e5723cb6a8c5d9d67b0e03da379b6fd68cc78d52f082016d3',
       '0059_project_shares.sql': '7963ab2750ab7a2ebe5f3042592d3e731368500242b4fb7947f5feaaa341e5f7',
+      '0060_managed_space_waitlist.sql': 'd41dd6db0d1455ccd90327c13ee50d7b9fb0738d7a5179791f74efc3a1997822',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { createBrowserHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { SignInPrompt } from './SignInPrompt';
 
@@ -31,11 +32,20 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-/** The prompt as the page shows it, with `/api/auth/session` answering `session`. */
+/** The prompt as the page shows it, with `/api/auth/session` answering `session` and the waitlist kept in memory. */
 async function renderPrompt(session: CloudflareAuthSession | null, props: { title: string; initialError?: string }) {
+  let waitlisted = false;
   vi.stubGlobal(
     'fetch',
-    vi.fn<typeof fetch>(async () => Response.json(session)),
+    vi.fn<typeof fetch>(async (input, init) => {
+      const path = String(input);
+      if (path === '/api/managed-spaces/waitlist/update') {
+        waitlisted = z.object({ joined: z.boolean() }).parse(JSON.parse(String(init?.body))).joined;
+      }
+      return path.startsWith('/api/managed-spaces/waitlist')
+        ? Response.json({ joined: waitlisted })
+        : Response.json(session);
+    }),
   );
   const rootRoute = createRootRoute({
     component: () => (
@@ -87,6 +97,20 @@ describe('the sign-in prompt', () => {
     expect(buttons).toContain('Sign out');
     expect(text).not.toContain('Continue with Google');
     expect(text).not.toContain('What happens next');
+  });
+
+  it('offers a space CloudChef runs as a waitlist to join and leave', async () => {
+    const { text, buttons } = await renderPrompt(signedInWithoutAccount, { title: 'Sign in to open settings.' });
+    expect(text).toContain('In a space CloudChef runs');
+    expect(text).toContain('Coming soon');
+    expect(text).toContain('No Cloudflare account needed');
+    expect(buttons).toContain('Join the waitlist');
+    const button = (label: string) =>
+      [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === label);
+    await act(async () => button('Join the waitlist')?.click());
+    expect(document.body.textContent).toContain("You're on the waitlist. We'll email sam@acme.com when it opens.");
+    await act(async () => button('Leave the waitlist')?.click());
+    expect(button('Join the waitlist')).toBeDefined();
   });
 
   it("says what happens on Cloudflare's site before going there", async () => {

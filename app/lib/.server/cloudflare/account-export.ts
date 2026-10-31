@@ -70,6 +70,8 @@ type ExportedAccount = {
   emailProvenAt: string | null;
   /** Whether their model requests are logged with their content in the connected account's AI Gateway. */
   aiGatewayContentLogging: boolean;
+  /** When they joined the waitlist for a space CloudChef runs, if they're on it. */
+  managedSpaceWaitlistJoinedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -301,6 +303,7 @@ type UserRow = {
   google_subject: string | null;
   email_proven_at: number | null;
   ai_gateway_content_logging: number;
+  managed_space_waitlist_at: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -309,7 +312,7 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
   const row = await db
     .prepare(
       `SELECT id, name, email, emailVerified, image, cloudflare_subject, google_subject, email_proven_at,
-              ai_gateway_content_logging, createdAt, updatedAt
+              ai_gateway_content_logging, managed_space_waitlist_at, createdAt, updatedAt
        FROM "user" WHERE id = ?`,
     )
     .bind(userId)
@@ -325,6 +328,7 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
       googleSubject: row.google_subject,
       emailProvenAt: optionalIsoTimestamp(row.email_proven_at),
       aiGatewayContentLogging: row.ai_gateway_content_logging === 1,
+      managedSpaceWaitlistJoinedAt: optionalIsoTimestamp(row.managed_space_waitlist_at),
       createdAt: isoTimestamp(row.createdAt),
       updatedAt: isoTimestamp(row.updatedAt),
     },
