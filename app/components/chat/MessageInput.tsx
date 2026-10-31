@@ -11,10 +11,8 @@ import { ArrowRightIcon, StopIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { KeyboardShortcut } from '@ui/KeyboardShortcut';
 import { Spinner } from '@ui/Spinner';
-import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
-import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
+import { SessionCheckError, SignInDialog } from '~/components/SignInPrompt';
 import { authClient } from '~/lib/auth-client';
-import { LinkButton } from '~/components/ui/LinkButton';
 import { classNames } from '~/utils/classNames';
 import { MAX_USER_MESSAGE_CHARACTERS } from 'cloudchef-agent/context-limits';
 import { getMessageInputPrimaryActionLabel, useMessageInputController } from './useMessageInputController';
@@ -57,7 +55,10 @@ export const MessageInput = memo(function MessageInput({
   });
   const { authKind, input, primaryAction } = controller;
   const { data: session, error: sessionError } = authClient.useSession();
-  const primaryActionLabel = getMessageInputPrimaryActionLabel(primaryAction, isStreaming);
+  const primaryActionLabel =
+    primaryAction === 'sign-in' && session
+      ? 'Choose where to build'
+      : getMessageInputPrimaryActionLabel(primaryAction, isStreaming);
   const hasActiveSession = authKind === 'fullyLoggedIn';
   // The opening turn writes most of the application, so the model is chosen before it, not only once a chat
   // exists; a signed-out visitor has no model to run.
@@ -75,8 +76,8 @@ export const MessageInput = memo(function MessageInput({
   const actions = (
     <>
       {chatStarted && authKind === 'unauthenticated' && (
-        <Button variant="neutral" onClick={() => void controller.signIn()} size="xs" className="text-xs font-normal">
-          <span>Connect Cloudflare</span>
+        <Button variant="neutral" onClick={() => controller.signIn()} size="xs" className="text-xs font-normal">
+          <span>{session ? 'Choose where to build' : 'Sign in'}</span>
         </Button>
       )}
       <Button
@@ -84,7 +85,9 @@ export const MessageInput = memo(function MessageInput({
         disabled={
           (!isStreaming && (input.trim().length === 0 || disabled)) || authKind === 'loading' || sendMessageInProgress
         }
-        tip={authKind === 'unauthenticated' ? 'Connect Cloudflare to continue' : undefined}
+        tip={
+          authKind === 'unauthenticated' ? (session ? 'Choose where to build first' : 'Sign in to continue') : undefined
+        }
         onClick={controller.runPrimaryAction}
         size="xs"
         className={classNames('ml-1 h-8 min-w-8 rounded', !chatStarted ? 'cloudchef-message-input__send' : '')}
@@ -149,15 +152,15 @@ export const MessageInput = memo(function MessageInput({
       {authKind === 'unauthenticated' && !session && sessionError ? (
         <SessionCheckError className="mt-4 text-center" />
       ) : authKind === 'unauthenticated' ? (
-        <>
-          <CloudflareConnectLegalNotice className="mx-auto mt-2 w-full px-1" />
-          {/* Describing an app connects you on the way; this signs in without one. */}
-          <div className="mt-4 flex justify-center">
-            <LinkButton to="/sign-in" variant="neutral" size="sm">
-              {session ? 'Connect Cloudflare' : 'Sign in or connect Cloudflare'}
-            </LinkButton>
-          </div>
-        </>
+        // Describing an app asks you to sign in on the way; this signs in without one.
+        <div className="mt-4 flex justify-center">
+          <Button variant="neutral" size="sm" onClick={() => controller.signIn()}>
+            {session ? 'Choose where to build' : 'Sign in'}
+          </Button>
+        </div>
+      ) : null}
+      {controller.signInRequest ? (
+        <SignInDialog continuePrompt={controller.signInRequest.continuePrompt} onClose={controller.closeSignIn} />
       ) : null}
     </>
   );

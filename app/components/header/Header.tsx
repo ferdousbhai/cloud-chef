@@ -10,7 +10,7 @@ import { logOut } from '~/lib/account-actions.client';
 import { BrandLink } from '~/components/BrandLink';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
-import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm.client';
+import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm';
 import { useWebMcpTools } from '~/lib/webmcp.client';
 import { useUnreadNotifications } from '~/lib/showcase-api';
 
@@ -163,7 +163,7 @@ export function Header() {
           <SidebarMenu isOpen waitingApprovals={waitingApprovals} onClose={() => setIsMenuOpen(false)} />
         </Suspense>
       )}
-      {isAuthenticated && <ChooseUsernamePrompt />}
+      <ChooseUsernamePrompt />
       {session?.context ? (
         <Suspense fallback={null}>
           <WaitingCopies />

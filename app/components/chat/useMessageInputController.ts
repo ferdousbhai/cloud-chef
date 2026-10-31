@@ -9,9 +9,6 @@ import {
   type ChangeEventHandler,
   type KeyboardEventHandler,
 } from 'react';
-import { toast } from 'sonner';
-import { captureException } from '~/lib/telemetry.client';
-import { createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { getMessageInputRevision, messageInputStore, setMessageInput } from '~/lib/stores/messageInput';
 import { takePendingSubmit } from '~/lib/stores/pending-submit';
 import { useCloudChefAuthKind } from '~/lib/stores/userId';
@@ -21,7 +18,6 @@ import {
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
   CLOUDFLARE_AUTHORIZATION_ERROR_VALUE,
 } from '~/lib/cloudflare/authorization-recovery';
-import { messageOf } from '~/lib/json-request';
 
 interface MessageInputControllerOptions {
   isStreaming: boolean;
@@ -75,21 +71,17 @@ export function useMessageInputController({
     [onSend],
   );
 
+  // Signing in, or choosing where to build, opens over the composer; a submit that asked for it may be finished
+  // once the person's own Cloudflare account is connected (`continuePrompt`), and nothing else may.
+  const [signInRequest, setSignInRequest] = useState<{ continuePrompt?: string } | null>(null);
   const signIn = useCallback(
-    async ({ continueOnReturn = false }: { continueOnReturn?: boolean } = {}) => {
+    ({ continueOnReturn = false }: { continueOnReturn?: boolean } = {}) => {
       preservePromptForAuthentication(input);
-      try {
-        await signInWithCloudflare(
-          createCloudflareReturnURL(),
-          continueOnReturn ? { continuePrompt: input } : undefined,
-        );
-      } catch (error) {
-        captureException('Failed to start Cloudflare authorization', error, { level: 'error' });
-        toast.error(messageOf(error, 'Unable to connect Cloudflare. Please try again.'));
-      }
+      setSignInRequest(continueOnReturn && input.trim() ? { continuePrompt: input } : {});
     },
     [input],
   );
+  const closeSignIn = useCallback(() => setSignInRequest(null), []);
 
   // Decided once per mount, on the first resolved session: the continuation is written just
   // before the browser leaves for Cloudflare, so a later render must never re-read it.
@@ -163,6 +155,9 @@ export function useMessageInputController({
     primaryAction,
     runPrimaryAction,
     signIn,
+    /** What opened sign-in over the composer, or null while it's closed. */
+    signInRequest,
+    closeSignIn,
     /** Only an unstarted composer that may be prefilled takes what was typed into the home's early box. */
     takeEarlyPrompt: prefillEnabled ? takeEarlyPrompt : undefined,
   };
@@ -226,12 +221,12 @@ export function getMessageInputPrimaryAction({
 export function getMessageInputPrimaryActionLabel(
   action: MessageInputPrimaryAction,
   isStreaming: boolean,
-): 'Stop' | 'Connect Cloudflare' | 'Send' | 'Send guidance' {
+): 'Stop' | 'Sign in' | 'Send' | 'Send guidance' {
   if (action === 'stop') {
     return 'Stop';
   }
   if (action === 'sign-in') {
-    return 'Connect Cloudflare';
+    return 'Sign in';
   }
   return isStreaming ? 'Send guidance' : 'Send';
 }

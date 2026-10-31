@@ -3,7 +3,7 @@ import { authClient } from '~/lib/auth-client';
 import { ClientSettingsContent } from '~/components/ClientRouteComponents';
 import { createPrivatePageHead } from '~/lib/social-meta';
 import { Loading } from '~/components/Loading';
-import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { SignInPrompt } from '~/components/SignInPrompt';
 import {
   CLOUDFLARE_AUTHORIZATION_ERROR_MESSAGE,
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
@@ -54,7 +54,7 @@ function SettingsRouteView({
     return <Loading message="Checking your session…" />;
   }
   if (authKind === 'unauthenticated') {
-    return <CloudflareSignInPrompt title="Sign in to open settings." initialError={authorizationError} />;
+    return <SignInPrompt title="Sign in to open settings." initialError={authorizationError} />;
   }
   return <ClientSettingsContent authorizationError={authorizationError} />;
 }

@@ -150,7 +150,7 @@ describe('email sign-in', () => {
     expect((await sessionFrom(env, complete))?.user.id).toBe(sam.id);
   });
 
-  it('answers the same for an address with no account and no invite, and emails it why instead of a link', async () => {
+  it('makes a new account for an address CloudChef has never seen', async () => {
     const { database, env, sent } = setup();
     const start = await startEmailSignInAction({
       request: post('/api/auth/email/start', { email: 'nobody@example.com' }),
@@ -159,29 +159,13 @@ describe('email sign-in', () => {
     expect(start.status).toBe(202);
     await expect(start.json()).resolves.toEqual({ sent: true });
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain('"to":"nobody@example.com"');
-    expect(sent[0]).toContain("There's no CloudChef account for this address.");
-    expect(sent[0]).toContain(`${ORIGIN}/sign-in`);
-    expect(sent[0]).not.toContain('token=');
     expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 0 });
-  });
-
-  it('refuses a link whose invite went away before it was used, saying why', async () => {
-    const { database, env, sent } = setup();
-    await inviteToTeam(env.DB, 'sam@example.com');
-    await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'sam@example.com' }), env });
-    database.prepare('DELETE FROM organization_invites').run();
     const complete = await completeEmailSignInAction({
       request: post('/api/auth/email/complete', { token: tokenFrom(sent[0]) }),
       env,
     });
-    expect(complete.status).toBe(403);
-    await expect(complete.json()).resolves.toEqual({
-      error:
-        "There's no CloudChef account for this address. Connect Cloudflare to start, or ask your team's admin to invite you.",
-    });
-    expect(complete.headers.get('set-cookie')).toBeNull();
-    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 1 });
+    expect(complete.status).toBe(200);
+    expect((await sessionFrom(env, complete))?.user.email).toBe('nobody@example.com');
   });
 
   it('refuses an expired link', async () => {

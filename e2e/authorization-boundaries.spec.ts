@@ -138,7 +138,7 @@ test('keeps the project workbench closed to a forged browser session', async ({ 
 
   await page.goto('/chat/forged-session-project');
 
-  await expect(page.getByRole('heading', { name: /Connect Cloudflare to open this project/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Sign in to open this project/i })).toBeVisible();
   await expect(page.getByRole('complementary', { name: 'Project workbench' })).toHaveCount(0);
   await assertClean();
 });

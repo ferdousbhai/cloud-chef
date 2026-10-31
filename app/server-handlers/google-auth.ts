@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import { createAuthSession, getAuthSession, NoAccountError, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import {
   hasSameOrigin,
@@ -11,7 +11,6 @@ import {
   withinAddressRateLimit,
 } from '~/lib/.server/request-guards';
 import { bytesToBase64Url } from '~/lib/hex-digest';
-import { NO_ACCOUNT_REFUSAL, SIGN_IN_REFUSAL_PARAM } from '~/lib/sign-in-refusal';
 
 /**
  * Sign in with Google (OpenID Connect, authorization code with PKCE): to an existing CloudChef account,
@@ -148,11 +147,6 @@ export async function completeGoogleSignInAction({ request, env }: { request: Re
   } catch (error) {
     if (error instanceof IdentityConflictError) {
       return Response.json({ error: error.message }, { status: 409 });
-    }
-    if (error instanceof NoAccountError) {
-      const signInPage = new URL('/sign-in', url.origin);
-      signInPage.searchParams.set(SIGN_IN_REFUSAL_PARAM, NO_ACCOUNT_REFUSAL);
-      return redirect(signInPage, stateCookie('', 0, request));
     }
     if (error instanceof z.ZodError) {
       return Response.json({ error: 'Google returned an unexpected response.' }, { status: 502 });

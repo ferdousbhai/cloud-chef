@@ -1,24 +1,14 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import {
-  createAuthSession,
-  getAuthSession,
-  NoAccountError,
-  normalizeEmail,
-  provenEmailCanSignIn,
-  upsertVerifiedEmailUser,
-} from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession, normalizeEmail, upsertVerifiedEmailUser } from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import { hasSameOrigin, readJsonRequest, safeReturnTo, withinAddressRateLimit } from '~/lib/.server/request-guards';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
-import { NO_ACCOUNT_MESSAGE } from '~/lib/sign-in-refusal';
 
 /**
- * Signing in with a one-time link sent by email, to an existing CloudChef account or as a person a team
- * has invited (a new account starts with Cloudflare). Only the link's SHA-256 is stored. The emailed
- * link opens a page whose button completes the sign-in, so a mail scanner that fetches the link can't
- * use it up. The form answers the same for every address; an address with no account and no invite
- * gets an email saying so instead of a link.
+ * Signing in with a one-time link sent by email, to the CloudChef account with that address or a new one.
+ * Only the link's SHA-256 is stored. The emailed link opens a page whose button completes the sign-in, so a
+ * mail scanner that fetches the link can't use it up. The form answers the same for every address.
  */
 const EMAIL_SIGN_IN_LINK_TTL_MS = 15 * 60_000;
 /** Links sent to one address per hour, so the form can't be used to flood someone's inbox. */
@@ -77,17 +67,14 @@ export async function startEmailSignInAction({ request, env }: { request: Reques
   }
   const link = new URL(EMAIL_SIGN_IN_PATH, origin);
   link.searchParams.set('token', token);
-  const signedIn = await getAuthSession(env, request);
-  // With nothing to sign in to, the recorded link is never sent: it counts toward the hourly limit only.
-  const message = (await provenEmailCanSignIn(env.DB, email, signedIn?.user.id ?? null))
-    ? { subject: 'Sign in to CloudChef', text: signInText(link.toString()), html: signInHtml(link.toString()) }
-    : {
-        subject: 'Signing in to CloudChef',
-        text: noAccountText(new URL('/sign-in', origin).toString()),
-        html: noAccountHtml(new URL('/sign-in', origin).toString()),
-      };
   try {
-    await env.SIGN_IN_EMAIL.send({ from: SENDER, to: email, ...message });
+    await env.SIGN_IN_EMAIL.send({
+      from: SENDER,
+      to: email,
+      subject: 'Sign in to CloudChef',
+      text: signInText(link.toString()),
+      html: signInHtml(link.toString()),
+    });
   } catch {
     console.error('Unable to send a CloudChef sign-in email');
     return Response.json({ error: 'The sign-in email could not be sent. Try again shortly.' }, { status: 502 });
@@ -157,10 +144,6 @@ export async function completeEmailSignInAction({ request, env }: { request: Req
     if (error instanceof IdentityConflictError) {
       return Response.json({ error: error.message }, { status: 409 });
     }
-    // The account or the invite went away after the link was sent.
-    if (error instanceof NoAccountError) {
-      return Response.json({ error: error.message }, { status: 403 });
-    }
     console.error('Unable to complete an email sign-in');
     return Response.json({ error: 'Signing in failed. Try again.' }, { status: 500 });
   }
@@ -182,25 +165,4 @@ function signInHtml(link: string): string {
   return `<p>Sign in to CloudChef:</p>
 <p><a href="${href}">Sign in</a></p>
 <p>The link works once, for the next ${EMAIL_SIGN_IN_LINK_TTL_MS / 60_000} minutes. If you didn't ask to sign in, ignore this email.</p>`;
-}
-
-function noAccountText(signInPage: string): string {
-  return [
-    'Someone asked to sign in to CloudChef with this address.',
-    '',
-    NO_ACCOUNT_MESSAGE,
-    '',
-    signInPage,
-    '',
-    "If you didn't ask to sign in, ignore this email.",
-  ].join('\n');
-}
-
-function noAccountHtml(signInPage: string): string {
-  const href = signInPage.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  const message = NO_ACCOUNT_MESSAGE.replace(/'/g, '&#39;');
-  return `<p>Someone asked to sign in to CloudChef with this address.</p>
-<p>${message}</p>
-<p><a href="${href}">Open CloudChef</a></p>
-<p>If you didn&#39;t ask to sign in, ignore this email.</p>`;
 }

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createFileRoute } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
-import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
+import { SessionCheckError } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
 import { ConnectCloudflareButton } from '~/components/showcase/ConnectCloudflareButton';
 import { authClient, signOutOfCloudChef } from '~/lib/auth-client';

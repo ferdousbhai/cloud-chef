@@ -119,7 +119,7 @@ describe('continuing a submit that stopped to connect Cloudflare', () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it('carries the continuation only when the connect was started by a submit', async () => {
+  it('opens sign-in carrying the prompt only when a submit opened it', async () => {
     session.kind = 'unauthenticated';
     const onSend = vi.fn(async () => true);
     await mountComposer(onSend);
@@ -127,15 +127,16 @@ describe('continuing a submit that stopped to connect Cloudflare', () => {
 
     await act(async () => controller?.runPrimaryAction());
 
-    expect(auth.signInWithCloudflare).toHaveBeenCalledWith('http://localhost/', {
-      continuePrompt: 'Build a launch checklist.',
-    });
+    expect(controller?.signInRequest).toEqual({ continuePrompt: 'Build a launch checklist.' });
+    expect(window.sessionStorage.getItem(PENDING_PROMPT_STORAGE_KEY)).toBe('Build a launch checklist.');
 
-    // The composer's own connect action is not a submit, so it carries nothing to finish.
-    auth.signInWithCloudflare.mockClear();
+    // The composer's own sign-in button is not a submit, so it carries nothing to finish.
+    await act(async () => controller?.closeSignIn());
+    expect(controller?.signInRequest).toBeNull();
     await act(async () => controller?.signIn());
 
-    expect(auth.signInWithCloudflare).toHaveBeenCalledWith('http://localhost/', undefined);
+    expect(controller?.signInRequest).toEqual({});
+    expect(auth.signInWithCloudflare).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
   });
 });

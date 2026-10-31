@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { authClient } from '~/lib/auth-client';
 import { ClientFeed } from '~/components/ClientRouteComponents';
-import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { SignInPrompt } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
 import { ShowcaseShell } from '~/components/showcase/ShowcaseShell';
 import { createPrivatePageHead } from '~/lib/social-meta';
@@ -17,7 +17,7 @@ function FeedPage() {
     return <Loading message="Checking your session…" />;
   }
   if (!session) {
-    return <CloudflareSignInPrompt title="Sign in to see what the people you follow made." returnTo="/feed" />;
+    return <SignInPrompt title="Sign in to see what the people you follow made." returnTo="/feed" />;
   }
   return (
     <ShowcaseShell>

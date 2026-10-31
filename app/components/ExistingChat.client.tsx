@@ -3,7 +3,7 @@ import { Chat, WorkspaceRuntimeConnectionError } from './chat/Chat';
 import { useUserIdOrNullOrLoading } from '~/lib/stores/userId';
 import { Loading } from './Loading';
 import { Toaster } from '~/components/ui/Toaster';
-import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { SignInPrompt } from '~/components/SignInPrompt';
 import { CloudflareReauthorizePanel, needsCloudflareReauthorization } from '~/components/CloudflareReauthorizePrompt';
 import { Button } from '@ui/Button';
 import { LinkButton } from '~/components/ui/LinkButton';
@@ -32,12 +32,7 @@ function ExistingChatSessionView({ workspaceId }: { workspaceId: string }) {
     return <Loading message="Checking your Cloudflare session…" />;
   }
   if (userId === null) {
-    return (
-      <CloudflareSignInPrompt
-        title="Connect Cloudflare to open this project."
-        description="Connect the Cloudflare account that owns this project."
-      />
-    );
+    return <SignInPrompt title="Sign in to open this project." />;
   }
 
   return <AuthenticatedExistingChat workspaceId={workspaceId} />;

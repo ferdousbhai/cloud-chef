@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { authClient } from '~/lib/auth-client';
 import { ClientReports } from '~/components/ClientRouteComponents';
-import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { SignInPrompt } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
 import { ShowcaseShell } from '~/components/showcase/ShowcaseShell';
 import { createPrivatePageHead } from '~/lib/social-meta';
@@ -18,7 +18,7 @@ function ReportsPage() {
     return <Loading message="Checking your session…" />;
   }
   if (!session) {
-    return <CloudflareSignInPrompt title="Sign in to see reports." returnTo="/reports" />;
+    return <SignInPrompt title="Sign in to see reports." returnTo="/reports" />;
   }
   return (
     <ShowcaseShell>

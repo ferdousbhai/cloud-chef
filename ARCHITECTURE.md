@@ -149,10 +149,14 @@ migrations, applied before the deferred redeploy, must be additive.
 ## Accounts, Organizations, and Contexts
 
 A Cloudflare connection belongs to one person (their own account) or to an organization (its admins connect the
-organization's account once). Sign-in is separate from connecting: Cloudflare, Google, or an emailed one-time link
-creates a session, and a session works in one context, a connection the person may use, chosen with the workspace
-switcher; a tab names the context it opened in on each runtime-session request and reloads if another tab switched
-the session. People without Cloudflare logins of their own build in an organization's account.
+organization's account once). Sign-in is separate from connecting: Google or an emailed one-time link signs anyone in,
+making an account for an address CloudChef hasn't seen (an account first made with a Cloudflare login still signs in
+with it), and the person then chooses a username (`/<username>`) before anything else. A session works in one
+context, a connection the person may use, chosen with the workspace switcher; a tab names the context it opened in
+on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
+person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a team's space,
+reached by its admin's invite, or their own Cloudflare account, connected there; a space CloudChef runs comes later
+(`docs/proposals/managed-spaces.md`).
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own
 account and `sha256(accountId:userId:connectionId)` for an organization's (with the runtime secret bound the same
@@ -283,8 +287,7 @@ SHA-256, its role, who sent it, 14 days), whether or not it has an account, so t
 an account that has proven that address is also told in CloudChef. An invitation is taken by someone signed in with
 the address it was sent to, proven (an address only a Cloudflare login reported takes nothing): at `/shared`, or
 whenever their "Shared with you" list loads (`GET /api/projects/shared`). It lapses with its sender's right to run
-the project. Signing in with Google or an emailed link to an invited address makes the account, as a team invite
-does. A team's own members get their role in `org_project_access`; everyone else in `project_shares`
+the project. A team's own members get their role in `org_project_access`; everyone else in `project_shares`
 (`findAccessibleProject`'s `shared`), and removing either stops them at their next call.
 
 Someone a project is shared with works on it from an account of their own (the context they are in), never the

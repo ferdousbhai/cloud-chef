@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
 import type { TeamProject } from '~/lib/cloudflare/org-projects.client';
 import { DEFAULT_WORKERS_AI_MODEL, type BuilderModel } from '~/lib/workers-ai-model';
-import { PENDING_SUBMIT_STORAGE_KEY } from '~/utils/constants';
+import { PENDING_PROMPT_STORAGE_KEY } from '~/utils/constants';
 import { authSession } from './auth-session';
 
 // The home loads in steps — the session, then the account's models, then the person's projects — and the
@@ -127,7 +127,7 @@ const states: { name: string; context: WorkspaceContext | null; settled: (page: 
   {
     name: 'signed out',
     context: null,
-    settled: (page) => expect(page.getByRole('link', { name: /Sign in or connect Cloudflare/ })).toBeVisible(),
+    settled: (page) => expect(page.getByRole('button', { name: 'Sign in', exact: true }).last()).toBeVisible(),
   },
   {
     name: 'signed in with projects',
@@ -228,22 +228,19 @@ async function typeAsSoonAsVisible(page: Page) {
   return box;
 }
 
-test('keeps every keystroke typed while the home loads, signed out, and sends exactly that', async ({ page }) => {
+test('keeps every keystroke typed while the home loads, signed out, and keeps exactly that for sign-in', async ({
+  page,
+}) => {
   await stubHome(page, null);
-  const sent = new Promise<string | null>((resolve) => {
-    void page.route('**/api/cloudflare/connection/start', async (route) => {
-      // The submit is recorded just before the browser would leave for Cloudflare.
-      resolve(await page.evaluate((key) => window.sessionStorage.getItem(key), PENDING_SUBMIT_STORAGE_KEY));
-      await route.fulfill({ status: 503, json: { error: 'Not in this test.' } });
-    });
-  });
 
   const box = await typeAsSoonAsVisible(page);
 
   await expect(box).toHaveValue(SENTENCE);
-  await expect(page.getByRole('link', { name: /Sign in or connect Cloudflare/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign in', exact: true }).last()).toBeVisible();
   await box.press('Enter');
-  expect(await sent).toBe(SENTENCE);
+  // Signing in opens over the home; what was typed waits in this tab for the return.
+  await expect(page.getByRole('dialog', { name: 'Sign in to CloudChef' })).toBeVisible();
+  expect(await page.evaluate((key) => window.sessionStorage.getItem(key), PENDING_PROMPT_STORAGE_KEY)).toBe(SENTENCE);
 });
 
 test('keeps every keystroke typed while the home loads, signed in, and sends exactly that', async ({ page }) => {

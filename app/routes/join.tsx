@@ -3,9 +3,9 @@ import { z } from 'zod';
 import { createFileRoute } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
-import { SessionCheckError } from '~/components/CloudflareSignInPrompt';
+import { SessionCheckError } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
-import { authClient, createCloudflareReturnURL, signInWithCloudflare, signOutOfCloudChef } from '~/lib/auth-client';
+import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
 import { resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { createPrivatePageHead } from '~/lib/social-meta';
@@ -16,7 +16,7 @@ const joinSearchSchema = z.object({ token: z.string().optional().catch(undefined
 const acceptedSchema = z.object({ switched: z.boolean() }).catch({ switched: false });
 
 /**
- * Where an organization invite lands. Signing in comes first (Google, an emailed link, or Cloudflare),
+ * Where an organization invite lands. Signing in comes first (Google or an emailed link),
  * with the address the invite was sent to; then one click joins, and the builder opens in the
  * organization's Cloudflare account.
  */
@@ -232,9 +232,8 @@ function JoinCard({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * Signed out: sign in as the invited address, by Google, a link emailed to it, or Cloudflare, and come
- * straight back here, where joining happens by itself. The invite lets Google or the link make a CloudChef
- * account for that address.
+ * Signed out: sign in as the invited address, by Google or a link emailed to it, and come straight back here,
+ * where joining happens by itself.
  */
 function SignInToJoin({
   invite,
@@ -254,25 +253,12 @@ function SignInToJoin({
     onLinkSent,
     failure: 'Unable to sign in.',
   });
-  const [connecting, setConnecting] = useState(false);
-  const continueWithCloudflare = async () => {
-    setConnecting(true);
-    onError(null);
-    try {
-      await signInWithCloudflare(createCloudflareReturnURL());
-    } catch (failure) {
-      onError(messageOf(failure, 'Unable to sign in.'));
-    } finally {
-      // Signing in navigates away on success.
-      setConnecting(false);
-    }
-  };
-  const anyBusy = busy !== null || connecting;
+  const anyBusy = busy !== null;
   return (
     <JoinCard title={`Join ${invite.orgName} on CloudChef`}>
       <p className="app-page-lede wrap-break-word">
         {invite.inviterName} invited <span className="break-all">{invite.email}</span> to the team. Sign in as that
-        address to join, with Google, an emailed link, or Cloudflare. You&apos;ll come straight back here.
+        address to join. You&apos;ll come straight back here.
       </p>
       {error ? (
         <p className="mt-4 text-sm text-content-error" role="alert">
@@ -294,15 +280,7 @@ function SignInToJoin({
             disabled={anyBusy}
             onClick={() => void emailLink(invite.email)}
           >
-            Email me a sign-in link
-          </Button>
-          <Button
-            variant="neutral"
-            loading={connecting}
-            disabled={anyBusy}
-            onClick={() => void continueWithCloudflare()}
-          >
-            Continue with Cloudflare
+            Email me a link
           </Button>
         </div>
       )}

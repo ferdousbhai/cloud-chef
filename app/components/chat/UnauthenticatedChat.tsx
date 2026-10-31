@@ -25,11 +25,11 @@ export function UnauthenticatedChat({
       currentError={undefined}
       messages={initialMessages}
       disabledReason={authLoading ? 'Loading account...' : null}
-      runtimeNotice="Connect Cloudflare to build and preview."
+      runtimeNotice="Sign in to build and preview."
       sendMessageInProgress={false}
       subchats={subchats}
       onSend={async () => {
-        toast.info('Connect Cloudflare to chat or build.');
+        toast.info('Sign in to chat or build.');
         return false;
       }}
     />

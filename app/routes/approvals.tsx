@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { authClient } from '~/lib/auth-client';
 import { ClientApprovals, ClientHeader } from '~/components/ClientRouteComponents';
-import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { SignInPrompt } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
 import { createPrivatePageHead } from '~/lib/social-meta';
 
@@ -16,7 +16,7 @@ function ApprovalsPage() {
     return <Loading message="Checking your session…" />;
   }
   if (!session) {
-    return <CloudflareSignInPrompt title="Sign in to see approvals." returnTo="/approvals" />;
+    return <SignInPrompt title="Sign in to see approvals." returnTo="/approvals" />;
   }
   return (
     <div className="flex size-full flex-col overflow-y-auto bg-bolt-elements-background-depth-1">

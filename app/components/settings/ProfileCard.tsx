@@ -2,7 +2,7 @@ import { ExitIcon, PersonIcon } from '@radix-ui/react-icons';
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
 import { Button } from '@ui/Button';
-import { UsernameForm } from './UsernameForm.client';
+import { UsernameForm } from './UsernameForm';
 
 export function ProfileCard() {
   const user = authClient.useSession().data?.user ?? null;

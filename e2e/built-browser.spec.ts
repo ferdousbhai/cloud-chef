@@ -23,12 +23,13 @@ test('hydrates the built landing page without replacing meaningful SSR content',
   await expect(page.getByText(HOME_HEADING, { exact: false })).toBeVisible();
   await expect(page.getByPlaceholder(/Describe your app/i)).toBeVisible();
   // The builder model selector belongs to a connected session, so the signed-out
-  // landing page must offer the connect action instead.
+  // landing page must offer to sign in instead, with the terms beside it.
   await expect(page.getByRole('button', { name: /Builder model/i })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Connect Cloudflare' }).first()).toBeVisible();
-  const legalNotice = page.getByTestId('cloudflare-connect-legal-notice');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).last().click();
+  const legalNotice = page.getByRole('dialog').getByTestId('cloudflare-connect-legal-notice');
   await expect(legalNotice).toBeVisible();
   await expect(legalNotice.getByRole('link', { name: 'Terms' })).toBeVisible();
+  await page.keyboard.press('Escape');
   expect(await page.locator('header').evaluate((header) => header.scrollWidth <= header.clientWidth)).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(
     true,
@@ -41,17 +42,16 @@ test('renders signed-out private routes after browser hydration', async ({ page 
 
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: /Sign in to open settings/i })).toBeVisible();
-  // Never a bounce into Cloudflare's consent screen: the route that asks for eight permissions
-  // states the plan requirement here first, beside the button that goes there.
+  // Never a bounce into Cloudflare's consent screen: signing in is Google or an emailed link.
   await expect(page).toHaveURL(/\/settings$/);
-  await expect(page.getByText("Needs Cloudflare's Workers Paid plan.")).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
   await expect(page.getByTestId('cloudflare-connect-legal-notice')).toContainText(
     'By continuing, you agree to the Terms and Privacy notice.',
   );
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex,\s*nofollow/);
 
   await page.goto('/chat/browser-smoke-project');
-  await expect(page.getByRole('heading', { name: /Connect Cloudflare to open this project/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Sign in to open this project/i })).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex,\s*nofollow/);
   await assertClean();
 });

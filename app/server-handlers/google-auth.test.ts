@@ -118,16 +118,14 @@ describe('Google sign-in', () => {
     });
   });
 
-  it('signs no one in for a Google account with no CloudChef account and no invite, and says why', async () => {
+  it('makes a new account for a Google account CloudChef has never seen', async () => {
     const { env, database } = setup();
     const { state } = await start(env);
-    google({ sub: 'g-9', email: 'nobody@acme.com', email_verified: true });
-    const refused = await completeGoogleSignInAction({ request: callback(state), env });
-    expect(refused.status).toBe(303);
-    expect(refused.headers.get('location')).toBe(`${ORIGIN}/sign-in?sign_in=no_account`);
-    expect(refused.headers.get('set-cookie')).not.toContain('cloudchef_session=');
-    expect(await sessionFrom(env, refused)).toBeNull();
-    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 0 });
+    google({ sub: 'g-9', email: 'nobody@acme.com', email_verified: true, name: 'Nobody' });
+    const done = await completeGoogleSignInAction({ request: callback(state), env });
+    expect(done.status).toBe(303);
+    expect((await sessionFrom(env, done))?.user.email).toBe('nobody@acme.com');
+    expect(database.prepare('SELECT google_subject FROM "user"').get()).toEqual({ google_subject: 'g-9' });
   });
 
   it('finds the same user when their Google email changes', async () => {

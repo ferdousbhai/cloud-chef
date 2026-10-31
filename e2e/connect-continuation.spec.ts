@@ -5,17 +5,25 @@ import { collectBrowserDiagnostics } from './browser-diagnostics';
 
 // Connecting Cloudflare is never a goal in itself: it is what the product asks for before it
 // can do what was already asked of it. These tests stub the authorization round trip and prove
-// which returns finish that instruction and which must not.
+// which returns finish that instruction and which must not. Someone signed in with nowhere to
+// build chooses their own Cloudflare account from the dialog the submit opens.
 const PROMPT = 'Build a launch checklist.';
 
 /**
  * Authorizing at Cloudflare is a full page navigation back to CloudChef with a session, so
  * the connect start returns the origin itself and the session stub flips at the same moment.
  */
-async function stubCloudflareAuthorization(page: Page) {
+async function stubCloudflareAuthorization(page: Page, before: 'signed out' | 'no space' = 'signed out') {
   const connection = { authorized: false };
+  const noSpace = { ...authSession, context: null, contexts: [] };
   await page.route('**/api/auth/session', (route) =>
-    route.fulfill(connection.authorized ? { json: authSession } : { body: 'null', contentType: 'application/json' }),
+    route.fulfill(
+      connection.authorized
+        ? { json: authSession }
+        : before === 'no space'
+          ? { json: noSpace }
+          : { body: 'null', contentType: 'application/json' },
+    ),
   );
   // The home lists the projects in the account it connects to; this one has none yet.
   await page.route('**/api/org-projects', (route) => route.fulfill({ json: { projects: [] } }));
@@ -40,11 +48,12 @@ test('finishes the submit that had to connect Cloudflare first', async ({ page }
     /status of 409/,
     /requestfailed: GET .*\/api\/org-projects$/,
   ]);
-  await stubCloudflareAuthorization(page);
+  await stubCloudflareAuthorization(page, 'no space');
 
   await page.goto('/');
   await page.getByPlaceholder(/Describe your app/i).fill(PROMPT);
-  await page.getByRole('button', { name: 'Connect Cloudflare' }).first().click();
+  await page.getByRole('button', { name: 'Choose where to build' }).first().click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Use my Cloudflare account' }).click();
 
   // Back from Cloudflare, the prompt is not merely restored: the submit it belonged to runs.
   await expect(page.getByText('Preparing your Cloudflare workspace')).toBeVisible();
@@ -67,7 +76,7 @@ test('never starts a build for someone who connected from settings', async ({ pa
     },
     [PENDING_PROMPT_STORAGE_KEY, PENDING_SUBMIT_STORAGE_KEY, PROMPT] as const,
   );
-  await page.getByRole('button', { name: 'Continue with Cloudflare' }).click();
+  await page.getByRole('button', { name: 'Sign in with Cloudflare' }).click();
 
   await expect(page.getByPlaceholder(/Describe your app/i)).toHaveValue(PROMPT);
   // The home's project list waits for the workspace to list what's in it; that's the only wait, and

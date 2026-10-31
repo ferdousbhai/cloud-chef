@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase, createProvenEmailUser, inviteToTeam } from '~/test/control-plane-d1';
-import { attachCloudflareIdentity, NoAccountError, upsertCloudflareUser, upsertVerifiedEmailUser } from './auth';
+import { attachCloudflareIdentity, upsertCloudflareUser, upsertVerifiedEmailUser } from './auth';
 import { IdentityConflictError } from './identity-conflict-error';
 
 describe('signing in without Cloudflare, then connecting it', () => {
@@ -134,7 +134,7 @@ describe('signing in with Google or an emailed link', () => {
     });
   });
 
-  it('makes no account for an address with neither an account nor a waiting invite, and changes nothing', async () => {
+  it('makes an account for anyone, and takes an address off a Cloudflare login that only reported it', async () => {
     const { database, db } = controlPlaneDatabase();
     // Someone's Cloudflare login reports the address; CloudChef never checked it.
     const cloudflareUser = await upsertCloudflareUser(
@@ -142,22 +142,14 @@ describe('signing in with Google or an emailed link', () => {
       { subject: 'cf-1', email: 'lee@acme.com', name: null, picture: null },
       null,
     );
-    await expect(upsertVerifiedEmailUser(db, { email: 'lee@acme.com' })).rejects.toBeInstanceOf(NoAccountError);
-    await expect(upsertVerifiedEmailUser(db, { email: 'nobody@acme.com' })).rejects.toThrow(
-      "There's no CloudChef account for this address.",
-    );
-    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 1 });
+    const lee = await upsertVerifiedEmailUser(db, { email: 'lee@acme.com' });
+    expect(lee.id).not.toBe(cloudflareUser.id);
+    expect(lee.email).toBe('lee@acme.com');
     expect(database.prepare('SELECT email FROM "user" WHERE id = ?').get(cloudflareUser.id)).toEqual({
-      email: 'lee@acme.com',
+      email: 'cf-1@users.cloudflare.invalid',
     });
-  });
-
-  it("doesn't count an invite that expired or whose sender is no longer an admin", async () => {
-    const { database, db } = controlPlaneDatabase();
-    await inviteToTeam(db, 'old@acme.com', -1);
-    await expect(upsertVerifiedEmailUser(db, { email: 'old@acme.com' })).rejects.toBeInstanceOf(NoAccountError);
-    await inviteToTeam(db, 'lapsed@acme.com');
-    database.prepare("UPDATE organization_members SET role = 'member'").run();
-    await expect(upsertVerifiedEmailUser(db, { email: 'lapsed@acme.com' })).rejects.toBeInstanceOf(NoAccountError);
+    await expect(upsertVerifiedEmailUser(db, { email: 'nobody@acme.com' })).resolves.toMatchObject({
+      email: 'nobody@acme.com',
+    });
   });
 });

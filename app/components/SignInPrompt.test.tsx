@@ -5,8 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { createBrowserHistory, createRootRoute, createRouter, RouterProvider } from '@tanstack/react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
-import { NO_ACCOUNT_MESSAGE } from '~/lib/sign-in-refusal';
-import { CloudflareSignInPrompt } from './CloudflareSignInPrompt';
+import { SignInPrompt } from './SignInPrompt';
 
 /** Sam, signed in with Google or an emailed link, with no Cloudflare account to build in yet. */
 const signedInWithoutAccount: CloudflareAuthSession = {
@@ -40,7 +39,7 @@ async function renderPrompt(session: CloudflareAuthSession | null, props: { titl
   );
   const rootRoute = createRootRoute({
     component: () => (
-      <CloudflareSignInPrompt
+      <SignInPrompt
         title={props.title}
         description="Build in your own Cloudflare account."
         initialError={props.initialError}
@@ -59,30 +58,42 @@ async function renderPrompt(session: CloudflareAuthSession | null, props: { titl
 }
 
 describe('the sign-in prompt', () => {
-  it('signs up with Cloudflare, and signs in to an existing account with Google or an emailed link', async () => {
-    const { text, buttons } = await renderPrompt(null, { title: 'Sign in to CloudChef.' });
-    expect(text).toContain('Sign in to CloudChef.');
-    expect(text).toContain('Build in your own Cloudflare account.');
-    expect(text).toContain("Needs Cloudflare's Workers Paid plan.");
-    expect(text).toContain('Or sign in with Google or an emailed link.');
+  it('signs in the same way for everyone, with Google or an emailed link, and Cloudflare only as a small link', async () => {
+    const { text, buttons } = await renderPrompt(null, { title: 'Sign in to CloudChef' });
+    expect(text).toContain('Sign in to CloudChef');
+    expect(text).toContain('Made your account with Cloudflare? Sign in with Cloudflare');
     expect(text).toContain('By continuing, you agree to the Terms and Privacy notice.');
-    expect(buttons).toEqual(['Continue with Cloudflare', 'Continue with Google', 'Email me a link']);
-    expect(text).not.toContain('Back to CloudChef');
-    expect(text).not.toContain('Workers Paid required.');
+    expect(buttons).toEqual(['Continue with Google', 'Continue with email', 'Sign in with Cloudflare']);
+    expect(text).not.toContain('Workers Paid');
+    expect(text).not.toContain('Last used');
   });
 
-  it('says plainly why Google or a link signed no one in', async () => {
-    await renderPrompt(null, { title: 'Sign in to CloudChef.', initialError: NO_ACCOUNT_MESSAGE });
-    expect(document.querySelector('[role="alert"]')?.textContent).toBe(
-      "There's no CloudChef account for this address. Connect Cloudflare to start, or ask your team's admin to invite you.",
-    );
+  it('marks how this browser signed in last', async () => {
+    window.localStorage.setItem('cloudchef:last-sign-in', 'google');
+    const { buttons } = await renderPrompt(null, { title: 'Sign in to CloudChef' });
+    expect(buttons[0]).toBe('Continue with GoogleLast used');
+    window.localStorage.clear();
   });
 
-  it('offers someone signed in without a Cloudflare account to connect one, not to sign in again', async () => {
+  it('asks someone signed in with nowhere to build where their apps should live, not to sign in again', async () => {
     const { text, buttons } = await renderPrompt(signedInWithoutAccount, { title: 'Sign in to open settings.' });
+    expect(text).toContain('Where should your apps live?');
     expect(text).toContain("You're signed in as sam@acme.com.");
-    expect(buttons).toEqual(['Connect Cloudflare', 'Sign out']);
-    expect(text).toContain('Teams');
-    expect(text).not.toContain('Or sign in with Google');
+    expect(text).toContain("In your team's space");
+    expect(text).toContain('ask its admin to invite sam@acme.com');
+    expect(text).toContain('In your own Cloudflare account');
+    expect(text).toContain("Needs Cloudflare's Workers Paid plan.");
+    expect(buttons).toContain('Use my Cloudflare account');
+    expect(buttons).toContain('Sign out');
+    expect(text).not.toContain('Continue with Google');
+  });
+
+  it('asks for a username first, as GitHub does, with a suggestion that can be saved as it is', async () => {
+    await renderPrompt(signedInWithoutAccount, { title: 'Sign in to open settings.' });
+    const dialog = document.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toContain('Choose your username');
+    expect(dialog?.querySelector('input')?.value).toBe('sam');
+    expect(dialog?.querySelector('button[type="submit"]')?.hasAttribute('disabled')).toBe(false);
+    expect(dialog?.querySelector('[aria-label="Close dialog"]')).toBeNull();
   });
 });

@@ -2,8 +2,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { lazy, Suspense } from 'react';
 import { Loading } from '~/components/Loading';
 
-const CloudflareSignInPrompt = lazy(() =>
-  import('~/components/CloudflareSignInPrompt').then((module) => ({ default: module.CloudflareSignInPrompt })),
+const SignInPrompt = lazy(() =>
+  import('~/components/SignInPrompt').then((module) => ({ default: module.SignInPrompt })),
 );
 
 /**
@@ -27,7 +27,7 @@ export function SignInOverlay({ title, returnTo, onClose }: { title: string; ret
             <span aria-hidden>×</span>
           </Dialog.Close>
           <Suspense fallback={<Loading message="Loading sign-in…" />}>
-            <CloudflareSignInPrompt title={title} returnTo={returnTo} />
+            <SignInPrompt title={title} returnTo={returnTo} />
           </Suspense>
         </Dialog.Content>
       </Dialog.Portal>

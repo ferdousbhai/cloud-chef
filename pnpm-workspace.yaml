@@ -20,6 +20,8 @@ overrides:
   'brace-expansion@<1.1.21': '1.1.21'
   'brace-expansion@>=2.0.0 <2.1.7': '2.1.7'
   'brace-expansion@>=4.0.0 <5.0.12': '5.0.12'
+  # minimatch fixed GHSA-g3hv-75wg-m249 only in 11; its API is unchanged for eslint's and knip's use.
+  'minimatch@>=10.0.0 <11.0.1': '11.0.3'
   # Reviewed security releases accepted by the existing transitive ranges.
   '@hono/node-server@<2.1.3': '2.1.3'
   'browserslist@<=4.28.6': '4.28.8'

@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
-import { CloudflareSignInPrompt } from '~/components/CloudflareSignInPrompt';
+import { SignInPrompt } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
 import { authClient } from '~/lib/auth-client';
 import { getJson, messageOf, postJson } from '~/lib/json-request';
@@ -30,7 +30,7 @@ function DeviceLogin() {
   }
   if (!session) {
     return (
-      <CloudflareSignInPrompt
+      <SignInPrompt
         title="Sign in to let the command line in."
         returnTo={`/login/device${code ? `?code=${encodeURIComponent(code)}` : ''}`}
       />
