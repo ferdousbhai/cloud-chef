@@ -1,0 +1,7 @@
+import { local } from './local';
+import confetti from 'https://esm.sh/canvas-confetti@1.9.3';
+
+export const loaded = import('https://cdn.example.com/module.js');
+export const beacon = 'https://static.cloudflareinsights.com/beacon.min.js';
+export const measured = fetch('https://www.google-analytics.com/mp/collect', { method: 'POST' });
+export { confetti, local };

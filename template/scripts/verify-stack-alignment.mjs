@@ -14,6 +14,7 @@ import {
 import {
   APP_REQUIRED_PACKAGES,
   GENERATED_APP_TOOLCHAIN,
+  collectHtmlEntries,
   collectSourceEntries,
   findAgentCapabilityDependencyErrors,
   findBuildTimeEnvAccess,
@@ -21,6 +22,7 @@ import {
   findMissingCommandSteps,
   findMissingDependencies,
   findMissingPaths,
+  findRemoteScriptLoads,
   findRuntimePinErrors,
   projectType,
 } from "./lib/project-policy.mjs";
@@ -175,6 +177,12 @@ export function verifyStackAlignment() {
     ...(type === "web_app" ? ["scripts/lib/runtime-module-security.ts"] : []),
   ]);
   errors.push(...findBuildTimeEnvAccess(files));
+  errors.push(
+    ...findRemoteScriptLoads([
+      ...collectSourceEntries(rootDir, ["src"]),
+      ...collectHtmlEntries(rootDir, ["index.html", "src", "public"]),
+    ]),
+  );
   return errors;
 }
 

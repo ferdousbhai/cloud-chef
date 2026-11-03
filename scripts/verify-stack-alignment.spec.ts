@@ -5,12 +5,14 @@ import {
   GENERATED_APP_TOOLCHAIN,
   dependencyNames,
   findBuildTimeEnvAccess,
+  findDynamicScriptLoading,
   findForbiddenFiles,
   findInternalPackageMetadataErrors,
   findDeploymentRuntimePolicyErrors,
   findMissingDependencies,
   findMissingCommandSteps,
   findPackageVersionAlignmentErrors,
+  findRemoteScriptLoads,
   findRootWorkspacePolicyErrors,
   findRuntimePinErrors,
   findWorkspaceBasePinErrors,
@@ -179,6 +181,29 @@ describe('stack alignment verification helpers', () => {
     expect(findBuildTimeEnvAccess([fixture])).toEqual([
       `${fixture}:2 reads import.meta.env, which is written into the published browser files at build time; read configuration and secrets from the Worker's bindings.`,
     ]);
+  });
+
+  it('reports scripts a generated app would load from other sites, but not Turnstile or a Worker-side fetch', () => {
+    const page = new URL('./fixtures/remote-script-loads.html', import.meta.url).pathname;
+    const source = new URL('./fixtures/remote-script-loads.js.txt', import.meta.url).pathname;
+
+    expect(findRemoteScriptLoads([page, source])).toEqual([
+      `${page}:6 loads a script from another site; install the library with pnpm so it is bundled with the app.`,
+      `${page}:10 loads a script from another site; install the library with pnpm so it is bundled with the app.`,
+      `${page}:7 declares an import map, which resolves modules from other sites at runtime; install them with pnpm instead.`,
+      `${source}:2 imports a module from another site at runtime; install it with pnpm so it is bundled with the app.`,
+      `${source}:4 imports a module from another site at runtime; install it with pnpm so it is bundled with the app.`,
+      `${source}:2 references a JavaScript CDN; install the package with pnpm so it is bundled with the app.`,
+      `${page}:10 adds a third-party analytics tag, which runs that vendor's code with the app's origin; send events from the Worker instead.`,
+      `${source}:5 adds a third-party analytics tag, which runs that vendor's code with the app's origin; send events from the Worker instead.`,
+    ]);
+  });
+
+  it("reports control-plane code that makes script at runtime, which its CSP's 'strict-dynamic' would trust", () => {
+    const source = new URL('./fixtures/dynamic-script-loading.js.txt', import.meta.url).pathname;
+    const message = "loads or makes script at runtime, which the control plane's CSP would trust.";
+
+    expect(findDynamicScriptLoading([source])).toEqual([2, 3, 4, 5].map((line) => `${source}:${line} ${message}`));
   });
 
   it('validates command contracts without coupling to one exact command string', () => {

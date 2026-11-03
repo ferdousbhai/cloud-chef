@@ -4,6 +4,15 @@
  */
 const APPLICATION_CSP_BASELINE =
   "base-uri 'self'; frame-ancestors https://cloudchef.build; object-src 'none'; form-action 'self'";
+/**
+ * Scripts and workers only from the app's own origin, so a CDN library or analytics tag added later shows
+ * up in the browser console. Report-only: an enforced copy would block scripts an app's own policy allows by
+ * nonce. Inline scripts are allowed here, since TanStack Start and React's dev preamble write them on every
+ * page and reporting them would bury the off-origin loads this is for. An app whose own policy already
+ * governs scripts is left to it.
+ */
+const APPLICATION_SCRIPT_CSP_REPORT_ONLY =
+  "script-src 'self' 'unsafe-inline'; worker-src 'self' blob:";
 const HSTS_MIN_AGE_SECONDS = "31536000";
 
 export async function finalizeApplicationResponse(
@@ -20,7 +29,18 @@ export function withApplicationSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("X-Content-Type-Options", "nosniff");
-  applyContentSecurityPolicyBaseline(headers, APPLICATION_CSP_BASELINE);
+  applyContentSecurityPolicyBaseline(
+    headers,
+    "Content-Security-Policy",
+    APPLICATION_CSP_BASELINE,
+  );
+  if (!governsScripts(response.headers.get("Content-Security-Policy"))) {
+    applyContentSecurityPolicyBaseline(
+      headers,
+      "Content-Security-Policy-Report-Only",
+      APPLICATION_SCRIPT_CSP_REPORT_ONLY,
+    );
+  }
   applyHstsFloor(headers);
   // X-Frame-Options can't name the one site allowed to frame the app; the CSP above does.
   headers.delete("X-Frame-Options");
@@ -34,16 +54,27 @@ export function withApplicationSecurityHeaders(response: Response): Response {
 
 function applyContentSecurityPolicyBaseline(
   headers: Headers,
+  name: "Content-Security-Policy" | "Content-Security-Policy-Report-Only",
   baseline: string,
 ): void {
-  const current = headers.get("Content-Security-Policy");
+  const current = headers.get(name);
   if (!current) {
-    headers.set("Content-Security-Policy", baseline);
+    headers.set(name, baseline);
   } else if (!current.split(",").some((policy) => policy.trim() === baseline)) {
     // A CSP list enforces every policy independently. Appending keeps a
     // response's stricter resource policy while making this baseline mandatory.
-    headers.append("Content-Security-Policy", baseline);
+    headers.append(name, baseline);
   }
+}
+
+function governsScripts(policy: string | null): boolean {
+  return (
+    policy
+      ?.split(/[;,]/)
+      .some((directive) =>
+        /^(?:script-src|default-src)(?:\s|$)/i.test(directive.trim()),
+      ) ?? false
+  );
 }
 
 function applyHstsFloor(headers: Headers): void {

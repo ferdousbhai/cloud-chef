@@ -15,6 +15,7 @@ import {
   findMissingDependencies,
   findMissingPaths,
   findPackageVersionAlignmentErrors,
+  findRemoteScriptLoads,
   findRuntimePinErrors,
   packageDependencyVersion,
 } from '../template/scripts/lib/project-policy.mjs';
@@ -36,6 +37,7 @@ export {
   findMissingCommandSteps,
   findMissingDependencies,
   findPackageVersionAlignmentErrors,
+  findRemoteScriptLoads,
   findRuntimePinErrors,
   packageDependencyVersion,
 };
@@ -81,6 +83,26 @@ const requiredPaths = [
 ];
 function readJson(path) {
   return JSON.parse(readFileSync(resolve(rootDir, path), 'utf8'));
+}
+
+/**
+ * The control plane's pages carry the session, and its CSP trusts every script its own code loads
+ * ('strict-dynamic'). So its code never makes script from elsewhere at runtime: a script element, a
+ * worker's importScripts, an import() of another site, or a Function constructor.
+ */
+const dynamicScriptLoading =
+  /\bcreateElement\(\s*["'`]script["'`]|\bimportScripts\s*\(|\bimport\s*\(\s*["'`](?:https?:)?\/\/|\bnew\s+Function\s*\(/;
+
+export function findDynamicScriptLoading(files) {
+  return files.flatMap((file) =>
+    readFileSync(file, 'utf8')
+      .split('\n')
+      .flatMap((line, index) =>
+        dynamicScriptLoading.test(line)
+          ? [`${file}:${index + 1} loads or makes script at runtime, which the control plane's CSP would trust.`]
+          : [],
+      ),
+  );
 }
 
 export function findForbiddenFiles(paths) {
@@ -273,6 +295,17 @@ export function verifyStackAlignment() {
     'template/vite.config.ts',
   ]).filter((path) => !path.endsWith('/app/generated/user-workspace-runtime.generated.ts'));
   errors.push(...findBuildTimeEnvAccess(sourceFiles));
+  errors.push(
+    ...findDynamicScriptLoading(
+      sourceFiles.filter(
+        (path) =>
+          path.startsWith(resolve(rootDir, 'app') + '/') &&
+          !path.endsWith('.generated.ts') &&
+          !path.endsWith('.vendored.ts') &&
+          !/\.(?:test|spec)\.tsx?$/.test(path),
+      ),
+    ),
+  );
 
   return errors;
 }

@@ -1,0 +1,6 @@
+const local = await import('./local-module');
+const tag = document.createElement('script');
+self.importScripts('/worker-helper.js');
+const remote = await import(`https://cdn.example.com/module.js`);
+const made = new Function('return 1');
+const frame = document.createElement('iframe');

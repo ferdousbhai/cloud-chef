@@ -159,7 +159,12 @@ function applyContentSecurityPolicy(headers: Headers, nonce?: string) {
         "img-src 'self' data: blob: https:",
         "media-src 'self' blob:",
         "font-src 'self' data:",
+        // Each person's workspace runtime is cloudchef-workspace-<hash>.<their account's subdomain>.workers.dev,
+        // a different account for each person, and CSP wildcards only the leftmost label, so no narrower
+        // host covers them all.
         "connect-src 'self' https://*.workers.dev wss://*.workers.dev",
+        // The preview pane and project thumbnails show each project's site at its own address: workers.dev
+        // or any custom domain.
         'frame-src https:',
         "worker-src 'self' blob:",
         "manifest-src 'self'",

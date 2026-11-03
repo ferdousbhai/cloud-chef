@@ -10,6 +10,9 @@ describe('generated application response boundary', () => {
     expect(response.headers.get('Content-Security-Policy')).toBe(
       "base-uri 'self'; frame-ancestors https://cloudchef.build; object-src 'none'; form-action 'self'",
     );
+    expect(response.headers.get('Content-Security-Policy-Report-Only')).toBe(
+      "script-src 'self' 'unsafe-inline'; worker-src 'self' blob:",
+    );
     expect(response.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
     expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=31536000');
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
@@ -31,6 +34,23 @@ describe('generated application response boundary', () => {
       "default-src 'none'; script-src 'self', base-uri 'self'; frame-ancestors https://cloudchef.build; object-src 'none'; form-action 'self'",
     );
     expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=63072000; includeSubDomains; preload');
+    expect(response.headers.get('Content-Security-Policy-Report-Only')).toBeNull();
+  });
+
+  test("reports off-origin scripts and workers unless the application's own policy governs scripts", () => {
+    const report = (headers: HeadersInit) =>
+      withApplicationSecurityHeaders(new Response('app', { headers })).headers.get(
+        'Content-Security-Policy-Report-Only',
+      );
+
+    expect(report({ 'Content-Security-Policy': "img-src 'self'" })).toBe(
+      "script-src 'self' 'unsafe-inline'; worker-src 'self' blob:",
+    );
+    expect(report({ 'Content-Security-Policy-Report-Only': "img-src 'none'" })).toBe(
+      "img-src 'none', script-src 'self' 'unsafe-inline'; worker-src 'self' blob:",
+    );
+    expect(report({ 'Content-Security-Policy': "default-src 'self'" })).toBeNull();
+    expect(report({ 'Content-Security-Policy': "img-src 'self'; script-src 'self' 'nonce-abc'" })).toBeNull();
   });
 
   test('raises a weaker HSTS response to the production minimum without dropping its flags', () => {
