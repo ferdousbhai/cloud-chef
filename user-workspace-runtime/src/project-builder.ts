@@ -52,7 +52,7 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
-import { runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
+import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
 import { CONTAINER_COMMAND_ENV } from './computer-sandbox';
@@ -124,6 +124,8 @@ const SAME_CALL_MS = 60_000;
 /** The account's token is asked for again this often while a deploy runs, so a stopped one loses it soon. */
 const TOKEN_REUSE_MS = 20_000;
 const MAX_LOG_CHARACTERS = 64 * 1024;
+/** What one logged step keeps of its output: its start and its end, which is where a failure says why. */
+const LOGGED_OUTPUT_BYTES = 48 * 1024;
 const KEPT_LOGS = 10;
 
 type BuilderEnv = {
@@ -1057,19 +1059,20 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
 
   private async logged(job: Job, stage: 'install' | 'build', command: string, timeout: number): Promise<void> {
     try {
-      const output = await this.command(command, timeout);
+      const output = await this.command(command, timeout, undefined, LOGGED_OUTPUT_BYTES);
       this.appendLog(job, `${output.stdout}${output.stderr}`);
     } catch (error) {
-      this.appendLog(job, `${error instanceof Error ? error.message : String(error)}\n`);
+      this.appendLog(job, failedCommandLog(error instanceof Error ? error : new Error(String(error))));
       throw new StepFailure(stage, failureSentence(stage));
     }
   }
 
-  private command(command: string, timeout: number, env?: Record<string, string>) {
+  private command(command: string, timeout: number, env?: Record<string, string>, maxOutputBytes?: number) {
     const argv: SandboxCommand = ['/bin/bash', '-lc', command];
     return runTrackedSandboxCommand({
       command: argv,
       timeout,
+      maxOutputBytes,
       exec: (commandArgv, options) =>
         this.processes.exec(commandArgv, { ...options, env: { ...CONTAINER_COMMAND_ENV, ...env } }),
     });
@@ -1118,12 +1121,17 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     };
     this.#requests = emptyRequestTally();
     try {
-      const output = await this.command(`cd ${WORK_DIR} && ${WRANGLER} ${args}`, DEPLOY_TIMEOUT_MS, env);
+      const output = await this.command(
+        `cd ${WORK_DIR} && ${WRANGLER} ${args}`,
+        DEPLOY_TIMEOUT_MS,
+        env,
+        LOGGED_OUTPUT_BYTES,
+      );
       this.appendLog(job, `${output.stdout}${output.stderr}`);
       this.appendLog(job, requestTallyLine(this.#requests));
     } catch (error) {
       this.appendLog(job, requestTallyLine(this.#requests));
-      this.appendLog(job, `${error instanceof Error ? error.message : String(error)}\n`);
+      this.appendLog(job, failedCommandLog(error instanceof Error ? error : new Error(String(error))));
       const details = await this.command(
         [
           `grep -h '"type":"error"' ${WRANGLER_OUTPUT} 2>/dev/null | tail -n 5`,

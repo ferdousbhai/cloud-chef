@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { asBuildUserCommand, endBuildPhase, fetchCommand } from './project-builder-scripts';
+import { anyStillRunning, asBuildUserCommand, endBuildPhase, fetchCommand } from './project-builder-scripts';
 
 /**
  * The build container's scripts run for real, with the system's shell and git, against a local repository standing
@@ -48,9 +48,36 @@ describe("the build container's scripts", () => {
     expect(fetched.status).toBe(0);
     expect(readFileSync(join(root, 'work', 'index.html'), 'utf8')).toBe('hello');
 
+    expect(git(join(root, 'work'), 'config', 'maintenance.auto')).toBe('false');
+    expect(git(join(root, 'work'), 'config', 'gc.auto')).toBe('0');
+
     const moved = fetchInto(join(root, 'stale'), 'f'.repeat(40));
     expect(moved.status).not.toBe(0);
     expect(moved.stderr).toContain('The branch moved on since this commit.');
+  });
+
+  it("count a process the build left that is still running, but not one that exited and wasn't collected", () => {
+    // A parent that stops itself never collects its children: one that exited stays a zombie under it, one still
+    // sleeping stays running. The check is asked about that parent's children only.
+    const children = (child: string) =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          [
+            `sh -c '${child} & kill -STOP $$' >/dev/null 2>&1 &`,
+            'parent=$!',
+            'sleep 0.5',
+            `if ${anyStillRunning('--ppid "$parent"')}; then echo running; else echo none; fi`,
+            `ps --ppid "$parent" -o stat= | tr -d ' ' | cut -c1`,
+            'pkill -KILL -P "$parent"; kill -KILL "$parent"',
+          ].join('\n'),
+        ],
+        { encoding: 'utf8' },
+      ).stdout.split('\n');
+
+    expect(children('sleep 0').slice(0, 2)).toEqual(['none', 'Z']);
+    expect(children('sleep 5')[0]).toBe('running');
   });
 
   it('are all valid shell, as the shell that runs each reads it', () => {

@@ -99,8 +99,17 @@ export const COMPUTERD_ENTRYPOINT = [
 /** Tells a waiting entrypoint to start computerd. */
 export const START_COMPUTERD_COMMAND = ['touch', COMPUTERD_START_MARKER] as const;
 
-/** The builder's entrypoint: it runs its steps with `exec` and has no use for computerd. */
-export const IDLE_ENTRYPOINT = ['sleep', 'infinity'] as const;
+/**
+ * The builder's entrypoint: it runs its steps with `exec` and has no use for computerd. As the container's first
+ * process it inherits every process whose parent exits first, so it waits on them; `sleep infinity` never did, and
+ * each one stayed behind as a zombie.
+ */
+export const IDLE_ENTRYPOINT = [
+  // bash, which the builder's steps already use: waiting, it collects any child that exits, its own or inherited.
+  '/bin/bash',
+  '-c',
+  'trap "exit 0" TERM INT; while :; do sleep 3600 & wait $!; done',
+] as const;
 
 /** How long a container just started gets to accept its first command. */
 const BASE_CONTAINER_EXEC_READY_TIMEOUT_MS = 2 * 60_000;

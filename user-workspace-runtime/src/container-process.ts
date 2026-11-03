@@ -37,8 +37,9 @@ const DEADLINE_EXIT_CODE = 124;
 const DEADLINE_KILLED_EXIT_CODE = 137;
 /** How long a command gets to stop after its deadline's SIGTERM before SIGKILL. */
 const DEADLINE_KILL_AFTER_SECONDS = 10;
-/** Bytes of each stream held in memory; output() then applies its own combined budget. */
-const RETAINED_STREAM_BYTES = 256 * 1024;
+/** Bytes of each stream held in memory, its first and its last; output() then applies its own combined budget. */
+const RETAINED_HEAD_BYTES = 64 * 1024;
+const RETAINED_TAIL_BYTES = 192 * 1024;
 const DETACHED_EXIT_POLL_MS = 500;
 
 class ContainerProcessTimeoutError extends Error {
@@ -94,9 +95,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: strin
   });
 }
 
+/** What output() keeps of one stream: its start, its end, and how many bytes between them were left out. */
+type StreamEnds = { start: Uint8Array; end: Uint8Array; omitted: number };
+
 class RetainedStream {
-  readonly #chunks: Uint8Array[] = [];
-  #retained = 0;
+  readonly #head: Uint8Array[] = [];
+  #headBytes = 0;
+  readonly #tail: Uint8Array[] = [];
+  #tailBytes = 0;
   #total = 0;
   readonly done: Promise<void>;
 
@@ -108,20 +114,23 @@ class RetainedStream {
     return this.#total;
   }
 
-  /** The first `maxBytes` of what was kept. */
-  head(maxBytes: number): Uint8Array {
-    const length = Math.min(maxBytes, this.#retained);
-    const out = new Uint8Array(length);
-    let offset = 0;
-    for (const chunk of this.#chunks) {
-      if (offset >= length) {
-        break;
-      }
-      const part = chunk.subarray(0, length - offset);
-      out.set(part, offset);
-      offset += part.byteLength;
+  /**
+   * At most `maxBytes` of the stream: all of it when it fits, else its start and its end, which is where a failing
+   * command says why, with how many bytes between them were left out.
+   */
+  ends(maxBytes: number): StreamEnds {
+    const retained = concat([...this.#head, ...this.#tail]);
+    if (this.#total <= maxBytes && retained.byteLength === this.#total) {
+      return { start: retained, end: new Uint8Array(0), omitted: 0 };
     }
-    return out;
+    const head = concat(this.#head);
+    const tail = concat(this.#tail);
+    const start = head.subarray(0, Math.min(head.byteLength, Math.floor(maxBytes / 4)));
+    const endLength = Math.min(tail.byteLength + head.byteLength - start.byteLength, maxBytes - start.byteLength);
+    // The end comes from the tail, reaching back into the head's unused part when the stream was short.
+    const rest = concat([head.subarray(start.byteLength), tail]);
+    const end = rest.subarray(rest.byteLength - endLength);
+    return { start, end, omitted: this.#total - start.byteLength - end.byteLength };
   }
 
   async #drain(stream: ReadableStream): Promise<void> {
@@ -136,11 +145,19 @@ class RetainedStream {
           continue;
         }
         this.#total += value.byteLength;
-        const room = RETAINED_STREAM_BYTES - this.#retained;
-        if (room > 0) {
-          const kept = value.byteLength > room ? value.slice(0, room) : value;
-          this.#chunks.push(kept);
-          this.#retained += kept.byteLength;
+        const room = RETAINED_HEAD_BYTES - this.#headBytes;
+        const toHead = value.subarray(0, Math.max(0, room));
+        if (toHead.byteLength > 0) {
+          this.#head.push(toHead.slice());
+          this.#headBytes += toHead.byteLength;
+        }
+        const toTail = value.subarray(toHead.byteLength);
+        if (toTail.byteLength > 0) {
+          this.#tail.push(toTail.slice());
+          this.#tailBytes += toTail.byteLength;
+          while (this.#tail.length > 0 && this.#tailBytes - this.#tail[0]!.byteLength >= RETAINED_TAIL_BYTES) {
+            this.#tailBytes -= this.#tail.shift()!.byteLength;
+          }
         }
       }
     } catch {
@@ -149,6 +166,24 @@ class RetainedStream {
       reader.releaseLock();
     }
   }
+}
+
+function concat(chunks: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+/** A stream's kept start and end as text, with a line saying how much between them was left out. */
+function decodeEnds({ start, end, omitted }: StreamEnds): string {
+  const decoder = new TextDecoder();
+  return omitted > 0
+    ? `${decoder.decode(start)}\n[… ${omitted} bytes of output not kept …]\n${decoder.decode(end)}`
+    : decoder.decode(concat([start, end]));
 }
 
 /** A process this Durable Object started and still holds the platform handle for. */
@@ -206,16 +241,17 @@ class LiveContainerProcess implements TrackedSandboxProcess {
       options.timeout,
       'Container process output',
     );
-    // One combined budget that keeps the head, stdout first.
-    const stdout = this.#stdout.head(options.maxBytes);
-    const stderr = this.#stderr.head(Math.max(0, options.maxBytes - stdout.byteLength));
-    const decoder = new TextDecoder();
+    // One combined budget: stderr gets up to half, stdout the rest, and each keeps its start and its end.
+    const stderrShare = Math.min(this.#stderr.totalBytes, Math.floor(options.maxBytes / 2));
+    const stdoutShare = Math.min(this.#stdout.totalBytes, options.maxBytes - stderrShare);
+    const stdout = this.#stdout.ends(stdoutShare);
+    const stderr = this.#stderr.ends(options.maxBytes - stdoutShare);
     return {
-      stdout: decoder.decode(stdout),
-      stderr: decoder.decode(stderr),
+      stdout: decodeEnds(stdout),
+      stderr: decodeEnds(stderr),
       exitCode: exit.code,
       timedOut: exit.timedOut,
-      truncated: this.#stdout.totalBytes + this.#stderr.totalBytes > stdout.byteLength + stderr.byteLength,
+      truncated: stdout.omitted + stderr.omitted > 0,
     };
   }
 

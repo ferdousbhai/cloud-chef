@@ -12,7 +12,7 @@ export type ProcessStatus =
   | (ProcessStatusBase & { state: 'exited'; exit: ProcessExit; endedAt: string })
   | (ProcessStatusBase & { state: 'error'; error: { code: string; message: string }; endedAt: string });
 
-/** A finished process's output, bounded to one combined head budget. */
+/** A finished process's output, bounded to one combined budget that keeps each stream's start and end. */
 export type ProcessOutput<T> = { stdout: T; stderr: T; exitCode: number; timedOut: boolean; truncated: boolean };
 
 export type ExecOptions = {
@@ -34,6 +34,17 @@ export type TrackedSandboxProcess = {
   status(): Promise<ProcessStatus>;
 };
 
+/** A command that exited unsuccessfully or ran out of time, with what it printed. */
+class SandboxCommandFailedError extends Error {
+  constructor(
+    message: string,
+    readonly output: ProcessOutput<string>,
+  ) {
+    super(message);
+    this.name = 'SandboxCommandFailedError';
+  }
+}
+
 export class SandboxProcessTerminationUnconfirmedError extends Error {
   constructor() {
     super('Sandbox command termination could not be confirmed. Cleanup was deferred.');
@@ -46,6 +57,8 @@ type RunTrackedSandboxCommandOptions = {
   timeout: number;
   exec: (command: SandboxCommand, options: ExecOptions) => Promise<TrackedSandboxProcess>;
   onProcess?: (process: TrackedSandboxProcess) => void | Promise<void>;
+  /** How much output to keep; a few kilobytes unless the caller logs it. */
+  maxOutputBytes?: number;
 };
 
 /** Resolves with the completed output, so a caller that needs stdout does not have to re-run the command. */
@@ -61,7 +74,7 @@ export async function runTrackedSandboxCommand(
     result = await Promise.race([
       process.output({
         encoding: 'utf8',
-        maxBytes: SANDBOX_OUTPUT_BYTES,
+        maxBytes: options.maxOutputBytes ?? SANDBOX_OUTPUT_BYTES,
         timeout: options.timeout + PROCESS_OBSERVATION_GRACE_MS,
       }),
       new Promise<never>((_, reject) => {
@@ -78,10 +91,16 @@ export async function runTrackedSandboxCommand(
     clearTimeout(deadline);
   }
   if (result.timedOut) {
-    throw new Error(sandboxCommandFailureMessage(result, `Sandbox command timed out after ${options.timeout}ms.`));
+    throw new SandboxCommandFailedError(
+      sandboxCommandFailureMessage(result, `Sandbox command timed out after ${options.timeout}ms.`),
+      result,
+    );
   }
   if (result.exitCode !== 0) {
-    throw new Error(sandboxCommandFailureMessage(result, `Sandbox command failed with exit code ${result.exitCode}.`));
+    throw new SandboxCommandFailedError(
+      sandboxCommandFailureMessage(result, `Sandbox command failed with exit code ${result.exitCode}.`),
+      result,
+    );
   }
   return result;
 }
@@ -150,4 +169,17 @@ function boundedSandboxOutput(result: { stdout: string; stderr: string }, maxLen
   const stdoutLength = Math.min(stdout.length, contentLength - preferredStderrLength);
   const stderrLength = Math.min(stderr.length, contentLength - stdoutLength);
   return `${stderr.slice(-stderrLength)}\n${stdout.slice(-stdoutLength)}`;
+}
+
+/**
+ * A failed command's log: everything it printed that was kept (its start and its end), then why it stopped. The
+ * error's own message carries only a few kilobytes of the output.
+ */
+export function failedCommandLog(error: Error): string {
+  if (error instanceof SandboxCommandFailedError) {
+    const printed = `${error.output.stdout}${error.output.stderr}`;
+    const summary = error.message.split('\n', 1)[0];
+    return `${printed}${printed.endsWith('\n') || !printed ? '' : '\n'}${summary}\n`;
+  }
+  return `${error.message}\n`;
 }

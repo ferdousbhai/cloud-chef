@@ -23,11 +23,22 @@ export function fetchCommand(job: { commit: string; branch: string }): string {
   return [
     'set -e',
     'git init -q .',
+    // A fetch may start git's maintenance in the background, which outlives it; a throwaway checkout needs none.
+    'git config maintenance.auto false',
+    'git config gc.auto 0',
     `git fetch -q --depth=1 ${remote} ${job.commit} 2>/dev/null ||`,
     `  git fetch -q --depth=1 ${remote} ${shellQuote(job.branch)}`,
     `[ "$(git rev-parse FETCH_HEAD)" = ${job.commit} ] || { echo 'The branch moved on since this commit.' >&2; exit 1; }`,
     'git checkout -q FETCH_HEAD',
   ].join('\n');
+}
+
+/**
+ * Whether a process `ps` selects with `selection` (`-u build`) is still running. An exited one its parent hasn't
+ * collected yet (a zombie) holds nothing but its process id, and no signal removes it, so it doesn't count.
+ */
+export function anyStillRunning(selection: string): string {
+  return `ps ${selection} -o stat= 2>/dev/null | grep -qv '^Z'`;
 }
 
 /**
@@ -39,7 +50,7 @@ export function endBuildPhase(): string {
     'set -eu',
     `pkill -KILL -u ${BUILD_USER} || true`,
     'sleep 1',
-    `if pgrep -u ${BUILD_USER} >/dev/null; then echo 'The build left processes running.' >&2; exit 1; fi`,
+    `if ${anyStillRunning(`-u ${BUILD_USER}`)}; then echo 'The build left processes running.' >&2; exit 1; fi`,
     `rm -rf ${WORK_DIR}/.git`,
     // A link out of the project would let the deploy read, and upload, a file of the container's.
     `find ${WORK_DIR} -type l -print0 | while IFS= read -r -d '' link; do case "$(realpath -m -- "$link")" in ${WORK_DIR}/*) ;; *) rm -f -- "$link" ;; esac; done`,

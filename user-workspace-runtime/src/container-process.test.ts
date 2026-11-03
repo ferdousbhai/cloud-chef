@@ -104,8 +104,9 @@ describe('container processes on the Container API', () => {
     await expect(run).rejects.toThrow(/timed out after 1000ms[\s\S]*still building/);
   });
 
-  it('keeps one combined head budget of the output, stdout first', async () => {
-    const command = fakeProcess(43, { stdout: 'a'.repeat(30), stderr: 'b'.repeat(30) });
+  it("keeps one combined budget, each stream's start and its end, which is where a failure says why", async () => {
+    const stdout = `${'a'.repeat(30)}${'z'.repeat(30)}`;
+    const command = fakeProcess(43, { stdout, stderr: `${'b'.repeat(20)}error: why` });
     const { container } = fakeContainer(command);
     const process = await new ContainerProcesses(
       async () => container,
@@ -114,12 +115,29 @@ describe('container processes on the Container API', () => {
     command.exit(1);
 
     await expect(process.output({ encoding: 'utf8', maxBytes: 40, timeout: 1_000 })).resolves.toEqual({
-      stdout: 'a'.repeat(30),
-      stderr: 'b'.repeat(10),
+      stdout: `aaaaa\n[… 40 bytes of output not kept …]\n${'z'.repeat(15)}`,
+      stderr: `bbbbb\n[… 10 bytes of output not kept …]\n${'b'.repeat(5)}error: why`,
       exitCode: 1,
       timedOut: false,
       truncated: true,
     });
+  });
+
+  it("keeps the end of output longer than what's held in memory", async () => {
+    const lines = Array.from({ length: 20_000 }, (_, index) => `asset-${index}.js 0.99 kB`);
+    const command = fakeProcess(44, { stdout: `${lines.join('\n')}\nThe build left processes running.\n` });
+    const { container } = fakeContainer(command);
+    const process = await new ContainerProcesses(
+      async () => container,
+      () => 'r',
+    ).exec(['true'], { timeout: 1_000 });
+    command.exit(1);
+
+    const output = await process.output({ encoding: 'utf8', maxBytes: 48 * 1024, timeout: 1_000 });
+    expect(output.stdout.startsWith('asset-0.js 0.99 kB\n')).toBe(true);
+    expect(output.stdout.endsWith('asset-19999.js 0.99 kB\nThe build left processes running.\n')).toBe(true);
+    expect(output.stdout).toMatch(/\[… \d+ bytes of output not kept …\]/);
+    expect(output.truncated).toBe(true);
   });
 
   it('stops the whole process group, asking first, so traps can reap their jobs', async () => {

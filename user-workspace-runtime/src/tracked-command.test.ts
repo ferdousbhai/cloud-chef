@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   SandboxProcessTerminationUnconfirmedError,
+  failedCommandLog,
   runTrackedSandboxCommand,
   sandboxCommandFailureMessage,
   terminateTrackedSandboxProcess,
@@ -42,6 +43,32 @@ function output(overrides: Partial<{ stdout: string; stderr: string; exitCode: n
 }
 
 describe('tracked Sandbox commands', () => {
+  it("logs everything a failed command printed that was kept, then why it stopped, and asks for the caller's budget", async () => {
+    const printed = `$ vite build\n${'asset.js 0.99 kB\n'.repeat(1_000)}The build left processes running.\n`;
+    const process = {
+      id: 'process-1',
+      output: vi.fn(async () => output({ stdout: printed, exitCode: 1 })),
+      waitForExit: vi.fn(async () => ({ code: 1, timedOut: false })),
+      kill: vi.fn(async () => undefined),
+      status: vi.fn(async () => exitedStatus(1)),
+    };
+    const failure = await runTrackedSandboxCommand({
+      command,
+      timeout: 1_000,
+      maxOutputBytes: 48 * 1024,
+      exec: async () => process,
+    }).then(
+      () => new Error('The command should have failed.'),
+      (error: Error) => error,
+    );
+
+    expect(process.output).toHaveBeenCalledWith(expect.objectContaining({ maxBytes: 48 * 1024 }));
+    expect(failedCommandLog(failure)).toBe(`${printed}Sandbox command failed with exit code 1.\n`);
+    expect(failedCommandLog(new Error('Sandbox command timed out after 5ms and was terminated.'))).toBe(
+      'Sandbox command timed out after 5ms and was terminated.\n',
+    );
+  });
+
   it('uses argv exec and exposes the exact process before observing output', async () => {
     const events: string[] = [];
     const process = {
