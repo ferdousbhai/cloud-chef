@@ -9,28 +9,29 @@ Make one when the person asks. After publishing a public project you may offer o
 
 ## Taking the pictures
 
-Use Playwright's Chromium in the workspace, installed outside the project so nothing is added to it:
+Use agent-browser in the workspace, installed outside the project so nothing is added to it:
 
 ```sh
-mkdir -p /tmp/clip-kit && cd /tmp/clip-kit
-npm init -y >/dev/null && npm install --no-audit --no-fund playwright@1.64.1
-npx playwright install --with-deps chromium
+mkdir -p /tmp/clip-kit /tmp/clip && cd /tmp/clip-kit
+npm init -y >/dev/null && npm install --no-audit --no-fund agent-browser@0.39.1
+npx agent-browser install --with-deps
 ```
 
-Then write a small script there (`/tmp/clip-kit/capture.mjs`) that opens the live site (its public address, not a dev server), does what a visitor would, and saves a picture after each moment worth showing. Keep the pictures out of the project, in `/tmp/clip`:
+Then drive the live site (its public address, not a dev server) the way a visitor would, saving a picture after each moment worth showing. Keep the pictures out of the project, in `/tmp/clip`:
 
-```js
-import { chromium } from 'playwright';
-const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-await page.goto('https://recipes.example.workers.dev', { waitUntil: 'networkidle' });
-await page.screenshot({ path: '/tmp/clip/1-home.jpeg', type: 'jpeg', quality: 80 });
-const add = page.getByRole('button', { name: 'Add recipe' });
-const box = await add.boundingBox(); // where the tap mark goes: box.x + box.width / 2, over the viewport's width
-await add.click();
-await page.getByLabel('Name').fill('Lemon cake');
-await page.screenshot({ path: '/tmp/clip/2-form.jpeg', type: 'jpeg', quality: 80 });
-await browser.close();
+```sh
+cd /tmp/clip-kit
+export AGENT_BROWSER_SCREENSHOT_FORMAT=jpeg AGENT_BROWSER_SCREENSHOT_QUALITY=80
+npx agent-browser set viewport 1280 800
+npx agent-browser open https://recipes.example.workers.dev
+npx agent-browser wait --load networkidle
+npx agent-browser screenshot /tmp/clip/1-home.jpeg
+npx agent-browser snapshot -i            # interactive elements with refs such as @e3
+npx agent-browser get box @e3            # where the tap mark goes: x + width / 2, over the viewport's width
+npx agent-browser click @e3
+npx agent-browser find label Name fill 'Lemon cake'
+npx agent-browser screenshot /tmp/clip/2-form.jpeg
+npx agent-browser close
 ```
 
 - Four to eight pictures tell it: the first screen, then each step of one thing a person does with the app (a click, a filled form, a timer running, the result).

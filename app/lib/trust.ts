@@ -24,8 +24,7 @@ export const TRUST_RESPONSE_CAVEAT =
   'Public-beta targets, not guarantees or contractual service levels. Channels are not monitored continuously, and CloudChef does not provide 24/7 or real-time emergency response.';
 export const HOME_HEADING = 'What are we building?';
 
-// The browser gate asserts these exact headings, so the pages and the suite
-// read one definition instead of drifting apart.
+// Each trust page's visible heading.
 export const TRUST_PAGE_HEADINGS = {
   privacy: 'Privacy',
   terms: 'Terms',

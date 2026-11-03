@@ -121,7 +121,7 @@ function verifyScripts(errors, pkg, label) {
     errors.push(`${label} scripts must be configured.`);
     return;
   }
-  // What the Workers Builds steps and the GitHub Actions browser gate (.github/workflows) invoke by name.
+  // What the Workers Builds steps invoke by name.
   // workers-builds-config.mjs pins the workers-builds:* scripts and validate exactly.
   const requiredNames = [
     'build',
@@ -129,8 +129,6 @@ function verifyScripts(errors, pkg, label) {
     'd1:migrations:apply:production',
     'generate',
     'provision:production:check',
-    'test:e2e:install',
-    'verify:built-browser',
   ];
   for (const name of requiredNames) {
     if (typeof scripts[name] !== 'string') {

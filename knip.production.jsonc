@@ -17,7 +17,6 @@
         "!**/*.test.{ts,tsx}",
         "!**/*.spec.{ts,tsx}",
         "!tests/**",
-        "!e2e/**",
         // Development tooling, not production source: the vendored anti-slop Oxlint plugin.
         "!tools/**",
         "!.cloudchef-runtime-security-*/**",

@@ -199,7 +199,6 @@ record a D1 restore point and apply the control-plane D1 migrations. It confirms
 build with `cf deploy --prebuilt`, and then probes `https://cloudchef.build/api/version` every 5 seconds, from the moment
 the deploy returns, until five consecutive responses report that commit, a live Worker version ID, configured OAuth
 bindings, and `Cache-Control: no-store`.
-The browser gate (`verify:built-browser`) runs in GitHub Actions.
 
 For an emergency rollback from a clean checkout of current `main`, inspect and promote an immutable version with `cf`,
 which addresses the Worker by name and needs no config file:

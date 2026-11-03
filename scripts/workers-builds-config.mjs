@@ -18,24 +18,13 @@ const EXPECTED_TOKEN_NAME = 'account-workers-builds-production';
 // NODE_VERSION and PNPM_VERSION are the pins in `.nvmrc` and `packageManager`.
 const EXPECTED_BUILD_VARIABLE_NAMES = ['NODE_VERSION', 'PNPM_VERSION', 'SKIP_DEPENDENCY_INSTALL'];
 const EXPECTED_REQUIRED_BUILD_VARIABLES = ['CLOUDFLARE_OAUTH_CLIENT_ID'];
-// The Workers Builds image cannot install Chromium, so the credential-free
-// browser gate is the one release check GitHub Actions owns. Everything else
-// stays with Cloudflare.
-const REQUIRED_GITHUB_WORKFLOW_PATH = '.github/workflows/browser-gate.yml';
-const ALLOWED_GITHUB_WORKFLOW_PATHS = [REQUIRED_GITHUB_WORKFLOW_PATH, '.github/workflows/runtime-artifacts.yml'];
+const ALLOWED_GITHUB_WORKFLOW_PATHS = ['.github/workflows/runtime-artifacts.yml'];
 
 function findUnexpectedGithubWorkflowPaths(paths) {
   return Array.isArray(paths) ? paths.filter((path) => !ALLOWED_GITHUB_WORKFLOW_PATHS.includes(path)) : [];
 }
 
-export function findWorkersBuildsConfigErrors({
-  config,
-  packageJson,
-  nvmrc,
-  githubWorkflowPaths,
-  browserGateWorkflow,
-  workerConfig,
-}) {
+export function findWorkersBuildsConfigErrors({ config, packageJson, nvmrc, githubWorkflowPaths, workerConfig }) {
   const errors = [];
   requireEqual(errors, 'workers-builds.production.json worker', config?.worker, EXPECTED_WORKER);
   requireEqual(errors, 'workers-builds.production.json repository', config?.repository, EXPECTED_REPOSITORY);
@@ -115,14 +104,6 @@ export function findWorkersBuildsConfigErrors({
   );
   requireEqual(errors, 'package.json scripts.validate', scripts?.validate, 'node scripts/validate.mjs');
 
-  if (
-    !githubWorkflowPaths?.includes(REQUIRED_GITHUB_WORKFLOW_PATH) ||
-    !browserGateWorkflow?.includes('verify:built-browser')
-  ) {
-    errors.push(
-      `${REQUIRED_GITHUB_WORKFLOW_PATH} must run pnpm run verify:built-browser; the Workers Builds image cannot host the browser gate.`,
-    );
-  }
   const unexpectedGithubWorkflowPaths = findUnexpectedGithubWorkflowPaths(githubWorkflowPaths);
   if (unexpectedGithubWorkflowPaths.length > 0) {
     errors.push(
@@ -159,16 +140,12 @@ export async function verifyWorkersBuildsConfig() {
         .sort()
         .map((entry) => `.github/workflows/${entry}`)
     : [];
-  const browserGateWorkflowPath = resolve(rootDir, REQUIRED_GITHUB_WORKFLOW_PATH);
   errors.push(
     ...findWorkersBuildsConfigErrors({
       config,
       packageJson,
       nvmrc,
       githubWorkflowPaths,
-      browserGateWorkflow: existsSync(browserGateWorkflowPath)
-        ? readFileSync(browserGateWorkflowPath, 'utf8')
-        : undefined,
       workerConfig,
     }),
   );

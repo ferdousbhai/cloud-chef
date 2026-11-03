@@ -61,7 +61,7 @@ after another with a slow pan or zoom, captions, tap marks and spoken lines. It 
 a timeline (JSON) and its pictures and sound clips, played by CloudChef's own player
 (`app/components/showcase/ReelPlayer.tsx`, loaded only when a clip is played), so nothing of the project runs on
 cloudchef.build. The builder makes one only when asked (the `post-clip` skill, `app/lib/guidance/post-clip/SKILL.md`):
-it takes the pictures with Playwright's Chromium in the workspace container and runs `cloudchef reel <folder>`, which
+it takes the pictures with agent-browser in the workspace container and runs `cloudchef reel <folder>`, which
 sends its script and pictures to the runtime's `ReelProxy` (`showcase.internal`); the `ConversationAgent` checks
 every picture by its bytes, speaks each line with `@cf/deepgram/aura-2-en` through the runtime's own `AI` binding,
 and keeps the clip in its own SQLite (`builder_reels`, `app/agents/builder-reels.ts`) while it plays in the chat with
