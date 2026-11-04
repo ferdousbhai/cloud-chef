@@ -7,10 +7,10 @@ import type { WorkspaceContext } from '~/lib/.server/auth';
 
 /**
  * Which Cloudflare account the builder works in: the person's own, or an organization's they belong
- * to. At the top of the projects sidebar, since it decides which projects are listed there; it lists every
- * account to switch to, and leads to creating and managing organizations.
+ * to. Beside the logo, since it decides which projects are listed; it lists every account to switch to, and
+ * leads to creating and managing organizations.
  */
-export function WorkspaceSwitcher({ className }: { className?: string }) {
+export function WorkspaceSwitcher({ className, align }: { className?: string; align?: 'start' | 'end' }) {
   const { data: session } = authClient.useSession();
   if (!session) {
     return null;
@@ -18,6 +18,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
   const current = session.context;
   return (
     <Menu
+      align={align}
       buttonProps={{
         variant: 'neutral',
         size: 'xs',

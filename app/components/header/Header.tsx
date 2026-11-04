@@ -8,6 +8,7 @@ import { Menu as MenuComponent, MenuItem as MenuItemComponent, MenuSeparator } f
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
 import { BrandLink } from '~/components/BrandLink';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm';
@@ -91,8 +92,21 @@ export function Header() {
               'flex items-center gap-2 rounded-md text-content-primary no-underline hover:text-content-primary hover:no-underline',
               { 'max-[479px]:hidden': showSidebarIcon && chat.started },
             )}
-            nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
+            nameClassName={classNames(
+              'cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary',
+              // The workspace beside it needs the room on a narrow phone.
+              { 'max-[479px]:hidden': context !== null },
+            )}
           />
+          {context ? (
+            <WorkspaceSwitcher
+              align="start"
+              // In a project on a phone the name needs the room, as with the logo; the sidebar has it there.
+              className={classNames('max-w-32 min-h-11! sm:max-w-48 sm:min-h-9!', {
+                'max-[479px]:hidden': chat.started,
+              })}
+            />
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-1 px-2 sm:px-4">
           {chat.started && (
