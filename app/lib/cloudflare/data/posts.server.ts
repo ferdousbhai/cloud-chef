@@ -273,15 +273,18 @@ export async function findPostByAddress(
   db: D1Database,
   owner: string,
   slug: string,
-): Promise<{ post: PostView | null; project: { id: string; name: string } | null }> {
+): Promise<{ post: PostView | null; project: { id: string; name: string; slug: string } | null }> {
+  // The project at the address, else the one that had it before a rename: `slug` says which address is current.
   const project = await db
     .prepare(
-      `SELECT projects.id, projects.name FROM org_projects AS projects
+      `SELECT projects.id, projects.name, projects.slug FROM org_projects AS projects
        JOIN "user" AS owners ON owners.id = projects.created_by
-       WHERE owners.username = ?1 AND projects.slug = ?2 AND projects.visibility = 'public'`,
+       WHERE owners.username = ?1 AND projects.visibility = 'public' AND (projects.slug = ?2 OR projects.id = (
+         SELECT project_id FROM project_slug_redirects WHERE created_by = owners.id AND slug = ?2))
+       ORDER BY projects.slug = ?2 DESC LIMIT 1`,
     )
     .bind(owner, slug)
-    .first<{ id: string; name: string }>();
+    .first<{ id: string; name: string; slug: string }>();
   if (!project) {
     return { post: null, project: null };
   }

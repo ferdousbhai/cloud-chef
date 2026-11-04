@@ -84,6 +84,7 @@ class FakeCloudChef {
   uploads: Upload[] = [];
   reruns: string[] = [];
   visibilityChanges: string[] = [];
+  renames: string[] = [];
   copies: Record<string, string>[] = [];
   rewrites: Record<string, string>[] = [];
   /** What a rewrite of main answers instead of moving it, when set. */
@@ -209,6 +210,19 @@ class FakeCloudChef {
       }
       this.visibilityChanges.push(`${project}:${visibility}`);
       return json(200, { visibility });
+    }
+    if (route === 'POST /api/command-line/projects/rename') {
+      const name = bodyField(body, 'name');
+      if (name === 'taken') {
+        return json(409, { error: 'You already have a project called taken.' });
+      }
+      this.renames.push(`${bodyField(body, 'project')}:${name}`);
+      return json(200, { fullName: `ferdous/${name}` });
+    }
+    if (route === 'GET /api/command-line/projects/moved') {
+      return url.searchParams.get('project') === 'ferdous/old-glossary'
+        ? json(200, { fullName: 'ferdous/alberta-plan-glossary' })
+        : json(404, { error: 'No such project.' });
     }
     if (route === 'POST /api/command-line/projects/copy') {
       const copy = RequestBody.parse(JSON.parse(body.toString()));
@@ -592,6 +606,41 @@ describe('cloudchef repo', { timeout: 30_000 }, () => {
     expect(git(target, 'remote', 'get-url', 'origin').trim()).toBe(`${fake.host}/maria/recipes.git`);
     // Inside its clone, the public project is the default PROJECT.
     expect((await cli(home, ['repo', 'view'], { cwd: target })).stdout).toMatch(/^id:\s+proj-recipes$/m);
+  });
+
+  it('renames a project, asking first, and finds it by its old address', async () => {
+    const home = makeHome();
+    const before = fake.renames.length;
+    const unconfirmed = await cli(home, ['repo', 'rename', 'glossary', '-R', 'ferdous/alberta-plan-glossary']);
+    expect(unconfirmed.code).toBe(1);
+    expect(unconfirmed.stderr).toContain('add --yes');
+    expect(fake.renames).toHaveLength(before);
+
+    const renamed = await cli(home, ['repo', 'rename', 'glossary', '-R', 'ferdous/alberta-plan-glossary', '--yes']);
+    expect(renamed.code).toBe(0);
+    expect(renamed.stdout).toBe('ferdous/alberta-plan-glossary is now ferdous/glossary.\n');
+    expect(fake.renames.at(-1)).toBe('proj-beta:glossary');
+
+    const taken = await cli(home, ['repo', 'rename', 'taken', '-R', 'ferdous/alberta-plan-glossary', '-y']);
+    expect(taken.code).toBe(1);
+    expect(taken.stderr).toContain('You already have a project called taken.');
+
+    const moved = await cli(home, ['repo', 'view', 'ferdous/old-glossary']);
+    expect(moved.code).toBe(0);
+    expect(moved.stdout).toContain('ferdous/alberta-plan-glossary');
+  });
+
+  it("points only the remotes at the old address to the new one, renaming this folder's project", async () => {
+    const home = makeHome();
+    const folder = mkdtempSync(join(workDir, 'renamed-'));
+    git(folder, 'init', '-q');
+    git(folder, 'remote', 'add', 'origin', `${fake.host}/ferdous/alberta-plan-glossary.git`);
+    git(folder, 'remote', 'add', 'other', 'https://example.com/elsewhere.git');
+    const renamed = await cli(home, ['repo', 'rename', 'glossary', '--yes'], { cwd: folder });
+    expect(renamed.code).toBe(0);
+    expect(renamed.stdout).toContain(`Updated git remote origin: ${fake.host}/ferdous/glossary.git`);
+    expect(git(folder, 'remote', 'get-url', 'origin').trim()).toBe(`${fake.host}/ferdous/glossary.git`);
+    expect(git(folder, 'remote', 'get-url', 'other').trim()).toBe('https://example.com/elsewhere.git');
   });
 
   it('changes visibility, asking for consent before making a project public', async () => {

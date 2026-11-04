@@ -325,6 +325,10 @@ conflict, never an overwrite. A commit writes the whole tree (a file left out is
 parent lacks; installed and built output, local secrets (`.env*`, `.dev.vars*`) and what the project's
 `.gitignore` files ignore never go in.
 
+A project's owner, or a team admin, renames its address with `cloudchef repo rename` (`renameProject`). Each old
+name stays in `project_slug_redirects`, so git and `/<owner>/<slug>` keep answering at it (the page redirects) until
+another project of that author takes the name. The Worker keeps its name, so the site doesn't move.
+
 The agent works on a project's history with plain git in its workspace container. The history lives on the
 container's own disk (`GIT_DIR=/opt/cloudchef/git/project.git`, the worktree `/home/project`), outside the durably
 stored `/home`, and is set up again from the repository on first use in each container

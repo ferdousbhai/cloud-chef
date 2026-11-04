@@ -36,7 +36,7 @@ export const loadPersonPage = createServerFn({ method: 'GET' })
     return { person, ...(await listPersonPosts(db, username)) };
   });
 
-export type PostPageData = { post: PostView | null; project: { id: string; name: string } } | null;
+export type PostPageData = { post: PostView | null; project: { id: string; name: string; slug: string } } | null;
 
 /**
  * `/<owner>/<slug>`: the post of the public project at that address. `post` is null when the project is public but

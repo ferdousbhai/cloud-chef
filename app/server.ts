@@ -32,6 +32,8 @@ import {
   setVisibilityAction,
   copyProjectAction,
   exploreAction,
+  commandLineMovedAction,
+  commandLineRenameAction,
   commandLineVisibilityAction,
   commandLineCopyProjectAction,
 } from './server-handlers/command-line';
@@ -297,6 +299,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/projects/delete': ['POST', deleteProjectAction],
     '/api/explore': ['GET', exploreAction],
     '/api/command-line/projects/visibility': ['POST', commandLineVisibilityAction],
+    '/api/command-line/projects/rename': ['POST', commandLineRenameAction],
+    '/api/command-line/projects/moved': ['GET', commandLineMovedAction],
     '/api/command-line/projects/copy': ['POST', commandLineCopyProjectAction],
     '/api/command-line/projects/rewrite-main': ['POST', commandLineRewriteMainAction],
     '/api/command-line/login': ['POST', commandLineLoginAction],

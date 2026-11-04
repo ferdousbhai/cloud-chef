@@ -1,4 +1,4 @@
-import { createFileRoute, notFound } from '@tanstack/react-router';
+import { createFileRoute, notFound, redirect } from '@tanstack/react-router';
 import { PostNotShown, PostPage } from '~/components/showcase/PostPage';
 import { ShowcaseShell } from '~/components/showcase/ShowcaseShell';
 import { loadPostPage } from '~/lib/showcase-loaders';
@@ -13,6 +13,13 @@ export const Route = createFileRoute('/$username/$slug')({
     const data = await loadPostPage({ data: { owner: params.username, slug: params.slug } });
     if (!data) {
       throw notFound();
+    }
+    if (data.project.slug !== params.slug) {
+      throw redirect({
+        to: '/$username/$slug',
+        params: { username: params.username, slug: data.project.slug },
+        statusCode: 301,
+      });
     }
     return data;
   },

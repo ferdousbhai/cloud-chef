@@ -24,6 +24,7 @@ Most people using CloudChef are not developers: they describe what they want in 
 - `cloudchef repo create NAME --push`, inside a git repository, makes a new project from it with its whole history and publishes it.
 - `cloudchef repo fork OWNER/NAME` copies a project, with its history, into a new project of the person's own.
 - `cloudchef repo edit OWNER/NAME --visibility public|private` makes a project public (anyone signed in to CloudChef can read and copy it) or private. Ask the person first.
+- `cloudchef repo rename NEW-NAME`: rename a project; its old address keeps working and its site doesn't move.
 - `cloudchef repo rewrite-main BRANCH` replaces `main` with a branch's history: the owner only, and only when they ask for it.
 - People have the view role (clone and pull) or the edit role (push too) on each project.
 

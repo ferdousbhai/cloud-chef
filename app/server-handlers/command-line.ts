@@ -21,6 +21,7 @@ import {
   findReadableProject,
   listAccessibleProjects,
   listPublicProjects,
+  renameProject,
   setProjectVisibility,
   type ProjectVisibility,
 } from '~/lib/cloudflare/data/org-projects.server';
@@ -1020,6 +1021,47 @@ export async function commandLineVisibilityAction({ request, env }: { request: R
   return (await setVisibility(env, userId, body.data.project, body.data.visibility))
     ? Response.json({ visibility: body.data.visibility })
     : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
+}
+
+const commandLineRenameSchema = z.strictObject({ project: z.string().uuid(), name: z.string().min(1).max(100) });
+
+/** `POST /api/command-line/projects/rename`: `cloudchef repo rename`. */
+export async function commandLineRenameAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  const userId = await tokenUser(request, env);
+  if (!userId) {
+    return Response.json({ error: 'Run cloudchef auth login.' }, { status: 401 });
+  }
+  const body = await readJsonRequest(request, commandLineRenameSchema, 'Choose a new name.');
+  if ('response' in body) {
+    return body.response;
+  }
+  const renamed = await renameProject(env.DB, { userId, projectId: body.data.project, slug: body.data.name });
+  if (renamed === 'invalid') {
+    return Response.json({ error: 'A name is lowercase letters, digits and single dashes.' }, { status: 400 });
+  }
+  if (renamed === 'forbidden') {
+    return Response.json({ error: 'Only its owner, or a team admin, can rename it.' }, { status: 403 });
+  }
+  if (renamed === 'taken') {
+    return Response.json({ error: `You already have a project called ${body.data.name}.` }, { status: 409 });
+  }
+  return Response.json(renamed);
+}
+
+/**
+ * `GET /api/command-line/projects/moved?project=OWNER/NAME`: where a project now is, by any address it has had, for a
+ * clone made before a rename. Only one `userId` may read.
+ */
+export async function commandLineMovedAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  const userId = await tokenUser(request, env);
+  if (!userId) {
+    return Response.json({ error: 'Run cloudchef auth login.' }, { status: 401 });
+  }
+  const [owner, slug, ...rest] = (new URL(request.url).searchParams.get('project') ?? '').toLowerCase().split('/');
+  const project = owner && slug && rest.length === 0 ? await findReadable(env.DB, { owner, slug }, userId) : null;
+  return project?.fullName
+    ? Response.json({ fullName: project.fullName })
+    : Response.json({ error: 'No such project.' }, { status: 404 });
 }
 
 /** `GET /api/explore`: public projects, newest first, for anyone signed in (a session, or a command-line token). */

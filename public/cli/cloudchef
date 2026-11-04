@@ -304,6 +304,20 @@ $EXPLORE_TSV
 EOF
 }
 
+# match_renamed OWNER/NAME: matches the project now at a former address, when the person may read it.
+match_renamed() {
+  local full
+  require_token
+  http GET "/api/command-line/projects/moved?project=$1"
+  case "$HTTP_STATUS" in
+    2??) full="$(json_field fullName "$HTTP_BODY")" ;;
+    *) return 0 ;;
+  esac
+  [ -n "$full" ] || return 0
+  match_projects full "$full"
+  [ "$M_COUNT" -ge 1 ] || match_public full "$full"
+}
+
 use_match() {
   IFS="$TAB" read -r P_NAME P_ACCOUNT P_ROLE P_STATE P_SITE P_ID P_FULL P_VIS <<EOF
 $M_ROW
@@ -328,6 +342,9 @@ resolve_project() {
       full:*) match_projects full "${ref#full:}" ;;
     esac
     [ "$M_COUNT" -ge 1 ] || match_public "${ref%%:*}" "${ref#*:}"
+    case "$ref" in
+      full:*) [ "$M_COUNT" -ge 1 ] || match_renamed "${ref#full:}" ;;
+    esac
     [ "$M_COUNT" -ge 1 ] || die "This folder's CloudChef project (${ref#*:}) isn't one you can use any more."
     use_match
     return 0
@@ -338,6 +355,7 @@ resolve_project() {
       match_projects full "$want"
       [ "$M_COUNT" -ge 1 ] || match_projects account "$want"
       [ "$M_COUNT" -ge 1 ] || match_public full "$want"
+      [ "$M_COUNT" -ge 1 ] || match_renamed "$want"
       ;;
     *)
       match_projects bare "$want"
@@ -472,6 +490,7 @@ Projects
   repo clone PROJECT   Clone a project
   repo create NAME     Make a new project from a repository or folder
   repo edit [PROJECT]  Make a project public or private
+  repo rename [NAME]   Rename a project; its old address keeps working
   repo fork PROJECT    Copy a project into your own account
   repo rewrite-main BRANCH  Replace a project's main with a branch's history (owner only)
 
@@ -517,13 +536,14 @@ EOF
     "auth git-credential") echo "Usage: cloudchef auth git-credential <get|store|erase>${NL}${NL}The git credential helper protocol. Answers only for $HOST." ;;
     repo)
       cat <<EOF
-Usage: cloudchef repo <list|view|clone|create|edit|fork|rewrite-main>
+Usage: cloudchef repo <list|view|clone|create|edit|rename|fork|rewrite-main>
 
   list [--public] [--json]                         Your projects, or with --public everyone's public ones
   view [PROJECT] [--json] [--web]                  Show a project
   clone PROJECT [DIR] [-- GIT_FLAGS]               Clone a project
   create NAME [--source DIR] [--push]              Make a new project from a repository or folder
   edit [PROJECT] --visibility public|private       Make a project public or private
+  rename [NEW-NAME] [-R PROJECT] [-y]              Rename a project; its old address keeps working
   fork PROJECT [--name N] [--account A] [--clone]  Copy a project into your own account
   rewrite-main BRANCH [--project PROJECT]          Replace main's history with a branch's (owner only)
 
@@ -539,6 +559,16 @@ public or private. --json includes each project's id and git address.
 
 --public lists everyone's public projects instead (Explore). Anyone signed in can clone and copy those:
   cloudchef repo clone OWNER/NAME, cloudchef repo fork OWNER/NAME
+EOF
+      ;;
+    "repo rename")
+      cat <<EOF
+Usage: cloudchef repo rename [NEW-NAME] [-R PROJECT] [-y]
+
+Renames this folder's project, or PROJECT with -R, to OWNER/NEW-NAME, and points this folder's git remotes at the new
+address. Its old address keeps working for clones and links, and its site stays where it is.
+Asks first; -y answers yes (needed when not run in a terminal). Only people who can change the project's settings
+can do this.
 EOF
       ;;
     "repo edit")
@@ -1106,6 +1136,54 @@ cmd_repo_edit() {
   printf '%s is now %s.\n' "$P_REF" "${visibility:-updated}"
 }
 
+cmd_repo_rename() {
+  local project="" name="" yes="" answer old new remote url
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -R | --repo) need_value "$1" $#; project="$2"; shift ;;
+      --repo=*) project="${1#--repo=}" ;;
+      -y | --yes) yes=1 ;;
+      -*) die "Unknown flag: $1. See: cloudchef repo rename --help" ;;
+      *) [ -z "$name" ] || die "Too many arguments."; name="$1" ;;
+    esac
+    shift
+  done
+  resolve_project "$project"
+  [ "$P_FULL" != "-" ] || die "$P_REF has no address to rename."
+  if [ -z "$name" ]; then
+    [ -t 0 ] || die "Name the new name: cloudchef repo rename NEW-NAME"
+    printf 'New name for %s: ' "$P_REF" >&2
+    read -r name || name=""
+    [ -n "$name" ] || die "Left $P_REF as it was."
+  fi
+  old="$P_FULL"
+  new="${old%%/*}/$name"
+  if [ -z "$yes" ]; then
+    [ -t 0 ] || die "To rename $old to $new, add --yes."
+    printf 'Rename %s to %s? [y/N] ' "$old" "$new" >&2
+    read -r answer || answer=""
+    case "$answer" in
+      y | Y | yes | YES | Yes) ;;
+      *) die "Left $old as it was." ;;
+    esac
+  fi
+  api_post_json /api/command-line/projects/rename \
+    "{\"project\":\"$(json_escape "$P_ID")\",\"name\":\"$(json_escape "$name")\"}"
+  new="$(json_field fullName "$HTTP_BODY")"
+  [ -n "$new" ] || die "Couldn't read the new name of $old. See: cloudchef repo list"
+  printf '%s is now %s.\n' "$old" "$new"
+  [ "$new" != "$old" ] || return 0
+  git rev-parse --git-dir >/dev/null 2>&1 || return 0
+  for remote in $(git remote); do
+    url="$(git remote get-url "$remote" 2>/dev/null)" || continue
+    case "$url" in
+      "$HOST/$old" | "$HOST/$old.git")
+        git remote set-url "$remote" "$HOST/$new.git" && printf 'Updated git remote %s: %s\n' "$remote" "$HOST/$new.git"
+        ;;
+    esac
+  done
+}
+
 cmd_repo_fork() {
   local project="" name="" account="" clone="" body id full gitUrl upstream dir
   while [ $# -gt 0 ]; do
@@ -1224,6 +1302,7 @@ cmd_repo() {
     clone) cmd_repo_clone "$@" ;;
     create) cmd_repo_create "$@" ;;
     edit) cmd_repo_edit "$@" ;;
+    rename) cmd_repo_rename "$@" ;;
     fork) cmd_repo_fork "$@" ;;
     rewrite-main) cmd_repo_rewrite_main "$@" ;;
     *) die "Unknown command: repo $sub. See: cloudchef help repo" ;;
@@ -1532,6 +1611,9 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - `cloudchef repo edit OWNER/NAME --visibility public` makes a project public and `--visibility private` makes it
   private again. Making one public needs `--accept-visibility-change-consequences`; ask the user before passing it,
   since everyone signed in can then read and copy the code.
+- `cloudchef repo rename NEW-NAME` renames this folder's project (`-R OWNER/NAME` names another) and points this
+  folder's git remotes at the new address. Its old address keeps working for clones and links, and its site doesn't
+  move. It asks first; `--yes` answers yes, so ask the user before passing it.
 
 ## After a push
 

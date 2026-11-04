@@ -45,6 +45,9 @@ CloudChef keeps each project as a git repository and publishes it to the project
 - `cloudchef repo edit OWNER/NAME --visibility public` makes a project public and `--visibility private` makes it
   private again. Making one public needs `--accept-visibility-change-consequences`; ask the user before passing it,
   since everyone signed in can then read and copy the code.
+- `cloudchef repo rename NEW-NAME` renames this folder's project (`-R OWNER/NAME` names another) and points this
+  folder's git remotes at the new address. Its old address keeps working for clones and links, and its site doesn't
+  move. It asks first; `--yes` answers yes, so ask the user before passing it.
 
 ## After a push
 

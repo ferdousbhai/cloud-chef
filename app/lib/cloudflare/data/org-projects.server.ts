@@ -398,7 +398,22 @@ export async function findReadableProject(
     )
     .bind(...('id' in ref ? [ref.id] : [ref.owner, ref.slug]))
     .first<ProjectRow>();
-  return row ? { ...toProject(row), role: 'public', shared: false } : null;
+  if (row) {
+    return { ...toProject(row), role: 'public', shared: false };
+  }
+  if ('id' in ref) {
+    return null;
+  }
+  // Nothing readable answers at this address, so it may be a name the project had before a rename.
+  const renamed = await db
+    .prepare(
+      `SELECT redirects.project_id FROM project_slug_redirects AS redirects
+       WHERE redirects.slug = ?2 AND redirects.created_by = (SELECT id FROM "user" WHERE username = ?1)
+         AND NOT EXISTS (SELECT 1 FROM org_projects WHERE created_by = redirects.created_by AND slug = redirects.slug)`,
+    )
+    .bind(ref.owner, ref.slug)
+    .first<{ project_id: string }>();
+  return renamed ? findReadableProject(db, { id: renamed.project_id }, userId) : null;
 }
 
 /** Public projects, newest first, with their author's name: what Explore shows. */
@@ -441,6 +456,60 @@ export async function setProjectVisibility(
   }
   await db.prepare('UPDATE org_projects SET visibility = ? WHERE id = ?').bind(args.visibility, project.id).run();
   return true;
+}
+
+/**
+ * Gives a project `userId` manages a new name in addresses, as `slug`: its old address keeps answering. Its name follows
+ * when it was just its address name. Its Worker keeps its name (`deploy_worker_name`), so its site doesn't move.
+ */
+export async function renameProject(
+  db: D1Database,
+  args: { userId: string; projectId: string; slug: string },
+): Promise<{ fullName: string } | 'forbidden' | 'invalid' | 'taken'> {
+  if (projectSlug(args.slug) !== args.slug) {
+    return 'invalid';
+  }
+  let project: Project;
+  try {
+    project = await requireManagedProject(db, args.userId, args.projectId);
+  } catch (error) {
+    if (error instanceof OrganizationError) {
+      return 'forbidden';
+    }
+    throw error;
+  }
+  const row = await db
+    .prepare('SELECT created_by, slug, name FROM org_projects WHERE id = ?')
+    .bind(project.id)
+    .first<{ created_by: string | null; slug: string | null; name: string }>();
+  const owner = project.fullName?.split('/')[0];
+  if (!row?.created_by || !row.slug || !owner) {
+    return 'forbidden';
+  }
+  const fullName = `${owner}/${args.slug}`;
+  if (row.slug === args.slug) {
+    return { fullName };
+  }
+  const name = projectSlug(row.name) === row.slug ? args.slug : row.name;
+  try {
+    await db.batch([
+      db
+        .prepare('DELETE FROM project_slug_redirects WHERE created_by = ? AND slug = ?')
+        .bind(row.created_by, args.slug),
+      db
+        .prepare(
+          `INSERT OR REPLACE INTO project_slug_redirects (created_by, slug, project_id, created_at) VALUES (?, ?, ?, ?)`,
+        )
+        .bind(row.created_by, row.slug, project.id, Date.now()),
+      db.prepare('UPDATE org_projects SET slug = ?, name = ? WHERE id = ?').bind(args.slug, name, project.id),
+    ]);
+  } catch (error) {
+    if (String(error).includes('UNIQUE')) {
+      return 'taken';
+    }
+    throw error;
+  }
+  return { fullName };
 }
 
 /** The project `<username>/<slug>` with `userId`'s role on it, if they may view or edit it now. */
