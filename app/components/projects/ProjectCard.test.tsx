@@ -2,13 +2,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { ProjectCard, type CardDeploy } from './ProjectCard';
 
-function card(siteFramed: boolean) {
+function card(thumbnailProjectId: string | null) {
   return renderToStaticMarkup(
     <ProjectCard
       title="ff"
       updatedAt={null}
       siteUrl="https://theforbiddenfeminine.com/"
-      siteFramed={siteFramed}
+      thumbnailProjectId={thumbnailProjectId}
       primary={null}
       menuItems={null}
     />,
@@ -24,15 +24,17 @@ function published(deploy: CardDeploy, siteUrl: string | null = null) {
 const noop = () => undefined;
 
 describe('a project card', () => {
-  it('names a site that refuses to be shown in a frame, rather than showing a blank one', () => {
-    const markup = card(false);
+  it('names a site with no picture to show', () => {
+    const markup = card(null);
     expect(markup).toContain('theforbiddenfeminine.com');
     expect(markup).not.toContain('Not published yet');
     expect(markup).toContain('Open site');
   });
 
-  it('shows a site that allows it live', () => {
-    expect(card(true)).not.toContain('>theforbiddenfeminine.com<');
+  it('names the site until its picture arrives, and never frames it', () => {
+    const markup = card('project-id');
+    expect(markup).toContain('>theforbiddenfeminine.com<');
+    expect(markup).not.toContain('<iframe');
   });
 
   it('says who last changed it, when that is known', () => {

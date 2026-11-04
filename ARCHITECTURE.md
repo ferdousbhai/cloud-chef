@@ -385,6 +385,7 @@ history, a clone command and a ZIP of any commit through the runtime (`projects.
 | Projects, members' roles, GitHub installations, publishes of projects CloudChef deploys      | CloudChef control-plane D1                           |
 | Showcase posts, follows, likes, comments, notifications, reports, copies waiting for a space | CloudChef control-plane D1                           |
 | Showcase screenshots of public projects' live sites, and the clips their authors approved    | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
+| A project card's picture of its live site                                                    | User workspace D1 (`project_thumbnails`)             |
 | A clip the agent made, until its author approves it or puts it aside                         | User-owned `ConversationAgent` DO SQLite             |
 | Chat catalog, transcript identity, Agent garbage-collection queue                            | User workspace D1                                    |
 | Conversation transcript, runs, tool calls, inbox, usage, and their recovery (pi-durable)     | User-owned `ConversationAgent` DO SQLite (`pi_*`)    |

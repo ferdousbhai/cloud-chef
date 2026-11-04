@@ -7,6 +7,7 @@ const workloadTables = [
   // The handle of the runtime's base container snapshot: no person's data, only which snapshot later starts restore.
   'base_container_snapshots',
   'conversations',
+  'project_thumbnails',
   'runtime_activity',
   'runtime_upgrade_window',
   'workspaces',

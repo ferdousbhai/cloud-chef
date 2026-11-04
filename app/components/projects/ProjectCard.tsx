@@ -39,7 +39,7 @@ export function ProjectCard({
   updatedAt,
   updatedBy = null,
   siteUrl,
-  siteFramed = true,
+  thumbnailProjectId = null,
   subtitle,
   isPublic = false,
   badge,
@@ -53,8 +53,8 @@ export function ProjectCard({
   /** Who made that change, when it's known: a team project's last push of what it publishes. */
   updatedBy?: string | null;
   siteUrl: string | null;
-  /** Whether the site may be shown live in the card; one that refuses is shown by its address. */
-  siteFramed?: boolean;
+  /** The project to show a picture of the site for; without one, or until there is one, the card names the site. */
+  thumbnailProjectId?: string | null;
   /** A second line under the title, such as the project's address on CloudChef. */
   subtitle?: string | null;
   /** Whether anyone signed in to CloudChef can find it in Explore. */
@@ -75,7 +75,8 @@ export function ProjectCard({
       <div className="relative">
         <ProjectThumbnail
           siteUrl={siteUrl}
-          siteFramed={siteFramed}
+          thumbnailProjectId={thumbnailProjectId}
+          changedAt={updatedAt ? Date.parse(updatedAt) : null}
           placeholder={
             publishing ? (
               <div
@@ -165,29 +166,32 @@ export function ProjectCard({
 }
 
 /**
- * What a project looks like live: its site, shown small once the card scrolls into view; its address, for a
- * site that refuses to be framed; or, unpublished, `placeholder` when given and `unpublished` otherwise.
+ * What a project looks like live: a picture of its site, or its address until there is one; or, unpublished,
+ * `placeholder` when given and `unpublished` otherwise.
  */
 function ProjectThumbnail({
   siteUrl,
-  siteFramed = true,
+  thumbnailProjectId,
+  changedAt,
   placeholder,
   unpublished = 'Not published yet',
 }: {
   siteUrl: string | null;
-  siteFramed?: boolean;
+  thumbnailProjectId: string | null;
+  changedAt: number | null;
   placeholder?: ReactNode;
   unpublished?: string;
 }) {
-  if (siteUrl && siteFramed) {
-    return <SiteThumbnail url={siteUrl} />;
-  }
   if (siteUrl) {
-    // A site that refuses to be shown in a frame (as many do, against clickjacking) is named instead.
-    return (
+    const address = (
       <div className="flex aspect-16/10 items-center justify-center bg-bolt-elements-background-depth-2 px-4 text-center text-sm text-content-secondary">
         <span className="truncate">{siteHost(siteUrl)}</span>
       </div>
+    );
+    return thumbnailProjectId ? (
+      <SiteThumbnail projectId={thumbnailProjectId} changedAt={changedAt} fallback={address} />
+    ) : (
+      address
     );
   }
   return (

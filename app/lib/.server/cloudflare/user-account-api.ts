@@ -1298,6 +1298,8 @@ export class UserCloudflareAccountApi {
         { type: 'durable_object_namespace', name: 'ConversationAgent', class_name: 'ConversationAgent' },
         { type: 'd1', name: 'DB', id: args.databaseId },
         { type: 'ai', name: 'AI' },
+        // Pictures of the account's own sites for their project cards (project-thumbnails.server.ts).
+        { type: 'browser', name: 'BROWSER' },
         // Every project's code and history, in this account's `cloudchef` namespace (created on first use).
         { type: 'artifacts', name: 'ARTIFACTS', namespace: 'cloudchef' },
         { type: 'secret_text', name: 'CONTROL_PLANE_SECRET', text: args.controlPlaneSecret },

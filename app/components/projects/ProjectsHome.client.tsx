@@ -599,7 +599,7 @@ function ConnectionProjectCard({
       updatedAt={project.lastChange?.at ?? project.createdAt ?? null}
       updatedBy={project.lastChange?.by ?? null}
       siteUrl={project.siteUrl ?? null}
-      siteFramed={project.siteFrameable !== false}
+      thumbnailProjectId={project.id}
       subtitle={project.fullName}
       isPublic={project.visibility === 'public'}
       badge={badge ?? undefined}
@@ -788,7 +788,6 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
               updatedAt={null}
               updatedBy={null}
               siteUrl={project.siteUrl ?? null}
-              siteFramed={project.siteFrameable !== false}
               subtitle={project.ownerName ? `Shared by ${project.ownerName}` : null}
               isPublic={project.visibility === 'public'}
               badge={canEdit ? 'Can edit' : 'Can view'}

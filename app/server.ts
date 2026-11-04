@@ -163,7 +163,7 @@ function applyContentSecurityPolicy(headers: Headers, nonce?: string) {
         // a different account for each person, and CSP wildcards only the leftmost label, so no narrower
         // host covers them all.
         "connect-src 'self' https://*.workers.dev wss://*.workers.dev",
-        // The preview pane and project thumbnails show each project's site at its own address: workers.dev
+        // The preview pane shows each project's site at its own address: workers.dev
         // or any custom domain.
         'frame-src https:',
         "worker-src 'self' blob:",

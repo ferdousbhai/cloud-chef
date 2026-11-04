@@ -99,6 +99,20 @@ export async function loadProjectDeployLog(
   return response.text();
 }
 
+/** The picture of a project's live site, or null until the runtime has one (it takes one when asked). */
+export async function loadProjectThumbnail(
+  orgProjectId: string,
+  changedAt: number | null,
+  signal?: AbortSignal,
+): Promise<Blob | null> {
+  const query = new URLSearchParams({ project: orgProjectId });
+  if (changedAt !== null) {
+    query.set('changedAt', String(changedAt));
+  }
+  const response = await fetchUserRuntime(`/v1/projects/thumbnail?${query}`, { signal });
+  return response.ok ? response.blob() : null;
+}
+
 /** The first line of a commit message, which is its title. */
 export function commitTitle(message: string): string {
   return message.split('\n', 1)[0]?.trim() || 'No message';

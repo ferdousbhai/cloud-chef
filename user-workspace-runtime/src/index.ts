@@ -138,6 +138,8 @@ import type { ScheduledCallbackPayload } from './scheduled-callbacks';
 import { createContainerDirectoryCommand, ISOLATED_PROJECT_ROOT } from './isolated-project';
 import { isRecord } from '../../cloudchef-agent/utils/isRecord';
 
+import { userRuntimeProjectThumbnailAction } from '../../app/lib/cloudflare/data/project-thumbnails.server';
+
 export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
 export { CloudflareApiProxy } from './cloudflare-api-proxy';
@@ -154,6 +156,7 @@ interface RuntimeEnv {
   ConversationAgent: DurableObjectNamespace<ConversationAgent>;
   DB: D1Database;
   AI: Ai;
+  BROWSER: Env['BROWSER'];
   ARTIFACTS: Artifacts;
   CONTROL_PLANE_SECRET: string;
   CLOUDFLARE_ACCOUNT_ID: string;
@@ -2626,6 +2629,12 @@ async function handleUserRequest(
     response = await userRuntimeProjectCopyAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/projects/deploy') {
     response = await userRuntimeProjectDeployRetryAction({ request, env: sharedEnv });
+  } else if (request.method === 'GET' && url.pathname === '/v1/projects/thumbnail') {
+    response = await userRuntimeProjectThumbnailAction({
+      url,
+      env: sharedEnv,
+      waitUntil: (work) => ctx.waitUntil(work),
+    });
   } else if (request.method === 'GET' && url.pathname === '/v1/projects/deploy-log') {
     response = await userRuntimeProjectDeployLogAction({ url, env: sharedEnv });
   } else if (request.method === 'POST' && url.pathname === '/v1/chats/messages') {

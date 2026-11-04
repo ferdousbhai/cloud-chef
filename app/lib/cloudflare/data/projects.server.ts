@@ -1,3 +1,4 @@
+import { forgetProjectThumbnail } from './project-thumbnails.server';
 import { SharedProjectRepositories } from '~/lib/.server/cloudflare/shared-project';
 import { z } from 'zod';
 import {
@@ -485,6 +486,7 @@ export async function userRuntimeDeleteProjectRepositoryAction(
     if (repo) {
       await repositories(args.env).deleteRepo(repo);
     }
+    await forgetProjectThumbnail(args.env.DB, parsed.data.orgProjectId);
     return new Response(null, { status: 204 });
   } catch (error) {
     if (error instanceof ProjectAccessError) {

@@ -1,6 +1,6 @@
 /**
- * A public project's screenshot, taken by Browser Rendering in CloudChef's own account (`BROWSER`): it loads the
- * site's public address as any visitor would, with no cookies and no CloudChef credentials, at 1280x800, waits for
+ * A screenshot of a site, taken by the caller's Browser Rendering (`BROWSER`): CloudChef's own account for a public
+ * project's post, or a person's own for their project cards. It loads the site's public address as any visitor would, with no cookies and no CloudChef credentials, at 1280x800, waits for
  * the network to go quiet (at most 10 seconds), and captures a WebP.
  */
 
@@ -11,7 +11,7 @@ const MAX_SCREENSHOT_BYTES = 4 * 1024 * 1024;
 
 /** The screenshot, or null when the site couldn't be loaded (it is tried again at its next publish). */
 export async function takeScreenshot(
-  env: Env,
+  env: Pick<Env, 'BROWSER'>,
   siteUrl: string,
 ): Promise<{ bytes: Uint8Array; contentType: 'image/webp'; width: number; height: number } | null> {
   const url = new URL(siteUrl);

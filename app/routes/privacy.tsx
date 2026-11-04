@@ -85,7 +85,8 @@ function PrivacyPage() {
           posted site&apos;s address is checked with Cloudflare&apos;s URL Scanner. A clip of your app is made by the
           builder in your own workspace and Cloudflare account, when you ask for one: pictures of your live site and
           lines spoken by Workers AI. It stays in your account until you press Approve in the chat, and goes on your
-          post only then; Remove clip on the post takes it off.
+          post only then; Remove clip on the post takes it off. The picture of your site on a project&apos;s card is
+          taken by Browser Rendering in your own Cloudflare account, and kept there.
         </p>
         <p>
           Chat catalogs, transcripts, generated files, workspace state, deployment records, and generated Cloudflare
