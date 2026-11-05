@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lookedUpField } from './resource-lookup';
+import { lookedUpField, sentPastRefusals } from './resource-lookup';
 
 const found = () => Response.json({ result: { name: 'my-db' } });
 const refused = (status = 403, code = 7403) =>
@@ -71,5 +71,59 @@ describe('lookedUpField', () => {
     const result = await run([new Response('Bad gateway', { status: 502 }), found()]);
     expect(result.value).toBe('my-db');
     expect(result.notes[0]).toBe('Cloudflare answered 502; trying again in 1s');
+  });
+});
+
+describe('sentPastRefusals', () => {
+  async function send(answers: Response[]) {
+    const waits: number[] = [];
+    const notes: string[] = [];
+    let sent = 0;
+    const response = await sentPastRefusals(
+      async () => answers[Math.min(sent++, answers.length - 1)]!.clone(),
+      (line) => notes.push(line),
+      async (ms) => {
+        waits.push(ms);
+      },
+    );
+    return { response, waits, notes, sent };
+  }
+
+  it('sends once when Cloudflare takes it', async () => {
+    const result = await send([Response.json({ success: true })]);
+    expect(result.response.status).toBe(200);
+    expect(result.sent).toBe(1);
+    expect(result.notes).toEqual([]);
+  });
+
+  it.each([401, 403])('waits out a %i from Cloudflare, then gives the real answer', async (status) => {
+    const result = await send([refused(status), Response.json({ success: true })]);
+    expect(result.response.status).toBe(200);
+    expect(result.waits).toEqual([1_000]);
+    expect(result.notes[0]).toContain(`Cloudflare answered ${status}, code 7403`);
+  });
+
+  it('hands back the last refusal, body intact, after about 15 seconds', async () => {
+    const result = await send([refused()]);
+    expect(result.sent).toBe(5);
+    expect(result.waits).toEqual([1_000, 2_000, 4_000, 8_000]);
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ errors: [{ code: 7403, message: 'Not authorized' }] });
+  });
+
+  it.each([400, 429, 500, 503])('never resends after a %i, which may mean the query ran', async (status) => {
+    const result = await send([refused(status), Response.json({ success: true })]);
+    expect(result.response.status).toBe(status);
+    expect(result.sent).toBe(1);
+  });
+
+  it("does not wait on a refusal of CloudChef's own", async () => {
+    const own = Response.json(
+      { errors: [{ code: 10000, message: 'This deploy may not publish any more.' }] },
+      { status: 403 },
+    );
+    const result = await send([own, Response.json({ success: true })]);
+    expect(result.response.status).toBe(403);
+    expect(result.sent).toBe(1);
   });
 });

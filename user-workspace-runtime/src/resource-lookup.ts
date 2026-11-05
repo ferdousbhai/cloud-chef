@@ -64,3 +64,24 @@ export async function lookedUpField(
     await wait(delay);
   }
 }
+
+/**
+ * A D1 query sent on past the same refusals, which come before it runs: anything else, a 5xx above all, may mean it did,
+ * so that answer goes back as it is. Only Cloudflare's own answers carry a cf-ray: CloudChef's refusals aren't waited on.
+ */
+export async function sentPastRefusals(
+  send: () => Promise<Response>,
+  note: (line: string) => void,
+  wait: (ms: number) => Promise<void> = (ms) => scheduler.wait(ms),
+): Promise<Response> {
+  for (const delay of RETRY_DELAYS_MS) {
+    const response = await send();
+    if ((response.status !== 401 && response.status !== 403) || !response.headers.has('cf-ray')) {
+      return response;
+    }
+    const answer = parsedAnswer(await response.text().catch(() => ''));
+    note(`${describedAnswer(response, answer)}; trying again in ${delay / 1000}s`);
+    await wait(delay);
+  }
+  return send();
+}

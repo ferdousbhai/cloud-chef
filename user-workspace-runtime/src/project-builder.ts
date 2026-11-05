@@ -52,7 +52,7 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
-import { lookedUpField } from './resource-lookup';
+import { lookedUpField, sentPastRefusals } from './resource-lookup';
 import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
@@ -1234,9 +1234,14 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       case 'check_database': {
         const databaseId = url.pathname.split('/').at(-2) ?? '';
         const refusal = await this.resourceRefusal(job, { databases: [databaseId], namespaces: [] });
-        return refusal
-          ? DEPLOY_REFUSED(refusal)
-          : this.sendWithToken(job, upstream, request.method, headers, await request.arrayBuffer());
+        if (refusal) {
+          return DEPLOY_REFUSED(refusal);
+        }
+        const body = await request.arrayBuffer();
+        return sentPastRefusals(
+          () => this.sendWithToken(job, upstream, request.method, headers, body),
+          (line) => this.appendLog(job, `[sending ${url.pathname}: ${line}]\n`),
+        );
       }
       case 'check_new_resource': {
         const text = await request.text();
