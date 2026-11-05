@@ -52,6 +52,7 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
+import { lookedUpField } from './resource-lookup';
 import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
 import { first } from './sql-rows';
@@ -1148,7 +1149,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     }
   }
 
-  private appendLog(job: Job, text: string): void {
+  private appendLog(job: Pick<Job, 'deploymentId'>, text: string): void {
     const before = this.log(job.deploymentId) ?? '';
     this.ctx.storage.sql.exec(
       `INSERT INTO builder_logs (deployment_id, log, updated_at) VALUES (?, ?, ?)
@@ -1334,13 +1335,12 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       if (!/^\/[a-z0-9/-]+$/i.test(check.path)) {
         return 'CloudChef couldn’t look up a resource the Worker uses.';
       }
-      const response = await this.cloudflare(job, check.path);
-      const found = parseJson(
-        await response.text().catch(() => ''),
-        z.object({ result: z.looseObject({ name: z.string().optional(), title: z.string().optional() }) }),
+      const name = await lookedUpField(
+        check.field,
+        () => this.cloudflare(job, check.path),
+        (line) => this.appendLog(job, `[looking up ${check.path}: ${line}]\n`),
       );
-      const name = found?.result[check.field];
-      if (!response.ok || name === undefined) {
+      if (name === undefined) {
         return 'CloudChef couldn’t look up a resource the Worker uses.';
       }
       if (isCloudChefResourceName(name)) {
