@@ -75,6 +75,10 @@ describe('control-plane account erasure', () => {
     const env = vaultEnv(db);
     const cloudflare = stubCloudflare();
     seedAccount(database, await storeGrant(env, 'refresh'));
+    database.exec(`
+      INSERT INTO move_requests (user_id, site_url, platform, note, created_at, updated_at)
+        VALUES ('user-1', 'https://example.com/', 'wordpress', NULL, 1, 1);
+    `);
 
     await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
       cloudflareAuthorizationRevoked: true,
@@ -83,6 +87,7 @@ describe('control-plane account erasure', () => {
     });
     expect(cloudflare.revoked).toHaveLength(1);
     expect(rowCount(database, 'user')).toBe(0);
+    expect(rowCount(database, 'move_requests')).toBe(0);
     expect(rowCount(database, 'cloudflare_credentials')).toBe(0);
   });
 

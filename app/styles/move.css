@@ -1,0 +1,442 @@
+/*
+ * The page that sells moving a site in (/move, /shopify, /wordpress). It shares the trust pages' header and
+ * palette, and is roomier than they are: a visitor reads it top to bottom once, rather than looking up one clause.
+ */
+.move-page {
+  --move-rule: color-mix(in srgb, var(--cloudchef-home-accent-2) 24%, var(--cloudchef-home-border));
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  background: var(--cloudchef-home-bg);
+  color: var(--cloudchef-home-ink);
+}
+
+.move-page__main {
+  width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+  flex: 1;
+  padding-bottom: clamp(40px, 7vw, 88px);
+}
+
+.move-page__main section {
+  padding-top: clamp(40px, 7vw, 80px);
+  scroll-margin-top: 8px;
+}
+
+.move-page__eyebrow {
+  color: var(--cc-content-accent);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: var(--cc-tracking-label);
+  text-transform: uppercase;
+}
+
+.move-page__hero h1 {
+  max-width: 20ch;
+  margin-top: 14px;
+  font-size: clamp(30px, 5.4vw, 54px);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.move-page__lede {
+  max-width: 62ch;
+  margin-top: 20px;
+  color: var(--cloudchef-home-muted);
+  font-size: clamp(15px, 1.5vw, 17px);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.move-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 28px;
+}
+
+.move-page__cta {
+  display: inline-flex;
+  min-height: 44px;
+  padding: 10px 18px;
+  align-items: center;
+  border-radius: var(--cc-radius);
+  background: var(--cc-accent);
+  color: var(--cc-accent-ink);
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: var(--cc-shadow-raised);
+}
+
+.move-page__cta:hover {
+  background: color-mix(in srgb, var(--cc-accent) 86%, var(--cloudchef-home-ink));
+}
+
+.move-page__link,
+.move-page__main p a {
+  color: var(--cloudchef-home-ink);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--cloudchef-home-accent) 58%, transparent);
+  text-underline-offset: 4px;
+}
+
+.move-page__main h2 {
+  max-width: 28ch;
+  font-size: clamp(22px, 3vw, 30px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.move-page__intro {
+  max-width: 66ch;
+  margin-top: 12px;
+  color: var(--cloudchef-home-muted);
+  font-size: 15px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.move-page__grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+}
+
+.move-page__card {
+  min-width: 0;
+  padding: clamp(18px, 2.4vw, 26px);
+  border: 1px solid var(--move-rule);
+  border-radius: var(--cc-radius-lg);
+  background: var(--cloudchef-home-surface);
+  overflow-wrap: anywhere;
+}
+
+.move-page__card h3 {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.move-page__card p {
+  margin-top: 10px;
+  color: var(--cloudchef-home-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.move-page__card strong {
+  color: var(--cloudchef-home-ink);
+}
+
+/* What stays and what moves: the thing, where it ends up, and a line about it. Under 640px each row stacks, so
+   nothing scrolls sideways on a phone. */
+.move-page__table {
+  width: 100%;
+  margin-top: 14px;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.move-page__table caption {
+  text-align: left;
+}
+
+.move-page__table th,
+.move-page__table td {
+  padding: 10px 12px 10px 0;
+  border-top: 1px solid var(--move-rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+.move-page__table thead th {
+  border-top: 0;
+  padding-top: 0;
+  color: var(--cc-content-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: var(--cc-tracking-label);
+  text-transform: uppercase;
+}
+
+.move-page__table tbody th {
+  color: var(--cloudchef-home-ink);
+  font-weight: 600;
+}
+
+.move-page__table td {
+  color: var(--cloudchef-home-muted);
+}
+
+.move-page__table td:last-child {
+  padding-right: 0;
+}
+
+.move-page__table tbody th {
+  width: 36%;
+}
+
+.move-page__pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cc-background-tertiary);
+  color: var(--cloudchef-home-ink);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.move-page__pill[data-kind='moves'] {
+  background: color-mix(in srgb, var(--cc-accent) 16%, var(--cloudchef-home-surface));
+  color: var(--cc-content-accent);
+}
+
+.move-page__pill[data-kind='review'] {
+  background: var(--cc-background-warning);
+  color: var(--cc-content-warning);
+}
+
+@media (max-width: 640px) {
+  .move-page__table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .move-page__table tr {
+    display: grid;
+    gap: 4px;
+    padding: 12px 0;
+    border-top: 1px solid var(--move-rule);
+  }
+
+  .move-page__table tbody tr:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .move-page__table th,
+  .move-page__table td {
+    padding: 0;
+    border-top: 0;
+  }
+
+  .move-page__table tbody th {
+    width: auto;
+  }
+}
+
+.move-page__case-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.move-page__case-address {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.move-page__facts {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.move-page__facts dt {
+  color: var(--cc-content-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: var(--cc-tracking-label);
+  text-transform: uppercase;
+}
+
+.move-page__facts dd {
+  margin-top: 2px;
+  color: var(--cloudchef-home-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.move-page__steps {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  counter-reset: move-step;
+}
+
+.move-page__steps li {
+  counter-increment: move-step;
+  padding-top: 14px;
+  border-top: 2px solid var(--cc-accent);
+}
+
+.move-page__steps li::before {
+  content: counter(move-step, decimal-leading-zero);
+  color: var(--cc-content-accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: var(--cc-tracking-label);
+}
+
+.move-page__steps h3 {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.move-page__steps p {
+  margin-top: 6px;
+  color: var(--cloudchef-home-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.move-page__request {
+  max-width: 640px;
+  margin-top: 24px;
+}
+
+.move-page__form {
+  display: grid;
+  gap: 18px;
+}
+
+.move-page__field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+
+.move-page__label {
+  padding: 0;
+  color: var(--cloudchef-home-ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.move-page__hint {
+  color: var(--cc-content-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.move-page__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.move-page__choice {
+  display: inline-flex;
+  min-height: 40px;
+  padding: 8px 14px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--cloudchef-home-border);
+  border-radius: var(--cc-radius);
+  background: var(--cloudchef-home-input);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.move-page__choice:has(input:checked) {
+  border-color: var(--cc-accent);
+  box-shadow: 0 0 0 1px var(--cc-accent);
+}
+
+.move-page__choice:has(input:focus-visible) {
+  outline: 2px solid var(--cc-accent);
+  outline-offset: 2px;
+}
+
+.move-page__choice input {
+  accent-color: var(--cc-accent);
+}
+
+.move-page__note {
+  min-height: 96px;
+  padding: 8px 12px;
+  border: 1px solid var(--cloudchef-home-border);
+  border-radius: var(--cc-radius-lg);
+  background: var(--cc-background-secondary);
+  color: var(--cloudchef-home-ink);
+  font-size: 14px;
+  line-height: 20px;
+  resize: vertical;
+}
+
+.move-page__note:focus {
+  border-color: var(--cc-accent);
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cc-content-accent) 24%, transparent);
+}
+
+.move-page__requests {
+  display: grid;
+  gap: 10px;
+  margin-top: 28px;
+}
+
+.move-page__requests h3 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.move-page__request-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--move-rule);
+  border-radius: var(--cc-radius);
+  background: var(--cloudchef-home-surface);
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.move-page__request-row > div {
+  flex: 1 1 200px;
+}
+
+.move-page__request-row p {
+  color: var(--cloudchef-home-muted);
+  font-size: 13px;
+}
+
+.move-page__fine {
+  max-width: 70ch;
+  margin-top: clamp(40px, 7vw, 72px);
+  padding-top: 16px;
+  border-top: 1px solid var(--move-rule);
+  color: var(--cc-content-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}

@@ -27,6 +27,7 @@ const RESERVED = new Set([
   'join',
   'login',
   'media',
+  'move',
   'new',
   'notifications',
   'post',
@@ -38,11 +39,13 @@ const RESERVED = new Set([
   'security',
   'settings',
   'shared',
+  'shopify',
   'showcase',
   'sign-in',
   'support',
   'teams',
   'terms',
+  'wordpress',
 ]);
 
 /** Why `username` can't be one, in a sentence, or null when it can. */

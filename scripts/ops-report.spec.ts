@@ -11,6 +11,7 @@ import {
   readWorkersAiCatalog,
   renderReport,
   workerInvocationsQuery,
+  MOVE_REQUESTS_STATEMENT,
   PROJECTS_STATEMENT,
   SHOWCASE_STATEMENT,
 } from './ops-report.mjs';
@@ -160,7 +161,7 @@ describe('production report', () => {
     expect(report).toMatchObject({
       controlPlaneReadable: true,
       status: 'ok',
-      headline: 'Everything is healthy: all 8 checks passed.',
+      headline: 'Everything is healthy: all 9 checks passed.',
     });
     expect(report.checks.map((item: { id: string }) => item.id)).toEqual([
       'control-plane-worker',
@@ -171,8 +172,9 @@ describe('production report', () => {
       'sessions',
       'projects',
       'showcase',
+      'move-requests',
     ]);
-    expect(report.checks.at(-2)).toMatchObject({
+    expect(report.checks.at(-3)).toMatchObject({
       sentence: '2 projects: 1 in Artifacts, 1 still to be imported from GitHub on first open.',
       detail: {
         entries: [
@@ -180,6 +182,50 @@ describe('production report', () => {
           { name: 'mine', owner: 'ada@example.com', repository: 't-mine', importFrom: null },
         ],
       },
+    });
+  });
+
+  it('names each site someone asked to have moved, newest first, without calling it a fault', async () => {
+    const query = fixtureQuery(healthyRows());
+    const report = await collectReport({
+      query: async (sql: string) =>
+        sql === MOVE_REQUESTS_STATEMENT
+          ? [
+              [
+                {
+                  email: 'sara@example.com',
+                  site_url: 'https://shop.example/',
+                  platform: 'shopify',
+                  note: 'The shop only.',
+                  created_at: NOW - 2 * DAY,
+                  total: 2,
+                },
+                {
+                  email: 'ada@example.com',
+                  site_url: 'https://blog.example/',
+                  platform: 'wordpress',
+                  note: null,
+                  created_at: NOW - 9 * DAY,
+                  total: 2,
+                },
+              ],
+            ]
+          : query(sql),
+      readInvocations: healthyInvocations,
+      readModelCatalog: healthyCatalog,
+      now: NOW,
+      desiredRuntimeVersion: CURRENT_RUNTIME,
+      pinnedBuilderModel: PIN,
+    });
+
+    expect(MOVE_REQUESTS_STATEMENT.trim()).toMatch(/^SELECT\b/i);
+    expect(report.status).toBe('ok');
+    expect(report.checks.at(-1)).toMatchObject({
+      id: 'move-requests',
+      status: 'ok',
+      sentence:
+        '2 sites asked to be moved: https://shop.example/ (shopify, sara@example.com, 2d ago): The shop only.; https://blog.example/ (wordpress, ada@example.com, 9d ago).',
+      detail: { total: 2, entries: [{ siteUrl: 'https://shop.example/' }, { siteUrl: 'https://blog.example/' }] },
     });
   });
 
@@ -400,26 +446,28 @@ function fixtureQuery(rows: Rows) {
   return async (sql: string) =>
     sql === SHOWCASE_STATEMENT
       ? [[{ visible_posts: 3, open_reports: 0, held_posts: 0 }]]
-      : sql === PROJECTS_STATEMENT
-        ? [
-            [
-              {
-                name: 'ff',
-                organization: 'Sites',
-                owner: null,
-                artifact_repo: null,
-                import_repo_full_name: 'ada/forbidden-feminine',
-              },
-              {
-                name: 'mine',
-                organization: null,
-                owner: 'ada@example.com',
-                artifact_repo: 't-mine',
-                import_repo_full_name: 'ada/mine',
-              },
-            ],
-          ]
-        : rows;
+      : sql === MOVE_REQUESTS_STATEMENT
+        ? [[]]
+        : sql === PROJECTS_STATEMENT
+          ? [
+              [
+                {
+                  name: 'ff',
+                  organization: 'Sites',
+                  owner: null,
+                  artifact_repo: null,
+                  import_repo_full_name: 'ada/forbidden-feminine',
+                },
+                {
+                  name: 'mine',
+                  organization: null,
+                  owner: 'ada@example.com',
+                  artifact_repo: 't-mine',
+                  import_repo_full_name: 'ada/mine',
+                },
+              ],
+            ]
+          : rows;
 }
 
 function invocationRow(outcome: string, count: number) {

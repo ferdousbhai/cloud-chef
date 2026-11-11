@@ -13,7 +13,7 @@ import {
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 9;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 10;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -36,6 +36,7 @@ const SECTION_NAMES = [
   'authSessions',
   'oauthStates',
   'showcase',
+  'moveRequests',
 ] as const satisfies readonly AccountExportSectionName[];
 
 type SectionName = (typeof SECTION_NAMES)[number];
@@ -204,6 +205,15 @@ type ExportedOAuthState = {
   updatedAt: string;
 };
 
+/** A site they asked to have moved into their own Cloudflare account (`/move`). */
+type ExportedMoveRequest = {
+  siteUrl: string;
+  platform: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ExportedSection<T extends object> = ({ status: 'exported' } & T) | { status: 'unavailable'; error: string };
 
 type BoundedList<T extends object> = { total: number; truncated: boolean } & T;
@@ -237,6 +247,7 @@ type ControlPlaneExport = {
     authSessions: ExportedSection<BoundedList<{ sessions: ExportedAuthSession[] }>>;
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
     showcase: ExportedSection<{ showcase: Awaited<ReturnType<typeof exportShowcase>> }>;
+    moveRequests: ExportedSection<BoundedList<{ requests: ExportedMoveRequest[] }>>;
   };
 };
 
@@ -263,6 +274,7 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     authSessions: await exportSection('authSessions', () => readAuthSessions(db, args.userId)),
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
     showcase: await exportSection('showcase', async () => ({ showcase: await exportShowcase(db, args.userId) })),
+    moveRequests: await exportSection('moveRequests', () => readMoveRequests(db, args.userId)),
   };
   const unavailableSections = SECTION_NAMES.filter((name) => sections[name].status === 'unavailable');
 
@@ -575,6 +587,27 @@ async function readQuotaEvents(db: D1Database, userId: string): Promise<BoundedL
     }),
   );
   return { events, ...bounds };
+}
+
+async function readMoveRequests(
+  db: D1Database,
+  userId: string,
+): Promise<BoundedList<{ requests: ExportedMoveRequest[] }>> {
+  const { items: requests, ...bounds } = await readBoundedList(
+    db,
+    userId,
+    `SELECT site_url, platform, note, created_at, updated_at, COUNT(*) OVER () AS total_rows
+       FROM move_requests WHERE user_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    (row: { site_url: string; platform: string; note: string | null; created_at: number; updated_at: number }) => ({
+      siteUrl: row.site_url,
+      platform: row.platform,
+      note: row.note,
+      createdAt: isoTimestamp(row.created_at),
+      updatedAt: isoTimestamp(row.updated_at),
+    }),
+  );
+  return { requests, ...bounds };
 }
 
 async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ usage: ExportedUsageDay[] }>> {

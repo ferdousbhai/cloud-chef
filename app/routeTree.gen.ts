@@ -14,14 +14,17 @@ import { Route as ApprovalsRouteImport } from './routes/approvals';
 import { Route as ExploreRouteImport } from './routes/explore';
 import { Route as FeedRouteImport } from './routes/feed';
 import { Route as JoinRouteImport } from './routes/join';
+import { Route as MoveRouteImport } from './routes/move';
 import { Route as NotificationsRouteImport } from './routes/notifications';
 import { Route as PrivacyRouteImport } from './routes/privacy';
 import { Route as ReportsRouteImport } from './routes/reports';
 import { Route as SecurityRouteImport } from './routes/security';
 import { Route as SettingsRouteImport } from './routes/settings';
 import { Route as SharedRouteImport } from './routes/shared';
+import { Route as ShopifyRouteImport } from './routes/shopify';
 import { Route as SupportRouteImport } from './routes/support';
 import { Route as TermsRouteImport } from './routes/terms';
+import { Route as WordpressRouteImport } from './routes/wordpress';
 import { Route as UsernameIndexRouteImport } from './routes/$username.index';
 import { Route as UsernameSlugRouteImport } from './routes/$username.$slug';
 import { Route as ChatIdRouteImport } from './routes/chat.$id';
@@ -54,6 +57,11 @@ const JoinRoute = JoinRouteImport.update({
   path: '/join',
   getParentRoute: () => rootRouteImport,
 } as any);
+const MoveRoute = MoveRouteImport.update({
+  id: '/move',
+  path: '/move',
+  getParentRoute: () => rootRouteImport,
+} as any);
 const NotificationsRoute = NotificationsRouteImport.update({
   id: '/notifications',
   path: '/notifications',
@@ -84,6 +92,11 @@ const SharedRoute = SharedRouteImport.update({
   path: '/shared',
   getParentRoute: () => rootRouteImport,
 } as any);
+const ShopifyRoute = ShopifyRouteImport.update({
+  id: '/shopify',
+  path: '/shopify',
+  getParentRoute: () => rootRouteImport,
+} as any);
 const SupportRoute = SupportRouteImport.update({
   id: '/support',
   path: '/support',
@@ -92,6 +105,11 @@ const SupportRoute = SupportRouteImport.update({
 const TermsRoute = TermsRouteImport.update({
   id: '/terms',
   path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any);
+const WordpressRoute = WordpressRouteImport.update({
+  id: '/wordpress',
+  path: '/wordpress',
   getParentRoute: () => rootRouteImport,
 } as any);
 const UsernameIndexRoute = UsernameIndexRouteImport.update({
@@ -131,14 +149,17 @@ export interface FileRoutesByFullPath {
   '/explore': typeof ExploreRoute;
   '/feed': typeof FeedRoute;
   '/join': typeof JoinRoute;
+  '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
   '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/shared': typeof SharedRoute;
+  '/shopify': typeof ShopifyRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
+  '/wordpress': typeof WordpressRoute;
   '/$username/$slug': typeof UsernameSlugRoute;
   '/chat/$id': typeof ChatIdRoute;
   '/login/device': typeof LoginDeviceRoute;
@@ -152,14 +173,17 @@ export interface FileRoutesByTo {
   '/explore': typeof ExploreRoute;
   '/feed': typeof FeedRoute;
   '/join': typeof JoinRoute;
+  '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
   '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/shared': typeof SharedRoute;
+  '/shopify': typeof ShopifyRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
+  '/wordpress': typeof WordpressRoute;
   '/$username/$slug': typeof UsernameSlugRoute;
   '/chat/$id': typeof ChatIdRoute;
   '/login/device': typeof LoginDeviceRoute;
@@ -174,14 +198,17 @@ export interface FileRoutesById {
   '/explore': typeof ExploreRoute;
   '/feed': typeof FeedRoute;
   '/join': typeof JoinRoute;
+  '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
   '/reports': typeof ReportsRoute;
   '/security': typeof SecurityRoute;
   '/settings': typeof SettingsRoute;
   '/shared': typeof SharedRoute;
+  '/shopify': typeof ShopifyRoute;
   '/support': typeof SupportRoute;
   '/terms': typeof TermsRoute;
+  '/wordpress': typeof WordpressRoute;
   '/$username/$slug': typeof UsernameSlugRoute;
   '/chat/$id': typeof ChatIdRoute;
   '/login/device': typeof LoginDeviceRoute;
@@ -197,14 +224,17 @@ export interface FileRouteTypes {
     | '/explore'
     | '/feed'
     | '/join'
+    | '/move'
     | '/notifications'
     | '/privacy'
     | '/reports'
     | '/security'
     | '/settings'
     | '/shared'
+    | '/shopify'
     | '/support'
     | '/terms'
+    | '/wordpress'
     | '/$username/$slug'
     | '/chat/$id'
     | '/login/device'
@@ -218,14 +248,17 @@ export interface FileRouteTypes {
     | '/explore'
     | '/feed'
     | '/join'
+    | '/move'
     | '/notifications'
     | '/privacy'
     | '/reports'
     | '/security'
     | '/settings'
     | '/shared'
+    | '/shopify'
     | '/support'
     | '/terms'
+    | '/wordpress'
     | '/$username/$slug'
     | '/chat/$id'
     | '/login/device'
@@ -239,14 +272,17 @@ export interface FileRouteTypes {
     | '/explore'
     | '/feed'
     | '/join'
+    | '/move'
     | '/notifications'
     | '/privacy'
     | '/reports'
     | '/security'
     | '/settings'
     | '/shared'
+    | '/shopify'
     | '/support'
     | '/terms'
+    | '/wordpress'
     | '/$username/$slug'
     | '/chat/$id'
     | '/login/device'
@@ -261,14 +297,17 @@ export interface RootRouteChildren {
   ExploreRoute: typeof ExploreRoute;
   FeedRoute: typeof FeedRoute;
   JoinRoute: typeof JoinRoute;
+  MoveRoute: typeof MoveRoute;
   NotificationsRoute: typeof NotificationsRoute;
   PrivacyRoute: typeof PrivacyRoute;
   ReportsRoute: typeof ReportsRoute;
   SecurityRoute: typeof SecurityRoute;
   SettingsRoute: typeof SettingsRoute;
   SharedRoute: typeof SharedRoute;
+  ShopifyRoute: typeof ShopifyRoute;
   SupportRoute: typeof SupportRoute;
   TermsRoute: typeof TermsRoute;
+  WordpressRoute: typeof WordpressRoute;
   UsernameSlugRoute: typeof UsernameSlugRoute;
   ChatIdRoute: typeof ChatIdRoute;
   LoginDeviceRoute: typeof LoginDeviceRoute;
@@ -314,6 +353,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JoinRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/move': {
+      id: '/move';
+      path: '/move';
+      fullPath: '/move';
+      preLoaderRoute: typeof MoveRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     '/notifications': {
       id: '/notifications';
       path: '/notifications';
@@ -356,6 +402,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SharedRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    '/shopify': {
+      id: '/shopify';
+      path: '/shopify';
+      fullPath: '/shopify';
+      preLoaderRoute: typeof ShopifyRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     '/support': {
       id: '/support';
       path: '/support';
@@ -368,6 +421,13 @@ declare module '@tanstack/react-router' {
       path: '/terms';
       fullPath: '/terms';
       preLoaderRoute: typeof TermsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    '/wordpress': {
+      id: '/wordpress';
+      path: '/wordpress';
+      fullPath: '/wordpress';
+      preLoaderRoute: typeof WordpressRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/$username/': {
@@ -421,14 +481,17 @@ const rootRouteChildren: RootRouteChildren = {
   ExploreRoute: ExploreRoute,
   FeedRoute: FeedRoute,
   JoinRoute: JoinRoute,
+  MoveRoute: MoveRoute,
   NotificationsRoute: NotificationsRoute,
   PrivacyRoute: PrivacyRoute,
   ReportsRoute: ReportsRoute,
   SecurityRoute: SecurityRoute,
   SettingsRoute: SettingsRoute,
   SharedRoute: SharedRoute,
+  ShopifyRoute: ShopifyRoute,
   SupportRoute: SupportRoute,
   TermsRoute: TermsRoute,
+  WordpressRoute: WordpressRoute,
   UsernameSlugRoute: UsernameSlugRoute,
   ChatIdRoute: ChatIdRoute,
   LoginDeviceRoute: LoginDeviceRoute,

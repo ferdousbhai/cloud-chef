@@ -16,6 +16,7 @@ const controlPlaneTables = [
   'github_install_states',
   'github_installations',
   'google_sign_in_states',
+  'move_requests',
   'notifications',
   'org_project_access',
   'org_projects',

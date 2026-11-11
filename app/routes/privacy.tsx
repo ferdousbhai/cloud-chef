@@ -29,6 +29,10 @@ function PrivacyPage() {
           <li>your Cloudflare account details, if you connect one</li>
           <li>when you joined the waitlist for a space CloudChef runs, if you did, until you leave it</li>
           <li>
+            each site you asked to have moved (on <Link to="/move">Move your site</Link>): its address, the platform you
+            chose, your note if you left one, and when you asked, until you withdraw the request or erase your account
+          </li>
+          <li>
             teams you belong to: their names, your role, whether you may build new apps of your own there, and invites
             sent to your address (with the role and projects they give)
           </li>
@@ -318,6 +322,7 @@ function PrivacyPage() {
           <li>connection metadata, granted scopes, and model settings</li>
           <li>your runtime locators and team memberships</li>
           <li>your team project requests, and GitHub connections you started</li>
+          <li>the sites you asked to have moved</li>
           <li>
             the records of when you sent team invites and created teams, so a team&apos;s daily invite limit stops
             counting the invites you sent
@@ -353,6 +358,7 @@ function PrivacyPage() {
           <li>your own projects and the team projects you were given, and the team project requests you sent</li>
           <li>GitHub connections you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
+          <li>the sites you asked to have moved</li>
         </ul>
         <p>
           Encrypted credential material, initialisation vectors, credential handles, session token hashes, and the

@@ -12,7 +12,7 @@ describe('usernames', () => {
     for (const name of ['', 'Ada', '-ada', 'ada-', 'ada--lovelace', 'ada_l', 'ada.l', 'a'.repeat(40)]) {
       expect(usernameProblem(name), name).toMatch(/lowercase letters/);
     }
-    for (const name of ['git', 'api', 'settings', 'login', 'chat']) {
+    for (const name of ['git', 'api', 'settings', 'login', 'chat', 'move', 'shopify', 'wordpress']) {
       expect(usernameProblem(name), name).toMatch(/kept for CloudChef/);
     }
   });

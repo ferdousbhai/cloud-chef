@@ -24,6 +24,7 @@ const ACCOUNT_EXPORT_SECTION_LABELS = {
   authSessions: 'your sign-in sessions',
   oauthStates: 'your Cloudflare authorizations in progress',
   showcase: 'your page, posts, comments, follows and likes',
+  moveRequests: 'the sites you asked to have moved',
 } as const;
 
 export type AccountExportSectionName = keyof typeof ACCOUNT_EXPORT_SECTION_LABELS;

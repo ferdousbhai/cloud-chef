@@ -360,6 +360,18 @@ export const SHOWCASE_STATEMENT = `SELECT
     (SELECT COUNT(*) FROM post_reports WHERE state = 'open') AS open_reports,
     (SELECT COUNT(*) FROM posts WHERE status = 'hidden' AND hidden_reason = 'reported') AS held_posts`;
 
+/**
+ * The sites people asked to have moved at /move (migrations/0062_move_requests.sql), newest first, with the total
+ * beside each row: who asked, for which address, on which platform, and their note.
+ */
+export const MOVE_REQUESTS_STATEMENT = `SELECT users.email AS email, requests.site_url AS site_url,
+    requests.platform AS platform, requests.note AS note, requests.created_at AS created_at,
+    COUNT(*) OVER () AS total
+  FROM move_requests AS requests
+  JOIN "user" AS users ON users.id = requests.user_id
+  ORDER BY requests.created_at DESC
+  LIMIT ${RUNTIME_ROW_LIMIT}`;
+
 export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.name AS organization, owners.email AS owner,
     projects.artifact_repo AS artifact_repo,
     projects.import_repo_full_name AS import_repo_full_name,
@@ -622,10 +634,11 @@ export async function collectReport({
   pinnedBuilderModel = null,
 }) {
   const statements = coreStatements(now);
-  const [core, projects, showcase, invocations, catalog] = await Promise.all([
+  const [core, projects, showcase, moveRequests, invocations, catalog] = await Promise.all([
     attempt(() => query(statements.join(';\n'))),
     attempt(() => query(PROJECTS_STATEMENT)),
     attempt(() => query(SHOWCASE_STATEMENT)),
+    attempt(() => query(MOVE_REQUESTS_STATEMENT)),
     attempt(() => readInvocations({ now })),
     attempt(() => readModelCatalog()),
   ]);
@@ -638,6 +651,7 @@ export async function collectReport({
     buildSessionsCheck(core),
     buildProjectsCheck(projects),
     buildShowcaseCheck(showcase),
+    buildMoveRequestsCheck(moveRequests, now),
   ];
 
   const status = checks.reduce(
@@ -805,6 +819,36 @@ function buildShowcaseCheck(showcase) {
   return check('showcase', 'Showcase', open === 0 ? 'ok' : 'attention', sentence, {
     detail: { visiblePosts: visible, openReports: open, heldPosts: held },
   });
+}
+
+/**
+ * The sites people asked to have moved at /move. Nothing marks a request as answered, so this is never a
+ * fault: it names each one, newest first, for the maintainer who does the move with them.
+ */
+function buildMoveRequestsCheck(moveRequests, now) {
+  if (!moveRequests.ok) {
+    return unknownCheck('move-requests', 'Move requests', moveRequests);
+  }
+  const rows = moveRequests.value[0] ?? [];
+  const entries = rows.map((row) => ({
+    email: String(row.email ?? ''),
+    siteUrl: String(row.site_url ?? ''),
+    platform: String(row.platform ?? ''),
+    note: row.note ? String(row.note) : null,
+    requestedAt: number(row.created_at),
+  }));
+  const total = number(rows[0]?.total);
+  const listed = entries
+    .map(
+      (entry) =>
+        `${entry.siteUrl} (${entry.platform}, ${entry.email}, ${formatRelativeTime(entry.requestedAt, now)})${entry.note ? `: ${entry.note}` : ''}`,
+    )
+    .join('; ');
+  const sentence =
+    total === 0
+      ? 'No sites waiting to be moved.'
+      : `${total} ${plural(total, 'site')} asked to be moved${total > entries.length ? `, the newest ${entries.length}` : ''}: ${listed}.`;
+  return check('move-requests', 'Move requests', 'ok', sentence, { detail: { total, entries } });
 }
 
 function buildRuntimesCheck(core, { now, desiredRuntimeVersion }) {

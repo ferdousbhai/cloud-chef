@@ -42,6 +42,7 @@ Most people using CloudChef are not developers: they describe what they want in 
 
 - [Home](https://cloudchef.build/): start a project from a message, or open one.
 - [Explore](https://cloudchef.build/explore): everyone's public projects, to open or copy.
+- [Move your site](https://cloudchef.build/move): for someone with a Shopify shop, a WordPress site or another hosted site who wants it rebuilt as their own web app in their own Cloudflare account. Done with them by CloudChef's maintainer, not self-serve: signed in, they ask with the form there. For a shop, Shopify stays as the backend.
 - [Approvals](https://cloudchef.build/approvals): changes team members asked for that wait for a team admin.
 - [Settings](https://cloudchef.build/settings): the connected Cloudflare account, teams, AI models and provider keys, command-line tokens.
 - [Sign in](https://cloudchef.build/sign-in): with Cloudflare, Google, or a link sent by email.
