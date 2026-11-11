@@ -47,9 +47,34 @@ confirmed on 2026-11-11 that they may be named and shown as case studies.
 | The Forbidden Feminine | Sanity for content     | Custom web app: own content store and editor, subscribers, magic-link sign-in, Stripe                   | Live                                                         |
 | Bohemian Goddess       | Shopify theme          | Own storefront on Workers over the Storefront API, no third-party JavaScript                            | On its workers.dev link; the domain moves when Sara approves |
 
-Bohemian Goddess is the case study the shop pitch needs, and it is the one that is not finished. Before the page goes
-up, measure both versions of it the same way: load time, page weight, number of third-party scripts, and the monthly
-app fees the new storefront makes unnecessary. Ask Sara for a sentence we may quote.
+Bohemian Goddess is the case study the shop pitch needs, and it is the one that is not finished. A first measurement
+is below. Still to gather: the monthly app fees the new storefront makes unnecessary, and a sentence from Sara we may
+quote.
+
+## Bohemian Goddess, measured
+
+Home page, 2026-11-11, from one computer in Asia on an ordinary connection: a fresh headless Chromium at phone width,
+three loads each, and five plain requests for the time to first byte. One place and one day, so treat the timings as a
+first reading. The current site's bytes are undercounted, since about 40 of its requests come from hosts that hide
+their size from the page.
+
+|                              | Shopify theme (bohemiangoddess.com) | New storefront (workers.dev) |
+| ---------------------------- | ----------------------------------- | ---------------------------- |
+| Requests                     | 195 to 213                          | 20                           |
+| Transferred                  | about 2.0 MB, undercounted          | 393 kB                       |
+| Scripts                      | 107 to 127, about 1.1 MB            | 5, 177 kB                    |
+| Third-party scripts          | 56 or 57                            | 0                            |
+| Other hosts contacted        | 16                                  | 1 (cdn.shopify.com, images)  |
+| Time to first byte           | 0.68 to 1.16 s                      | 1.27 to 2.34 s               |
+| Page load event, three loads | 4.1 to 5.8 s                        | 2.8 to 4.7 s                 |
+
+The page is a tenth of the requests and a fifth of the bytes, and loads no third-party script where the theme loads
+analytics, ads, reviews and chat from 16 hosts. That is the claim the page can make.
+
+It cannot yet claim speed. The new storefront starts answering more slowly than the theme: it asks Shopify's Storefront
+API on every request before sending anything. Caching those reads at the edge is the fix, in the storefront's own
+project, and it should come before the domain moves and before any timing is published. Largest contentful paint was
+not captured.
 
 ## What CloudChef needs
 
