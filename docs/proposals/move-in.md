@@ -71,10 +71,20 @@ their size from the page.
 The page is a tenth of the requests and a fifth of the bytes, and loads no third-party script where the theme loads
 analytics, ads, reviews and chat from 16 hosts. That is the claim the page can make.
 
-It cannot yet claim speed. The new storefront starts answering more slowly than the theme: it asks Shopify's Storefront
-API on every request before sending anything. Caching those reads at the edge is the fix, in the storefront's own
-project, and it should come before the domain moves and before any timing is published. Largest contentful paint was
-not captured.
+Speed was the weak point in that first reading: the new storefront took 1.27 to 2.34 s to send its first byte, because
+every page waited on fresh round trips to Shopify and to the reviews service. It was fixed the same day in the
+storefront's own project (its commits `bf050e3` and `433726c`): public catalog reads are kept in an edge cache and
+refreshed behind the response, and the home page streams its lower sections instead of waiting for them.
+
+Measured again afterwards, with connection setup taken out (it is about 0.29 s to either site from here): the new
+storefront answers 0.11 to 0.25 s after the connection is up, where it took over a second before. The Shopify theme
+answers in about 0.05 s, since its pages are served from a cache at the edge. So the new storefront is now close to the
+theme on first byte and far lighter after it, but it is not faster to first byte, and the page must not say it is.
+Largest contentful paint was not captured.
+
+Found on the way, and not fixed: a product address that matches nothing answers 200 rather than 404; the storefront
+token cannot read the banner metaobjects Sara would edit, so the home page always shows the default banners; and the
+new-arrivals read brings 193 kB from Shopify for eight products.
 
 ## What CloudChef needs
 
