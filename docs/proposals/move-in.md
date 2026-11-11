@@ -41,11 +41,11 @@ Whether to generate Hydrogen itself, so a merchant can move to Oxygen later, is 
 All three are one client's (Sara's), built by the owner and published through CloudChef or Workers Builds. The owner
 confirmed on 2026-11-11 that they may be named and shown as case studies.
 
-| Site                 | Was                                   | Now                                                                                                    | State                                                              |
-| -------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| saraadolfsen.com     | WordPress on Hostinger                | TanStack Start on Workers, content in D1, images in R2, bilingual admin, mail routed through Cloudflare | Cut over 2026-10-04; old WordPress addresses redirect              |
-| The Forbidden Feminine | Sanity for content                  | Custom web app: own content store and editor, subscribers, magic-link sign-in, Stripe                  | Live                                                               |
-| Bohemian Goddess     | Shopify theme                         | Own storefront on Workers over the Storefront API, no third-party JavaScript                           | On its workers.dev link; the domain moves when Sara approves       |
+| Site                   | Was                    | Now                                                                                                     | State                                                        |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| saraadolfsen.com       | WordPress on Hostinger | TanStack Start on Workers, content in D1, images in R2, bilingual admin, mail routed through Cloudflare | Cut over 2026-10-04; old WordPress addresses redirect        |
+| The Forbidden Feminine | Sanity for content     | Custom web app: own content store and editor, subscribers, magic-link sign-in, Stripe                   | Live                                                         |
+| Bohemian Goddess       | Shopify theme          | Own storefront on Workers over the Storefront API, no third-party JavaScript                            | On its workers.dev link; the domain moves when Sara approves |
 
 Bohemian Goddess is the case study the shop pitch needs, and it is the one that is not finished. Before the page goes
 up, measure both versions of it the same way: load time, page weight, number of third-party scripts, and the monthly
@@ -58,11 +58,11 @@ app fees the new storefront makes unnecessary. Ask Sara for a sentence we may qu
 One entry point on the home page and in a new project. CloudChef fetches what the old site publishes and hands it to
 the agent as files in the workspace, so the first build starts from the person's real content.
 
-| Source      | What is public                                                                                              | Notes                                                                                                                                    |
-| ----------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| Shopify     | `/products.json`, `/collections.json`, pages, the sitemap                                                   | Checked on bohemiangoddess.com on 2026-11-11: `/products.json` answers with titles, descriptions, images, options, variants and prices. A store can turn this off. Used for the first build and the demo only; the published storefront reads the Storefront API with the owner's token. |
-| WordPress   | `/wp-json/wp/v2/posts`, `pages`, `media`, `categories`; the sitemap; an export file the owner can download | The REST API is on by default but some hosts and plugins close it. Fall back to the sitemap and the pages themselves.                    |
-| Anything else | The sitemap and the pages                                                                                 | Read each page's text and images; take screenshots for the look. CloudChef already takes screenshots for the showcase.                   |
+| Source        | What is public                                                                                             | Notes                                                                                                                                                                                                                                                                                    |
+| ------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Shopify       | `/products.json`, `/collections.json`, pages, the sitemap                                                  | Checked on bohemiangoddess.com on 2026-11-11: `/products.json` answers with titles, descriptions, images, options, variants and prices. A store can turn this off. Used for the first build and the demo only; the published storefront reads the Storefront API with the owner's token. |
+| WordPress     | `/wp-json/wp/v2/posts`, `pages`, `media`, `categories`; the sitemap; an export file the owner can download | The REST API is on by default but some hosts and plugins close it. Fall back to the sitemap and the pages themselves.                                                                                                                                                                    |
+| Anything else | The sitemap and the pages                                                                                  | Read each page's text and images; take screenshots for the look. CloudChef already takes screenshots for the showcase.                                                                                                                                                                   |
 
 Rules for the step:
 
