@@ -7,7 +7,6 @@ const languages = {
   html: () => import('shiki/langs/html.mjs'),
   javascript: () => import('shiki/langs/javascript.mjs'),
   json: () => import('shiki/langs/json.mjs'),
-  jsx: () => import('shiki/langs/jsx.mjs'),
   markdown: () => import('shiki/langs/markdown.mjs'),
   tsx: () => import('shiki/langs/tsx.mjs'),
   typescript: () => import('shiki/langs/typescript.mjs'),
@@ -35,7 +34,9 @@ const languageAliases = new Map<string, HighlightLanguage>(
     js: 'javascript',
     javascript: 'javascript',
     json: 'json',
-    jsx: 'jsx',
+    // JSX is highlighted with the TSX grammar, which reads every JSX file: a grammar of its own is a second copy of
+    // nearly the same rules (about 12 kB compressed) in the client bundle.
+    jsx: 'tsx',
     md: 'markdown',
     markdown: 'markdown',
     plaintext: 'plaintext',
