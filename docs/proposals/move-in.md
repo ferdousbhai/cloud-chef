@@ -82,9 +82,13 @@ answers in about 0.05 s, since its pages are served from a cache at the edge. So
 theme on first byte and far lighter after it, but it is not faster to first byte, and the page must not say it is.
 Largest contentful paint was not captured.
 
-Found on the way, and not fixed: a product address that matches nothing answers 200 rather than 404; the storefront
-token cannot read the banner metaobjects Sara would edit, so the home page always shows the default banners; and the
-new-arrivals read brings 193 kB from Shopify for eight products.
+Found on the way and fixed the same day: a product or collection address that matches nothing now answers 404 (commit
+`ee13a5b`), and the new-arrivals read brings 19 kB from Shopify where it brought 193 kB (`697cd8f`), which took the
+home page's HTML from 273 kB to 89 kB.
+
+Still open: the storefront token cannot read the banner metaobjects Sara would edit, so the home page always shows the
+default banners until she allows it in Shopify's admin; and collection pages still read every product in full
+(`/collections/all-clothing` is 614 kB of HTML).
 
 ## What CloudChef needs
 
