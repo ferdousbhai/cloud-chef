@@ -71,21 +71,19 @@ Rules for the step:
 - Cap pages, images and bytes per import, and fetch slowly.
 - Keep every old address the import saw, for redirects (below).
 
-### 2. A content starter with an editor
+### 2. No starters
 
-Both of Sara's content sites use the same store and admin: documents in D1 with revision history, images in R2, a
-schema-driven editor at `/admin`. saraadolfsen.com lifted it from forbidden-feminine. A person leaving WordPress
-expects to keep editing their own pages, so an imported content site should start from this.
+The owner decided on 2026-11-11 against starters: kept copies of Sara's sites would have to be maintained beside the
+sites themselves, which is what the handoff's "Not planned now: templates" already avoids. The agent builds each
+imported site from scratch. What the two kinds of site need is written down here for it instead:
 
-This conflicts with the handoff's "Not planned now: templates". It needs the owner's decision.
+- **A content site** needs an editor its owner signs in to. Sara's two use documents in D1 with revision history,
+  images in R2, and a schema-driven editor at `/admin`.
+- **A shop** needs product and collection pages, a cart, the hand-off to Shopify's checkout, a strict content security
+  policy, and the Storefront API token as a runtime secret. CloudChef walks the person through creating that token in
+  Shopify's admin, since the import cannot do that for them.
 
-### 3. A shop starter over the Storefront API
-
-The Bohemian Goddess storefront, with the brand taken out: product and collection pages, cart, hand-off to Shopify's
-checkout, a strict content security policy, the token as a runtime secret. CloudChef walks the person through creating
-the Storefront API token in Shopify's admin, since the import cannot do that for them.
-
-### 4. A cutover checklist the agent follows
+### 3. A cutover checklist the agent follows
 
 What the saraadolfsen.com move needed, as steps the agent proposes and the person approves one at a time:
 
@@ -95,7 +93,7 @@ What the saraadolfsen.com move needed, as steps the agent proposes and the perso
 4. Image transformations on.
 5. The old site stays up until the person says the new one is right. Bohemian Goddess is run this way now.
 
-### 5. A page that sells it
+### 4. A page that sells it
 
 `/move`, with `/shopify` and `/wordpress` as versions of it that open on their own case study. Each has the address
 box at the top, the measured before and after, and what stays and what moves in one table.
@@ -113,15 +111,13 @@ box at the top, the measured before and after, and what stays and what moves in 
 
 1. Finish and measure Bohemian Goddess.
 2. `/move` with the three case studies and a "we'll do it with you" request form. No import step yet.
-3. The Shopify import, then the shop starter. It is the best demo: a person sees their own products in a new
-   storefront in a minute.
-4. The WordPress import and the content starter.
+3. The Shopify import. It is the best demo: a person sees their own products in a new storefront in a minute.
+4. The WordPress import.
 5. Self-serve, when managed spaces open.
 
 ## Open questions for the owner
 
-- Templates: allow the two starters, despite the handoff?
-- Should the shop starter be Hydrogen, so nothing CloudChef builds is off Shopify's own path?
+- Should the agent build shops with Hydrogen, so nothing CloudChef builds is off Shopify's own path?
 - Price of the done-with-you service, and whether it is fixed per site.
 - The project's stated goal in the handoff is people building one project together. Does this replace that as the
   next thing built, or run beside it?
