@@ -1140,6 +1140,8 @@ describe('cloudchef install and skill', () => {
     expect(readFileSync(join(home, 'skills/cloudchef/SKILL.md'), 'utf8')).toBe(
       readFileSync(join(rootDir, 'public/cli/SKILL.md'), 'utf8'),
     );
+    // Marked as cloudchef's own, so a tool syncing a person's skills leaves it to each computer's cloudchef.
+    expect(readFileSync(join(home, 'skills/cloudchef/.managed-by-cloudchef'), 'utf8')).toBe('');
   });
 
   it('has Agent Skills frontmatter: a lowercase-hyphen name matching its folder, and when to use it', () => {
@@ -1204,6 +1206,8 @@ describe('cloudchef install and skill', () => {
       mkdirSync(join(home, folder, 'skills/cloudchef'), { recursive: true });
       writeFileSync(join(home, folder, 'skills/cloudchef/SKILL.md'), old);
     }
+    // A copy this version wrote carries the marker, and is still only ours.
+    writeFileSync(join(home, '.codex/skills/cloudchef/.managed-by-cloudchef'), '');
     mkdirSync(join(home, '.codex/skills/other'));
     const replaced = await cli(home, ['skill', 'install']);
     expect(replaced.code).toBe(0);

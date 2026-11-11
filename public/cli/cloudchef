@@ -1637,25 +1637,29 @@ Run these inside the clone. Elsewhere, name the project: `cloudchef run watch --
 CLOUDCHEF_SKILL_END
 }
 
+# The skill's folder says whose it is (.managed-by-cloudchef), as other tools' skills do: what syncs a person's own
+# skills between their computers (Omacloud) leaves a marked folder to the cloudchef installed on each.
 write_skill() {
   # shellcheck disable=SC2015 # either step failing is the same failure
-  mkdir -p "$1/cloudchef" && skill_text >"$1/cloudchef/SKILL.md" || die "Could not write $1/cloudchef/SKILL.md."
+  mkdir -p "$1/cloudchef" && skill_text >"$1/cloudchef/SKILL.md" && : >"$1/cloudchef/.managed-by-cloudchef" ||
+    die "Could not write $1/cloudchef/SKILL.md."
   printf 'Installed the cloudchef skill: %s\n' "$1/cloudchef/SKILL.md"
 }
 
-# Whether DIR is a real folder (not a link) holding nothing but a cloudchef SKILL.md, so removing it loses nothing.
+# Whether DIR is a real folder (not a link) holding nothing but a cloudchef SKILL.md and its marker, so removing it
+# loses nothing.
 holds_only_our_skill() {
   local dir="$1" entry
   [ -d "$dir" ] && [ ! -L "$dir" ] || return 1
   for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
     [ -e "$entry" ] || [ -L "$entry" ] || continue
-    [ "$entry" = "$dir/SKILL.md" ] || return 1
+    [ "$entry" = "$dir/SKILL.md" ] || [ "$entry" = "$dir/.managed-by-cloudchef" ] || return 1
   done
   [ -f "$dir/SKILL.md" ] && [ ! -L "$dir/SKILL.md" ] && grep -qx 'name: cloudchef' "$dir/SKILL.md"
 }
 
 remove_our_skill() {
-  rm -f "$1/SKILL.md" && rmdir "$1"
+  rm -f "$1/SKILL.md" "$1/.managed-by-cloudchef" && rmdir "$1"
 }
 
 # Claude Code reads only ~/.claude/skills, so its cloudchef skill is a link to the one copy in ~/.agents/skills. An
