@@ -41,10 +41,8 @@ export function WorkspacePreparingPanel({ onKeepWaiting }: { onKeepWaiting: () =
         {upgrading ? 'Updating your workspace' : 'Preparing your workspace'}
       </h1>
       <p className="mx-auto mt-2 max-w-md text-balance text-sm text-content-secondary">
-        {upgrading
-          ? 'Your Cloudflare workspace is moving to the latest CloudChef. This takes a minute or two.'
-          : 'Setup in your Cloudflare account takes a few minutes.'}{' '}
-        You can leave this page and return later.
+        {upgrading ? 'This takes a minute or two.' : 'Setup in your Cloudflare account takes a few minutes.'} You can
+        leave this page and return later.
       </p>
       <Button className="mt-4" onClick={onKeepWaiting}>
         Keep waiting

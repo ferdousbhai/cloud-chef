@@ -29,8 +29,7 @@ export function HandoffNotice({ note }: { note: string }) {
           className="max-h-64 overflow-y-auto border-t border-bolt-elements-artifacts-borderColor px-2.5 py-1.5 text-xs text-content-secondary"
         >
           <p className="mb-1.5 text-content-tertiary">
-            This conversation got long, so CloudChef wrote this note and carried on from it. Everything above is still
-            here for you.
+            This conversation got long, so CloudChef wrote this note and carried on from it.
           </p>
           <Suspense fallback={<div className="whitespace-pre-wrap wrap-break-word">{note}</div>}>
             <Markdown>{note}</Markdown>

@@ -4,7 +4,7 @@ export const WORKERS_PAID_URL = 'https://dash.cloudflare.com/?to=/:account/worke
 
 export function showWorkersPaidRequiredToast(): void {
   toast.warning(
-    'Your Cloudflare Workers AI free allocation is exhausted. CloudChef did not change your plan; authorize Workers Paid in Cloudflare if you want to continue.',
+    'Your Cloudflare Workers AI free allocation is exhausted. Authorize Workers Paid in Cloudflare if you want to continue.',
     {
       action: {
         label: 'Review Workers Paid',
