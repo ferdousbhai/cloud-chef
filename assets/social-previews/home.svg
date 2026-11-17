@@ -7,7 +7,7 @@
   <g font-family="DejaVu Sans, sans-serif">
     <text x="328" y="180" fill="#ffad70" font-size="28">cloudchef.build</text>
     <text x="328" y="272" fill="#f4f4f5" font-size="68" font-weight="700">CloudChef</text>
-    <text x="328" y="336" fill="#b9c1de" font-size="32">Build and ship Cloudflare apps.</text>
+    <text x="328" y="336" fill="#b9c1de" font-size="32">Make your own software. Share it.</text>
     <path d="M72 477h1056" stroke="#414868"/>
     <text x="72" y="548" fill="#b9c1de" font-size="26">Your idea. Your Cloudflare account.</text>
   </g>

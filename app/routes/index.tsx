@@ -10,11 +10,12 @@ export const Route = createFileRoute('/')({
   loader: () => ({ initialId: crypto.randomUUID() }),
   head: () =>
     createSocialPageHead({
-      title: 'CloudChef | Build and ship Cloudflare apps',
-      description: 'Build and ship Cloudflare apps with CloudChef, the full-stack AI coding agent.',
+      title: 'CloudChef | Make your own software and share it',
+      description:
+        'Make your own software, use it, and share it with anyone. CloudChef builds it and puts it online in your own Cloudflare account.',
       path: '/',
-      imagePath: '/social-preview-home-v4.png',
-      imageAlt: 'CloudChef — build and ship Cloudflare apps',
+      imagePath: '/social-preview-home-v5.png',
+      imageAlt: 'CloudChef — make your own software and share it',
     }),
   component: Index,
 });

@@ -1,6 +1,6 @@
 {
   "name": "cloudchef",
-  "description": "AI project builder for Cloudflare Workers",
+  "description": "Make your own software and share it, on your own Cloudflare account",
   "private": true,
   "license": "Apache-2.0",
   "homepage": "https://cloudchef.build",

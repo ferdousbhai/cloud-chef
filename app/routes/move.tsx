@@ -10,8 +10,8 @@ export const Route = createFileRoute('/move')({
       description:
         'Leave the rented platform, keep what works, own the rest: CloudChef rebuilds a Shopify shop, WordPress site or other hosted site as your own web app in your own Cloudflare account.',
       path: '/move',
-      imagePath: '/social-preview-home-v4.png',
-      imageAlt: 'CloudChef — build and ship Cloudflare apps',
+      imagePath: '/social-preview-home-v5.png',
+      imageAlt: 'CloudChef — make your own software and share it',
     }),
   component: () => <MovePage variant="move" />,
 });

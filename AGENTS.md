@@ -1,6 +1,11 @@
 # CloudChef
 
-Cloudflare control plane, builder agent, user-owned workspace runtime, and generated-application template.
+A place to make your own software and share it: a person describes what they want, the builder agent makes it in
+their own Cloudflare account, and they use it, build it with others, and post it for anyone to try and copy. Every
+change should make making, using or sharing easier.
+
+This repository holds the Cloudflare control plane, builder agent, user-owned workspace runtime, and
+generated-application template.
 
 ## Code index
 

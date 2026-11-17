@@ -10,8 +10,8 @@ export const Route = createFileRoute('/wordpress')({
       description:
         'CloudChef rebuilds your WordPress site as your own web app in your own Cloudflare account, with your content moved in and an editor you sign in to.',
       path: '/wordpress',
-      imagePath: '/social-preview-home-v4.png',
-      imageAlt: 'CloudChef — build and ship Cloudflare apps',
+      imagePath: '/social-preview-home-v5.png',
+      imageAlt: 'CloudChef — make your own software and share it',
     }),
   component: () => <MovePage variant="wordpress" />,
 });

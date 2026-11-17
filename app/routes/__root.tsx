@@ -91,7 +91,8 @@ export const Route = createRootRoute({
       { title: 'CloudChef' },
       {
         name: 'description',
-        content: 'Build and ship Cloudflare apps with CloudChef, the full-stack AI coding agent.',
+        content:
+          'Make your own software, use it, and share it with anyone. CloudChef builds it and puts it online in your own Cloudflare account.',
       },
       { name: 'application-name', content: 'CloudChef' },
       { name: 'color-scheme', content: 'light dark' },

@@ -1,8 +1,8 @@
 # CloudChef
 
-CloudChef is an AI builder for applications on the Cloudflare developer platform. Its Durable Object workspace and
-isolated Cloudflare build runtime work from desktop and mobile browsers, generate Cloudflare-native projects, and
-deploy them to the user's own Cloudflare account.
+CloudChef is for making your own software and sharing it. Describe what you want in a chat, from a computer or a
+phone; CloudChef builds it and puts it online in your own Cloudflare account. Use it yourself, invite people to build
+it with you, or post it on your public page for anyone to try and copy.
 
 Try it at [cloudchef.build](https://cloudchef.build).
 

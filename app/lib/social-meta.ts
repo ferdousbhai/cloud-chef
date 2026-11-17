@@ -63,8 +63,8 @@ export function createPublicPageHead({
     title,
     description,
     path,
-    imagePath: image?.path ?? '/social-preview-home-v4.png',
-    imageAlt: image?.alt ?? 'CloudChef — build and ship Cloudflare apps',
+    imagePath: image?.path ?? '/social-preview-home-v5.png',
+    imageAlt: image?.alt ?? 'CloudChef — make your own software and share it',
   });
   if (!image) {
     return head;

@@ -26,7 +26,7 @@ const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const builtServerPath = resolve(rootDir, '.cloudflare/output/v0/workers/default/bundle/index.js');
 
 const routeCases = [
-  { path: '/', status: 200, content: 'What are we building?' },
+  { path: '/', status: 200, content: 'What do you want to make?' },
   { path: '/settings', status: 200, content: 'Settings | CloudChef' },
   { path: '/chat/ssr-smoke-project', status: 200, content: 'Project | CloudChef' },
   { path: '/does-not-exist', status: 404, content: 'This page does not exist' },

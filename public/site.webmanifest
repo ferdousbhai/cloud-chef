@@ -1,7 +1,7 @@
 {
   "name": "CloudChef",
   "short_name": "CloudChef",
-  "description": "Build and ship Cloudflare apps with a full-stack AI coding agent.",
+  "description": "Make your own software and share it.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1b26",

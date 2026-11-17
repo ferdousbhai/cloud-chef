@@ -77,6 +77,14 @@ html.light {
   text-wrap: balance;
 }
 
+.cloudchef-home-pitch {
+  margin: 8px 0 0;
+  color: var(--cc-content-secondary);
+  font-size: 16px;
+  line-height: 24px;
+  text-wrap: pretty;
+}
+
 .cloudchef-home-composer-stack {
   max-width: 760px;
   margin-top: 12px;

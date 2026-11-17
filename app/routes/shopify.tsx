@@ -10,8 +10,8 @@ export const Route = createFileRoute('/shopify')({
       description:
         'Keep Shopify for products, checkout and payments, and own everything your customers see: CloudChef rebuilds your storefront as your own web app in your own Cloudflare account.',
       path: '/shopify',
-      imagePath: '/social-preview-home-v4.png',
-      imageAlt: 'CloudChef — build and ship Cloudflare apps',
+      imagePath: '/social-preview-home-v5.png',
+      imageAlt: 'CloudChef — make your own software and share it',
     }),
   component: () => <MovePage variant="shopify" />,
 });
