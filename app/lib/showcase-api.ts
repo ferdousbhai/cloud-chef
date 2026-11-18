@@ -108,7 +108,7 @@ const commentSchema = z.custom<PostComment>((value) => recordWith('id').safePars
 const threadSchema = z.custom<PostThread>((value) => recordWith('id').safeParse(value).success);
 /** What posting a comment that mentions `@cloudchef` started. */
 const mentionSchema = z
-  .object({ status: z.enum(['working', 'no_space', 'busy']), message: z.string().optional() })
+  .object({ status: z.enum(['working', 'no_space', 'busy', 'failed']), message: z.string().optional() })
   .nullable()
   .default(null);
 export type MentionAnswer = z.infer<typeof mentionSchema>;

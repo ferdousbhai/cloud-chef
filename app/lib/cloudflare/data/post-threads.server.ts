@@ -234,7 +234,11 @@ export async function openThreadCount(db: D1Database, postId: string): Promise<n
 }
 
 /** One thread anyone may see, by id. */
-export async function findThread(db: D1Database, threadId: string, viewerId: string | null): Promise<PostThread | null> {
+export async function findThread(
+  db: D1Database,
+  threadId: string,
+  viewerId: string | null,
+): Promise<PostThread | null> {
   const row = await db
     .prepare(
       `SELECT ${THREAD_COLUMNS} FROM ${THREAD_FROM}

@@ -94,8 +94,10 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
   const tellMention = (mention: MentionAnswer) => {
     if (mention?.status === 'no_space') {
       toast.error(mention.message ?? 'Choose where to build first, so CloudChef can work in your own space.', {
-        action: { label: 'Choose', onClick: () => window.location.assign('/settings') },
+        action: { label: 'Choose', onClick: () => window.location.assign('/') },
       });
+    } else if (mention?.status === 'failed') {
+      toast.error(mention.message ?? 'CloudChef couldn’t start. Try again.');
     } else if (mention?.status === 'busy') {
       toast(mention.message ?? 'CloudChef is still answering you here. It will pick this up next.');
     }
