@@ -7,6 +7,9 @@
 
 export type ThreadRunAccess = 'edit' | 'read';
 
+/** A mention turn not reported back after this long is taken as lost, so the thread takes mentions again. */
+export const THREAD_RUN_STALE_MS = 3 * 60 * 60_000;
+
 /**
  * Claims the person's run of a thread for a mention: the chat its turn goes to, and whether that chat is new (none
  * yet, or one of the other kind because their access changed since). `busy` while a mention turn of theirs runs in
@@ -27,10 +30,10 @@ export async function claimThreadRun(
   const now = args.now ?? Date.now();
   const inserted = await db
     .prepare(
-      `INSERT INTO thread_runs (thread_id, user_id, chat_id, access, answering_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (thread_id, user_id) DO NOTHING`,
+      `INSERT INTO thread_runs (thread_id, user_id, chat_id, access, answering_id, answering_since, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (thread_id, user_id) DO NOTHING`,
     )
-    .bind(args.threadId, args.userId, args.newChatId, args.access, args.commentId, now)
+    .bind(args.threadId, args.userId, args.newChatId, args.access, args.commentId, now, now)
     .run();
   if (inserted.meta.changes === 1) {
     return { status: 'claimed', chatId: args.newChatId, fresh: true };
@@ -38,13 +41,14 @@ export async function claimThreadRun(
   // Theirs already: the same chat while the access is the same, a new one of the other kind when it changed.
   const claimed = await db
     .prepare(
-      `UPDATE thread_runs SET answering_id = ?3,
+      `UPDATE thread_runs SET answering_id = ?3, answering_since = ?6,
          chat_id = CASE WHEN access = ?4 THEN chat_id ELSE ?5 END,
          access = ?4
-       WHERE thread_id = ?1 AND user_id = ?2 AND answering_id IS NULL
+       WHERE thread_id = ?1 AND user_id = ?2
+         AND (answering_id IS NULL OR answering_since IS NULL OR answering_since < ?6 - ?7)
        RETURNING chat_id, chat_id = ?5 AS fresh`,
     )
-    .bind(args.threadId, args.userId, args.commentId, args.access, args.newChatId)
+    .bind(args.threadId, args.userId, args.commentId, args.access, args.newChatId, now, THREAD_RUN_STALE_MS)
     .first<{ chat_id: string; fresh: number }>();
   return claimed ? { status: 'claimed', chatId: claimed.chat_id, fresh: claimed.fresh === 1 } : { status: 'busy' };
 }
@@ -70,7 +74,7 @@ export async function endThreadRun(
 ): Promise<boolean> {
   const ended = await db
     .prepare(
-      `UPDATE thread_runs SET answering_id = NULL
+      `UPDATE thread_runs SET answering_id = NULL, answering_since = NULL
        WHERE thread_id = ?1 AND user_id = ?2 AND answering_id = ?3 AND (?4 IS NULL OR chat_id = ?4)`,
     )
     .bind(args.threadId, args.userId, args.commentId, args.chatId ?? null)

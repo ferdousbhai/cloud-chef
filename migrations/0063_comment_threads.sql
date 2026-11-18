@@ -63,6 +63,8 @@ CREATE TABLE thread_runs (
   access TEXT NOT NULL CHECK (access IN ('edit', 'read')),
   -- The comment whose mention the running turn answers; NULL when no turn is running.
   answering_id TEXT REFERENCES post_comments(id) ON DELETE SET NULL,
+  -- When that turn was claimed: a claim older than a few hours is taken as lost (its runtime never reported back).
+  answering_since INTEGER,
   created_at INTEGER NOT NULL,
   PRIMARY KEY (thread_id, user_id)
 ) WITHOUT ROWID;

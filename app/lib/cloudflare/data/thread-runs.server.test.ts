@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import { recordPublication } from './posts.server';
 import { startThread } from './post-threads.server';
-import { chatMayCloseThread, claimThreadRun, endThreadRun, setThreadRunChat } from './thread-runs.server';
+import {
+  THREAD_RUN_STALE_MS,
+  chatMayCloseThread,
+  claimThreadRun,
+  endThreadRun,
+  setThreadRunChat,
+} from './thread-runs.server';
 
 async function seeded() {
   const { database, db } = controlPlaneDatabase();
@@ -44,5 +50,21 @@ describe('mention runs', () => {
     // Given edit access since: a chat on the project, which may close the thread while it answers.
     expect(await claim('edit', 'fourth')).toEqual({ status: 'claimed', chatId: 'fourth', fresh: true });
     expect(await chatMayCloseThread(db, { threadId: thread.id, userId: 'ben', chatId: 'fourth' })).toBe(true);
+  });
+
+  it('takes a turn that never reported back as lost after a few hours', async () => {
+    const { db, thread } = await seeded();
+    const claim = (now: number) =>
+      claimThreadRun(db, {
+        threadId: thread.id,
+        userId: 'ben',
+        access: 'read',
+        commentId: thread.id,
+        newChatId: `c-${now}`,
+        now,
+      });
+    expect((await claim(1_000)).status).toBe('claimed');
+    expect(await claim(1_000 + THREAD_RUN_STALE_MS - 1)).toEqual({ status: 'busy' });
+    expect(await claim(1_000 + THREAD_RUN_STALE_MS + 1)).toEqual({ status: 'claimed', chatId: 'c-1000', fresh: false });
   });
 });
