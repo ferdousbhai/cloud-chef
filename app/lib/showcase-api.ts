@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
 import { z } from 'zod';
 import { getJson, postJson } from '~/lib/json-request';
-import type { NotificationView, PostComment, PostView, ReportReason, ShowcaseCursor } from '~/lib/showcase';
+import type {
+  CloseReason,
+  NotificationView,
+  PostComment,
+  PostThread,
+  PostView,
+  ReportReason,
+  ShowcaseCursor,
+} from '~/lib/showcase';
 
 /** The browser's side of the showcase routes (app/server-handlers/showcase.ts). */
 
@@ -97,17 +105,84 @@ export async function setLiked(postId: string, like: boolean) {
 
 const commentSchema = z.custom<PostComment>((value) => recordWith('id').safeParse(value).success);
 
-export function loadComments(postId: string, after = 0, signal?: AbortSignal) {
+const threadSchema = z.custom<PostThread>((value) => recordWith('id').safeParse(value).success);
+/** What posting a comment that mentions `@cloudchef` started. */
+const mentionSchema = z
+  .object({ status: z.enum(['working', 'no_space', 'busy']), message: z.string().optional() })
+  .nullable()
+  .default(null);
+export type MentionAnswer = z.infer<typeof mentionSchema>;
+
+export function loadThreads(postId: string, signal?: AbortSignal) {
   return getJson(
-    `/api/showcase/comments?postId=${encodeURIComponent(postId)}&after=${after}`,
-    z.object({ comments: z.array(commentSchema), more: z.boolean() }),
+    `/api/showcase/threads?postId=${encodeURIComponent(postId)}`,
+    z.object({ threads: z.array(threadSchema), open: z.number() }),
     undefined,
     signal,
   );
 }
 
-export async function addComment(postId: string, body: string): Promise<PostComment> {
-  return (await postJson('/api/showcase/comments/add', { postId, body }, z.object({ comment: commentSchema }))).comment;
+export async function loadReplies(threadId: string): Promise<PostComment[]> {
+  return (
+    await getJson(
+      `/api/showcase/threads/replies?threadId=${encodeURIComponent(threadId)}`,
+      z.object({ replies: z.array(commentSchema) }),
+    )
+  ).replies;
+}
+
+/** Starts a thread on a post, or a suggestion from the viewer's copy `suggestFrom`. */
+export async function startThread(
+  postId: string,
+  body: string,
+  suggestFrom?: string,
+): Promise<{ thread: PostThread; mention: MentionAnswer }> {
+  return postJson(
+    '/api/showcase/comments/add',
+    suggestFrom ? { postId, body, suggestFrom } : { postId, body },
+    z.object({ thread: threadSchema, mention: mentionSchema }),
+  );
+}
+
+export async function addReply(
+  threadId: string,
+  body: string,
+): Promise<{ comment: PostComment; mention: MentionAnswer }> {
+  return postJson(
+    '/api/showcase/comments/add',
+    { threadId, body },
+    z.object({ comment: commentSchema, mention: mentionSchema }),
+  );
+}
+
+export type ThreadChange =
+  | { action: 'close'; reason: CloseReason; sameAs?: number | null }
+  | { action: 'reopen' }
+  | { action: 'lock'; locked: boolean }
+  | { action: 'pin'; pinned: boolean };
+
+export async function changeThread(threadId: string, change: ThreadChange): Promise<PostThread> {
+  return (await postJson('/api/showcase/threads/state', { threadId, ...change }, z.object({ thread: threadSchema })))
+    .thread;
+}
+
+export async function setThreadFollowing(threadId: string, follow: boolean): Promise<void> {
+  await postJson('/api/showcase/threads/state', { threadId, action: 'follow', follow }, z.unknown());
+}
+
+const copySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  author: z.object({ username: z.string(), name: z.string(), image: z.string().nullable() }),
+});
+export type CopyOfPost = z.infer<typeof copySchema>;
+
+/** A post's public copies, and the viewer's own they could suggest a change from. */
+export function loadCopies(postId: string) {
+  return getJson(
+    `/api/showcase/post-copies?postId=${encodeURIComponent(postId)}`,
+    z.object({ copies: z.array(copySchema), own: z.array(z.object({ id: z.string(), name: z.string() })) }),
+  );
 }
 
 export async function deleteComment(commentId: string): Promise<void> {

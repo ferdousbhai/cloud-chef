@@ -222,7 +222,7 @@ export async function listThreads(
 }
 
 /** How many of a post's threads are open. */
-export async function openThreadCount(db: D1Database, postId: string): Promise<number> {
+async function openThreadCount(db: D1Database, postId: string): Promise<number> {
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS count FROM post_comments AS comments JOIN "user" AS people ON people.id = comments.author_id
@@ -234,11 +234,7 @@ export async function openThreadCount(db: D1Database, postId: string): Promise<n
 }
 
 /** One thread anyone may see, by id. */
-export async function findThread(
-  db: D1Database,
-  threadId: string,
-  viewerId: string | null,
-): Promise<PostThread | null> {
+async function findThread(db: D1Database, threadId: string, viewerId: string | null): Promise<PostThread | null> {
   const row = await db
     .prepare(
       `SELECT ${THREAD_COLUMNS} FROM ${THREAD_FROM}

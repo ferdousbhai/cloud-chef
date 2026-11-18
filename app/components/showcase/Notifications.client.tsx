@@ -90,6 +90,12 @@ function Project({ item }: { item: NotificationView }) {
   );
 }
 
+/** "thread #3", or "a thread" when its number isn't known. */
+function threadName(item: NotificationView, capital = false): string {
+  const name = item.threadNumber ? `thread #${item.threadNumber}` : 'a thread';
+  return capital ? name[0].toUpperCase() + name.slice(1) : name;
+}
+
 /** "Sara started following you.", in everyday words. */
 function describe(item: NotificationView): ReactNode {
   switch (item.kind) {
@@ -132,6 +138,39 @@ function describe(item: NotificationView): ReactNode {
       return (
         <>
           <Person actor={item.actor} /> shared <Project item={item} /> with you.
+        </>
+      );
+    case 'comment_replied':
+      return (
+        <>
+          {item.actor ? <Person actor={item.actor} /> : 'CloudChef'} replied in {threadName(item)} on{' '}
+          <Project item={item} />
+          {item.detail ? <span className="text-content-secondary">: “{item.detail}”</span> : '.'}
+        </>
+      );
+    case 'comment_mentioned':
+      return (
+        <>
+          <Person actor={item.actor} /> mentioned you in {threadName(item)} on <Project item={item} />
+          {item.detail ? <span className="text-content-secondary">: “{item.detail}”</span> : '.'}
+        </>
+      );
+    case 'thread_closed':
+      return (
+        <>
+          {threadName(item, true)} on <Project item={item} />{' '}
+          {item.detail === 'changed'
+            ? 'is changed in the latest update.'
+            : item.detail === 'not_planned'
+              ? 'was closed: not planned.'
+              : 'was closed as the same as another.'}
+        </>
+      );
+    case 'change_suggested':
+      return (
+        <>
+          <Person actor={item.actor} /> suggested a change to <Project item={item} /> from their copy
+          {item.detail ? <span className="text-content-secondary">: “{item.detail}”</span> : '.'}
         </>
       );
     case 'comment_removed':

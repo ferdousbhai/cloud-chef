@@ -3,7 +3,8 @@ import type { PostView } from '~/lib/showcase';
 import { timeAgo } from '~/lib/showcase';
 import { Avatar } from './Avatar';
 import { Caption } from './Caption';
-import { CommentForm, CommentList, useComments } from './Comments';
+import { CommentForm, ThreadList, useThreads } from './Comments';
+import { CopiesDialog } from './CopiesDialog';
 import { useCopyFromPost } from './CopyFromPost';
 import { PostActions } from './PostActions';
 import { PostMedia } from './PostMedia';
@@ -30,7 +31,8 @@ function PostPageContent({ initial }: { initial: PostView }) {
   const [gone, setGone] = useState(false);
   const commentBox = useRef<HTMLTextAreaElement>(null);
   const copy = useCopyFromPost({ id: post.projectId, name: post.title, path: post.path });
-  const comments = useComments(post.id, (change) =>
+  const [showCopies, setShowCopies] = useState(false);
+  const comments = useThreads(post.id, (change) =>
     setPost((current) => ({ ...current, commentCount: current.commentCount + change })),
   );
   if (gone) {
@@ -72,7 +74,15 @@ function PostPageContent({ initial }: { initial: PostView }) {
             {menu}
           </header>
           <div className="order-2 grid gap-1 px-3 pt-1.5 md:order-3 md:border-t md:border-bolt-elements-borderColor md:px-4 md:pt-2">
-            <PostActions post={post} onComment={() => commentBox.current?.focus()} onCopy={copy.start} />
+            <PostActions
+              post={post}
+              onComment={() => {
+                comments.setReplyingTo(null);
+                commentBox.current?.focus();
+              }}
+              onCopy={copy.start}
+              onCopies={() => setShowCopies(true)}
+            />
             <p className="text-xs text-content-tertiary">
               {post.updated ? 'Updated' : 'Posted'} {/^\d/.test(when) ? `${when} ago` : when}
             </p>
@@ -85,7 +95,7 @@ function PostPageContent({ initial }: { initial: PostView }) {
               <h1 className="text-base font-semibold text-content-primary">{post.title}</h1>
               {post.caption ? <Caption username={post.author.username} text={post.caption} folded={false} /> : null}
             </div>
-            <CommentList state={comments} />
+            <ThreadList state={comments} onReply={() => commentBox.current?.focus()} />
           </div>
           <div className="order-4 border-t border-bolt-elements-borderColor px-3 md:px-4">
             <CommentForm state={comments} inputRef={commentBox} />
@@ -93,6 +103,17 @@ function PostPageContent({ initial }: { initial: PostView }) {
         </div>
       </article>
       {copy.dialog}
+      {showCopies ? (
+        <CopiesDialog
+          postId={post.id}
+          title={post.title}
+          onSuggested={(thread) => {
+            setShowCopies(false);
+            comments.prepend(thread);
+          }}
+          onClose={() => setShowCopies(false)}
+        />
+      ) : null}
     </main>
   );
 }

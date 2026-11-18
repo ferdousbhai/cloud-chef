@@ -1,49 +1,107 @@
-import { useEffect, useRef, useState, type FormEvent, type Ref } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { toast } from 'sonner';
-import { DotsHorizontalIcon } from '@radix-ui/react-icons';
-import { Menu, MenuItem } from '@ui/Menu';
+import { DotsHorizontalIcon, DrawingPinFilledIcon, LockClosedIcon } from '@radix-ui/react-icons';
+import { Menu, MenuItem, MenuSeparator } from '@ui/Menu';
 import { messageOf } from '~/lib/json-request';
-import { addComment, deleteComment, loadComments } from '~/lib/showcase-api';
-import { COMMENT_MAX, timeAgo, type PostComment } from '~/lib/showcase';
+import {
+  addReply,
+  changeThread,
+  deleteComment,
+  loadReplies,
+  loadThreads,
+  setThreadFollowing,
+  startThread,
+  type MentionAnswer,
+  type ThreadChange,
+} from '~/lib/showcase-api';
+import { COMMENT_MAX, timeAgo, type PostComment, type PostThread } from '~/lib/showcase';
+import { classNames } from '~/utils/classNames';
 import { Avatar } from './Avatar';
 import { PersonLink } from './ShowcaseLinks';
 import { ReportDialog } from './PostDialogs';
 import { useShowcaseViewer } from './ViewerContext';
 
+/** While CloudChef answers in a thread, the list is read again this often to show its reply. */
+const WORKING_REFRESH_MS = 8_000;
+
 /**
- * A post's comments, oldest first, and what adds one. Anyone may read them; commenting needs sign-in and a username.
- * A comment's writer, or whoever manages the post, can delete it; anyone else can report it. The list and the box
- * are separate parts, so a post's page can put the box at the bottom, under its actions.
+ * A post's comment threads (docs/proposals/comment-threads.md): each top-level comment starts a thread, numbered on
+ * the post, with replies under it. A thread is open, on its way, or closed with a reason; pinned threads come first
+ * and closed ones fold to a line. Anyone may read them; commenting needs sign-in and a username. `@cloudchef` in a
+ * comment asks CloudChef, which answers in the thread. The list and the box are separate parts, so a post's page can
+ * put the box at the bottom, under its actions.
  */
-export function useComments(postId: string, onCount?: (change: number) => void) {
+export function useThreads(postId: string, onCount?: (change: number) => void) {
   const { viewer, signedIn } = useShowcaseViewer();
-  const [comments, setComments] = useState<PostComment[] | null>(null);
-  const [more, setMore] = useState(false);
+  const [threads, setThreads] = useState<PostThread[] | null>(null);
+  const [open, setOpen] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<PostThread | null>(null);
   // The comment just posted here, which its list scrolls to.
   const [added, setAdded] = useState<string | null>(null);
+  const signedInId = viewer?.signedIn ? viewer.me.username : null;
+
+  const refresh = useCallback(
+    (signal?: AbortSignal) =>
+      loadThreads(postId, signal)
+        .then((page) => {
+          setThreads((current) => keepExpandedReplies(current, page.threads));
+          setOpen(page.open);
+          setError(null);
+        })
+        .catch(() => !signal?.aborted && setError('Comments couldn’t be loaded.')),
+    [postId],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
-    loadComments(postId, 0, controller.signal)
-      .then((page) => {
-        setComments(page.comments);
-        setMore(page.more);
-      })
-      .catch(() => !controller.signal.aborted && setError('Comments couldn’t be loaded.'));
+    void refresh(controller.signal);
     return () => controller.abort();
-  }, [postId]);
+    // Signing in changes what each thread lets the viewer do.
+  }, [refresh, signedInId]);
 
-  const loadMore = () => {
-    const last = comments?.at(-1);
-    void loadComments(postId, last?.createdAt ?? 0).then((page) => {
-      setComments((current) => [...(current ?? []), ...page.comments]);
-      setMore(page.more);
-    });
+  const working = threads?.some((thread) => thread.working) ?? false;
+  useEffect(() => {
+    if (!working) {
+      return;
+    }
+    const timer = setInterval(() => void refresh(), WORKING_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [working, refresh]);
+
+  const replace = (thread: PostThread) => {
+    setThreads(
+      (current) =>
+        current?.map((each) =>
+          each.id === thread.id
+            ? { ...thread, replies: each.replies.length > thread.replies.length ? each.replies : thread.replies }
+            : each,
+        ) ?? null,
+    );
   };
 
-  /** Posts `body`; true once it's posted. */
+  const tellMention = (mention: MentionAnswer) => {
+    if (mention?.status === 'no_space') {
+      toast.error(mention.message ?? 'Choose where to build first, so CloudChef can work in your own space.', {
+        action: { label: 'Choose', onClick: () => window.location.assign('/settings') },
+      });
+    } else if (mention?.status === 'busy') {
+      toast(mention.message ?? 'CloudChef is still answering you here. It will pick this up next.');
+    }
+  };
+
+  /** Posts `body` as a new thread, or as a reply in the thread being replied to. */
   const add = (body: string, done: () => void) =>
     signedIn('Sign in to comment.', () => {
       if (viewer?.signedIn && !viewer.me.username) {
@@ -51,114 +109,645 @@ export function useComments(postId: string, onCount?: (change: number) => void) 
         return;
       }
       setSending(true);
-      addComment(postId, body)
-        .then((comment) => {
-          setComments((current) => [...(current ?? []), comment]);
+      const thread = replyingTo;
+      const posting = thread
+        ? addReply(thread.id, body).then(({ comment, mention }) => {
+            setThreads(
+              (current) =>
+                current?.map((each) =>
+                  each.id === thread.id
+                    ? {
+                        ...each,
+                        replies: [...each.replies, comment],
+                        replyCount: each.replyCount + 1,
+                        working: each.working || mention?.status === 'working',
+                      }
+                    : each,
+                ) ?? null,
+            );
+            setAdded(comment.id);
+            tellMention(mention);
+          })
+        : startThread(postId, body).then(({ thread: started, mention }) => {
+            setThreads((current) => [
+              ...(current ?? []).filter((each) => each.pinned),
+              { ...started, working: started.working || mention?.status === 'working' },
+              ...(current ?? []).filter((each) => !each.pinned),
+            ]);
+            setOpen((count) => count + 1);
+            setAdded(started.id);
+            tellMention(mention);
+          });
+      posting
+        .then(() => {
           onCount?.(1);
+          setReplyingTo(null);
           done();
-          setAdded(comment.id);
         })
         .catch((cause) => toast.error(messageOf(cause, 'Your comment couldn’t be posted. Try again.')))
         .finally(() => setSending(false));
     });
 
-  const remove = (comment: PostComment) =>
+  const change = (thread: PostThread, what: ThreadChange) =>
+    changeThread(thread.id, what)
+      .then((changed) => {
+        replace(changed);
+        void refresh();
+      })
+      .catch((cause) => toast.error(messageOf(cause, 'That didn’t work. Try again.')));
+
+  const follow = (thread: PostThread, following: boolean) =>
+    setThreadFollowing(thread.id, following)
+      .then(() => replace({ ...thread, viewer: thread.viewer ? { ...thread.viewer, following } : thread.viewer }))
+      .catch((cause) => toast.error(messageOf(cause, 'That didn’t work. Try again.')));
+
+  const remove = (comment: PostComment, thread: PostThread) =>
     deleteComment(comment.id)
       .then(() => {
-        setComments((current) => current?.filter((each) => each.id !== comment.id) ?? null);
-        onCount?.(-1);
+        if (comment.id === thread.id) {
+          setThreads((current) => current?.filter((each) => each.id !== thread.id) ?? null);
+          onCount?.(-(1 + thread.replyCount));
+          if (thread.state === 'open') {
+            setOpen((count) => Math.max(0, count - 1));
+          }
+        } else {
+          setThreads(
+            (current) =>
+              current?.map((each) =>
+                each.id === thread.id
+                  ? {
+                      ...each,
+                      replies: each.replies.filter((reply) => reply.id !== comment.id),
+                      replyCount: Math.max(0, each.replyCount - 1),
+                    }
+                  : each,
+              ) ?? null,
+          );
+          onCount?.(-1);
+        }
       })
       .catch((cause) => toast.error(messageOf(cause, 'The comment couldn’t be deleted.')));
 
-  return { postId, comments, more, error, sending, added, loadMore, add, remove };
+  const showAllReplies = (thread: PostThread) =>
+    loadReplies(thread.id)
+      .then((replies) => replace({ ...thread, replies }))
+      .catch(() => toast.error('The replies couldn’t be loaded.'));
+
+  /** A thread started elsewhere on the page, such as a suggestion from a copy. */
+  const prepend = (thread: PostThread) => {
+    setThreads((current) => [
+      ...(current ?? []).filter((each) => each.pinned),
+      thread,
+      ...(current ?? []).filter((each) => !each.pinned && each.id !== thread.id),
+    ]);
+    setOpen((count) => count + 1);
+    setAdded(thread.id);
+    onCount?.(1);
+  };
+
+  return {
+    postId,
+    threads,
+    open,
+    error,
+    sending,
+    added,
+    replyingTo,
+    setReplyingTo,
+    add,
+    change,
+    follow,
+    remove,
+    showAllReplies,
+    prepend,
+  };
 }
 
-type CommentsState = ReturnType<typeof useComments>;
+/** Keeps replies someone opened with "Show all" when the list is read again. */
+function keepExpandedReplies(current: PostThread[] | null, next: PostThread[]): PostThread[] {
+  if (!current) {
+    return next;
+  }
+  const before = new Map(current.map((thread) => [thread.id, thread]));
+  return next.map((thread) => {
+    const old = before.get(thread.id);
+    return old && old.replies.length > thread.replies.length && old.replyCount === thread.replyCount
+      ? { ...thread, replies: old.replies }
+      : thread;
+  });
+}
 
-export function CommentList({ state }: { state: CommentsState }) {
-  const { viewer, manages } = useShowcaseViewer();
+export type ThreadsState = ReturnType<typeof useThreads>;
+
+export function ThreadList({ state, onReply }: { state: ThreadsState; onReply: () => void }) {
+  const { threads, error } = state;
   const [reporting, setReporting] = useState<string | null>(null);
-  const me = viewer?.signedIn ? viewer.me.username : null;
-  const { comments, error, more } = state;
+  const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
+  const [sameAsFor, setSameAsFor] = useState<PostThread | null>(null);
   const list = useRef<HTMLOListElement>(null);
   useEffect(() => {
     if (state.added) {
-      list.current?.lastElementChild?.scrollIntoView({ block: 'nearest' });
+      document.getElementById(`comment-${state.added}`)?.scrollIntoView({ block: 'nearest' });
     }
   }, [state.added]);
+
+  const goTo = (number: number) => {
+    const thread = threads?.find((each) => each.number === number);
+    if (thread) {
+      setUnfolded((current) => new Set(current).add(thread.id));
+      requestAnimationFrame(() => document.getElementById(`thread-${number}`)?.scrollIntoView({ block: 'start' }));
+    }
+  };
+
   return (
     <div className="grid gap-3">
       {error ? <p className="text-sm text-content-tertiary">{error}</p> : null}
-      {comments === null && !error ? (
+      {threads === null && !error ? (
         <p className="text-sm text-content-tertiary" role="status">
           Loading comments…
         </p>
       ) : null}
-      {comments?.length === 0 ? (
-        <p className="text-sm text-content-tertiary">No comments yet. Say what you think.</p>
+      {threads?.length === 0 ? (
+        <p className="text-sm text-content-tertiary">No comments yet. Say what you think, or ask for something.</p>
       ) : null}
-      {comments && comments.length > 0 ? (
-        <ol ref={list} className="grid gap-3.5" aria-label="Comments">
-          {comments.map((comment) => (
-            <li key={comment.id} className="group flex min-w-0 items-start gap-2.5">
-              <PersonLink username={comment.author.username} className="shrink-0">
-                <Avatar name={comment.author.name} image={comment.author.image} size={30} />
-              </PersonLink>
-              <div className="min-w-0 flex-1 text-sm">
-                <p className="wrap-anywhere whitespace-pre-line text-content-primary">
-                  <PersonLink
-                    username={comment.author.username}
-                    className="mr-1.5 font-semibold text-content-primary no-underline hover:underline"
-                  >
-                    {comment.author.username ?? comment.author.name}
-                  </PersonLink>
-                  {comment.body}
-                </p>
-                <p className="mt-0.5 text-xs text-content-tertiary">{timeAgo(comment.createdAt)}</p>
-              </div>
-              <div className="opacity-60 focus-within:opacity-100 group-hover:opacity-100">
-                <Menu
-                  buttonProps={{
-                    variant: 'subtle',
-                    title: 'More for this comment',
-                    inline: true,
-                    className: '!min-h-7 !px-1.5',
-                    icon: <DotsHorizontalIcon />,
-                  }}
+      {threads && threads.length > 0 ? (
+        <ol ref={list} className="grid gap-4" aria-label="Comments">
+          {threads.map((thread) =>
+            thread.state === 'closed' && !thread.pinned && !unfolded.has(thread.id) ? (
+              <li key={thread.id} id={`thread-${thread.number}`}>
+                <button
+                  type="button"
+                  className="flex w-full min-w-0 items-baseline gap-2 text-left text-sm text-content-tertiary hover:text-content-secondary"
+                  onClick={() => setUnfolded((current) => new Set(current).add(thread.id))}
+                  aria-expanded={false}
                 >
-                  {(me && comment.author.username === me) || manages(state.postId) ? (
-                    <MenuItem danger action={() => void state.remove(comment)}>
-                      Delete comment
-                    </MenuItem>
-                  ) : (
-                    <MenuItem danger action={() => setReporting(comment.id)}>
-                      Report comment
-                    </MenuItem>
-                  )}
-                </Menu>
-              </div>
-            </li>
-          ))}
+                  <span className="shrink-0 tabular-nums">#{thread.number}</span>
+                  <span className="min-w-0 flex-1 truncate">{thread.first.body}</span>
+                  <span className="shrink-0 text-xs">{closedWords(thread, true)}</span>
+                </button>
+              </li>
+            ) : (
+              <Thread
+                key={thread.id}
+                thread={thread}
+                state={state}
+                goTo={goTo}
+                onReply={() => {
+                  state.setReplyingTo(thread);
+                  onReply();
+                }}
+                onReport={setReporting}
+                onSameAs={() => setSameAsFor(thread)}
+                onFold={
+                  thread.state === 'closed' && unfolded.has(thread.id)
+                    ? () =>
+                        setUnfolded((current) => {
+                          const next = new Set(current);
+                          next.delete(thread.id);
+                          return next;
+                        })
+                    : null
+                }
+              />
+            ),
+          )}
         </ol>
-      ) : null}
-      {more ? (
-        <button
-          type="button"
-          className="justify-self-start text-sm text-content-secondary hover:underline"
-          onClick={state.loadMore}
-        >
-          More comments
-        </button>
       ) : null}
       {reporting ? (
         <ReportDialog postId={state.postId} commentId={reporting} onClose={() => setReporting(null)} />
+      ) : null}
+      {sameAsFor ? (
+        <SameAsForm
+          thread={sameAsFor}
+          others={(threads ?? []).filter((each) => each.id !== sameAsFor.id)}
+          onDone={(number) => {
+            void state.change(sameAsFor, { action: 'close', reason: 'duplicate', sameAs: number });
+            setSameAsFor(null);
+          }}
+          onCancel={() => setSameAsFor(null)}
+        />
       ) : null}
     </div>
   );
 }
 
-export function CommentForm({ state, inputRef }: { state: CommentsState; inputRef?: Ref<HTMLTextAreaElement> }) {
+/** "Changed in the update of Nov 20", "Not planned", "Same as #3"; `short` for a folded line: "Changed Nov 20". */
+function closedWords(thread: PostThread, short = false): string {
+  switch (thread.closeReason) {
+    case 'changed':
+      return thread.stateAt
+        ? `${short ? 'Changed' : 'Changed in the update of'} ${new Date(thread.stateAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+        : 'Changed';
+    case 'not_planned':
+      return 'Not planned';
+    case 'duplicate':
+      return thread.sameAs ? `Same as #${thread.sameAs}` : 'Closed';
+    default:
+      return 'Closed';
+  }
+}
+
+function StateLine({ thread }: { thread: PostThread }) {
+  if (thread.state === 'open' && !thread.working) {
+    return null;
+  }
+  const words =
+    thread.state === 'on_its_way'
+      ? 'On its way: changed, and live with the next update'
+      : thread.state === 'closed'
+        ? closedWords(thread)
+        : null;
+  return (
+    <div className="mt-1 grid gap-0.5 text-xs">
+      {words ? (
+        <p
+          className={classNames(
+            'font-medium',
+            thread.state === 'on_its_way' ? 'text-(--cc-content-link)' : 'text-content-secondary',
+          )}
+        >
+          {words}
+        </p>
+      ) : null}
+      {thread.working ? (
+        <p className="text-content-secondary" role="status">
+          CloudChef is working on this…
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function Thread({
+  thread,
+  state,
+  goTo,
+  onReply,
+  onReport,
+  onSameAs,
+  onFold,
+}: {
+  thread: PostThread;
+  state: ThreadsState;
+  goTo: (number: number) => void;
+  onReply: () => void;
+  onReport: (commentId: string) => void;
+  onSameAs: () => void;
+  onFold: (() => void) | null;
+}) {
+  const hidden = thread.replyCount - thread.replies.length;
+  return (
+    <li id={`thread-${thread.number}`} className="grid min-w-0 gap-2.5 scroll-mt-3">
+      <Comment
+        comment={thread.first}
+        thread={thread}
+        state={state}
+        goTo={goTo}
+        onReport={onReport}
+        badge={
+          <span className="inline-flex items-center gap-1 text-content-tertiary">
+            #{thread.number}
+            {thread.pinned ? <DrawingPinFilledIcon aria-label="Pinned" className="size-3" /> : null}
+            {thread.locked ? <LockClosedIcon aria-label="Locked" className="size-3" /> : null}
+          </span>
+        }
+        extra={
+          <>
+            {thread.suggestion ? (
+              <p className="mt-1 text-xs text-content-secondary">
+                A change suggested from{' '}
+                {thread.suggestion.path ? (
+                  <a href={thread.suggestion.path}>{thread.suggestion.name}</a>
+                ) : (
+                  thread.suggestion.name
+                )}
+                {thread.suggestion.siteUrl ? (
+                  <>
+                    {' · '}
+                    <a href={thread.suggestion.siteUrl} target="_blank" rel="noopener noreferrer">
+                      Try it
+                    </a>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            {thread.onEarlierVersion && thread.state === 'open' ? (
+              <p className="mt-1 text-xs text-content-tertiary">On an earlier version</p>
+            ) : null}
+            <StateLine thread={thread} />
+          </>
+        }
+        actions={
+          <>
+            {!thread.locked || thread.viewer?.canEdit ? (
+              <button type="button" className="font-semibold hover:underline" onClick={onReply}>
+                Reply
+              </button>
+            ) : null}
+            {onFold ? (
+              <button type="button" className="hover:underline" onClick={onFold}>
+                Fold
+              </button>
+            ) : null}
+          </>
+        }
+        menu={<ThreadMenuItems thread={thread} state={state} onSameAs={onSameAs} />}
+      />
+      {thread.replies.length > 0 || hidden > 0 ? (
+        <ol className="ml-10 grid gap-2.5" aria-label={`Replies to #${thread.number}`}>
+          {hidden > 0 ? (
+            <li>
+              <button
+                type="button"
+                className="text-xs font-semibold text-content-secondary hover:underline"
+                onClick={() => void state.showAllReplies(thread)}
+              >
+                Show {hidden} earlier {hidden === 1 ? 'reply' : 'replies'}
+              </button>
+            </li>
+          ) : null}
+          {thread.replies.map((reply) => (
+            <li key={reply.id}>
+              <Comment comment={reply} thread={thread} state={state} goTo={goTo} onReport={onReport} size={26} />
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </li>
+  );
+}
+
+function Comment({
+  comment,
+  thread,
+  state,
+  goTo,
+  onReport,
+  badge,
+  extra,
+  actions,
+  menu,
+  size = 30,
+}: {
+  comment: PostComment;
+  thread: PostThread;
+  state: ThreadsState;
+  goTo: (number: number) => void;
+  onReport: (commentId: string) => void;
+  badge?: ReactNode;
+  extra?: ReactNode;
+  actions?: ReactNode;
+  menu?: ReactNode;
+  size?: number;
+}) {
+  const { viewer, manages } = useShowcaseViewer();
+  const me = viewer?.signedIn ? viewer.me.username : null;
+  const mine = me !== null && comment.author.username === me;
+  const canDelete = mine || manages(state.postId) || Boolean(thread.viewer?.canEdit);
+  return (
+    <div id={`comment-${comment.id}`} className="group flex min-w-0 items-start gap-2.5">
+      {comment.byAgent ? (
+        <img src="/cloudchef-logo.svg" alt="" width={size} height={size} className="shrink-0 rounded-full" />
+      ) : (
+        <PersonLink username={comment.author.username} className="shrink-0">
+          <Avatar name={comment.author.name} image={comment.author.image} size={size} />
+        </PersonLink>
+      )}
+      <div className="min-w-0 flex-1 text-sm">
+        <p className="wrap-anywhere whitespace-pre-line text-content-primary">
+          {comment.byAgent ? (
+            <span className="mr-1.5 font-semibold">CloudChef</span>
+          ) : (
+            <PersonLink
+              username={comment.author.username}
+              className="mr-1.5 font-semibold text-content-primary no-underline hover:underline"
+            >
+              {comment.author.username ?? comment.author.name}
+            </PersonLink>
+          )}
+          <CommentText text={comment.body} goTo={goTo} />
+        </p>
+        {extra}
+        <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-content-tertiary">
+          {badge}
+          <span>{timeAgo(comment.createdAt)}</span>
+          {comment.byAgent ? (
+            <span>
+              asked by{' '}
+              <PersonLink username={comment.author.username} className="text-content-tertiary">
+                @{comment.author.username ?? comment.author.name}
+              </PersonLink>
+            </span>
+          ) : null}
+          {actions}
+        </p>
+      </div>
+      <div className="opacity-60 focus-within:opacity-100 group-hover:opacity-100">
+        <Menu
+          buttonProps={{
+            variant: 'subtle',
+            title: comment.id === thread.id ? 'More for this thread' : 'More for this comment',
+            inline: true,
+            className: '!min-h-7 !px-1.5',
+            icon: <DotsHorizontalIcon />,
+          }}
+        >
+          {menu}
+          {canDelete ? (
+            <MenuItem danger action={() => void state.remove(comment, thread)}>
+              {comment.id === thread.id ? 'Delete thread' : 'Delete comment'}
+            </MenuItem>
+          ) : null}
+          {!mine ? (
+            <MenuItem danger action={() => onReport(comment.id)}>
+              Report comment
+            </MenuItem>
+          ) : null}
+        </Menu>
+      </div>
+    </div>
+  );
+}
+
+function ThreadMenuItems({
+  thread,
+  state,
+  onSameAs,
+}: {
+  thread: PostThread;
+  state: ThreadsState;
+  onSameAs: () => void;
+}) {
+  const can = thread.viewer;
+  if (!can) {
+    return null;
+  }
+  return (
+    <>
+      {can.canClose && thread.state !== 'closed' ? (
+        <>
+          <MenuItem action={() => void state.change(thread, { action: 'close', reason: 'changed' })}>
+            Close: it’s changed
+          </MenuItem>
+          <MenuItem action={() => void state.change(thread, { action: 'close', reason: 'not_planned' })}>
+            Close: not planned
+          </MenuItem>
+          <MenuItem action={onSameAs}>Close: same as another…</MenuItem>
+        </>
+      ) : null}
+      {can.canClose && thread.state !== 'open' ? (
+        <MenuItem action={() => void state.change(thread, { action: 'reopen' })}>Open again</MenuItem>
+      ) : null}
+      {can.canEdit ? (
+        <>
+          <MenuItem action={() => void state.change(thread, { action: 'pin', pinned: !thread.pinned })}>
+            {thread.pinned ? 'Unpin' : 'Pin to the top'}
+          </MenuItem>
+          <MenuItem action={() => void state.change(thread, { action: 'lock', locked: !thread.locked })}>
+            {thread.locked ? 'Unlock' : 'Lock replies'}
+          </MenuItem>
+        </>
+      ) : null}
+      <MenuItem action={() => void state.follow(thread, !can.following)}>{can.following ? 'Mute' : 'Follow'}</MenuItem>
+      <MenuSeparator />
+    </>
+  );
+}
+
+/** Picks the thread a closed one is the same as. */
+function SameAsForm({
+  thread,
+  others,
+  onDone,
+  onCancel,
+}: {
+  thread: PostThread;
+  others: PostThread[];
+  onDone: (number: number) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label={`Close #${thread.number} as the same as another`}
+      className="grid gap-2 rounded-md border border-bolt-elements-borderColor p-3 text-sm"
+    >
+      <p className="text-content-secondary">#{thread.number} is the same as:</p>
+      <ul className="grid max-h-48 gap-1 overflow-y-auto">
+        {others.map((other) => (
+          <li key={other.id}>
+            <button
+              type="button"
+              className="flex w-full min-w-0 gap-2 text-left hover:underline"
+              onClick={() => onDone(other.number)}
+            >
+              <span className="shrink-0 tabular-nums text-content-tertiary">#{other.number}</span>
+              <span className="truncate">{other.first.body}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="justify-self-start text-content-secondary hover:underline" onClick={onCancel}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+const TOKEN = /((?<![\w@./-])@[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}(?![\w-])|(?<![\w&#])#\d{1,6}\b)/gi;
+
+/** A comment's words, with `@someone` linking to their page and `#3` to thread 3 on this post. */
+function CommentText({ text, goTo }: { text: string; goTo: (number: number) => void }) {
+  const parts = text.split(TOKEN);
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (index % 2 === 0) {
+          return <Fragment key={index}>{part}</Fragment>;
+        }
+        if (part.startsWith('#')) {
+          const number = Number(part.slice(1));
+          return (
+            <a
+              key={index}
+              href={`#thread-${number}`}
+              className="text-content-link no-underline hover:underline"
+              onClick={(event) => {
+                event.preventDefault();
+                goTo(number);
+              }}
+            >
+              {part}
+            </a>
+          );
+        }
+        const name = part.slice(1).toLowerCase();
+        return name === 'cloudchef' ? (
+          <span key={index} className="font-semibold">
+            {part}
+          </span>
+        ) : (
+          <a key={index} href={`/${name}`} className="text-content-link no-underline hover:underline">
+            {part}
+          </a>
+        );
+      })}
+    </>
+  );
+}
+
+type Suggestion = { insert: string; label: string; hint: string };
+
+/** What `@` or `#` before the cursor could become: CloudChef and the thread's people, or the post's threads. */
+function useSuggestions(state: ThreadsState, text: string, cursor: number) {
+  return useMemo((): { start: number; options: Suggestion[] } | null => {
+    const before = text.slice(0, cursor);
+    const match = /(?:^|\s)([@#])([a-z0-9-]*)$/i.exec(before);
+    if (!match) {
+      return null;
+    }
+    const [, sign, typed] = match;
+    const start = cursor - typed.length - 1;
+    const lower = typed.toLowerCase();
+    if (sign === '#') {
+      const options = (state.threads ?? [])
+        .filter((thread) => String(thread.number).startsWith(lower))
+        .slice(0, 5)
+        .map((thread) => ({ insert: `#${thread.number}`, label: `#${thread.number}`, hint: thread.first.body }));
+      return options.length > 0 ? { start, options } : null;
+    }
+    const people = new Map<string, string>();
+    const thread = state.replyingTo;
+    for (const comment of thread ? [thread.first, ...thread.replies] : []) {
+      if (comment.author.username && !comment.byAgent) {
+        people.set(comment.author.username, comment.author.name);
+      }
+    }
+    const options: Suggestion[] = [
+      { insert: '@cloudchef', label: '@cloudchef', hint: 'Ask CloudChef' },
+      ...[...people].map(([username, name]) => ({ insert: `@${username}`, label: `@${username}`, hint: name })),
+    ]
+      .filter((option) => option.insert.slice(1).startsWith(lower))
+      .slice(0, 6);
+    return options.length > 0 ? { start, options } : null;
+  }, [state.threads, state.replyingTo, text, cursor]);
+}
+
+export function CommentForm({
+  state,
+  inputRef,
+}: {
+  state: ThreadsState;
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
+}) {
   const [text, setText] = useState('');
+  const [cursor, setCursor] = useState(0);
+  const [chosen, setChosen] = useState(0);
+  const own = useRef<HTMLTextAreaElement | null>(null);
+  const box = inputRef ?? own;
+  const suggestions = useSuggestions(state, text, cursor);
+  const highlighted = suggestions ? Math.min(chosen, suggestions.options.length - 1) : 0;
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const body = text.trim();
@@ -166,30 +755,104 @@ export function CommentForm({ state, inputRef }: { state: CommentsState; inputRe
       state.add(body, () => setText(''));
     }
   };
+  const take = (option: Suggestion) => {
+    if (!suggestions) {
+      return;
+    }
+    const next = `${text.slice(0, suggestions.start)}${option.insert} ${text.slice(cursor)}`;
+    const at = suggestions.start + option.insert.length + 1;
+    setText(next);
+    setCursor(at);
+    requestAnimationFrame(() => {
+      box.current?.focus();
+      box.current?.setSelectionRange(at, at);
+    });
+  };
+  const replying = state.replyingTo;
   return (
-    <form className="flex items-end gap-2" onSubmit={submit}>
-      <textarea
-        ref={inputRef}
-        rows={1}
-        maxLength={COMMENT_MAX}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            submit(event);
-          }
-        }}
-        placeholder="Add a comment…"
-        aria-label="Add a comment"
-        className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-hidden"
-      />
-      <button
-        type="submit"
-        disabled={state.sending || text.trim() === ''}
-        className="min-h-10 px-1 text-sm font-semibold text-(--cc-content-link) disabled:opacity-40"
-      >
-        Post
-      </button>
-    </form>
+    <div className="relative">
+      {replying ? (
+        <p className="flex items-center gap-2 pt-2 text-xs text-content-secondary">
+          <span className="min-w-0 flex-1 truncate">
+            Replying to #{replying.number}: {replying.first.body}
+          </span>
+          <button type="button" className="shrink-0 hover:underline" onClick={() => state.setReplyingTo(null)}>
+            Cancel
+          </button>
+        </p>
+      ) : null}
+      {suggestions ? (
+        <ul
+          role="listbox"
+          aria-label="Suggestions"
+          className="absolute bottom-full left-0 z-10 mb-1 grid w-full max-w-xs gap-0.5 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-1 text-sm shadow-lg"
+        >
+          {suggestions.options.map((option, index) => (
+            <li key={option.insert} role="option" aria-selected={index === highlighted}>
+              <button
+                type="button"
+                className={classNames(
+                  'flex w-full min-w-0 items-baseline gap-2 rounded px-2 py-1.5 text-left',
+                  index === chosen
+                    ? 'bg-bolt-elements-background-depth-3'
+                    : 'hover:bg-bolt-elements-background-depth-2',
+                )}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => take(option)}
+              >
+                <span className="shrink-0 font-semibold text-content-primary">{option.label}</span>
+                <span className="min-w-0 truncate text-xs text-content-tertiary">{option.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form className="flex items-end gap-2" onSubmit={submit}>
+        <textarea
+          ref={box}
+          rows={1}
+          maxLength={COMMENT_MAX}
+          value={text}
+          onChange={(event) => {
+            setText(event.target.value);
+            setCursor(event.target.selectionStart);
+            setChosen(0);
+          }}
+          onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+          onKeyDown={(event) => {
+            if (suggestions) {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                const step = event.key === 'ArrowDown' ? 1 : -1;
+                setChosen((highlighted + step + suggestions.options.length) % suggestions.options.length);
+                return;
+              }
+              if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                take(suggestions.options[highlighted]);
+                return;
+              }
+            }
+            if (event.key === 'Escape' && state.replyingTo) {
+              state.setReplyingTo(null);
+              return;
+            }
+            if (event.key === 'Enter' && !event.shiftKey) {
+              submit(event);
+            }
+          }}
+          placeholder={replying ? 'Reply, or ask @cloudchef…' : 'Add a comment, or ask @cloudchef…'}
+          aria-label={replying ? `Reply to #${replying.number}` : 'Add a comment'}
+          className="max-h-32 min-h-10 flex-1 resize-none bg-transparent py-2.5 text-sm text-content-primary placeholder:text-content-tertiary focus:outline-hidden"
+        />
+        <button
+          type="submit"
+          disabled={state.sending || text.trim() === ''}
+          className="min-h-10 px-1 text-sm font-semibold text-(--cc-content-link) disabled:opacity-40"
+        >
+          Post
+        </button>
+      </form>
+    </div>
   );
 }

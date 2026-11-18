@@ -12,11 +12,14 @@ export function PostActions({
   post,
   onComment,
   onCopy,
+  onCopies,
 }: {
   post: PostView;
   /** Opens or focuses the comments. */
   onComment: () => void;
   onCopy: () => void;
+  /** Lists the post's copies, where its page can. */
+  onCopies?: () => void;
 }) {
   const { liked, likeCount, toggleLike } = useShowcaseViewer();
   const isLiked = liked(post.id);
@@ -62,7 +65,16 @@ export function PostActions({
       <p className="text-sm font-semibold text-content-primary tabular-nums">
         {countLabel(likes, 'like')}
         {post.copyCount > 0 ? (
-          <span className="font-normal text-content-secondary"> · {countLabel(post.copyCount, 'copy', 'copies')}</span>
+          <span className="font-normal text-content-secondary">
+            {' · '}
+            {onCopies ? (
+              <button type="button" className="hover:underline" onClick={onCopies}>
+                {countLabel(post.copyCount, 'copy', 'copies')}
+              </button>
+            ) : (
+              countLabel(post.copyCount, 'copy', 'copies')
+            )}
+          </span>
         ) : null}
       </p>
     </div>
