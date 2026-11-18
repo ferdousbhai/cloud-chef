@@ -39,6 +39,8 @@ const controlPlaneTables = [
   'project_shares',
   'project_slug_redirects',
   'project_visits',
+  'thread_followers',
+  'thread_runs',
   'user',
   'user_computer_runtimes',
 ];
