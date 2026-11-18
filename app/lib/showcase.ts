@@ -29,6 +29,8 @@ export type PostView = {
   path: string;
   caption: string | null;
   siteUrl: string;
+  /** The live site lets itself be shown in a frame, so its post can show it running. */
+  siteFrameable: boolean;
   author: { username: string; name: string; image: string | null };
   /** The live site as it looked at its last publish; null until the first screenshot is taken. */
   screenshot: { url: string; width: number; height: number } | null;

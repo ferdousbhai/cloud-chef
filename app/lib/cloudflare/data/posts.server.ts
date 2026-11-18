@@ -56,11 +56,13 @@ type PostRow = {
   author_name: string;
   author_image: string | null;
   media: string | null;
+  site_frameable: number | null;
 };
 
 const POST_COLUMNS = `posts.id, posts.project_id, posts.caption, posts.site_url, posts.shown_at, posts.published_count,
   posts.like_count, posts.comment_count, posts.copy_count, posts.status, posts.hidden_reason, posts.author_id,
   projects.name AS project_name, projects.slug AS project_slug, owners.username AS owner_username,
+  projects.site_frameable,
   authors.username AS author_username, authors.name AS author_name, authors.image AS author_image,
   (SELECT json_group_array(json_object('id', media.id, 'kind', media.kind, 'width', media.width,
      'height', media.height, 'contentType', media.content_type, 'durationMs', media.duration_ms))
@@ -115,6 +117,7 @@ function toPostView(row: PostRow): PostView {
     path: `/${row.owner_username ?? ''}/${row.project_slug ?? ''}`,
     caption: row.caption,
     siteUrl: row.site_url,
+    siteFrameable: row.site_frameable === 1,
     author: { username: row.author_username ?? '', name: row.author_name, image: row.author_image },
     screenshot: screenshot
       ? { url: mediaPath(screenshot), width: screenshot.width ?? 1280, height: screenshot.height ?? 800 }

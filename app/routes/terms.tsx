@@ -129,6 +129,11 @@ function TermsPage() {
           the project private takes it off for good.
         </p>
         <p>
+          When you mention @cloudchef in a comment, CloudChef works on it in your own space, with your model and usage,
+          and posts its answer in that thread for anyone to read, shown as CloudChef&apos;s and naming you as the one
+          who asked. It changes the project only if you can edit it.
+        </p>
+        <p>
           Post only what you have the right to share. Posts, captions and comments must follow the acceptable use rules
           above: no scams or pages that ask for passwords or money under false pretenses, no sexual content, nothing
           violent or hateful, no spam, and nothing copied from someone else without permission.

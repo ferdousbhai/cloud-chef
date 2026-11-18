@@ -32,6 +32,7 @@ function PostPageContent({ initial }: { initial: PostView }) {
   const commentBox = useRef<HTMLTextAreaElement>(null);
   const copy = useCopyFromPost({ id: post.projectId, name: post.title, path: post.path });
   const [showCopies, setShowCopies] = useState(false);
+  const [trying, setTrying] = useState(false);
   const comments = useThreads(post.id, (change) =>
     setPost((current) => ({ ...current, commentCount: current.commentCount + change })),
   );
@@ -64,8 +65,27 @@ function PostPageContent({ initial }: { initial: PostView }) {
           {menu}
         </header>
         <div className="flex items-center justify-center bg-[#0c0d12] md:h-full">
-          <div className="aspect-[16/10] w-full md:aspect-auto md:h-full">
-            <PostMedia post={post} variant="page" priority />
+          <div className="relative aspect-[16/10] w-full md:aspect-auto md:h-full">
+            {trying ? (
+              <iframe
+                src={post.siteUrl}
+                title={`${post.title}, live`}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+                allow="clipboard-write; fullscreen"
+                className="size-full border-0 bg-white"
+              />
+            ) : (
+              <PostMedia post={post} variant="page" priority />
+            )}
+            {post.siteFrameable ? (
+              <button
+                type="button"
+                onClick={() => setTrying((current) => !current)}
+                className="absolute bottom-3 right-3 rounded-full bg-black/65 px-3.5 py-1.5 text-sm font-semibold text-white shadow-lg ring-1 ring-white/25 backdrop-blur-sm hover:bg-black/75"
+              >
+                {trying ? 'Back to picture' : 'Try it here'}
+              </button>
+            ) : null}
           </div>
         </div>
         <div className="flex min-h-0 flex-col md:border-l md:border-bolt-elements-borderColor">
