@@ -409,7 +409,7 @@ describe('a change going live', () => {
 });
 
 describe('a public project’s reads for someone it isn’t shared with', () => {
-  it('reads it through its own account, never its git', async () => {
+  it('reads and fetches it through its own account, never pushes', async () => {
     const { env, bo } = await world();
     const forwarded: string[] = [];
     vi.stubGlobal(
@@ -431,8 +431,14 @@ describe('a public project’s reads for someone it isn’t shared with', () => 
         })
       ).status;
     expect(await ask('files')).toBe(200);
-    expect(await ask('git/info/refs')).toBe(403);
+    expect(await ask('git/info/refs?service=git-upload-pack')).toBe(200);
+    expect(await ask('git/git-upload-pack', 'POST')).toBe(200);
+    expect(await ask('git/info/refs?service=git-receive-pack')).toBe(403);
     expect(await ask('git/git-receive-pack', 'POST')).toBe(403);
-    expect(forwarded.map((url) => new URL(url).origin)).toEqual(['https://ada.runtime.test']);
+    expect(forwarded.map((url) => new URL(url).origin)).toEqual([
+      'https://ada.runtime.test',
+      'https://ada.runtime.test',
+      'https://ada.runtime.test',
+    ]);
   });
 });

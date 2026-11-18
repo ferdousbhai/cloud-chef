@@ -16,8 +16,9 @@ import { authenticateRuntimeRequest } from './runtime-authentication';
  * (a view to read, an edit to push), so removing them, or making them a viewer, stops their workspace at its next
  * request. The request goes on to a runtime in the project's account, which answers it.
  *
- * A public project's reads (never its git) are answered for anyone signed in, as its code is readable by anyone at its
- * git address: a read-only `@cloudchef` run seeds its workspace from them (docs/proposals/comment-threads.md).
+ * A public project's reads, and git's fetches of it (never a push), are answered for anyone signed in, as its code is
+ * readable by anyone at its git address: a read-only `@cloudchef` run seeds its workspace from them, and the agent
+ * fetches a public copy a thread suggests a change from (docs/proposals/comment-threads.md).
  */
 const SHARED_PATH =
   /^\/api\/cloudflare\/runtime-shared\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/;
@@ -42,10 +43,11 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
     return authenticated;
   }
   const { identity, connection } = authenticated;
-  const readable = isSharedRead(op) ? await findReadableProject(env.DB, { id: match[1]! }, identity.userId) : null;
+  const readable =
+    isSharedRead(op) || !write ? await findReadableProject(env.DB, { id: match[1]! }, identity.userId) : null;
   const project = readable ?? (await findAccessibleProject(env.DB, match[1]!, identity.userId));
-  // Only a project of another account than this runtime's (one in its own account it reaches itself): for its reads,
-  // any they may read; for its git, one shared with them.
+  // Only a project of another account than this runtime's (one in its own account it reaches itself): for its reads
+  // and fetches, any they may read; for a push, one shared with them.
   if (!project || project.connectionId === connection.id || (!readable && !project.shared)) {
     return refusal('This project is not shared with you.', 403);
   }

@@ -78,6 +78,10 @@ async function gitRefusal(
 /** Minted for one workspace by its ProjectWorkspace, as the handler for git.internal in its container. */
 export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: string }> {
   override fetch(request: Request): Promise<Response> {
+    const other = OTHER_PROJECT_PATH.exec(new URL(request.url).pathname);
+    if (other) {
+      return fetchOtherProject(this.env, this.ctx.props.workspaceId, request, other[1]!, other[2]!);
+    }
     const namespace = this.env.PROJECT_WORKSPACE;
     const workspace = namespace.get(namespace.idFromString(this.ctx.props.workspaceId));
     const repositories = new ProjectRepositories(this.env.ARTIFACTS);
@@ -222,6 +226,42 @@ export async function handleCommandLineGit(
     recordMainFetched: async () => undefined,
     fetch: (input, init) => fetch(input, init),
     waitUntil: (promise) => ctx.waitUntil(promise),
+  });
+}
+
+/**
+ * `git.internal/projects/<id>.git`: another project's history, fetched (never pushed) through CloudChef, which checks
+ * the person may read it, a public one among them (`runtime-shared`). The agent fetches a public copy a comment
+ * thread suggests a change from this way (docs/proposals/comment-threads.md).
+ */
+const OTHER_PROJECT_PATH =
+  /^\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.git\/(info\/refs|git-upload-pack)$/;
+
+function fetchOtherProject(
+  env: GitProxyEnv,
+  workspaceId: string,
+  request: Request,
+  orgProjectId: string,
+  rest: string,
+): Promise<Response> {
+  const identity = runtimeConnectionIdentity(env);
+  const url = new URL(request.url);
+  if (!identity) {
+    return Promise.resolve(new Response('This workspace is not connected to CloudChef.', { status: 503 }));
+  }
+  if (rest === 'info/refs' && url.searchParams.get('service') !== 'git-upload-pack') {
+    return Promise.resolve(
+      new Response('Another project can only be fetched from here, not pushed to.', { status: 403 }),
+    );
+  }
+  const headers = new Headers(request.headers);
+  headers.delete('authorization');
+  headers.set(SHARED_WORKSPACE_HEADER, workspaceId);
+  return sharedProjectRequest(env, identity, orgProjectId, `git/${rest}`, {
+    method: request.method === 'POST' ? 'POST' : 'GET',
+    search: url.search,
+    headers,
+    body: request.method === 'POST' ? request.body : null,
   });
 }
 

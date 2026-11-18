@@ -172,14 +172,14 @@ async function mentionMessage(
   }
   if (thread.kind === 'suggestion') {
     const copy = await db
-      .prepare('SELECT suggested_commit FROM post_comments WHERE id = ?')
+      .prepare('SELECT suggested_commit, suggested_project_id FROM post_comments WHERE id = ?')
       .bind(thread.id)
-      .first<{ suggested_commit: string | null }>();
+      .first<{ suggested_commit: string | null; suggested_project_id: string | null }>();
     const path = thread.suggestion?.path;
     if (path) {
       lines.push(
         '',
-        `This thread suggests a change from a public copy, ${thread.suggestion?.name ?? path}: its code is at ${origin}${path}.git${copy?.suggested_commit ? `, commit ${copy.suggested_commit}` : ''}, and its site at ${thread.suggestion?.siteUrl ?? 'its post'}.`,
+        `This thread suggests a change from a public copy, ${thread.suggestion?.name ?? path} (${origin}${path}). Fetch its code from the workspace with \`git fetch http://git.internal/projects/${copy?.suggested_project_id ?? ''}.git\`${copy?.suggested_commit ? `; the suggestion is its commit ${copy.suggested_commit}` : ''}. Its site is ${thread.suggestion?.siteUrl ?? 'on its post'}.`,
       );
     }
   }
