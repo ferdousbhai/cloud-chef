@@ -4,14 +4,11 @@ import { readJsonRequest } from '~/lib/.server/request-guards';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { sha256Hex } from '~/lib/hex-digest';
 import {
-  addComment,
   addPendingCopy,
   decideReports,
-  deleteComment,
   deletePost,
   fileReport,
   followsPerson,
-  listComments,
   listExplorePosts,
   listFeedPosts,
   listFollowPeople,
@@ -34,6 +31,22 @@ import {
   unreadNotifications,
   viewerStateOfPosts,
 } from '~/lib/cloudflare/data/posts.server';
+import {
+  addReply,
+  closeThread,
+  deleteComment,
+  listCopies,
+  listOwnSuggestableCopies,
+  listReplies,
+  listThreads,
+  mentionsCloudChef,
+  reopenThread,
+  setThreadFollowing,
+  setThreadLocked,
+  setThreadPinned,
+  startThread,
+} from '~/lib/cloudflare/data/post-threads.server';
+import { answerMention } from '~/lib/.server/showcase/mention-runs';
 import { deleteGoneMediaBestEffort, serveMediaForReview } from '~/lib/.server/showcase/media';
 import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor } from '~/lib/showcase';
 import { SENDER } from './email-auth';
@@ -167,16 +180,40 @@ export const feedAction: Handler = ({ request, env }) =>
     json(await listFeedPosts(env.DB, session.user.id, cursorFrom(new URL(request.url)))),
   );
 
-/** `GET /api/showcase/comments?postId=&after=`: a post's comments, for anyone who may see it. */
-export const commentsAction: Handler = async ({ request, env }) => {
-  const url = new URL(request.url);
-  const postId = ID.safeParse(url.searchParams.get('postId'));
-  if (!postId.success) {
-    return json({ error: 'Name a post.' }, 400);
-  }
-  const after = Number(url.searchParams.get('after') ?? 0);
-  return json(await listComments(env.DB, postId.data, Number.isSafeInteger(after) ? after : 0));
-};
+/** `GET /api/showcase/threads?postId=`: a post's comment threads, for anyone who may see it. */
+export const threadsAction: Handler = ({ request, env }) =>
+  answering(async () => {
+    const postId = ID.safeParse(new URL(request.url).searchParams.get('postId'));
+    if (!postId.success) {
+      return json({ error: 'Name a post.' }, 400);
+    }
+    const session = await getAuthSession(env, request);
+    return json(await listThreads(env.DB, postId.data, session?.user.id ?? null));
+  });
+
+/** `GET /api/showcase/threads/replies?threadId=`: every reply in a thread. */
+export const repliesAction: Handler = ({ request, env }) =>
+  answering(async () => {
+    const threadId = ID.safeParse(new URL(request.url).searchParams.get('threadId'));
+    if (!threadId.success) {
+      return json({ error: 'Name a thread.' }, 400);
+    }
+    return json({ replies: await listReplies(env.DB, threadId.data) });
+  });
+
+/** `GET /api/showcase/post-copies?postId=`: a post's public copies, and the signed-in person's own they could suggest from. */
+export const copiesAction: Handler = ({ request, env }) =>
+  answering(async () => {
+    const postId = ID.safeParse(new URL(request.url).searchParams.get('postId'));
+    if (!postId.success) {
+      return json({ error: 'Name a post.' }, 400);
+    }
+    const session = await getAuthSession(env, request);
+    return json({
+      copies: await listCopies(env.DB, postId.data),
+      own: session ? await listOwnSuggestableCopies(env.DB, { userId: session.user.id, postId: postId.data }) : [],
+    });
+  });
 
 // ---------------------------------------------------------------------------------------------------------------
 // Following, likes, comments
@@ -223,21 +260,81 @@ export const likersAction: Handler = ({ request, env }) =>
     return json({ people: await listLikers(env.DB, { postId: postId.data, userId: session.user.id }) });
   });
 
-const commentSchema = z.strictObject({ postId: ID, body: z.string().max(COMMENT_MAX * 2) });
+const commentSchema = z.union([
+  z.strictObject({ postId: ID, body: z.string().max(COMMENT_MAX * 2), suggestFrom: ID.optional() }),
+  z.strictObject({ threadId: ID, body: z.string().max(COMMENT_MAX * 2) }),
+]);
 
-/** `POST /api/showcase/comments/add`: a comment on a post. */
+/**
+ * `POST /api/showcase/comments/add`: a new thread on a post (`postId`, or a suggestion from a copy with
+ * `suggestFrom`), or a reply in one (`threadId`). A comment that mentions `@cloudchef` starts CloudChef's answer,
+ * in the writer's own space.
+ */
 export const addCommentAction: Handler = ({ request, env }) =>
   signedInShowcase(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, commentSchema, 'Write a comment.', 8_192);
     if ('response' in body) {
       return body.response;
     }
-    return json({ comment: await addComment(env.DB, { userId: session.user.id, ...body.data }) }, 201);
+    const userId = session.user.id;
+    if ('threadId' in body.data) {
+      const comment = await addReply(env.DB, { userId, threadId: body.data.threadId, body: body.data.body });
+      const working = mentionsCloudChef(comment.body)
+        ? await answerMention(env, { session, threadId: body.data.threadId, commentId: comment.id })
+        : null;
+      return json({ comment, mention: working }, 201);
+    }
+    const thread = await startThread(env.DB, {
+      userId,
+      postId: body.data.postId,
+      body: body.data.body,
+      suggestFrom: body.data.suggestFrom,
+    });
+    const working = mentionsCloudChef(thread.first.body)
+      ? await answerMention(env, { session, threadId: thread.id, commentId: thread.id })
+      : null;
+    return json({ thread, mention: working }, 201);
+  });
+
+const threadStateSchema = z.discriminatedUnion('action', [
+  z.strictObject({
+    threadId: ID,
+    action: z.literal('close'),
+    reason: z.enum(['changed', 'not_planned', 'duplicate']),
+    sameAs: z.number().int().positive().nullable().default(null),
+  }),
+  z.strictObject({ threadId: ID, action: z.literal('reopen') }),
+  z.strictObject({ threadId: ID, action: z.literal('lock'), locked: z.boolean() }),
+  z.strictObject({ threadId: ID, action: z.literal('pin'), pinned: z.boolean() }),
+  z.strictObject({ threadId: ID, action: z.literal('follow'), follow: z.boolean() }),
+]);
+
+/** `POST /api/showcase/threads/state`: close, open again, lock, pin, or follow a thread. */
+export const threadStateAction: Handler = ({ request, env }) =>
+  signedInShowcase(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, threadStateSchema, 'Name the thread and what to do.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const userId = session.user.id;
+    const change = body.data;
+    switch (change.action) {
+      case 'close':
+        return json({ thread: await closeThread(env.DB, { userId, ...change }) });
+      case 'reopen':
+        return json({ thread: await reopenThread(env.DB, { userId, threadId: change.threadId }) });
+      case 'lock':
+        return json({ thread: await setThreadLocked(env.DB, { userId, ...change }) });
+      case 'pin':
+        return json({ thread: await setThreadPinned(env.DB, { userId, ...change }) });
+      case 'follow':
+        return json(await setThreadFollowing(env.DB, { userId, ...change }));
+    }
   });
 
 const commentIdSchema = z.strictObject({ commentId: ID });
 
-/** `POST /api/showcase/comments/delete`: by the person who wrote it, or whose post it is. */
+/** `POST /api/showcase/comments/delete`: by the person who wrote it, or who makes the app. */
 export const deleteCommentAction: Handler = ({ request, env }) =>
   signedInShowcase(request, env, async ({ session }) => {
     const body = await readJsonRequest(request, commentIdSchema, 'Name the comment.');

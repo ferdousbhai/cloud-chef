@@ -4,7 +4,6 @@ import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import {
   POST_MOVE_INTERVAL_MS,
   REPORTS_TO_HOLD,
-  addComment,
   decideReports,
   deletePost,
   fileReport,
@@ -24,6 +23,7 @@ import {
   setPostShown,
   ShowcaseError,
 } from './posts.server';
+import { startThread } from './post-threads.server';
 
 const COMMIT_A = 'a'.repeat(40);
 const COMMIT_B = 'b'.repeat(40);
@@ -287,7 +287,7 @@ describe('reports', () => {
     const { database, db } = seeded();
     await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
     const postId = postOf(database, 'recipes')!.id;
-    const comment = await addComment(db, { userId: 'ben', postId, body: 'Nice <b>work</b>' });
+    const comment = (await startThread(db, { userId: 'ben', postId, body: 'Nice <b>work</b>' })).first;
     expect(comment.body).toBe('Nice <b>work</b>');
     for (const ip of ['a', 'b', 'c']) {
       await fileReport(db, {

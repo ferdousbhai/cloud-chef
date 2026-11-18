@@ -50,6 +50,43 @@ export type PostComment = {
   body: string;
   createdAt: number;
   author: ShowcaseAuthor;
+  /** Posted by CloudChef, answering `author`'s `@cloudchef`. */
+  byAgent: boolean;
+};
+
+/** A thread's state: open; on its way (a change made for it is waiting to go live); closed. */
+export type ThreadState = 'open' | 'on_its_way' | 'closed';
+export type CloseReason = 'changed' | 'not_planned' | 'duplicate';
+
+/**
+ * A comment thread on a post, the post's issue (docs/proposals/comment-threads.md): its first comment, numbered on
+ * the post, with its latest replies and its state.
+ */
+export type PostThread = {
+  id: string;
+  number: number;
+  kind: 'comment' | 'suggestion';
+  state: ThreadState;
+  closeReason: CloseReason | null;
+  /** For a duplicate: the number of the thread it is the same as. */
+  sameAs: number | null;
+  /** When it was closed, or marked on its way. */
+  stateAt: number | null;
+  locked: boolean;
+  pinned: boolean;
+  activeAt: number;
+  /** Written about a version of the app that is no longer live. */
+  onEarlierVersion: boolean;
+  first: PostComment;
+  /** The latest replies, oldest first; `replyCount` says how many there are in all. */
+  replies: PostComment[];
+  replyCount: number;
+  /** For a suggestion: the public copy it came from. */
+  suggestion: { name: string; path: string | null; siteUrl: string | null } | null;
+  /** CloudChef is answering a mention in it now. */
+  working: boolean;
+  /** What the viewer may do: null when nobody is signed in. */
+  viewer: { following: boolean; canClose: boolean; canEdit: boolean } | null;
 };
 
 export type NotificationView = {
@@ -61,12 +98,18 @@ export type NotificationView = {
     | 'post_commented'
     | 'post_removed'
     | 'comment_removed'
-    | 'project_shared';
+    | 'project_shared'
+    | 'comment_replied'
+    | 'comment_mentioned'
+    | 'thread_closed'
+    | 'change_suggested';
   actor: ShowcaseAuthor | null;
   /** For grouped likes: how many others liked it that day. */
   others: number;
   projectName: string | null;
   postPath: string | null;
+  /** The thread's number on its post, for a thread notification. */
+  threadNumber: number | null;
   /** A comment's first words, or the reason something was taken down. */
   detail: string | null;
   createdAt: number;

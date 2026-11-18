@@ -1,11 +1,4 @@
-import type {
-  NotificationView,
-  PostComment,
-  PostView,
-  PublicPerson,
-  ReportReason,
-  ShowcaseCursor,
-} from '~/lib/showcase';
+import type { NotificationView, PostView, PublicPerson, ReportReason, ShowcaseCursor } from '~/lib/showcase';
 
 /**
  * Showcase posts (docs/proposals/showcase-and-feed.md): one per public project, made and updated by its publishes,
@@ -26,6 +19,8 @@ const PAGE_SIZE = 24;
 const DAY_MS = 24 * 60 * 60_000;
 /** What one person, or one visitor's address, may do in a day. */
 const DAILY_LIMITS = { follows: 100, comments: 200, reports: 5, signedInReports: 20 } as const;
+/** Comments, thread starts and replies alike, one person may write in a day. */
+export const COMMENTS_PER_DAY = DAILY_LIMITS.comments;
 
 /** Why a showcase action was refused, in words for the person, with the HTTP status that carries it. */
 export class ShowcaseError extends Error {
@@ -296,14 +291,6 @@ export async function findPostByAddress(
 }
 
 /** A post anyone may see, by id. */
-async function findPublicPost(db: D1Database, postId: string): Promise<PostView | null> {
-  const row = await db
-    .prepare(`SELECT ${POST_COLUMNS} FROM ${POST_FROM} WHERE posts.id = ?1 AND ${PUBLIC}`)
-    .bind(postId)
-    .first<PostRow>();
-  return row ? toPostView(row) : null;
-}
-
 /** May `userId` manage the post: its author, a personal project's owner, or an active admin of a team project's team. */
 const MANAGES = `(posts.author_id = ?2
   OR (projects.org_id IS NULL AND projects.created_by = ?2)
@@ -515,7 +502,7 @@ const BLOCKED_CAPTION_PHRASES = [
 ];
 
 /** Why a caption can't be posted, or null when it can. */
-function captionProblem(caption: string): string | null {
+export function captionProblem(caption: string): string | null {
   const lowered = caption.toLowerCase();
   return BLOCKED_CAPTION_PHRASES.some((phrase) => lowered.includes(phrase))
     ? 'That caption looks like it asks people for their accounts or money, so it can’t be posted.'
@@ -864,6 +851,36 @@ export async function listFollowPeople(
   return results;
 }
 
+/** What a thread needs of a post anyone may see: its project, author, and the commit live now. */
+export type PublicPostFacts = { id: string; projectId: string; authorId: string; commitSha: string; path: string };
+
+export async function findPublicPostFacts(db: D1Database, postId: string): Promise<PublicPostFacts | null> {
+  const row = await db
+    .prepare(
+      `SELECT posts.id, posts.project_id, posts.author_id, posts.commit_sha, owners.username AS owner_username,
+         projects.slug AS project_slug
+       FROM ${POST_FROM} WHERE posts.id = ?1 AND ${PUBLIC}`,
+    )
+    .bind(postId)
+    .first<{
+      id: string;
+      project_id: string;
+      author_id: string;
+      commit_sha: string;
+      owner_username: string;
+      project_slug: string;
+    }>();
+  return row
+    ? {
+        id: row.id,
+        projectId: row.project_id,
+        authorId: row.author_id,
+        commitSha: row.commit_sha,
+        path: `/${row.owner_username}/${row.project_slug}`,
+      }
+    : null;
+}
+
 async function requirePublicPost(db: D1Database, postId: string): Promise<PostView & { authorId: string }> {
   const row = await db
     .prepare(`SELECT ${POST_COLUMNS} FROM ${POST_FROM} WHERE posts.id = ?1 AND ${PUBLIC}`)
@@ -932,133 +949,6 @@ export async function listLikers(
     .bind(args.postId)
     .all<{ username: string | null; name: string }>();
   return results;
-}
-
-type CommentRow = {
-  id: string;
-  body: string;
-  created_at: number;
-  author_id: string;
-  username: string | null;
-  name: string;
-  image: string | null;
-};
-
-function toComment(row: CommentRow): PostComment {
-  return {
-    id: row.id,
-    body: row.body,
-    createdAt: row.created_at,
-    author: { username: row.username, name: row.name, image: row.image },
-  };
-}
-
-/** A post's visible comments, oldest first, a page at a time after `after` (ms). */
-export async function listComments(
-  db: D1Database,
-  postId: string,
-  after = 0,
-): Promise<{ comments: PostComment[]; more: boolean }> {
-  const post = await findPublicPost(db, postId);
-  if (!post) {
-    return { comments: [], more: false };
-  }
-  const limit = 50;
-  const { results } = await db
-    .prepare(
-      `SELECT comments.id, comments.body, comments.created_at, comments.author_id, people.username, people.name, people.image
-       FROM post_comments AS comments JOIN "user" AS people ON people.id = comments.author_id
-       WHERE comments.post_id = ?1 AND comments.status = 'visible' AND comments.created_at > ?2
-         AND people.showcase_paused_at IS NULL
-       ORDER BY comments.created_at LIMIT ?3`,
-    )
-    .bind(postId, after, limit + 1)
-    .all<CommentRow>();
-  return { comments: results.slice(0, limit).map(toComment), more: results.length > limit };
-}
-
-/** A comment on a post anyone may see, by someone with a username. */
-export async function addComment(
-  db: D1Database,
-  args: { userId: string; postId: string; body: string; now?: number },
-): Promise<PostComment> {
-  const body = args.body.trim();
-  if (!body || body.length > 1000) {
-    throw new ShowcaseError('Write a comment of up to 1,000 characters.', 400);
-  }
-  const problem = captionProblem(body);
-  if (problem) {
-    throw new ShowcaseError(problem.replace('caption', 'comment'), 400);
-  }
-  const post = await requirePublicPost(db, args.postId);
-  const now = args.now ?? Date.now();
-  const author = await db
-    .prepare(
-      `SELECT username, name, image, showcase_paused_at,
-         (SELECT COUNT(*) FROM post_comments WHERE author_id = ?1 AND created_at > ?2) AS today
-       FROM "user" WHERE id = ?1`,
-    )
-    .bind(args.userId, now - DAY_MS)
-    .first<{
-      username: string | null;
-      name: string;
-      image: string | null;
-      showcase_paused_at: number | null;
-      today: number;
-    }>();
-  if (!author?.username) {
-    throw new ShowcaseError('Choose a username first, so people know who commented.', 409);
-  }
-  if (author.showcase_paused_at !== null) {
-    throw new ShowcaseError('Your page is paused for review, so you can’t comment for now.', 403);
-  }
-  if (author.today >= DAILY_LIMITS.comments) {
-    throw new ShowcaseError('You’ve commented a lot today. Try again tomorrow.', 429);
-  }
-  const id = crypto.randomUUID();
-  const tell = notify(db, {
-    userId: post.authorId,
-    kind: 'post_commented',
-    actorId: args.userId,
-    postId: args.postId,
-    detail: body.slice(0, 140),
-  });
-  await db.batch([
-    db
-      .prepare(
-        `INSERT INTO post_comments (id, post_id, author_id, body, status, created_at) VALUES (?, ?, ?, ?, 'visible', ?)`,
-      )
-      .bind(id, args.postId, args.userId, body, now),
-    db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').bind(args.postId),
-    ...(tell ? [tell] : []),
-  ]);
-  return {
-    id,
-    body,
-    createdAt: now,
-    author: { username: author.username, name: author.name, image: author.image },
-  };
-}
-
-/** Deletes a comment: by the person who wrote it, or by someone who manages the post. */
-export async function deleteComment(db: D1Database, args: { userId: string; commentId: string }): Promise<void> {
-  const comment = await db
-    .prepare(
-      `SELECT comments.id, comments.post_id, comments.status FROM post_comments AS comments
-       JOIN posts ON posts.id = comments.post_id JOIN org_projects AS projects ON projects.id = posts.project_id
-       WHERE comments.id = ?1 AND (comments.author_id = ?2 OR ${MANAGES})`,
-    )
-    .bind(args.commentId, args.userId)
-    .first<{ id: string; post_id: string; status: string }>();
-  if (!comment) {
-    throw new ShowcaseError('Only the person who wrote it, or whose post it is, can delete a comment.', 403);
-  }
-  await db.batch([
-    db.prepare('DELETE FROM post_comments WHERE id = ?').bind(comment.id),
-    ...(comment.status === 'visible'
-      ? [db.prepare('UPDATE posts SET comment_count = max(comment_count - 1, 0) WHERE id = ?').bind(comment.post_id)]
-      : []),
-  ]);
 }
 
 /**
@@ -1164,8 +1054,11 @@ export async function listNotifications(db: D1Database, userId: string): Promise
       `SELECT notifications.id, notifications.kind, notifications.detail, notifications.created_at,
          notifications.read_at, notifications.post_id,
          actors.username AS actor_username, actors.name AS actor_name, actors.image AS actor_image,
-         projects.name AS project_name, owners.username AS owner_username, projects.slug AS project_slug
+         projects.name AS project_name, owners.username AS owner_username, projects.slug AS project_slug,
+         COALESCE(threads.number, comments.number) AS thread_number
        FROM notifications
+       LEFT JOIN post_comments AS comments ON comments.id = notifications.comment_id
+       LEFT JOIN post_comments AS threads ON threads.id = comments.parent_id
        LEFT JOIN "user" AS actors ON actors.id = notifications.actor_id
        LEFT JOIN posts ON posts.id = notifications.post_id
        LEFT JOIN org_projects AS projects ON projects.id = COALESCE(posts.project_id, notifications.project_id)
@@ -1186,6 +1079,7 @@ export async function listNotifications(db: D1Database, userId: string): Promise
       project_name: string | null;
       owner_username: string | null;
       project_slug: string | null;
+      thread_number: number | null;
     }>();
   const views: NotificationView[] = [];
   const likeGroups = new Map<string, NotificationView>();
@@ -1215,6 +1109,7 @@ export async function listNotifications(db: D1Database, userId: string): Promise
         others: 0,
         projectName: row.project_name ?? row.detail,
         postPath,
+        threadNumber: null,
         detail: null,
         createdAt: row.created_at,
         unread: row.read_at === null,
@@ -1231,6 +1126,7 @@ export async function listNotifications(db: D1Database, userId: string): Promise
       projectName:
         row.project_name ?? (row.kind === 'project_copied' || row.kind === 'project_shared' ? row.detail : null),
       postPath,
+      threadNumber: row.thread_number,
       detail: row.kind === 'project_copied' || row.kind === 'project_shared' ? null : row.detail,
       createdAt: row.created_at,
       unread: row.read_at === null,
