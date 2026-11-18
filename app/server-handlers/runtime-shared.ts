@@ -1,6 +1,7 @@
-import { findAccessibleProject } from '~/lib/cloudflare/data/org-projects.server';
+import { findAccessibleProject, findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
 import {
   isSharedOp,
+  isSharedRead,
   sharedOpWrites,
   sharedWorkspaceName,
   SHARED_WORKSPACE_HEADER,
@@ -14,6 +15,9 @@ import { authenticateRuntimeRequest } from './runtime-authentication';
  * is, as every runtime route does; then, on every request, the person must still have the project shared with them
  * (a view to read, an edit to push), so removing them, or making them a viewer, stops their workspace at its next
  * request. The request goes on to a runtime in the project's account, which answers it.
+ *
+ * A public project's reads (never its git) are answered for anyone signed in, as its code is readable by anyone at its
+ * git address: a read-only `@cloudchef` run seeds its workspace from them (docs/proposals/comment-threads.md).
  */
 const SHARED_PATH =
   /^\/api\/cloudflare\/runtime-shared\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/;
@@ -38,12 +42,15 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
     return authenticated;
   }
   const { identity, connection } = authenticated;
-  const project = await findAccessibleProject(env.DB, match[1]!, identity.userId);
-  // Only a project shared with them, from an account that isn't this runtime's: one in its own account it reads itself.
-  if (!project?.shared || project.connectionId === connection.id) {
+  const readable = isSharedRead(op) ? await findReadableProject(env.DB, { id: match[1]! }, identity.userId) : null;
+  const project = readable ?? (await findAccessibleProject(env.DB, match[1]!, identity.userId));
+  // Only a project of another account than this runtime's (one in its own account it reaches itself): for its reads,
+  // any they may read; for its git, one shared with them.
+  if (!project || project.connectionId === connection.id || (!readable && !project.shared)) {
     return refusal('This project is not shared with you.', 403);
   }
-  if (write && project.role !== 'edit') {
+  const role = project.role === 'edit' ? 'edit' : 'view';
+  if (write && role !== 'edit') {
     return refusal('You can view this project but not change it.', 403);
   }
   const workspace = sharedWorkspaceName(request.headers.get(SHARED_WORKSPACE_HEADER));
@@ -54,7 +61,7 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
     return await forwardToProjectAccount(request, env, {
       project,
       userId: identity.userId,
-      role: project.role,
+      role,
       op,
       workspace,
     });

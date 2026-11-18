@@ -39,6 +39,7 @@ import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/pro
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { projectPublished } from '~/lib/.server/showcase/jobs';
+import { closeThreadsThatWentLive } from './threads-went-live';
 
 /**
  * A member's workspace runtime working on a project kept in Artifacts. The runtime reads and writes the
@@ -501,7 +502,7 @@ export async function runtimeProjectStatusAction(args: {
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, projectConnection: connection } = opened;
+  const { project, body, identity, projectConnection: connection } = opened;
   if (project.deploysWith === 'cloudchef') {
     return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
   }
@@ -523,6 +524,13 @@ export async function runtimeProjectStatusAction(args: {
       });
       if (publish) {
         await projectPublished(args.env, { ...publish, siteUrl: publish.siteUrl ?? status.url });
+        await closeThreadsThatWentLive(args.request, args.env, {
+          projectId: project.id,
+          connectionId: project.connectionId,
+          commit: publish.commit,
+          reportedBy: identity.userId,
+          at: publish.publishedAt,
+        });
       }
     }
     return json(status, 200);

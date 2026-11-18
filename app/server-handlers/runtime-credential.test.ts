@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { runtimeIdentityHeaders, type RuntimeIdentity } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import { controlPlaneDatabase, envWith } from '~/test/control-plane-d1';
+import type * as ConnectionRepository from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 
 const mocks = vi.hoisted(() => ({
   requireActiveCloudflareConnection: vi.fn(),
   resolve: vi.fn(),
 }));
 
-vi.mock('~/lib/.server/cloudflare/cloudflare-connection-repository', () => ({
+vi.mock('~/lib/.server/cloudflare/cloudflare-connection-repository', async (importOriginal) => ({
+  ...(await importOriginal<typeof ConnectionRepository>()),
   findActiveCloudflareConnection: mocks.requireActiveCloudflareConnection,
 }));
 vi.mock('~/lib/.server/cloudflare/cloudflare-credential-vault', () => ({

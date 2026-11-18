@@ -292,7 +292,7 @@ export const addCommentAction: Handler = ({ request, env }) =>
     if ('threadId' in body.data) {
       const comment = await addReply(env.DB, { userId, threadId: body.data.threadId, body: body.data.body });
       const working = mentionsCloudChef(comment.body)
-        ? await answerMention(env, { session, threadId: body.data.threadId, commentId: comment.id })
+        ? await answerMention(env, { request, session, threadId: body.data.threadId, commentId: comment.id })
         : null;
       return json({ comment, mention: working }, 201);
     }
@@ -303,7 +303,7 @@ export const addCommentAction: Handler = ({ request, env }) =>
       suggestFrom: body.data.suggestFrom,
     });
     const working = mentionsCloudChef(thread.first.body)
-      ? await answerMention(env, { session, threadId: thread.id, commentId: thread.id })
+      ? await answerMention(env, { request, session, threadId: thread.id, commentId: thread.id })
       : null;
     return json({ thread, mention: working }, 201);
   });

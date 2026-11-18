@@ -140,9 +140,9 @@ const migrationPolicies = [
       // Notifications' kind CHECK gains 'project_shared', and a project column: SQLite can't change a CHECK in place, so
       // the table is rebuilt with every row copied in order. Nothing references it.
       '0059_project_shares.sql',
-      // Comment threads: every existing comment becomes an open thread, numbered in order (an UPDATE of every row),
-      // and notifications' kind CHECK gains the thread kinds and a comment column, so that table is rebuilt with
-      // every row copied in order, as in 0059. Nothing references it.
+      // Notifications' kind CHECK gains the thread kinds, and a comment column: rebuilt with every row copied in order,
+      // as in 0059. Every existing comment becomes an open thread, numbered and followed (whole-table UPDATE and
+      // INSERT ... SELECT), which is additive.
       '0063_comment_threads.sql',
     ],
   },

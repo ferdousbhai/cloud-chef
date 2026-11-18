@@ -139,6 +139,7 @@ import {
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import * as showcase from './server-handlers/showcase';
 import { runtimeReelAction, runtimeReelTargetAction } from './server-handlers/runtime-reels';
+import { runtimeCommentsAction, runtimeCommentsAnsweredAction } from './server-handlers/runtime-comments';
 import { deleteGoneMediaBestEffort, serveMediaAction } from './lib/.server/showcase/media';
 import { runShowcaseJobs, type ShowcaseJob } from './lib/.server/showcase/jobs';
 import { PROJECT_PRESENCE_ROUTE, projectPresenceAction } from './server-handlers/project-presence';
@@ -253,6 +254,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/deleted': ['POST', runtimeDeletedProjectsAction],
     '/api/cloudflare/runtime-projects/reel/target': ['POST', runtimeReelTargetAction],
     '/api/cloudflare/runtime-projects/reel': ['POST', runtimeReelAction],
+    '/api/cloudflare/runtime-projects/comments': ['POST', runtimeCommentsAction],
+    '/api/cloudflare/runtime-projects/comments/answered': ['POST', runtimeCommentsAnsweredAction],
     '/api/approvals': ['GET', listApprovalsAction],
     '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],

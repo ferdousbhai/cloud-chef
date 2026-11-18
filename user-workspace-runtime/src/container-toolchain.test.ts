@@ -121,6 +121,47 @@ describe('container toolchain bootstrap', () => {
     ]);
   });
 
+  it('sends `cloudchef comments` its arguments and prints the answer, failing with a refusal', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-comments-'));
+    const received: { path: string | undefined; body: string }[] = [];
+    const server = createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk: Buffer) => (body += chunk.toString()));
+      request.on('end', () => {
+        received.push({ path: request.url, body });
+        const refused = body.includes('close');
+        response.statusCode = refused ? 403 : 200;
+        response.end(refused ? 'Not from here.\n' : 'Open threads.\n');
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    // SAFETY: a server listening on a TCP port has an AddressInfo address.
+    const { port } = server.address() as AddressInfo;
+    const command = join(directory, 'cloudchef');
+    writeFileSync(command, cloudchefCommandScript().replaceAll('showcase.internal', `127.0.0.1:${port}`), {
+      mode: 0o755,
+    });
+    const runWith = (args: string[]) =>
+      new Promise<{ status: number | null; stdout: string; stderr: string }>((done) => {
+        const child = spawn(command, args, { env: { PATH: process.env.PATH } });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+        child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+        child.on('close', (status) => done({ status, stdout, stderr }));
+      });
+
+    const listed = await runWith(['comments']);
+    const closed = await runWith(['comments', 'close', '3', '--changed']);
+    server.close();
+    expect(listed).toEqual({ status: 0, stdout: 'Open threads.\n', stderr: '' });
+    expect(closed).toEqual({ status: 1, stdout: '', stderr: 'Not from here.\n' });
+    expect(received.map(({ path, body }) => ({ path, body: JSON.parse(body) }))).toEqual([
+      { path: '/comments', body: { args: [] } },
+      { path: '/comments', body: { args: ['close', '3', '--changed'] } },
+    ]);
+  });
+
   it('runs the pinned cf, preferring the project copy, with the connected account', () => {
     const directory = mkdtempSync(join(tmpdir(), 'cf-launcher-'));
     const launcher = join(directory, 'cf');

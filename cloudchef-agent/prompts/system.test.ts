@@ -69,3 +69,39 @@ describe('builder system prompt', () => {
     expect(prompt).not.toContain('refused');
   });
 });
+
+describe('comment threads in the environment', () => {
+  it('says nothing of comments for a project without a public post', () => {
+    expect(systemPrompt('', APP)).not.toContain('## Comments');
+  });
+
+  it("names the post's open threads and the command in every chat on a project with a public post", () => {
+    const prompt = systemPrompt('', APP, { comments: { post: '/sara/recipes', open: 3, onItsWay: 1 } });
+    expect(prompt).toContain('/sara/recipes, has 3 open comment threads and 1 on its way');
+    expect(prompt).toContain('`cloudchef comments`');
+    expect(prompt).not.toContain('cloudchef comments close');
+  });
+
+  it('tells a mention-started chat which thread, that its final message is public, and its length', () => {
+    const prompt = systemPrompt('', APP, {
+      comments: { post: '/sara/recipes', open: 1, onItsWay: 0 },
+      mention: { number: 4, post: '/sara/recipes', access: 'edit' },
+    });
+    expect(prompt).toContain('mention in thread #4 on /sara/recipes');
+    expect(prompt).toContain('posted publicly in that thread');
+    expect(prompt).toContain('at most 1,000 characters');
+    expect(prompt).toContain('cloudchef comments close 4 --changed');
+  });
+
+  it('describes a read-only chat in place of the project, and offers no closing', () => {
+    const prompt = systemPrompt('', APP, {
+      comments: { post: '/sara/recipes', open: 1, onItsWay: 0 },
+      mention: { number: 2, post: '/sara/recipes', access: 'read' },
+      question: { post: '/sara/recipes' },
+    });
+    expect(prompt).toContain('A read-only copy of the public project /sara/recipes');
+    expect(prompt).toContain('as a read-only run');
+    expect(prompt).not.toContain("Tip calculator, made from CloudChef's starter");
+    expect(prompt).not.toContain('cloudchef comments close');
+  });
+});
