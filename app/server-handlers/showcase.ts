@@ -40,6 +40,7 @@ import {
   listReplies,
   listThreads,
   mentionsCloudChef,
+  openThreadsOfProjects,
   reopenThread,
   setThreadFollowing,
   setThreadLocked,
@@ -189,6 +190,17 @@ export const threadsAction: Handler = ({ request, env }) =>
     }
     const session = await getAuthSession(env, request);
     return json(await listThreads(env.DB, postId.data, session?.user.id ?? null));
+  });
+
+/** `GET /api/showcase/open-threads?projectIds=a,b`: how many open threads each project's post has, for its card. */
+export const openThreadsAction: Handler = ({ request, env }) =>
+  answering(async () => {
+    const ids = (new URL(request.url).searchParams.get('projectIds') ?? '').split(',').filter(Boolean);
+    const parsed = z.array(z.string().min(1).max(64)).max(200).safeParse(ids);
+    if (!parsed.success) {
+      return json({ error: 'Name up to 200 projects.' }, 400);
+    }
+    return json({ open: await openThreadsOfProjects(env.DB, parsed.data) });
   });
 
 /** `GET /api/showcase/threads/replies?threadId=`: every reply in a thread. */

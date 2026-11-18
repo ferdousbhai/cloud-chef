@@ -286,3 +286,18 @@ export async function makeWaitingCopy(projectId: string) {
 export async function forgetWaitingCopy(projectId: string): Promise<void> {
   await postJson('/api/showcase/copies/forget', { projectId }, z.unknown());
 }
+
+/** How many open comment threads each project's post has, by project id. */
+export async function loadOpenThreads(projectIds: readonly string[], signal?: AbortSignal) {
+  if (projectIds.length === 0) {
+    return {};
+  }
+  return (
+    await getJson(
+      `/api/showcase/open-threads?projectIds=${encodeURIComponent(projectIds.join(','))}`,
+      z.object({ open: z.record(z.string(), z.number()) }),
+      undefined,
+      signal,
+    )
+  ).open;
+}

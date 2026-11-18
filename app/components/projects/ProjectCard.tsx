@@ -45,6 +45,7 @@ export function ProjectCard({
   badge,
   deploy,
   note,
+  openThreads,
   primary,
   menuItems,
 }: {
@@ -65,6 +66,8 @@ export function ProjectCard({
   deploy?: CardDeploy;
   /** Why the main action just failed, said beside it. */
   note?: string | null;
+  /** Open comment threads on the project's post, linking to them. */
+  openThreads?: { count: number; href: string } | null;
   /** The main action: Edit, or nothing for a project the person may only view. */
   primary: ReactNode;
   menuItems: ReactNode;
@@ -125,6 +128,13 @@ export function ProjectCard({
             {updatedAt && badge ? ' · ' : null}
             {badge}
           </p>
+          {openThreads && openThreads.count > 0 ? (
+            <p className="truncate text-xs">
+              <a href={openThreads.href} className="text-content-link no-underline hover:underline">
+                {openThreads.count} open {openThreads.count === 1 ? 'comment thread' : 'comment threads'}
+              </a>
+            </p>
+          ) : null}
         </div>
         {deploy ? <DeployNote deploy={deploy} siteShown={siteUrl !== null} title={title} /> : null}
         {note ? (

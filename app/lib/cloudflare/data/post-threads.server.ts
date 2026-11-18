@@ -952,3 +952,25 @@ export async function findThreadByNumber(
     .first<{ id: string }>();
   return row ? findThread(db, row.id, args.viewerId) : null;
 }
+
+/** How many open threads the visible posts of `projectIds` have, by project id; projects with none are left out. */
+export async function openThreadsOfProjects(
+  db: D1Database,
+  projectIds: readonly string[],
+): Promise<Record<string, number>> {
+  if (projectIds.length === 0) {
+    return {};
+  }
+  const { results } = await db
+    .prepare(
+      `SELECT posts.project_id, COUNT(*) AS count FROM post_comments AS comments
+       JOIN posts ON posts.id = comments.post_id AND posts.status = 'visible'
+       JOIN "user" AS people ON people.id = comments.author_id
+       WHERE posts.project_id IN (SELECT value FROM json_each(?)) AND comments.parent_id IS NULL
+         AND comments.state = 'open' AND ${SHOWN}
+       GROUP BY posts.project_id`,
+    )
+    .bind(JSON.stringify(projectIds.slice(0, 200)))
+    .all<{ project_id: string; count: number }>();
+  return Object.fromEntries(results.map((row) => [row.project_id, row.count]));
+}

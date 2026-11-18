@@ -12,6 +12,7 @@ import {
   markThreadOnItsWay,
   mentionedUsernames,
   mentionsCloudChef,
+  openThreadsOfProjects,
   reopenThread,
   setThreadFollowing,
   setThreadLocked,
@@ -212,5 +213,15 @@ describe('CloudChef and copies', () => {
       siteUrl: 'https://ben-recipes.example.workers.dev',
     });
     expect(kindsOf(database, 'sara')).toEqual(['change_suggested']);
+  });
+});
+
+describe('openThreadsOfProjects', () => {
+  it('counts open threads per project, for its card', async () => {
+    const { db, postId } = await seeded();
+    await startThread(db, { userId: 'ben', postId, body: 'One' });
+    const closed = await startThread(db, { userId: 'ben', postId, body: 'Two' });
+    await closeThread(db, { userId: 'sara', threadId: closed.id, reason: 'not_planned' });
+    expect(await openThreadsOfProjects(db, ['recipes', 'ben-recipes'])).toEqual({ recipes: 1 });
   });
 });

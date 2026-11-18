@@ -1,5 +1,6 @@
 import { useStore } from '@nanostores/react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { loadOpenThreads } from '~/lib/showcase-api';
 import { toast } from 'sonner';
 import {
   CodeIcon,
@@ -393,6 +394,8 @@ type ConnectionProjects = {
   changeVisibility: (project: TeamProject, visibility: ProjectVisibility) => Promise<void>;
   /** Takes a project deleted for good off the list. */
   forget: (project: TeamProject) => void;
+  /** Open comment threads on each public project's post, by project id. */
+  openThreads: Record<string, number>;
 };
 
 function useConnectionProjects(
@@ -427,6 +430,20 @@ function useConnectionProjects(
       });
     return () => controller.abort();
   }, [orgId, attempt]);
+
+  const [openThreads, setOpenThreads] = useState<Record<string, number>>({});
+  const publicIds = (projects ?? [])
+    .filter((project) => project.visibility === 'public')
+    .map((project) => project.id)
+    .join(',');
+  useEffect(() => {
+    const controller = new AbortController();
+    loadOpenThreads(publicIds ? publicIds.split(',') : [], controller.signal)
+      .then(setOpenThreads)
+      // The counts are a convenience: a card shows none when they can't be read.
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [publicIds]);
 
   // While any project is being published, the list is asked for again until none is.
   const publishing = projects?.some((project) => isCloudChef(project) && deployInProgress(project.deployment?.state));
@@ -523,6 +540,7 @@ function useConnectionProjects(
     retry,
     changeVisibility,
     forget,
+    openThreads,
   };
 }
 
@@ -605,6 +623,11 @@ function ConnectionProjectCard({
       badge={badge ?? undefined}
       deploy={deploy}
       note={connection.openFailure?.id === project.id ? connection.openFailure.message : null}
+      openThreads={
+        project.fullName && connection.openThreads[project.id]
+          ? { count: connection.openThreads[project.id], href: `/${project.fullName}#comments` }
+          : null
+      }
       primary={
         canEdit ? (
           <Button
