@@ -78,7 +78,12 @@ import type {
 } from '@cloudchef/user-workspace-runtime/protocol';
 import { commitBuilderTemplate } from './builder-template';
 import { WorkspaceSeedError, type WorkspaceSeedFailure } from './builder-workspace-seed';
-import { isExcludedProjectPath, revertChanges, seedLinkedWorkspace } from './linked-project-workspace';
+import {
+  isExcludedProjectPath,
+  revertChanges,
+  seedLinkedWorkspace,
+  seedQuestionWorkspace,
+} from './linked-project-workspace';
 import { SharedProjectRepositories } from '~/lib/.server/cloudflare/shared-project';
 import { LINKED_BUILD_WATCH_MS } from '~/lib/common/linked-publish';
 import {
@@ -200,6 +205,18 @@ import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.se
 import { recordModelResponse, turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
 import { requireBuilderModel, requireBuilderReasoningLevel } from '~/lib/.server/llm/workers-ai-model-catalog';
+import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
+import type { ThreadFacts } from 'cloudchef-agent/prompts/system';
+import {
+  BuilderMentionStore,
+  finalAssistantText,
+  mentionRequestId,
+  mentionStartSchema,
+  type MentionStart,
+  type PendingMention,
+} from './builder-mentions';
+import { commentsCommandSchema, type CommentsCommand, type CommentsRequest } from '~/lib/thread-comments';
+import { openThreads, reportMentionAnswer, runCommentsRequest } from '~/lib/.server/cloudflare/thread-comments-client';
 
 const logger = createScopedLogger('ConversationAgent');
 
@@ -438,6 +455,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private readonly identityRepository: ConversationAgentIdentityRepository;
   private readonly cloudflareExecutions: BuilderCloudflareExecutionRepository;
   private readonly reels: BuilderReelRepository;
+  /** The comment thread this chat answers `@cloudchef` mentions in, a read-only chat's source, and the mention turn running. */
+  private readonly mentions: BuilderMentionStore;
+  /** The project's public post and its open threads, as the latest turn's start read them, for the environment. */
+  #postThreads: ThreadFacts['comments'] = null;
+  /** The mention whose turn `startMentionTurn` is starting: a start that fails is answered by it, not by the turn's end. */
+  #startingMention: string | null = null;
   /** Changes each running command filed for the team's admins, in order, until that command's output takes them. */
   private readonly filedCloudflareChanges = new Map<string, CloudflareRequestFiled[]>();
   /** When the proxy holding each waiting change last asked about it, by execution: a change no one waits for is not sent. */
@@ -466,6 +489,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     this.identityRepository = new ConversationAgentIdentityRepository(ctx.storage);
     this.cloudflareExecutions = new BuilderCloudflareExecutionRepository(ctx.storage);
     this.reels = new BuilderReelRepository(ctx.storage);
+    this.mentions = new BuilderMentionStore(ctx.storage.kv);
     this.workspace = new UserWorkspaceRuntimeClient(
       env,
       () => this.workspaceProjectId(),
@@ -512,6 +536,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (this.userId) {
       await this.chat.start();
       this.resumeTurn();
+      this.retryMentionAnswer();
     }
   }
 
@@ -662,6 +687,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const siteNote = this.linkedSiteNote();
     const sharedNote = this.sharedProjectNote();
     const mainNote = this.mainMovedTurnNote();
+    const postThreads = this.readPostThreads();
     // Until the turn is recorded active, a restore must not start: it would change the files this turn edits.
     this.startingTurns += 1;
     let turn: BuilderTurnState;
@@ -686,6 +712,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       await mainNote,
       ...untoldChanges,
     ]);
+    this.#postThreads = await postThreads;
     const shown = await this.chat.messages();
     const userMessages = shown.filter((message) => message.role === 'user').length + 1;
     console.info({ event: 'builder_chat_turn_started', firstUserMessage: userMessages === 1 });
@@ -813,7 +840,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           ),
         ),
         systemPrompt: async () => {
-          return systemPrompt((await this.skillContext()).prompt, await this.projectFacts());
+          return systemPrompt((await this.skillContext()).prompt, await this.projectFacts(), this.threadFacts());
         },
         afterResponse: (message) => this.reportModelUsage(recordModelResponse(message)),
         afterTools: async () => {
@@ -1224,6 +1251,215 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       }
       throw error;
     }
+  }
+
+  /**
+   * A `@cloudchef` mention (docs/proposals/comment-threads.md): CloudChef's control plane starts a turn here, through
+   * the runtime's `/v1/mentions/start`, as if the person had sent the message in this chat, with the model their
+   * account starts chats on. Busy while a turn runs here. When the turn ends, its final message is reported for the
+   * thread (`settleMentionTurn`). An internal Durable Object RPC, not `@callable`: only the runtime calls it.
+   */
+  async startMentionTurn(input: MentionStart): Promise<{ status: 'started' | 'busy' }> {
+    const parsed = mentionStartSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new AgentRefusal('Invalid mention', 400);
+    }
+    const start = parsed.data;
+    await this.initializeIdentity({ userId: start.ownerId });
+    const binding = this.transcriptBinding;
+    if (!binding) {
+      throw new AgentRefusal('Agent not found.', 404);
+    }
+    // An answer decided but not yet delivered gives way to the new mention.
+    const waiting = this.mentions.pending();
+    if (this.state.activeTurn || this.startingTurns > 0 || (waiting && !waiting.outcome)) {
+      return { status: 'busy' };
+    }
+    if (start.question && !this.mentions.question()) {
+      this.mentions.setQuestion(start.question);
+    }
+    this.mentions.setThread(start.thread);
+    this.mentions.setPending({
+      threadId: start.thread.threadId,
+      commentId: start.commentId,
+      chatId: binding.chatInitialId,
+    });
+    this.#startingMention = start.commentId;
+    // Seeding a new workspace, or waiting out an upgrade, can take minutes: the comment that asked doesn't wait for
+    // it. A start that fails is answered in the thread with why.
+    const commentId = start.commentId;
+    const starting = (async () => {
+      try {
+        const settings = await readAccountModelSettings(this.env);
+        await this.sendMessage({
+          text: start.text,
+          requestId: mentionRequestId(commentId),
+          // SAFETY: the account's chosen default, or CloudChef's pinned model; sendMessage checks it as any choice.
+          modelId: effectiveDefaultModelId(settings?.defaultModelId ?? null) as BuilderModelId,
+          transcript: { agentName: binding.agentName, conversationIndex: binding.conversationIndex },
+        });
+      } catch (error) {
+        const pending = this.mentions.pending();
+        if (pending?.commentId === commentId && !pending.outcome) {
+          // A refusal's own words, where it gave some: a model the account can't run is refused with a Response.
+          const said =
+            error instanceof Response
+              ? await error.text().catch(() => '')
+              : error instanceof Error
+                ? error.message
+                : '';
+          const decided = {
+            ...pending,
+            outcome: 'failed' as const,
+            text: said.slice(0, 500) || 'The turn couldn’t start.',
+          };
+          this.mentions.setPending(decided);
+          await this.deliverMentionAnswer(decided);
+        }
+      } finally {
+        if (this.#startingMention === commentId) {
+          this.#startingMention = null;
+        }
+      }
+    })();
+    this.ctx.waitUntil(starting);
+    return { status: 'started' };
+  }
+
+  /** The turn a mention started ended: its answer is reported for the thread, a stopped one as posting nothing. */
+  private settleMentionTurn(turn: BuilderTurnState, status: BuilderTurnStatus): void {
+    const pending = this.mentions.pending();
+    if (!pending || pending.outcome || turn.requestId !== mentionRequestId(pending.commentId)) {
+      return;
+    }
+    // A start that failed before the run began is answered by `startMentionTurn`'s caller, with the reason.
+    if (this.#startingMention === pending.commentId && !turn.operationId) {
+      return;
+    }
+    this.ctx.waitUntil(
+      this.decideMentionAnswer(pending, status)
+        .then((decided) => this.deliverMentionAnswer(decided))
+        .catch(() => logger.warn('Unable to report the mention turn')),
+    );
+  }
+
+  private async decideMentionAnswer(pending: PendingMention, status: BuilderTurnStatus): Promise<PendingMention> {
+    const outcome = status === 'completed' ? 'answered' : status === 'aborted' ? 'stopped' : 'failed';
+    const text =
+      outcome === 'answered'
+        ? finalAssistantText(await this.chat.messages())
+        : outcome === 'failed'
+          ? (this.state.turnError ?? 'The turn failed.')
+          : '';
+    const decided = { ...pending, outcome, text } as const;
+    this.mentions.setPending(decided);
+    return decided;
+  }
+
+  /** Tells CloudChef a mention's answer, a few times; kept to try again when the agent next starts. */
+  private async deliverMentionAnswer(decided: PendingMention): Promise<void> {
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity || !decided.outcome) {
+      return;
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const told = await reportMentionAnswer(this.env, identity, {
+        threadId: decided.threadId,
+        commentId: decided.commentId,
+        chatId: decided.chatId,
+        outcome: decided.outcome,
+        text: decided.text ?? '',
+      });
+      if (told) {
+        this.mentions.clearPending(decided.commentId);
+        return;
+      }
+      await abortableSleep(2_000 * (attempt + 1));
+    }
+  }
+
+  /** A mention's answer this agent decided but couldn't deliver before it stopped. */
+  private retryMentionAnswer(): void {
+    const pending = this.mentions.pending();
+    if (pending?.outcome && !this.state.activeTurn) {
+      this.ctx.waitUntil(this.deliverMentionAnswer(pending).catch(() => logger.warn('Unable to report the mention')));
+    }
+  }
+
+  /**
+   * `cloudchef comments`, from this conversation's command `toolCallId` (the runtime's proxy for
+   * `showcase.internal/comments` asks): the threads of the project's public post, or of the post a read-only chat
+   * reads. Closing is for the turn a mention in that thread started, and CloudChef checks it again. The answer is the
+   * command's output.
+   */
+  async answerComments(input: {
+    toolCallId: string;
+    command: CommentsCommand;
+  }): Promise<{ status: number; message: string }> {
+    const parsed = z.strictObject({ toolCallId: z.string().min(1), command: commentsCommandSchema }).safeParse(input);
+    const identity = runtimeConnectionIdentity(this.env);
+    const binding = this.transcriptBinding;
+    if (!parsed.success || !identity || identity.userId !== this.userId || !binding) {
+      return { status: 403, message: 'The comments are read by the agent in its own chat.' };
+    }
+    const { command } = parsed.data;
+    const linked = await this.workspace.linkedProject();
+    const orgProjectId = linked?.orgProjectId ?? this.mentions.question()?.projectId;
+    if (!orgProjectId) {
+      return { status: 409, message: 'This chat isn’t on a project yet, so it has no comment threads.' };
+    }
+    let request: CommentsRequest;
+    if (command.op === 'close') {
+      const thread = this.mentions.thread();
+      if (!this.mentions.pending() || thread?.number !== command.number || thread.access !== 'edit') {
+        return {
+          status: 403,
+          message: `Thread #${command.number} is closed on the post’s page, or here only while answering a @cloudchef mention in it from someone who can change the project.`,
+        };
+      }
+      const fixCommit =
+        command.reason === 'changed' && linked
+          ? ((await (await this.linkedRepositories(linked.orgProjectId)).head(linked.repository)) ?? undefined)
+          : undefined;
+      request = { ...command, orgProjectId, chatId: binding.chatInitialId, fixCommit };
+    } else {
+      request = { ...command, orgProjectId };
+    }
+    const output = await runCommentsRequest(this.env, identity, request);
+    return { status: output.ok ? 200 : 400, message: output.text.trimEnd() };
+  }
+
+  /** The project's public post and its open threads, for the turn's environment; null when it can't be read quickly. */
+  private async readPostThreads(): Promise<ThreadFacts['comments']> {
+    const identity = runtimeConnectionIdentity(this.env);
+    const read = (async () => {
+      const linked = await this.workspace.linkedProject();
+      const orgProjectId = linked?.orgProjectId ?? this.mentions.question()?.projectId;
+      return identity && orgProjectId ? openThreads(this.env, identity, orgProjectId) : null;
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SITE_NOTE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([read, late]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      read.catch(() => undefined);
+    }
+  }
+
+  /** What the environment says of comment threads: the post's, the thread a mention started this chat in, and a read-only chat's source. */
+  private threadFacts(): ThreadFacts {
+    const thread = this.mentions.thread();
+    const question = this.mentions.question();
+    return {
+      comments: this.#postThreads,
+      mention: thread ? { number: thread.number, post: thread.post, access: thread.access } : null,
+      question: question ? { post: question.post } : null,
+    };
   }
 
   /** A clip waiting in the chat, for the chat's player to play. */
@@ -1820,6 +2056,15 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       agentName: binding.agentName,
       ownerId: this.userId,
     });
+    // A read-only chat: a public project's files at the commit its post showed, tied to no project of theirs.
+    const question = opened ? null : this.mentions.question();
+    if (question) {
+      return seedQuestionWorkspace(
+        this.workspace,
+        new SharedProjectRepositories(this.env, identity, question.projectId),
+        question,
+      );
+    }
     const orgProjectId = opened ?? (await this.createChatProject(identity, binding));
     {
       const project = await openProject(this.env, identity, orgProjectId);
@@ -2629,6 +2874,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       lastCompletedTurn: finishedTurn,
       validationProgress: null,
     });
+    this.settleMentionTurn(turn, result.status);
   }
 }
 

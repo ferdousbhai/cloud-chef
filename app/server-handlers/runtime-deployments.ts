@@ -14,6 +14,7 @@ import {
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { json, openProject } from './runtime-projects';
 import { projectPublished } from '~/lib/.server/showcase/jobs';
+import { closeThreadsThatWentLive } from './threads-went-live';
 
 /**
  * A member's workspace runtime building and deploying a project CloudChef deploys itself (one uploaded as a ZIP):
@@ -223,9 +224,17 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
       publishedAt: Date.now(),
       deployedBy: 'cloudchef',
     });
-    // A public project's post is made or updated with it (app/lib/.server/showcase/jobs.ts).
+    // A public project's post is made or updated with it (app/lib/.server/showcase/jobs.ts), and its threads waiting
+    // for a change this commit holds close (threads-went-live.ts).
     if (publish) {
       await projectPublished(args.env, publish);
+      await closeThreadsThatWentLive(args.request, args.env, {
+        projectId: project.id,
+        connectionId: project.connectionId,
+        commit: publish.commit,
+        reportedBy: identity.userId,
+        at: publish.publishedAt,
+      });
     }
   }
   // The Worker the project deploys as now, which a deploy that just started (or started over) uses.

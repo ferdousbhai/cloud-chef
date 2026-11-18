@@ -12,6 +12,7 @@ import {
 } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 import { REEL_PROXY_HOST } from '../../app/lib/reel';
+import { COMMENTS_PROXY_PATH } from '../../app/lib/thread-comments';
 
 /**
  * One content-addressed pnpm store for every install this container runs. Passed explicitly on the
@@ -419,9 +420,24 @@ const REEL_SENDER = [
 ].join('\n');
 
 /**
+ * `cloudchef comments [show <n> | close <n> --changed | --not-planned | --same-as <m>]`: sends its arguments to the
+ * runtime's proxy for `showcase.internal` (the same host as `cloudchef reel`), which reads them, checks them and asks
+ * CloudChef; it prints the answer, and fails with its reason.
+ */
+const COMMENTS_SENDER = [
+  `const response = await fetch(${JSON.stringify(`http://${REEL_PROXY_HOST}${COMMENTS_PROXY_PATH}`)}, {`,
+  "  method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ args: process.argv.slice(1) }),",
+  '});',
+  'const answer = await response.text();',
+  '(response.ok ? process.stdout : process.stderr).write(answer);',
+  'process.exit(response.ok ? 0 : 1);',
+].join('\n');
+
+/**
  * `cloudchef validate` is answered by the agent's exec tool itself, which runs the project's full validation (the
  * one a publish recognizes) when the command is exactly that. Reaching this script with it means it was run some
- * other way: inside a longer command line, or from the terminal. `cloudchef reel` sends a clip to the agent.
+ * other way: inside a longer command line, or from the terminal. `cloudchef reel` sends a clip to the agent;
+ * `cloudchef comments` reads, and closes, the threads on the project's public post.
  */
 export function cloudchefCommandScript(): string {
   return [
@@ -429,6 +445,10 @@ export function cloudchefCommandScript(): string {
     'if [ "${1:-}" = reel ]; then',
     '  shift',
     `  exec node --input-type=module -e ${shellQuote(REEL_SENDER)} -- "\${1:-.}"`,
+    'fi',
+    'if [ "${1:-}" = comments ]; then',
+    '  shift',
+    `  exec node --input-type=module -e ${shellQuote(COMMENTS_SENDER)} -- "$@"`,
     'fi',
     `echo ${shellQuote(`${VALIDATE_COMMAND} runs the project's full checks when the agent runs it as a command of its own, exactly as written.`)} >&2`,
     'exit 2',

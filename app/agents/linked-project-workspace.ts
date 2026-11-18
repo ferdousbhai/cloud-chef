@@ -92,6 +92,47 @@ export async function seedLinkedWorkspace(
 }
 
 /**
+ * Seeds a read-only chat's workspace (docs/proposals/comment-threads.md) with a public project's files at one commit,
+ * read through CloudChef from the project's own account. The workspace is tied to no project: git in it has nowhere to
+ * push, and nothing here changes the project it was read from.
+ */
+export async function seedQuestionWorkspace(
+  workspace: Pick<BuilderWorkspaceApi, 'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed'>,
+  repositories: Parameters<typeof seedLinkedWorkspace>[1],
+  source: { projectId: string; commit: string },
+): Promise<BuilderWorkspaceState> {
+  const seedId = `question_${source.projectId}`;
+  const started = await workspace.beginSeed(seedId);
+  if (started.status === 'initialized') {
+    return started.state;
+  }
+  try {
+    const { files } = await repositories.streamFilesAt('', source.commit, (path) => !isExcludedProjectPath(path));
+    let fileCount = 0;
+    let totalBytes = 0;
+    async function* entries(): AsyncGenerator<BuilderWorkspaceFileInput> {
+      for await (const file of files) {
+        fileCount += 1;
+        totalBytes += file.bytes.length;
+        yield {
+          path: `${WORK_DIR}/${file.path}`,
+          content: bytesToBase64(file.bytes),
+          encoding: 'base64',
+          mode: file.mode === '100755' ? 0o755 : 0o644,
+        };
+      }
+    }
+    for await (const batch of seedBatches(entries())) {
+      await workspace.appendSeed(seedId, batch);
+    }
+    return await workspace.commitSeed(seedId, { fileCount, totalBytes });
+  } catch (error) {
+    await workspace.abortSeed(seedId).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
  * The workspace as a commit of it holds it, read page by page from its own sync feed, and the revision it
  * was read at: every file but installed and built output, and, unless the repository already tracks them,
  * local secrets and what its `.gitignore` files ignore. Null when the workspace kept changing under the read.

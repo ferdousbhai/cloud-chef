@@ -39,6 +39,59 @@ Changes reach people only through the project's repository, and you do not deplo
 The person sees ${project.defaultBranch}'s history as the project's versions and can restore, clone or download any of them, so commit with messages that say what changed for them.`;
 }
 
-export function systemPrompt(skillPrompt: string, project: ProjectFacts): string {
-  return `${WORKSPACE}\n\n${projectSection(project)}\n\n${skillPrompt}`;
+/**
+ * Comment threads (docs/proposals/comment-threads.md): the project's public post and its open threads, when it has
+ * one; the thread a `@cloudchef` mention started this chat in; and, for a read-only chat, the post it reads.
+ */
+export type ThreadFacts = {
+  /** The project's public post (`/<owner>/<slug>`) and how many of its threads are open and on their way. */
+  comments?: { post: string; open: number; onItsWay: number } | null;
+  /** The thread whose `@cloudchef` mentions this chat answers. */
+  mention?: { number: number; post: string; access: 'edit' | 'read' } | null;
+  /** A read-only chat: a copy of the public post's project, at the version live when it started. */
+  question?: { post: string } | null;
+};
+
+/** In place of the project's own sections, for a read-only chat on someone else's public project. */
+function questionSection(question: { post: string }): string {
+  return `## This project
+A read-only copy of the public project ${question.post}, at the version that was live when this chat started, in this person's own workspace. Nothing here changes or publishes that project: the files are not tied to it, and there is nowhere to push them. You can read the code, run it in the container, and read its live site with curl.`;
+}
+
+function commentsSection(facts: ThreadFacts): string | null {
+  const lines: string[] = [];
+  if (facts.comments) {
+    const { post, open, onItsWay } = facts.comments;
+    const waiting =
+      onItsWay > 0
+        ? ` and ${onItsWay} on ${onItsWay === 1 ? 'its' : 'their'} way (a change made for it waits to go live)`
+        : '';
+    lines.push(
+      `- The project's public post, ${post}, has ${open} open comment thread${open === 1 ? '' : 's'}${waiting}. \`cloudchef comments\` lists the open and on-its-way ones, and \`cloudchef comments show <n>\` shows one whole, from any chat or the person's terminal.`,
+    );
+  }
+  if (facts.mention) {
+    const { number, post, access } = facts.mention;
+    const readOnly =
+      access === 'read' ? ", as a read-only run: they can't change that project, so neither can you here" : '';
+    lines.push(
+      `- This chat was started by the person's \`@cloudchef\` mention in thread #${number} on ${post}${readOnly}. When a turn their mention started ends, your final message is posted publicly in that thread as CloudChef's reply, shown with who asked, without review: write it for everyone reading the thread, in at most 1,000 characters (anything longer is cut). A failed turn posts that CloudChef couldn't finish, and a stopped one posts nothing. Messages the person types in this chat themselves stay in the chat.`,
+    );
+    if (access === 'edit') {
+      lines.push(
+        `- While answering that mention, \`cloudchef comments close ${number} --changed\` marks the thread on its way once the change it asks for is pushed to main (it closes as changed when that version goes live); \`--not-planned\` or \`--same-as <m>\` close it otherwise. If the person asked only for a preview, leave it open and say where to try it.`,
+      );
+    }
+  }
+  return lines.length > 0 ? `## Comments\n${lines.join('\n')}` : null;
+}
+
+export function systemPrompt(skillPrompt: string, project: ProjectFacts, threads: ThreadFacts = {}): string {
+  const sections = [
+    WORKSPACE,
+    threads.question ? questionSection(threads.question) : projectSection(project),
+    commentsSection(threads),
+    skillPrompt,
+  ];
+  return sections.filter((section): section is string => section !== null).join('\n\n');
 }

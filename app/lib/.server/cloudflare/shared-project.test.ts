@@ -40,6 +40,11 @@ const repositories = {
     return { commit: COMMIT, count: all.length, files: files() };
   },
   archiveZip: async () => ({ commit: COMMIT, stream: new Response('zip').body! }),
+  // b is in c's history; d's history is too long to walk.
+  isAncestor: async (_repo: string, ancestor: string, commit: string) =>
+    ancestor === 'd'.repeat(40)
+      ? null
+      : ancestor === commit || (ancestor === 'b'.repeat(40) && commit === 'c'.repeat(40)),
 };
 
 describe('a project shared from another account', () => {
@@ -64,6 +69,7 @@ describe('a project shared from another account', () => {
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(String(input));
         calls.push(`${url.pathname}${url.search} ${new Headers(init?.headers).get('authorization')}`);
+        expect(new Headers(init?.headers).get('x-cloudchef-workspace')).toBe('reads');
         const op = url.pathname.split('/').at(-1)!;
         return answerSharedRead(
           repositories,
@@ -103,6 +109,26 @@ describe('a project shared from another account', () => {
     await expect(shared.log('t-recipes', { limit: 5 })).rejects.toEqual(
       new ProjectRepositoryError('This project is not shared with you.', 'refused'),
     );
+  });
+
+  it('says which waiting commits a published commit holds, leaving out what it can’t place', async () => {
+    const [b, c, d, e] = ['b', 'c', 'd', 'e'].map((letter) => letter.repeat(40));
+    const answer = await answerSharedRead(
+      repositories,
+      't-recipes',
+      'ancestors',
+      new URLSearchParams({ commit: c!, of: [b, c, d, e].join(',') }),
+      () => true,
+    );
+    expect(await answer.json()).toEqual({ live: [b, c] });
+    const refused = await answerSharedRead(
+      repositories,
+      't-recipes',
+      'ancestors',
+      new URLSearchParams({ commit: 'main', of: b! }),
+      () => true,
+    );
+    expect(refused.status).toBe(400);
   });
 
   it('refuses a ref that is neither main nor a commit', async () => {

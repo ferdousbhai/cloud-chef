@@ -144,6 +144,7 @@ export { WorkspaceProxy };
 export { GitProxy } from './git-proxy';
 export { CloudflareApiProxy } from './cloudflare-api-proxy';
 export { ReelProxy } from './reel-proxy';
+import { userRuntimeMentionStartAction } from './mention-start';
 import { handleCommandLineGit, handleSharedProjectRequest } from './git-proxy';
 import { readSharedCapabilitySubject } from '../../app/lib/.server/cloudflare/shared-project';
 import type { WorkspaceAgentCommand } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
@@ -2637,6 +2638,8 @@ async function handleUserRequest(
     });
   } else if (request.method === 'GET' && url.pathname === '/v1/projects/deploy-log') {
     response = await userRuntimeProjectDeployLogAction({ url, env: sharedEnv });
+  } else if (request.method === 'POST' && url.pathname === '/v1/mentions/start') {
+    response = await userRuntimeMentionStartAction({ request, env: sharedEnv, userId: capability.subject });
   } else if (request.method === 'POST' && url.pathname === '/v1/chats/messages') {
     response = await userRuntimeInitialMessagesAction({
       request,

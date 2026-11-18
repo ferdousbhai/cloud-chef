@@ -12,9 +12,10 @@ import { sharedProjectRequest } from './user-workspace-cloudflare-credential';
  * there (`handleSharedProjectRequest` in the runtime). The token never leaves the project's account.
  *
  * The reads are the few a workspace needs besides git: main's commit, one commit, main's history, a commit's files
- * (to seed the workspace or restore a version), and a ZIP of a commit.
+ * (to seed the workspace or restore a version), and a ZIP of a commit. `ancestors` is CloudChef's own: which of some
+ * commits a published commit has in its history, so threads waiting for a change close when it goes live.
  */
-const SHARED_READS = ['head', 'resolve', 'log', 'files', 'archive'] as const;
+const SHARED_READS = ['head', 'resolve', 'log', 'files', 'archive', 'ancestors'] as const;
 export type SharedRead = (typeof SHARED_READS)[number];
 /** git's three requests, under `git/`. */
 const SHARED_GIT = ['git/info/refs', 'git/git-upload-pack', 'git/git-receive-pack'] as const;
@@ -69,8 +70,14 @@ export function readSharedCapabilitySubject(
 }
 
 const REF = /^(main|[0-9a-f]{40})$/;
+const COMMIT = /^[0-9a-f]{40}$/;
+/** The most commits one `ancestors` read checks. */
+const ANCESTORS_MAX = 100;
 
-type ReadableRepositories = Pick<ProjectRepositories, 'head' | 'resolve' | 'log' | 'streamFilesAt' | 'archiveZip'>;
+type ReadableRepositories = Pick<
+  ProjectRepositories,
+  'head' | 'resolve' | 'log' | 'streamFilesAt' | 'archiveZip' | 'isAncestor'
+>;
 
 /**
  * The project's account answering a read for someone it is shared with, from its own repository `repo`. `keep` is
@@ -125,6 +132,22 @@ export async function answerSharedRead(
           },
         });
         return new Response(body, { headers: { 'content-type': 'application/x-ndjson' } });
+      }
+      case 'ancestors': {
+        // `?commit=<published>&of=<a>,<b>`: which of a, b are in commit's history (itself among them). A history too
+        // long to walk answers neither, so what waits for it goes on waiting.
+        const commit = search.get('commit') ?? '';
+        const of = (search.get('of') ?? '').split(',').filter(Boolean);
+        if (!COMMIT.test(commit) || of.length > ANCESTORS_MAX || !of.every((candidate) => COMMIT.test(candidate))) {
+          return Response.json({ error: 'Name a commit and the commits to look for.' }, { status: 400 });
+        }
+        const live: string[] = [];
+        for (const candidate of new Set(of)) {
+          if ((await repositories.isAncestor(repo, candidate, commit)) === true) {
+            live.push(candidate);
+          }
+        }
+        return Response.json({ live });
       }
       case 'archive': {
         const folder = (search.get('folder') ?? 'project').replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 120) || 'project';
@@ -248,6 +271,8 @@ export class SharedProjectRepositories {
   async #request(op: SharedRead, search: URLSearchParams): Promise<Response> {
     const response = await sharedProjectRequest(this.#env, this.#identity, this.#orgProjectId, op, {
       search: `?${search.toString()}`,
+      // Reads see no workspace's branches; the control plane asks every request to name one all the same.
+      headers: { [SHARED_WORKSPACE_HEADER]: 'reads' },
       signal: AbortSignal.timeout(120_000),
     });
     if (response.ok) {

@@ -312,6 +312,8 @@ type RuntimeRoute =
   | 'runtime-projects/deleted'
   | 'runtime-projects/reel/target'
   | 'runtime-projects/reel'
+  | 'runtime-projects/comments'
+  | 'runtime-projects/comments/answered'
   | `runtime-shared/${string}`;
 
 function runtimeRouteEndpoint(value: string, route: RuntimeRoute): URL {
