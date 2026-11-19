@@ -108,6 +108,7 @@ type ThreadRow = CommentRow & {
   suggested_name: string | null;
   suggested_path: string | null;
   suggested_site: string | null;
+  suggested_here: number | null;
   following: number | null;
 };
 
@@ -127,6 +128,7 @@ const THREAD_COLUMNS = `${COMMENT_COLUMNS}, comments.post_id, comments.number, c
   CASE WHEN copy_posts.status = 'visible' AND copies.visibility = 'public' AND copy_owners.username IS NOT NULL
     THEN '/' || copy_owners.username || '/' || copies.slug END AS suggested_path,
   CASE WHEN copies.visibility = 'public' THEN copies.site_url END AS suggested_site,
+  (comments.suggested_project_id = posts.project_id) AS suggested_here,
   (SELECT 1 - followers.muted FROM thread_followers AS followers
    WHERE followers.thread_id = comments.id AND followers.user_id = ?1) AS following`;
 
@@ -158,7 +160,9 @@ function toThread(row: ThreadRow, replies: PostComment[], viewer: { id: string; 
     replyCount: row.reply_count,
     suggestion:
       row.kind === 'suggestion' && row.suggested_name
-        ? { name: row.suggested_name, path: row.suggested_path, siteUrl: row.suggested_site }
+        ? row.suggested_here === 1
+          ? { name: row.suggested_name, path: null, siteUrl: null, ownChange: true }
+          : { name: row.suggested_name, path: row.suggested_path, siteUrl: row.suggested_site }
         : null,
     working: row.working === 1,
     viewer: viewer
@@ -406,11 +410,12 @@ async function nextNumber(db: D1Database, postId: string): Promise<number> {
 
 /**
  * Starts a thread on a post anyone may see. Its starter and the post's author follow it; the post's author and anyone
- * mentioned are told. A suggestion names a public copy its writer can edit.
+ * mentioned are told. A suggestion names a public copy its writer can edit, or (`ownChange`, which the caller checked
+ * they may offer) a commit of the post's own project that its writer made in their workspace on it.
  */
 export async function startThread(
   db: D1Database,
-  args: { userId: string; postId: string; body: string; suggestFrom?: string; now?: number },
+  args: { userId: string; postId: string; body: string; suggestFrom?: string; ownChange?: string; now?: number },
 ): Promise<PostThread> {
   const body = checkedBody(args.body);
   const post = await findPostFacts(db, args.postId, args.userId);
@@ -422,6 +427,8 @@ export async function startThread(
   let suggestion: { projectId: string; commit: string } | null = null;
   if (args.suggestFrom) {
     suggestion = await requireSuggestableCopy(db, { userId: args.userId, copyId: args.suggestFrom, of: post });
+  } else if (args.ownChange) {
+    suggestion = { projectId: post.projectId, commit: args.ownChange };
   }
   const id = crypto.randomUUID();
   const mentioned = await mentionedPeople(db, body, post);
@@ -836,6 +843,73 @@ async function requireSuggestableCopy(
     throw new ShowcaseError('Suggest a change from your own public copy of this app, once it’s published.', 403);
   }
   return { projectId: copy.id, commit: copy.commit_sha };
+}
+
+/**
+ * Someone who may see a project offers a change they made in their own workspace on it: `commit`, kept in the
+ * project's repository among their workspace's saved branches. Their open offer on the post, if they have one, takes
+ * the new commit and `body` as a reply (as a pull request takes a push); otherwise it starts a suggestion thread. The
+ * caller has checked they may see the project.
+ */
+export async function offerChange(
+  db: D1Database,
+  args: { userId: string; postId: string; body: string; commit: string; now?: number },
+): Promise<{ number: number; updated: boolean }> {
+  const open = await db
+    .prepare(
+      `SELECT comments.id, comments.number FROM post_comments AS comments JOIN posts ON posts.id = comments.post_id
+       WHERE comments.post_id = ? AND comments.author_id = ? AND comments.parent_id IS NULL
+         AND comments.kind = 'suggestion' AND comments.state = 'open' AND comments.status = 'visible'
+         AND comments.suggested_project_id = posts.project_id
+       ORDER BY comments.created_at DESC LIMIT 1`,
+    )
+    .bind(args.postId, args.userId)
+    .first<{ id: string; number: number }>();
+  if (!open) {
+    const thread = await startThread(db, {
+      userId: args.userId,
+      postId: args.postId,
+      body: args.body,
+      ownChange: args.commit,
+      now: args.now,
+    });
+    return { number: thread.number, updated: false };
+  }
+  await addReply(db, { userId: args.userId, threadId: open.id, body: args.body, now: args.now });
+  await db.prepare('UPDATE post_comments SET suggested_commit = ? WHERE id = ?').bind(args.commit, open.id).run();
+  return { number: open.number, updated: true };
+}
+
+/**
+ * The change an open thread offers of the post's own project (`offerChange`), for someone who can edit the project to
+ * look at or accept: its commit and who offered it.
+ */
+export async function offeredChange(
+  db: D1Database,
+  args: { threadId: string; userId: string },
+): Promise<{ threadId: string; number: number; projectId: string; commit: string; offeredBy: string }> {
+  const thread = await requireEditorOf(db, args.threadId, args.userId);
+  const row = await db
+    .prepare(
+      `SELECT comments.number, comments.suggested_commit, people.name, people.username
+       FROM post_comments AS comments JOIN "user" AS people ON people.id = comments.author_id
+       WHERE comments.id = ? AND comments.kind = 'suggestion' AND comments.suggested_project_id = ?`,
+    )
+    .bind(thread.id, thread.post.projectId)
+    .first<{ number: number; suggested_commit: string | null; name: string | null; username: string | null }>();
+  if (!row?.suggested_commit) {
+    throw new ShowcaseError('This thread doesn’t offer a change made on this project.', 409);
+  }
+  if (thread.state !== 'open') {
+    throw new ShowcaseError('This change was already decided. Open the thread again first.', 409);
+  }
+  return {
+    threadId: thread.id,
+    number: row.number,
+    projectId: thread.post.projectId,
+    commit: row.suggested_commit,
+    offeredBy: row.name?.trim() || row.username || 'someone',
+  };
 }
 
 export type CopyOfPost = {

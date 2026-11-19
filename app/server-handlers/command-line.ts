@@ -31,6 +31,7 @@ import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import {
   isSharedOp,
   sharedCapabilitySubject,
+  type SHARED_MERGE,
   SHARED_WORKSPACE_HEADER,
   type SharedOp,
 } from '~/lib/.server/cloudflare/shared-project';
@@ -704,7 +705,7 @@ export async function forwardToProjectAccount(
     project: { id: string; connectionId: string };
     userId: string;
     role: 'view' | 'edit';
-    op: SharedOp;
+    op: SharedOp | typeof SHARED_MERGE;
     workspace: string;
   },
 ): Promise<Response> {

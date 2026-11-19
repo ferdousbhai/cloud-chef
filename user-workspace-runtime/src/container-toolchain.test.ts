@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -160,6 +160,68 @@ describe('container toolchain bootstrap', () => {
       { path: '/comments', body: { args: [] } },
       { path: '/comments', body: { args: ['close', '3', '--changed'] } },
     ]);
+  });
+
+  it('keeps the commit `cloudchef suggest` offers in the project, then sends it with the message', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'cloudchef-suggest-'));
+    const received: { path: string | undefined; body: string }[] = [];
+    const server = createServer((request, response) => {
+      let body = '';
+      request.on('data', (chunk: Buffer) => (body += chunk.toString()));
+      request.on('end', () => {
+        received.push({ path: request.url, body });
+        response.end('Offered as thread #4.\n');
+      });
+    });
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+    // SAFETY: a server listening on a TCP port has an AddressInfo address.
+    const { port } = server.address() as AddressInfo;
+    const command = join(directory, 'cloudchef');
+    writeFileSync(command, cloudchefCommandScript().replaceAll('showcase.internal', `127.0.0.1:${port}`), {
+      mode: 0o755,
+    });
+    const origin = join(directory, 'origin.git');
+    const work = join(directory, 'work');
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Sara', '-c', 'user.email=sara@example.com', ...args], { cwd })
+        .toString()
+        .trim();
+    git(directory, 'init', '-q', '--bare', origin);
+    git(directory, 'init', '-q', '-b', 'main', work);
+    git(work, 'remote', 'add', 'origin', origin);
+    git(work, 'config', 'cloudchef.saved', 'refs/cloudchef/workspaces/w1');
+    writeFileSync(join(work, 'a.txt'), 'a');
+    const runWith = (args: string[]) =>
+      new Promise<{ status: number | null; stdout: string; stderr: string }>((done) => {
+        const child = spawn(command, args, { cwd: work, env: { PATH: process.env.PATH } });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
+        child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+        child.on('close', (status) => done({ status, stdout, stderr }));
+      });
+
+    // Nothing committed, then a file not committed: nothing is sent.
+    expect((await runWith(['suggest', 'Add a']))?.status).toBe(2);
+    git(work, 'add', 'a.txt');
+    git(work, 'commit', '-q', '-m', 'Add a');
+    writeFileSync(join(work, 'b.txt'), 'b');
+    expect((await runWith(['suggest', 'Add a'])).stderr).toContain('Commit the change first');
+    expect((await runWith(['suggest'])).stderr).toContain('Usage: cloudchef suggest');
+    expect(received).toEqual([]);
+
+    git(work, 'add', 'b.txt');
+    git(work, 'commit', '-q', '-m', 'Add b');
+    const commit = git(work, 'rev-parse', 'HEAD');
+    const offered = await runWith(['suggest', 'Adds b, "quoted"']);
+    server.close();
+    expect(offered).toEqual({ status: 0, stdout: 'Offered as thread #4.\n', stderr: '' });
+    expect(received.map(({ path, body }) => ({ path, body: JSON.parse(body) }))).toEqual([
+      { path: '/suggest', body: { commit, message: 'Adds b, "quoted"' } },
+    ]);
+    const short = commit.slice(0, 12);
+    expect(git(origin, 'rev-parse', `refs/cloudchef/workspaces/w1/suggested/${short}`)).toBe(commit);
+    expect(git(work, 'rev-parse', `refs/heads/suggested/${short}`)).toBe(commit);
   });
 
   it('runs the pinned cf, preferring the project copy, with the connected account', () => {

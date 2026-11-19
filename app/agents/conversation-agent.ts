@@ -2167,7 +2167,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const orgProjectId = opened ?? (await this.createChatProject(identity, binding));
     {
       const project = await openProject(this.env, identity, orgProjectId);
-      // Someone who may only view it gets a workspace too: its files to read and run, with every push refused.
+      // Someone who may only view it gets a workspace too: their commits are kept for them and offered with
+      // `cloudchef suggest`, and every push of a branch is refused.
       const viewOnly = project.role !== 'edit';
       // Named to the browser at once, not minutes later when the workspace is seeded.
       this.showLinkedProject({ repository: project.name, defaultBranch: MAIN_BRANCH }, viewOnly);

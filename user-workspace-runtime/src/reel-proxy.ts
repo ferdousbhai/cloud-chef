@@ -5,8 +5,8 @@ import type { ConversationAgent } from '../../app/agents/conversation-agent';
 import { REEL_PROXY_HOST, REEL_REQUEST_MAX_BYTES } from '../../app/lib/reel';
 import { InvalidJsonBodyError, PayloadTooLargeError, readJsonBodyWithLimit } from '../../app/lib/bounded-body';
 import type { ProjectWorkspace } from './index';
-import { answerCommentsCommand, type CommentsProxyEnv } from './comments-proxy';
-import { COMMENTS_PROXY_PATH } from '../../app/lib/thread-comments';
+import { answerCommentsCommand, answerSuggestCommand, type CommentsProxyEnv } from './comments-proxy';
+import { COMMENTS_PROXY_PATH, SUGGEST_PROXY_PATH } from '../../app/lib/thread-comments';
 
 type ReelProxyEnv = CommentsProxyEnv & {
   PROJECT_WORKSPACE: DurableObjectNamespace<ProjectWorkspace>;
@@ -17,13 +17,17 @@ type ReelProxyEnv = CommentsProxyEnv & {
  * Minted for one workspace by its ProjectWorkspace, as the handler for `showcase.internal` in its container: the
  * `cloudchef reel` command's clip goes to the agent whose command is running, which makes it and shows it in the chat
  * for the person to approve. With no agent command running (the person's own terminal), nothing is made: clips are
- * the agent's, shown in its chat. `cloudchef comments` reaches the same host, at `/comments` (comments-proxy.ts).
+ * the agent's, shown in its chat. `cloudchef comments` and `cloudchef suggest` reach the same host, at `/comments` and
+ * `/suggest` (comments-proxy.ts).
  */
 export class ReelProxy extends WorkerEntrypoint<ReelProxyEnv, { workspaceId: string }> {
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.hostname === REEL_PROXY_HOST && url.pathname === COMMENTS_PROXY_PATH) {
       return answerCommentsCommand(request, this.env, this.ctx.props.workspaceId);
+    }
+    if (url.hostname === REEL_PROXY_HOST && url.pathname === SUGGEST_PROXY_PATH) {
+      return answerSuggestCommand(request, this.env, this.ctx.props.workspaceId);
     }
     if (url.hostname !== REEL_PROXY_HOST || url.pathname !== '/reel') {
       return text(404, 'Not found.');

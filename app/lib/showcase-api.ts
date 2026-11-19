@@ -166,6 +166,25 @@ export async function changeThread(threadId: string, change: ThreadChange): Prom
     .thread;
 }
 
+const offeredChangeSchema = z.object({
+  /** Whether Accept can bring it in as it is. */
+  acceptable: z.boolean(),
+  changed: z.array(z.object({ path: z.string(), change: z.enum(['added', 'changed', 'removed']) })),
+  /** What accepting does, or why it can't be accepted now. */
+  note: z.string(),
+});
+export type OfferedChange = z.infer<typeof offeredChangeSchema>;
+
+/** What the change a thread offers would change in the project, for someone who can edit it. */
+export async function loadOfferedChange(threadId: string): Promise<OfferedChange> {
+  return getJson(`/api/showcase/threads/change?threadId=${encodeURIComponent(threadId)}`, offeredChangeSchema);
+}
+
+/** Accepts the change a thread offers: it goes into the project and is published. */
+export async function acceptOfferedChange(threadId: string): Promise<PostThread> {
+  return (await postJson('/api/showcase/threads/accept', { threadId }, z.object({ thread: threadSchema }))).thread;
+}
+
 export async function setThreadFollowing(threadId: string, follow: boolean): Promise<void> {
   await postJson('/api/showcase/threads/state', { threadId, action: 'follow', follow }, z.unknown());
 }

@@ -52,10 +52,9 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
   if (!project || (!readable && (project.connectionId === connection.id || !project.shared))) {
     return refusal('This project is not shared with you.', 403);
   }
+  // With the view role a push goes on too: the runtime in the project's account lets it set only their workspace's
+  // saved branches, where their commits are kept, from the role signed here.
   const role = project.role === 'edit' ? 'edit' : 'view';
-  if (write && role !== 'edit') {
-    return refusal('You can view this project but not change it.', 403);
-  }
   const workspace = sharedWorkspaceName(request.headers.get(SHARED_WORKSPACE_HEADER));
   if (!workspace) {
     return refusal('Name the workspace this is for.', 400);

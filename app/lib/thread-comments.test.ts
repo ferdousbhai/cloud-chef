@@ -54,9 +54,7 @@ describe('cloudchef comments', () => {
     expect(text).toContain(
       '#1 @ben, 2026-11-18 09:30 (open, 2 replies, on an earlier version)\n    The date picker fails\n    on phones',
     );
-    expect(text).toContain(
-      '#2 someone no longer here, 2026-11-18 09:30 (on its way, 1 reply, a suggestion from a copy)',
-    );
+    expect(text).toContain('#2 someone no longer here, 2026-11-18 09:30 (on its way, 1 reply, a suggested change)');
     expect(formatCommentsList({ post: '/sara/recipes', open: 0, threads: [] })).toBe(
       'No open threads on /sara/recipes.\n',
     );

@@ -55,6 +55,21 @@ export type RepositoryFileInput =
 /** A file in a commit's tree. `mode` is git's (`100644`, `100755`, `120000` …), `oid` its blob. */
 type RepositoryTreeFile = { path: string; mode: string; oid: string };
 
+/** A file a suggested change adds, changes or removes, since the commit it and main last shared. */
+type MergeChange = { path: string; change: 'added' | 'changed' | 'removed' };
+
+/** What `planMerge` found: see there. `files` is the merged tree, `trees` the folders the repository already has. */
+export type MergePlan =
+  | { kind: 'already' | 'missing' | 'unrelated' }
+  | {
+      kind: 'ahead' | 'merge';
+      head: string;
+      changed: MergeChange[];
+      conflicts: string[];
+      files: Map<string, { mode: string; oid: string }>;
+      trees: Set<string>;
+    };
+
 /** A regular file of a commit, read. */
 type RepositoryFile = RepositoryTreeFile & { bytes: Uint8Array<ArrayBuffer> };
 
@@ -621,6 +636,163 @@ export class ProjectRepositories {
         throw new Error(`The repository refused the commit (${result.reason}).`);
       }
       return { commit };
+    } finally {
+      await this.#revokePushToken(args.repo, remote);
+    }
+  }
+
+  /**
+   * What bringing `commit` (one the repository already holds, such as a suggested change) into main would do, read
+   * without changing anything: `already` when main holds it, `missing` when the repository doesn't, `unrelated` when
+   * the two share no history within `limit` commits. Otherwise the files it changes since the commit the two last
+   * shared, and the files main changed too since then (`conflicts`): with none, main takes it, by moving to it when
+   * main hasn't changed since (`ahead`), or else in a merge commit holding both sides' files. The merge is by whole
+   * files: a file both sides changed differently is a conflict, never combined line by line.
+   */
+  async planMerge(repo: string, commit: string, limit = 5_000): Promise<MergePlan> {
+    const head = await this.head(repo);
+    return this.#withRepo(repo, async (handle) => {
+      const theirs = await handle.readCommit(commit);
+      const ours = head ? await handle.readCommit(head) : null;
+      if (!theirs || !head || !ours) {
+        return { kind: 'missing' };
+      }
+      const inMain = new Set<string>();
+      for (let queue = [head], next = queue.pop(); next !== undefined; next = queue.pop()) {
+        if (inMain.has(next)) {
+          continue;
+        }
+        inMain.add(next);
+        if (inMain.size > limit) {
+          break;
+        }
+        queue.push(...((await handle.readCommit(next))?.parents ?? []));
+      }
+      if (inMain.has(commit)) {
+        return { kind: 'already' };
+      }
+      // The nearest commit of the suggestion's history that main holds: breadth first, so the first one met.
+      let base: string | null = null;
+      const seen = new Set<string>();
+      const queue = [commit];
+      for (let at = 0; at < queue.length && seen.size <= limit; at += 1) {
+        const next = queue[at]!;
+        if (inMain.has(next)) {
+          base = next;
+          break;
+        }
+        if (!seen.has(next)) {
+          seen.add(next);
+          queue.push(...((await handle.readCommit(next))?.parents ?? []));
+        }
+      }
+      const shared = base ? await handle.readCommit(base) : null;
+      if (!base || !shared) {
+        return { kind: 'unrelated' };
+      }
+      const from = await flattenTree(handle, shared.treeHash);
+      const theirTree = await flattenTree(handle, theirs.treeHash);
+      const ourTree = base === head ? from : await flattenTree(handle, ours.treeHash);
+      const same = (a: RepositoryTreeFile | undefined, b: RepositoryTreeFile | undefined) =>
+        a?.oid === b?.oid && a?.mode === b?.mode;
+      const changed: MergeChange[] = [];
+      const conflicts: string[] = [];
+      const files = new Map<string, { mode: string; oid: string }>();
+      for (const [path, file] of ourTree.files) {
+        files.set(path, { mode: file.mode, oid: file.oid });
+      }
+      for (const path of new Set([...from.files.keys(), ...theirTree.files.keys()])) {
+        const was = from.files.get(path);
+        const their = theirTree.files.get(path);
+        if (same(was, their)) {
+          continue;
+        }
+        changed.push({ path, change: !was ? 'added' : !their ? 'removed' : 'changed' });
+        const our = ourTree.files.get(path);
+        if (!same(was, our) && !same(our, their)) {
+          conflicts.push(path);
+        } else if (their) {
+          files.set(path, { mode: their.mode, oid: their.oid });
+        } else {
+          files.delete(path);
+        }
+      }
+      changed.sort((a, b) => a.path.localeCompare(b.path));
+      return {
+        kind: base === head ? 'ahead' : 'merge',
+        head,
+        changed,
+        conflicts: conflicts.sort(),
+        files,
+        trees: new Set([...ourTree.trees, ...theirTree.trees]),
+      };
+    });
+  }
+
+  /**
+   * Brings `commit` into main as `planMerge` says: main moves to it when main hasn't changed since the two last shared
+   * a commit, and otherwise takes a merge commit by `author` with both as parents. Nothing is written when it holds a
+   * local secret file, when both sides changed the same file (`conflict`), or when main moved while this ran (`moved`).
+   * Answers main's commit before and after.
+   */
+  async mergeIntoMain(args: {
+    repo: string;
+    commit: string;
+    author: RepositoryAuthor;
+    message: string;
+  }): Promise<
+    | { merged: { from: string; to: string } }
+    | { already: true }
+    | { missing: true }
+    | { unrelated: true }
+    | { secrets: string[] | null }
+    | { conflict: string[] }
+    | { moved: true }
+  > {
+    const plan = await this.planMerge(args.repo, args.commit);
+    if (!('head' in plan)) {
+      return plan.kind === 'already'
+        ? { already: true }
+        : plan.kind === 'missing'
+          ? { missing: true }
+          : { unrelated: true };
+    }
+    if (plan.conflicts.length > 0) {
+      return { conflict: plan.conflicts };
+    }
+    const secrets = await this.secretFilesPushed(args.repo, plan.head, args.commit);
+    if (secrets === null || secrets.length > 0) {
+      return { secrets };
+    }
+    if (plan.kind === 'ahead') {
+      const refused = await this.replaceMain(args.repo, { from: plan.head, to: args.commit });
+      return refused === null ? { merged: { from: plan.head, to: args.commit } } : { moved: true };
+    }
+    const remote = await this.#pushRemote(args.repo);
+    try {
+      const store = await objectStore();
+      const written = await writeTrees(store, plan.files, plan.trees);
+      const commit = await writeCommit(store, {
+        tree: written.root,
+        parents: [plan.head, args.commit],
+        message: args.message,
+        author: args.author,
+      });
+      const pack = await packObjects(store, [...written.written, commit]);
+      const result = await updateRemoteRef(
+        this.#fetch,
+        remote,
+        { ref: MAIN_REF, oldOid: plan.head, newOid: commit },
+        pack,
+      );
+      if (!result.ok) {
+        const now = (await readRemoteRefs(this.#fetch, remote)).get(MAIN_REF) ?? null;
+        if (now !== plan.head) {
+          return { moved: true };
+        }
+        throw new Error(`The repository refused the merge (${result.reason}).`);
+      }
+      return { merged: { from: plan.head, to: commit } };
     } finally {
       await this.#revokePushToken(args.repo, remote);
     }

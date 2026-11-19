@@ -7,6 +7,7 @@ import {
   commentsShowAnswerSchema,
   formatCommentsList,
   formatCommentsThread,
+  suggestAnswerSchema,
   type CommentsListAnswer,
   type CommentsRequest,
 } from '~/lib/thread-comments';
@@ -76,6 +77,38 @@ export async function runCommentsRequest(
       closed.data.state === 'on_its_way'
         ? `Thread #${request.number} is on its way: it closes as changed once a publish puts this version live.\n`
         : `Thread #${request.number} is closed.\n`,
+  };
+}
+
+/** `cloudchef suggest`, answered: where the offer is, as the command's output. */
+export async function runSuggestRequest(
+  env: RuntimeEnv,
+  identity: Identity,
+  request: { orgProjectId: string; commit: string; message: string },
+): Promise<CommentsOutput> {
+  let text: string;
+  let response: Response;
+  try {
+    response = await postRuntimeRoute(env, identity, 'runtime-projects/suggest', request, TIMEOUT_MS);
+    text = await answerText(response);
+  } catch {
+    return { ok: false, text: 'CloudChef couldn’t be reached to offer the change just now. Try again.\n' };
+  }
+  const answered = parsedJson(text);
+  if (!response.ok) {
+    const error = z.object({ error: z.string() }).safeParse(answered);
+    return { ok: false, text: `${error.success ? error.data.error : 'The change couldn’t be offered.'}\n` };
+  }
+  const offered = suggestAnswerSchema.safeParse(answered);
+  if (!offered.success) {
+    return { ok: false, text: 'CloudChef’s answer about the offer couldn’t be read.\n' };
+  }
+  const { post, number, updated } = offered.data;
+  return {
+    ok: true,
+    text: updated
+      ? `Thread #${number} on ${post}, the offer already open, now offers this version, with the message as a reply. The people who can change the project accept or decline it there.\n`
+      : `Offered as thread #${number} on ${post}. The people who can change the project accept or decline it there, and a reply or their decision reaches the person as a notification.\n`,
   };
 }
 

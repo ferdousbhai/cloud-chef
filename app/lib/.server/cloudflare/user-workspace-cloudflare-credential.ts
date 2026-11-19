@@ -313,6 +313,7 @@ type RuntimeRoute =
   | 'runtime-projects/reel/target'
   | 'runtime-projects/reel'
   | 'runtime-projects/comments'
+  | 'runtime-projects/suggest'
   | 'runtime-projects/comments/answered'
   | `runtime-shared/${string}`;
 

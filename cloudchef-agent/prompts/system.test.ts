@@ -110,9 +110,10 @@ describe('comment threads in the environment', () => {
       const prompt = systemPrompt('', { ...project, viewOnly: true });
       expect(prompt).toContain(`${project.name}, `);
       expect(prompt).toContain('## Viewing only');
-      expect(prompt).toContain('its repository refuses every push from here');
-      expect(prompt).toContain('Do not commit here');
-      expect(prompt).toContain('the person makes a copy of it, as a fork on GitHub');
+      expect(prompt).toContain('its repository refuses every push of a branch from here');
+      expect(prompt).toContain('the commits are kept for this person');
+      expect(prompt).toContain('cloudchef suggest "<what it does');
+      expect(prompt).toContain('Offer a change only when the person asks to');
       expect(prompt).not.toContain('## Publishing');
       expect(prompt).not.toContain('## History');
     }

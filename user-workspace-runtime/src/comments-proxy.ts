@@ -5,8 +5,8 @@ import {
   runtimeConnectionIdentity,
   type RuntimeConnectionEnv,
 } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
-import { runCommentsRequest } from '../../app/lib/.server/cloudflare/thread-comments-client';
-import { parseCommentsArguments } from '../../app/lib/thread-comments';
+import { runCommentsRequest, runSuggestRequest } from '../../app/lib/.server/cloudflare/thread-comments-client';
+import { parseCommentsArguments, suggestCommandSchema } from '../../app/lib/thread-comments';
 import type { ProjectWorkspace } from './index';
 
 export type CommentsProxyEnv = RuntimeConnectionEnv &
@@ -16,6 +16,7 @@ export type CommentsProxyEnv = RuntimeConnectionEnv &
   };
 
 const MAX_REQUEST_BYTES = 4 * 1024;
+const MAX_SUGGEST_BYTES = 32 * 1024;
 const requestSchema = z.strictObject({ args: z.array(z.string().max(64)).max(8) });
 
 /**
@@ -66,6 +67,35 @@ export async function answerCommentsCommand(
     return text(409, 'This workspace isn’t a project’s, so it has no comment threads to read here.');
   }
   const output = await runCommentsRequest(env, identity, { ...command, orgProjectId: linked.orgProjectId });
+  return text(output.ok ? 200 : 400, output.text.trimEnd());
+}
+
+/**
+ * `cloudchef suggest` in a workspace container, at `showcase.internal/suggest`: the commit the command kept in the
+ * project's repository is offered, as the workspace's person, to the people who can change its project. From the
+ * agent's command or the person's own terminal alike: the offer is theirs either way.
+ */
+export async function answerSuggestCommand(
+  request: Request,
+  env: CommentsProxyEnv,
+  workspaceId: string,
+): Promise<Response> {
+  if (request.method !== 'POST') {
+    return text(405, 'Send the command with POST.');
+  }
+  const command = suggestCommandSchema.safeParse(
+    await readJsonBodyWithLimit(request, MAX_SUGGEST_BYTES, 'Suggestion').catch(() => null),
+  );
+  if (!command.success) {
+    return text(400, 'Usage: cloudchef suggest "<what the change does, for the people who make the project>"');
+  }
+  const workspace = env.PROJECT_WORKSPACE.get(env.PROJECT_WORKSPACE.idFromString(workspaceId));
+  const linked = await workspace.linkedProject();
+  const identity = runtimeConnectionIdentity(env);
+  if (!linked || !identity) {
+    return text(409, 'This workspace isn’t a project’s, so there is nobody to offer a change to.');
+  }
+  const output = await runSuggestRequest(env, identity, { ...command.data, orgProjectId: linked.orgProjectId });
   return text(output.ok ? 200 : 400, output.text.trimEnd());
 }
 

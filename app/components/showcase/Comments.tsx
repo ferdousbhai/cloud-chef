@@ -10,14 +10,18 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { DotsHorizontalIcon, DrawingPinFilledIcon, LockClosedIcon } from '@radix-ui/react-icons';
+import { Button } from '@ui/Button';
 import { Menu, MenuItem, MenuSeparator } from '@ui/Menu';
 import { messageOf } from '~/lib/json-request';
 import {
+  acceptOfferedChange,
   addReply,
   changeThread,
   deleteComment,
+  loadOfferedChange,
   loadReplies,
   loadThreads,
+  type OfferedChange,
   setThreadFollowing,
   startThread,
   type MentionAnswer,
@@ -159,6 +163,35 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
       })
       .catch((cause) => toast.error(messageOf(cause, 'That didn’t work. Try again.')));
 
+  /** Accepts the change a thread offers: it goes into the project and is published. Whether it did. */
+  const accept = (thread: PostThread) =>
+    acceptOfferedChange(thread.id).then(
+      (changed) => {
+        replace(changed);
+        setOpen((count) => Math.max(0, count - 1));
+        toast.success('Accepted. It’s being published now.');
+        return true;
+      },
+      (cause) => {
+        toast.error(messageOf(cause, 'The change couldn’t be brought in. Try again.'));
+        return false;
+      },
+    );
+
+  /** Declines the change a thread offers: the reason, if one is given, is a reply, and the thread closes. */
+  const decline = async (thread: PostThread, reason: string) => {
+    try {
+      if (reason.trim()) {
+        await addReply(thread.id, reason.trim());
+        onCount?.(1);
+      }
+      replace(await changeThread(thread.id, { action: 'close', reason: 'not_planned' }));
+      void refresh();
+    } catch (cause) {
+      toast.error(messageOf(cause, 'That didn’t work. Try again.'));
+    }
+  };
+
   const follow = (thread: PostThread, following: boolean) =>
     setThreadFollowing(thread.id, following)
       .then(() => replace({ ...thread, viewer: thread.viewer ? { ...thread.viewer, following } : thread.viewer }))
@@ -219,6 +252,8 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
     setReplyingTo,
     add,
     change,
+    accept,
+    decline,
     follow,
     remove,
     showAllReplies,
@@ -411,7 +446,14 @@ function Thread({
         }
         extra={
           <>
-            {thread.suggestion ? (
+            {thread.suggestion?.ownChange ? (
+              <>
+                <p className="mt-1 text-xs text-content-secondary">A change offered to this project</p>
+                {thread.state === 'open' && thread.viewer?.canEdit ? (
+                  <OfferedChangeDecision thread={thread} state={state} />
+                ) : null}
+              </>
+            ) : thread.suggestion ? (
               <p className="mt-1 text-xs text-content-secondary">
                 A change suggested from{' '}
                 {thread.suggestion.path ? (
@@ -477,6 +519,101 @@ function Thread({
         </ol>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * For someone who can edit the project, on a thread that offers a change made on it: Accept shows the files it
+ * changes first, then puts it into the project and publishes it; Decline closes the thread, with a reason as a reply.
+ */
+function OfferedChangeDecision({ thread, state }: { thread: PostThread; state: ThreadsState }) {
+  const [step, setStep] = useState<'idle' | 'loading' | 'review' | 'declining'>('idle');
+  const [change, setChange] = useState<OfferedChange | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const by = thread.first.author.name || thread.first.author.username;
+
+  const review = () => {
+    setStep('loading');
+    loadOfferedChange(thread.id).then(
+      (loaded) => {
+        setChange(loaded);
+        setStep('review');
+      },
+      (cause) => {
+        toast.error(messageOf(cause, 'The change couldn’t be read just now. Try again.'));
+        setStep('idle');
+      },
+    );
+  };
+  const run = (work: Promise<unknown>) => {
+    setBusy(true);
+    void work.finally(() => setBusy(false));
+  };
+
+  if (step === 'declining') {
+    return (
+      <form
+        className="mt-2 grid gap-2"
+        onSubmit={(event) => {
+          event.preventDefault();
+          run(state.decline(thread, reason));
+        }}
+      >
+        <textarea
+          rows={2}
+          autoFocus
+          maxLength={COMMENT_MAX}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder={`Tell ${by} why (optional)`}
+          aria-label="Why you’re declining"
+          className="w-full resize-y rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-2 text-sm text-content-primary placeholder:text-content-tertiary focus:border-(--cc-accent) focus:outline-hidden"
+        />
+        <div className="flex gap-2">
+          <Button type="submit" size="xs" variant="neutral" loading={busy}>
+            Decline
+          </Button>
+          <Button size="xs" variant="subtle" disabled={busy} onClick={() => setStep('idle')}>
+            Cancel
+          </Button>
+        </div>
+      </form>
+    );
+  }
+  if (step === 'review' && change) {
+    return (
+      <div className="mt-2 grid gap-2 text-xs text-content-secondary">
+        <ul aria-label="Files this changes">
+          {change.changed.map((file) => (
+            <li key={file.path} className="truncate">
+              <span className="font-mono text-content-primary">{file.path}</span> {file.change}
+            </li>
+          ))}
+        </ul>
+        <p>{change.note}</p>
+        <div className="flex gap-2">
+          {change.acceptable ? (
+            <Button size="xs" loading={busy} onClick={() => run(state.accept(thread))}>
+              Accept and publish
+            </Button>
+          ) : null}
+          <Button size="xs" variant="subtle" disabled={busy} onClick={() => setStep('idle')}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 flex gap-2">
+      <Button size="xs" loading={step === 'loading'} onClick={review}>
+        Accept
+      </Button>
+      <Button size="xs" variant="neutral" disabled={step === 'loading'} onClick={() => setStep('declining')}>
+        Decline
+      </Button>
+    </div>
   );
 }
 

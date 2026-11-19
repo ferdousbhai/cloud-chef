@@ -189,6 +189,63 @@ describe('ProjectRepositories', { timeout: 30_000 }, () => {
     expect(await artifacts.head('t-1', 'cloudchef/sara-1')).toBe(secondCommit);
   });
 
+  it('brings a suggested commit into main: forward when main stood still, else a merge of whole files', async () => {
+    const { artifacts, repositories } = setup();
+    await artifacts.create('p-1');
+    const base = await artifacts.commitDirect('p-1', 'main', { 'a.txt': 'a', 'b.txt': 'b', 'dir/c.txt': 'c' });
+    const suggest = async (branch: string, files: RepositoryFileInput[]) => {
+      const made = await repositories.commitFiles({
+        repo: 'p-1',
+        branch,
+        parent: base,
+        replaces: null,
+        files,
+        message: 'Suggested',
+        author,
+      });
+      return 'commit' in made ? made.commit : '';
+    };
+    const first = await suggest('one', [
+      text('a.txt', 'a'),
+      text('b.txt', 'B'),
+      text('dir/c.txt', 'c'),
+      text('n.txt', 'n'),
+    ]);
+    const plan = await repositories.planMerge('p-1', first);
+    expect(plan.kind).toBe('ahead');
+    expect('changed' in plan ? plan.changed : null).toEqual([
+      { path: 'b.txt', change: 'changed' },
+      { path: 'n.txt', change: 'added' },
+    ]);
+    expect(await repositories.planMerge('p-1', 'f'.repeat(40))).toEqual({ kind: 'missing' });
+
+    // Another suggestion from the same start, made before the first one went in.
+    const second = await suggest('two', [text('a.txt', 'A'), text('b.txt', 'b')]);
+    const clash = await suggest('three', [text('a.txt', 'a'), text('b.txt', 'other'), text('dir/c.txt', 'c')]);
+
+    expect(await repositories.mergeIntoMain({ repo: 'p-1', commit: first, author, message: 'Merge' })).toEqual({
+      merged: { from: base, to: first },
+    });
+    expect(await artifacts.head('p-1')).toBe(first);
+    expect(await repositories.mergeIntoMain({ repo: 'p-1', commit: first, author, message: 'Merge' })).toEqual({
+      already: true,
+    });
+
+    expect(await repositories.mergeIntoMain({ repo: 'p-1', commit: clash, author, message: 'Merge' })).toEqual({
+      conflict: ['b.txt'],
+    });
+    expect(await artifacts.head('p-1')).toBe(first);
+
+    const merged = await repositories.mergeIntoMain({ repo: 'p-1', commit: second, author, message: 'Merge two' });
+    const to = 'merged' in merged ? merged.merged.to : '';
+    expect(await artifacts.head('p-1')).toBe(to);
+    expect((await repositories.resolve('p-1', to))?.parents).toEqual([first, second]);
+    const { files } = await repositories.readFilesAt('p-1', to, () => true);
+    const read = Object.fromEntries(files.map((file) => [file.path, new TextDecoder().decode(file.bytes)]));
+    // Main's change to b.txt and its new file, with the suggestion's change to a.txt and its removal of dir/c.txt.
+    expect(read).toEqual({ 'a.txt': 'A', 'b.txt': 'B', 'n.txt': 'n' });
+  });
+
   it('forks with history, starting the copy at an older commit', async () => {
     const { artifacts, repositories } = setup();
     await artifacts.create('p-1');

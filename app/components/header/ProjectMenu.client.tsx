@@ -5,7 +5,6 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CodeIcon,
-  CopyIcon,
   CounterClockwiseClockIcon,
   DownloadIcon,
   Pencil1Icon,
@@ -20,7 +19,7 @@ import { projectShareStore } from '~/lib/cloudflare/project-presence.client';
 import { workbenchStore } from '~/lib/stores/workbench.client';
 
 /**
- * The open project's name, and its menu: renaming it, sharing it (for whoever runs it), its history, a clone command, a copy of it as a project of the person's own, and its files as they are in
+ * The open project's name, and its menu: renaming it, sharing it (for whoever runs it), its history, a clone command, and its files as they are in
  * the workspace now (edits not yet published included), zipped in the browser. A team or imported project goes by
  * its own name, which isn't renamed here.
  */
@@ -104,12 +103,6 @@ export function ProjectMenu() {
         <CodeIcon />
         Clone
       </MenuItem>
-      {linkedProject ? (
-        <MenuItem action={() => projectDialogStore.set('copy')}>
-          <CopyIcon />
-          Make a copy
-        </MenuItem>
-      ) : null}
       <MenuItem action={() => void workbenchStore.downloadZip()}>
         <DownloadIcon />
         Download code

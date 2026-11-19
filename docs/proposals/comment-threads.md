@@ -133,6 +133,33 @@ original's agent reads the copy's code the way anyone can.
 This is a pull request in plain form: the code stays in each person's own account, and the change is made by the
 original's agent. Nothing merges across accounts automatically.
 
+## Offering a change made on the project
+
+Someone who may view a project but not edit it (the view role, on a team project or one shared with them) opens it in
+a workspace of their own like anyone else. Git there fetches as usual. A push sets only the workspace's saved branches
+(`refs/cloudchef/workspaces/<workspace>/…` in the project's repository, which only that workspace reads or writes), so
+their commits are kept, and every push of a branch or tag is refused. As on GitHub, where a pull request's commits
+sit under `refs/pull/` of the repository it is offered to, no copy of the project is needed.
+
+`cloudchef suggest "<message>"` in that workspace offers the commit checked out. It keeps the commit on a saved branch
+of its own (`suggested/<commit>`), then asks CloudChef (`runtime-projects/suggest`), which starts a suggestion thread
+on the project's post whose `suggested_project_id` is the project itself and whose `suggested_commit` is the commit.
+The person's offer that is still open takes a new commit instead, with the message as a reply, as a pull request takes
+a push. A project with no post yet has nowhere to offer a change.
+
+On the thread, someone who can edit the project sees **Accept** and **Decline**:
+
+- **Accept** first lists the files the commit changes since it and main last shared a commit (`changes`, read in the
+  project's account). **Accept and publish** then has a runtime in the project's account bring the commit into main
+  (`mergeIntoMain`): main moves to it when main hasn't changed since, and otherwise takes a merge commit in the
+  accepter's name with both as parents. The merge is by whole files; when both sides changed the same file nothing is
+  written, and the accepter is told to ask for the change to be brought up to date and offered again. Main is
+  published as any push of it is, the push is recorded as the accepter's, and the thread is on its way until that
+  version is live.
+- **Decline** closes the thread as not planned, with the reason, if one is given, as a reply.
+
+A suggestion from a copy keeps the path above: it has no Accept, since its commit is in another repository.
+
 ## The agent
 
 Following "trust the model": no forced flow, just a command and a few lines of environment.

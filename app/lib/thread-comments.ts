@@ -43,6 +43,23 @@ export const commentsRequestSchema = z.discriminatedUnion('op', [
 ]);
 export type CommentsRequest = z.infer<typeof commentsRequestSchema>;
 
+/** The path `cloudchef suggest` sends to on the runtime's `showcase.internal`. */
+export const SUGGEST_PROXY_PATH = '/suggest';
+
+/** What `cloudchef suggest` sends from the container: the commit checked out, saved first, and what to say of it. */
+export const suggestCommandSchema = z.strictObject({ commit: COMMIT, message: z.string().trim().min(1).max(4000) });
+
+/**
+ * What the runtime asks the control plane for `cloudchef suggest` (`runtime-projects/suggest`): the person offers
+ * `commit`, which their workspace saved in the project's repository, to the people who can change the project.
+ */
+export const suggestRequestSchema = z.strictObject({
+  orgProjectId: PROJECT,
+  commit: COMMIT,
+  message: z.string().trim().min(1).max(4000),
+});
+export const suggestAnswerSchema = z.object({ post: z.string(), number: z.number(), updated: z.boolean() });
+
 const threadSummarySchema = z.object({
   number: z.number(),
   kind: z.enum(['comment', 'suggestion']),
@@ -76,7 +93,9 @@ export const commentsShowAnswerSchema = z.object({
     closeReason: z.enum(['changed', 'not_planned', 'duplicate']).nullable(),
     sameAs: z.number().nullable(),
     locked: z.boolean(),
-    suggestion: z.object({ name: z.string(), path: z.string().nullable() }).nullable(),
+    suggestion: z
+      .object({ name: z.string(), path: z.string().nullable(), ownChange: z.boolean().optional() })
+      .nullable(),
   }),
   replies: z.array(z.object({ by: z.string().nullable(), at: z.number(), body: z.string(), byAgent: z.boolean() })),
 });
@@ -113,7 +132,7 @@ export function formatCommentsList(answer: CommentsListAnswer): string {
     const facts = [
       stateWords(thread),
       `${thread.replies} ${thread.replies === 1 ? 'reply' : 'replies'}`,
-      ...(thread.kind === 'suggestion' ? ['a suggestion from a copy'] : []),
+      ...(thread.kind === 'suggestion' ? ['a suggested change'] : []),
       ...(thread.earlierVersion ? ['on an earlier version'] : []),
     ];
     lines.push(
@@ -144,11 +163,15 @@ export function formatCommentsThread(answer: CommentsShowAnswer): string {
   ];
   const lines = [
     `#${thread.number} on ${answer.post} (${facts.join(', ')})`,
-    ...(thread.suggestion
+    ...(thread.suggestion?.ownChange
       ? [
-          `A suggestion from the copy ${thread.suggestion.name}${thread.suggestion.path ? ` (${thread.suggestion.path})` : ''}`,
+          'A change made on this project and offered to it: the people who can change the project accept or decline it on the post’s page.',
         ]
-      : []),
+      : thread.suggestion
+        ? [
+            `A suggestion from the copy ${thread.suggestion.name}${thread.suggestion.path ? ` (${thread.suggestion.path})` : ''}`,
+          ]
+        : []),
     '',
     `${who(thread.by)}, ${when(thread.at)}:`,
     indent(thread.body),

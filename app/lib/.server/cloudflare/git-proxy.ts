@@ -202,14 +202,22 @@ function isWorkspaceRef(ref: string, workspaceRefs: string): boolean {
   return ref.startsWith(`${workspaceRefs}/`) && ref.length > workspaceRefs.length + 1;
 }
 
+/** Said to someone who may only view the project, of a push to anything but their workspace's saved branches. */
+export const VIEW_ONLY_PUSH_REFUSAL =
+  'You can view this project but not change it. Commits made here are kept for you; `cloudchef suggest` offers them to the people who can change it.';
+
 /**
  * Why a push's ref updates are refused, or null. Only branches and tags may be pushed, and `main`, which
- * is what people see, may not be deleted; the workspace's own saved branches may be set or removed freely.
+ * is what people see, may not be deleted; the workspace's own saved branches may be set or removed freely, and are
+ * all that someone who may only view the project sets (`savedOnly`).
  */
-function refusedRefUpdate(updates: readonly RefUpdate[], workspaceRefs: string): string | null {
+function refusedRefUpdate(updates: readonly RefUpdate[], workspaceRefs: string, savedOnly: boolean): string | null {
   for (const update of updates) {
     if (isWorkspaceRef(update.ref, workspaceRefs)) {
       continue;
+    }
+    if (savedOnly) {
+      return VIEW_ONLY_PUSH_REFUSAL;
     }
     if (!/^refs\/(heads|tags)\/\S+$/.test(update.ref)) {
       return `Only branches and tags can be pushed, not ${update.ref}.`;
@@ -383,8 +391,16 @@ export type GitProxyDependencies = {
   repository(): Promise<GitWorkspaceRepository | null>;
   /** Who commits made in the workspace are by: the person, as the project's history names them. */
   author(): Promise<{ name: string; email: string }>;
-  /** Why this person may not fetch (`write` false) or push to the repository now, or null when they may. */
+  /**
+   * Why this person may not fetch (`write` false) or push to the repository now, or null when they may. Someone who
+   * may only view the project may push, as `savedOnly` limits it.
+   */
   refusal(target: GitWorkspaceRepository, write: boolean): Promise<string | null>;
+  /**
+   * Whether the person may only view the project: a push of theirs sets only their workspace's saved branches, where
+   * their commits are kept, and never a branch or tag. Asked once access is checked; missing means they may edit.
+   */
+  savedOnly?(): boolean;
   access(repo: string, scope: 'read' | 'write'): Promise<GitRemote & { tokenId: string }>;
   revoke(repo: string, tokenId: string): Promise<void>;
   /**
@@ -456,7 +472,7 @@ export async function handleGitProxyRequest(request: Request, deps: GitProxyDepe
       const commands = await readReceivePackCommands(decoded);
       updates = commands.updates;
       capabilities = commands.capabilities;
-      const refused = refusal ?? refusedRefUpdate(updates, deps.workspaceRefs);
+      const refused = refusal ?? refusedRefUpdate(updates, deps.workspaceRefs, deps.savedOnly?.() === true);
       if (refused) {
         await commands.reader.cancel().catch(() => undefined);
         return gitRefusalReport(updates, commands.capabilities, refused);

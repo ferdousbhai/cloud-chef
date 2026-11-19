@@ -83,8 +83,11 @@ export type PostThread = {
   /** The latest replies, oldest first; `replyCount` says how many there are in all. */
   replies: PostComment[];
   replyCount: number;
-  /** For a suggestion: the public copy it came from. */
-  suggestion: { name: string; path: string | null; siteUrl: string | null } | null;
+  /**
+   * For a suggestion: the public copy it came from; or, with `ownChange`, a change someone who may see the project
+   * made in their own workspace on it and offers, which the people who can change the project accept or decline.
+   */
+  suggestion: { name: string; path: string | null; siteUrl: string | null; ownChange?: boolean } | null;
   /** CloudChef is answering a mention in it now. */
   working: boolean;
   /** What the viewer may do: null when nobody is signed in. */

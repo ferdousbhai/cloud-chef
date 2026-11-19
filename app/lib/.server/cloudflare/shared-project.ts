@@ -13,13 +13,46 @@ import { sharedProjectRequest } from './user-workspace-cloudflare-credential';
  *
  * The reads are the few a workspace needs besides git: main's commit, one commit, main's history, a commit's files
  * (to seed the workspace or restore a version), and a ZIP of a commit. `ancestors` is CloudChef's own: which of some
- * commits a published commit has in its history, so threads waiting for a change close when it goes live.
+ * commits a published commit has in its history, so threads waiting for a change close when it goes live. `changes` is
+ * what bringing a suggested commit into main would change (`planMerge`), for whoever decides on it.
  */
-const SHARED_READS = ['head', 'resolve', 'log', 'files', 'archive', 'ancestors'] as const;
+const SHARED_READS = ['head', 'resolve', 'log', 'files', 'archive', 'ancestors', 'changes'] as const;
 export type SharedRead = (typeof SHARED_READS)[number];
 /** git's three requests, under `git/`. */
 const SHARED_GIT = ['git/info/refs', 'git/git-upload-pack', 'git/git-receive-pack'] as const;
 export type SharedOp = SharedRead | (typeof SHARED_GIT)[number];
+
+/**
+ * CloudChef's own request, never a runtime's: someone who may edit the project accepted a suggested change, and its
+ * commit is brought into main (`mergeIntoMain`) by a runtime in the project's account.
+ */
+export const SHARED_MERGE = 'merge';
+
+/** What a merge is asked with, and by whom the merge commit is. */
+export const sharedMergeRequestSchema = z.strictObject({
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  message: z.string().min(1).max(500),
+  author: z.strictObject({ name: z.string().min(1).max(256), email: z.string().min(3).max(320) }),
+});
+
+/** How a merge went: main's commit before and after, or why nothing was written. */
+export const sharedMergeAnswerSchema = z.discriminatedUnion('status', [
+  z.object({ status: z.literal('merged'), from: z.string(), to: z.string() }),
+  z.object({ status: z.literal('conflict'), files: z.array(z.string()) }),
+  z.object({ status: z.enum(['already', 'missing', 'unrelated', 'secrets', 'moved']) }),
+]);
+export type SharedMergeAnswer = z.infer<typeof sharedMergeAnswerSchema>;
+
+/** What `changes` answers: whether the commit can go into main as it is, and the files it changes. */
+export const sharedChangesAnswerSchema = z.object({
+  state: z.enum(['ready', 'conflict', 'already', 'missing', 'unrelated']),
+  changed: z.array(z.object({ path: z.string(), change: z.enum(['added', 'changed', 'removed']) })),
+  conflicts: z.array(z.string()),
+});
+type SharedChangesAnswer = z.infer<typeof sharedChangesAnswerSchema>;
+
+/** The most files a `changes` answer names; the rest are only counted by whoever shows them. */
+const CHANGES_MAX = 500;
 
 const SHARED_OPS: ReadonlySet<string> = new Set([...SHARED_READS, ...SHARED_GIT]);
 const SHARED_READ_OPS: ReadonlySet<string> = new Set(SHARED_READS);
@@ -76,7 +109,7 @@ const ANCESTORS_MAX = 100;
 
 type ReadableRepositories = Pick<
   ProjectRepositories,
-  'head' | 'resolve' | 'log' | 'streamFilesAt' | 'archiveZip' | 'isAncestor'
+  'head' | 'resolve' | 'log' | 'streamFilesAt' | 'archiveZip' | 'isAncestor' | 'planMerge'
 >;
 
 /**
@@ -148,6 +181,22 @@ export async function answerSharedRead(
           }
         }
         return Response.json({ live });
+      }
+      case 'changes': {
+        const commit = search.get('commit') ?? '';
+        if (!COMMIT.test(commit)) {
+          return Response.json({ error: 'Name a commit.' }, { status: 400 });
+        }
+        const plan = await repositories.planMerge(repo, commit);
+        const answer: SharedChangesAnswer =
+          plan.kind === 'ahead' || plan.kind === 'merge'
+            ? {
+                state: plan.conflicts.length > 0 ? 'conflict' : 'ready',
+                changed: plan.changed.slice(0, CHANGES_MAX),
+                conflicts: plan.conflicts.slice(0, CHANGES_MAX),
+              }
+            : { state: plan.kind, changed: [], conflicts: [] };
+        return Response.json(answer);
       }
       case 'archive': {
         const folder = (search.get('folder') ?? 'project').replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 120) || 'project';

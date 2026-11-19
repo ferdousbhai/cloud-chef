@@ -249,9 +249,18 @@ describe('sharing a project', () => {
       userId: bo.userId,
     });
 
-    // A viewer may not push, nor ask what a push may send.
-    expect(await ask('git/git-receive-pack', 'POST')).toBe(403);
-    expect(await ask('git/info/refs', 'GET', '?service=git-receive-pack')).toBe(403);
+    // A viewer's push goes on too, still signed with the view role: Ada's runtime lets it set only his workspace's
+    // saved branches, where his commits are kept, and no branch of the project.
+    expect(await ask('git/git-receive-pack', 'POST')).toBe(200);
+    expect(await ask('git/info/refs', 'GET', '?service=git-receive-pack')).toBe(200);
+    for (const call of forwarded.slice(2)) {
+      const pushed = capabilitySchema.parse(
+        JSON.parse(
+          atob(call.authorization!.slice('Bearer '.length).split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/')),
+        ),
+      );
+      expect(readSharedCapabilitySubject(pushed.subject)?.role).toBe('view');
+    }
 
     // Removed: refused at the very next request, before anything reaches Ada's runtime.
     await setProjectPersonAction({ request: ada.browser(`${sharing}/person`, { userId: bo.userId, role: null }), env });

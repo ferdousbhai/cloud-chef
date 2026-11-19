@@ -7,7 +7,7 @@ import {
   sharedWorkspaceRefsId,
   SharedProjectRepositories,
 } from './shared-project';
-import { ProjectRepositoryError } from './project-repository';
+import { ProjectRepositoryError, type MergePlan } from './project-repository';
 
 const COMMIT = {
   hash: 'c'.repeat(40),
@@ -45,6 +45,18 @@ const repositories = {
     ancestor === 'd'.repeat(40)
       ? null
       : ancestor === commit || (ancestor === 'b'.repeat(40) && commit === 'c'.repeat(40)),
+  // b is a suggested change that fits; c one that changed a file main changed too.
+  planMerge: async (_repo: string, commit: string): Promise<MergePlan> =>
+    commit === 'b'.repeat(40) || commit === 'c'.repeat(40)
+      ? {
+          kind: 'merge',
+          head: 'a'.repeat(40),
+          changed: [{ path: 'a.txt', change: 'changed' }],
+          conflicts: commit === 'c'.repeat(40) ? ['a.txt'] : [],
+          files: new Map(),
+          trees: new Set(),
+        }
+      : { kind: 'missing' },
 };
 
 describe('a project shared from another account', () => {
@@ -54,6 +66,23 @@ describe('a project shared from another account', () => {
     // A person's own capability is not one.
     expect(readSharedCapabilitySubject('bo')).toBeNull();
     expect(readSharedCapabilitySubject(`shared/${PROJECT}/admin/bo`)).toBeNull();
+  });
+
+  it('says what a suggested commit would change in main, and whether it still fits', async () => {
+    const ask = async (commit: string) =>
+      (
+        await answerSharedRead(repositories, 't-recipes', 'changes', new URLSearchParams({ commit }), () => true)
+      ).json();
+    expect(await ask('b'.repeat(40))).toEqual({
+      state: 'ready',
+      changed: [{ path: 'a.txt', change: 'changed' }],
+      conflicts: [],
+    });
+    expect(await ask('c'.repeat(40))).toMatchObject({ state: 'conflict', conflicts: ['a.txt'] });
+    expect(await ask('e'.repeat(40))).toEqual({ state: 'missing', changed: [], conflicts: [] });
+    expect(
+      (await answerSharedRead(repositories, 't-recipes', 'changes', new URLSearchParams(), () => true)).status,
+    ).toBe(400);
   });
 
   it('keeps each person’s saved branches in a folder of their own, whatever workspace name is sent', () => {

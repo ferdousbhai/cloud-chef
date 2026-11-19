@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
-import { CodeIcon, CopyIcon } from '@radix-ui/react-icons';
+import { CodeIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import type { BuilderLinkedProjectSummary } from '~/agents/conversation-agent';
-import { projectDialogStore } from '~/lib/stores/project-actions.client';
 import { selectWorkspaceSurface } from '~/lib/stores/workspace-surface.client';
 import { DisabledChatMessageSheet } from './DisabledChatMessageSheet';
 import { MessageInput } from './MessageInput';
@@ -37,19 +36,18 @@ export function LinkedProjectIntro({
             </h1>
             <p className="mt-3 max-w-xl text-balance text-sm text-content-secondary">
               {viewOnly
-                ? 'You can view this project but not change it. Ask how it works here. To change it, make a copy: the copy is your own project, with its own site.'
+                ? 'You can view this project. Ask about it, or ask for a change: the people who make it can accept what you offer.'
                 : 'Ask for a change. To check it first, ask for a preview: a copy of the site with your change, at its own link. When it looks right, ask to publish and the live site updates.'}
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button size="sm" variant="neutral" icon={<CodeIcon />} onClick={() => selectWorkspaceSurface('code')}>
-                Browse the code
-              </Button>
-              {viewOnly ? (
-                <Button size="sm" variant="neutral" icon={<CopyIcon />} onClick={() => projectDialogStore.set('copy')}>
-                  Make a copy
-                </Button>
-              ) : null}
-            </div>
+            <Button
+              className="mt-3"
+              size="sm"
+              variant="neutral"
+              icon={<CodeIcon />}
+              onClick={() => selectWorkspaceSurface('code')}
+            >
+              Browse the code
+            </Button>
 
             <div className="cloudchef-home-composer-stack">
               <MessageInput
@@ -60,7 +58,11 @@ export function LinkedProjectIntro({
                 onStop={onStop}
                 onSend={onSend}
                 hasMessages={false}
-                placeholder={viewOnly ? `Ask about ${repository}` : `What should change in ${repository}?`}
+                placeholder={
+                  viewOnly
+                    ? `Ask about ${repository}, or for a change to offer`
+                    : `What should change in ${repository}?`
+                }
               />
               <DisabledChatMessageSheet message={disabledReason} />
             </div>

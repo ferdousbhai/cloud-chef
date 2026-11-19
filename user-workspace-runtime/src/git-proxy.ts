@@ -22,6 +22,9 @@ import {
   sharedWorkspaceRefsId,
   SHARED_WORKSPACE_HEADER,
   isSharedRead,
+  SHARED_MERGE,
+  sharedMergeRequestSchema,
+  type SharedMergeAnswer,
 } from '../../app/lib/.server/cloudflare/shared-project';
 import { sharedProjectRequest } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
 import { isExcludedProjectPath } from '../../app/agents/linked-project-workspace';
@@ -45,13 +48,19 @@ type GitProxyEnv = Pick<
   PROJECT_BUILDER: DurableObjectNamespace<ProjectBuilder>;
 };
 
-/** Why the person may not use `target` now: a team project needs its edit role to push, a view to fetch. */
+/**
+ * Why the person may not use `target` now, or null: any role fetches, and pushes too, where one who may only view the
+ * project sets only their workspace's saved branches (`savedOnly`, from the role `onProject` is told).
+ */
 async function gitRefusal(
   env: GitProxyEnv,
   target: GitWorkspaceRepository,
   write: boolean,
-  onProject: (project: { deploysWith?: 'workers_builds' | 'cloudchef'; inAnotherAccount?: boolean }) => void = () =>
-    undefined,
+  onProject: (project: {
+    role: 'view' | 'edit';
+    deploysWith?: 'workers_builds' | 'cloudchef';
+    inAnotherAccount?: boolean;
+  }) => void = () => undefined,
 ): Promise<string | null> {
   const identity = runtimeConnectionIdentity(env);
   if (!identity) {
@@ -66,7 +75,7 @@ async function gitRefusal(
       return 'This workspace no longer matches the project’s repository. Open the project again.';
     }
     onProject(project);
-    return write && project.role !== 'edit' ? 'You can view this project but not change it.' : null;
+    return null;
   } catch (error) {
     if (error instanceof ProjectAccessError) {
       return error.message;
@@ -94,11 +103,14 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
     // Shared with this person from another account: its repository is reached only through CloudChef, whose runtime
     // in that account checks, records and publishes each push (`handleSharedProjectRequest`).
     let shared: { orgProjectId: string; userId: string } | null = null;
+    // Until the role is known, nothing but saved branches is pushed.
+    let viewOnly = true;
     return handleGitProxyRequest(request, {
       repository: () => workspace.gitRepository(),
       author: () => commitAuthor(env),
       refusal: (target, write) =>
         gitRefusal(env, target, write, (project) => {
+          viewOnly = project.role !== 'edit';
           teamProject = target.orgProjectId;
           const identity = runtimeConnectionIdentity(env);
           shared =
@@ -110,6 +122,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
               ? { orgProjectId: target.orgProjectId }
               : null;
         }),
+      savedOnly: () => viewOnly,
       access: (repo, scope) =>
         shared ? Promise.resolve({ url: SHARED_REMOTE, secret: '', tokenId: '' }) : repositories.gitAccess(repo, scope),
       revoke: (repo, tokenId) => (shared ? Promise.resolve() : repositories.revokeToken(repo, tokenId)),
@@ -210,7 +223,14 @@ export async function handleCommandLineGit(
   return handleGitProxyRequest(forwarded, {
     repository: async () => target,
     author: () => commitAuthor(env),
-    refusal: (repository, write) => gitRefusal(env, repository, write),
+    // A computer has no saved branches, so someone who may only view the project pushes nothing from one.
+    refusal: async (repository, write) => {
+      let mayEdit = false;
+      const refused = await gitRefusal(env, repository, write, (project) => {
+        mayEdit = project.role === 'edit';
+      });
+      return refused ?? (write && !mayEdit ? 'You can view this project but not change it.' : null);
+    },
     access: (repo, scope) => repositories.gitAccess(repo, scope),
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
     isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
@@ -300,7 +320,8 @@ function sharedGitFetch(
  * A request of someone a project of this account is shared with, which CloudChef checked and sent on
  * (`/v1/shared/<project>/<op>`, with a capability naming them, the project and their role): one of the reads their
  * workspace makes, or git, answered from this account's repository with the same checks as git here. Their saved
- * branches sit under their own folder; a push of main is recorded as theirs and publishes as anyone's does.
+ * branches sit under their own folder, all that someone with the view role sets; an editor's push of main is recorded
+ * as theirs and publishes as anyone's does.
  */
 export async function handleSharedProjectRequest(
   request: Request,
@@ -309,7 +330,7 @@ export async function handleSharedProjectRequest(
   shared: { projectId: string; userId: string; role: 'view' | 'edit'; op: string },
 ): Promise<Response> {
   const identity = runtimeConnectionIdentity(env);
-  if (!identity || !isSharedOp(shared.op)) {
+  if (!identity || (!isSharedOp(shared.op) && shared.op !== SHARED_MERGE)) {
     return new Response('Not found.', { status: 404 });
   }
   let project: Awaited<ReturnType<typeof openProject>>;
@@ -326,6 +347,17 @@ export async function handleSharedProjectRequest(
   }
   const repositories = new ProjectRepositories(env.ARTIFACTS);
   const url = new URL(request.url);
+  if (shared.op === SHARED_MERGE) {
+    return mergeSuggestedChange(request, env, repositories, {
+      repo: project.repo,
+      orgProjectId: shared.projectId,
+      mayEdit: shared.role === 'edit',
+      deploysWith: project.deploysWith,
+    });
+  }
+  if (!isSharedOp(shared.op)) {
+    return new Response('Not found.', { status: 404 });
+  }
   if (isSharedRead(shared.op)) {
     return answerSharedRead(
       repositories,
@@ -353,8 +385,8 @@ export async function handleSharedProjectRequest(
     repository: async () => target,
     author: () => commitAuthor(env),
     // CloudChef checked their role before sending it on; it is checked again here from what it signed.
-    refusal: async (_repository, write) =>
-      write && shared.role !== 'edit' ? 'You can view this project but not change it.' : null,
+    refusal: async () => null,
+    savedOnly: () => shared.role !== 'edit',
     access: (repo, scope) => repositories.gitAccess(repo, scope),
     revoke: (repo, tokenId) => repositories.revokeToken(repo, tokenId),
     isAncestor: (repo, ancestor, commit) => repositories.isAncestor(repo, ancestor, commit),
@@ -370,4 +402,50 @@ export async function handleSharedProjectRequest(
     fetch: (input, init) => fetch(input, init),
     waitUntil: (promise) => ctx.waitUntil(promise),
   });
+}
+
+/**
+ * CloudChef's `merge` for someone who may edit the project and accepted a suggested change: its commit, which this
+ * repository already holds among a workspace's saved branches, is brought into main, and main is published as any
+ * push of it is. Who accepted is recorded by CloudChef, which asked.
+ */
+async function mergeSuggestedChange(
+  request: Request,
+  env: GitProxyEnv,
+  repositories: ProjectRepositories,
+  project: { repo: string; orgProjectId: string; mayEdit: boolean; deploysWith?: 'workers_builds' | 'cloudchef' },
+): Promise<Response> {
+  if (request.method !== 'POST' || !project.mayEdit) {
+    return new Response('Only someone who can change this project accepts a change to it.', { status: 403 });
+  }
+  const asked = sharedMergeRequestSchema.safeParse(await request.json().catch(() => null));
+  if (!asked.success) {
+    return new Response('Name the commit to bring in.', { status: 400 });
+  }
+  const result = await repositories.mergeIntoMain({ repo: project.repo, ...asked.data });
+  let answer: SharedMergeAnswer;
+  if ('merged' in result) {
+    answer = { status: 'merged', ...result.merged };
+    await publishPush(env, project.deploysWith === 'cloudchef' ? { orgProjectId: project.orgProjectId } : null, {
+      ref: 'refs/heads/main',
+      oldOid: result.merged.from,
+      newOid: result.merged.to,
+    });
+  } else if ('conflict' in result) {
+    answer = { status: 'conflict', files: result.conflict };
+  } else {
+    answer = {
+      status:
+        'already' in result
+          ? 'already'
+          : 'missing' in result
+            ? 'missing'
+            : 'unrelated' in result
+              ? 'unrelated'
+              : 'secrets' in result
+                ? 'secrets'
+                : 'moved',
+    };
+  }
+  return Response.json(answer, { headers: { 'Cache-Control': 'no-store' } });
 }

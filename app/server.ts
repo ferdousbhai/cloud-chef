@@ -139,7 +139,11 @@ import {
 import { clientTelemetryAction } from './server-handlers/client-telemetry';
 import * as showcase from './server-handlers/showcase';
 import { runtimeReelAction, runtimeReelTargetAction } from './server-handlers/runtime-reels';
-import { runtimeCommentsAction, runtimeCommentsAnsweredAction } from './server-handlers/runtime-comments';
+import {
+  runtimeCommentsAction,
+  runtimeCommentsAnsweredAction,
+  runtimeSuggestAction,
+} from './server-handlers/runtime-comments';
 import { deleteGoneMediaBestEffort, serveMediaAction } from './lib/.server/showcase/media';
 import { runShowcaseJobs, type ShowcaseJob } from './lib/.server/showcase/jobs';
 import { PROJECT_PRESENCE_ROUTE, projectPresenceAction } from './server-handlers/project-presence';
@@ -256,6 +260,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/cloudflare/runtime-projects/reel': ['POST', runtimeReelAction],
     '/api/cloudflare/runtime-projects/comments': ['POST', runtimeCommentsAction],
     '/api/cloudflare/runtime-projects/comments/answered': ['POST', runtimeCommentsAnsweredAction],
+    '/api/cloudflare/runtime-projects/suggest': ['POST', runtimeSuggestAction],
     '/api/approvals': ['GET', listApprovalsAction],
     '/api/approvals/decide': ['POST', decideApprovalAction],
     '/api/org-projects': ['GET', listMyProjectsAction],
@@ -326,6 +331,8 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/showcase/post': ['GET', showcase.postByAddressAction],
     '/api/showcase/threads/replies': ['GET', showcase.repliesAction],
     '/api/showcase/threads/state': ['POST', showcase.threadStateAction],
+    '/api/showcase/threads/change': ['GET', showcase.offeredChangeAction],
+    '/api/showcase/threads/accept': ['POST', showcase.acceptChangeAction],
     '/api/showcase/open-threads': ['GET', showcase.openThreadsAction],
     '/api/showcase/post-copies': ['GET', showcase.copiesAction],
     '/api/showcase/comments/add': ['POST', showcase.addCommentAction],

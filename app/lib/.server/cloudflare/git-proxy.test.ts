@@ -3,6 +3,7 @@ import { fakeArtifacts } from '~/test/fake-artifacts';
 import {
   GIT_SETUP_HEADER,
   handleGitProxyRequest,
+  VIEW_ONLY_PUSH_REFUSAL,
   MAIN_MOVED_REFUSAL,
   mainPushReport,
   type GitProxyDependencies,
@@ -22,6 +23,7 @@ type Sent = { url: string; headers: Headers; body: Uint8Array | null };
 function harness(
   options: {
     refusal?: string | null;
+    savedOnly?: boolean;
     answer?: (sent: Sent) => Response;
     isAncestor?: (ancestor: string, commit: string) => boolean | null;
   } = {},
@@ -36,6 +38,7 @@ function harness(
     repository: async () => ({ repo: 'chat-1', orgProjectId: null, base: { branch: 'main', commit: OLD } }),
     author: async () => ({ name: 'Ada\nLovelace', email: 'ada@example.com' }),
     refusal: async () => options.refusal ?? null,
+    savedOnly: () => options.savedOnly === true,
     workspaceRefs: SAVED,
     access: async (_repo, scope) => ({
       url: 'https://artifacts.example/cloudchef/chat-1.git',
@@ -415,6 +418,24 @@ describe('the workspace git proxy', () => {
     await settled();
     expect(sent).toHaveLength(1);
     expect(recorded).toEqual([]);
+  });
+
+  it('keeps the commits of someone who may only view the project in their saved branches, and takes no branch or tag from them', async () => {
+    const viewer = harness({
+      savedOnly: true,
+      answer: () => report(['unpack ok', `ok ${SAVED}/main`]),
+    });
+    await (await handleGitProxyRequest(push([`${OLD} ${NEW} ${SAVED}/main`]), viewer.deps)).arrayBuffer();
+    await viewer.settled();
+    expect(viewer.sent).toHaveLength(1);
+    expect(viewer.recorded).toEqual([]);
+    for (const ref of ['refs/heads/main', 'refs/heads/mine', 'refs/tags/v1', 'refs/cloudchef/workspaces/w2/main']) {
+      const { deps, sent, recorded } = harness({ savedOnly: true });
+      const response = await handleGitProxyRequest(push([`${OLD} ${NEW} ${SAVED}/main`, `${OLD} ${NEW} ${ref}`]), deps);
+      expect(await text(response)).toContain(`ng ${ref} ${VIEW_ONLY_PUSH_REFUSAL}`);
+      expect(sent).toHaveLength(0);
+      expect(recorded).toEqual([]);
+    }
   });
 
   it("refuses writing another workspace's saved branches, or anything else of CloudChef's", async () => {

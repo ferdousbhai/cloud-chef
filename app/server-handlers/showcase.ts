@@ -36,11 +36,14 @@ import {
   addReply,
   closeThread,
   deleteComment,
+  findThread,
   listCopies,
   listOwnSuggestableCopies,
   listReplies,
   listThreads,
+  markThreadOnItsWay,
   mentionsCloudChef,
+  offeredChange,
   openThreadsOfProjects,
   reopenThread,
   setThreadFollowing,
@@ -53,7 +56,15 @@ import { recordRunsInPost } from '~/lib/.server/showcase/jobs';
 import { deleteGoneMediaBestEffort, serveMediaForReview } from '~/lib/.server/showcase/media';
 import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor } from '~/lib/showcase';
 import { SENDER } from './email-auth';
-import { copyProjectFor } from './command-line';
+import { copyProjectFor, forwardToProjectAccount } from './command-line';
+import { memberIdentity } from './runtime-projects';
+import { findAccessibleProject, recordMainPush } from '~/lib/cloudflare/data/org-projects.server';
+import {
+  SHARED_MERGE,
+  sharedChangesAnswerSchema,
+  sharedMergeAnswerSchema,
+  type SharedMergeAnswer,
+} from '~/lib/.server/cloudflare/shared-project';
 import { answeringOrganizationErrors } from './signed-in';
 
 /**
@@ -391,6 +402,155 @@ export const threadStateAction: Handler = ({ request, env }) =>
       case 'follow':
         return json(await setThreadFollowing(env.DB, { userId, ...change }));
     }
+  });
+
+/** How long the project's account has to answer about an offered change, or bring it in. */
+const OFFERED_CHANGE_TIMEOUT_MS = 60_000;
+
+/**
+ * Asks a runtime in the project's account about the change a thread offers, as `userId` who can edit the project: what
+ * it would change (`changes`), or to bring it into main (`merge`). The repository never leaves that account.
+ */
+async function askProjectAccount(
+  request: Request,
+  env: Env,
+  args: { projectId: string; userId: string; op: 'changes' | typeof SHARED_MERGE; commit: string; body?: unknown },
+): Promise<Response> {
+  const project = await findAccessibleProject(env.DB, args.projectId, args.userId);
+  if (!project || project.role !== 'edit') {
+    throw new ShowcaseError('Only the people who make this app can do that.', 403);
+  }
+  const url = new URL('/api/showcase/threads/change', request.url);
+  url.search = new URLSearchParams({ commit: args.commit }).toString();
+  const asked = new Request(url, {
+    method: args.body === undefined ? 'GET' : 'POST',
+    body: args.body === undefined ? null : JSON.stringify(args.body),
+    signal: AbortSignal.timeout(OFFERED_CHANGE_TIMEOUT_MS),
+  });
+  try {
+    return await forwardToProjectAccount(asked, env, {
+      project: { id: project.id, connectionId: project.connectionId },
+      userId: args.userId,
+      role: 'edit',
+      op: args.op,
+      workspace: 'offered-change',
+    });
+  } catch {
+    throw new ShowcaseError('The project couldn’t be reached just now. Try again.', 409);
+  }
+}
+
+const threadIdSchema = z.strictObject({ threadId: ID });
+
+/** The most files of an offered change named before the rest are counted. */
+const OFFERED_FILES_SHOWN = 12;
+
+/** `GET /api/showcase/threads/change?threadId=`: the files an offered change changes, and whether it still fits. */
+export const offeredChangeAction: Handler = ({ request, env }) =>
+  signedInShowcase(request, env, async ({ session }) => {
+    const threadId = ID.safeParse(new URL(request.url).searchParams.get('threadId'));
+    if (!threadId.success) {
+      return json({ error: 'Name the thread.' }, 400);
+    }
+    const change = await offeredChange(env.DB, { threadId: threadId.data, userId: session.user.id });
+    const answer = await askProjectAccount(request, env, {
+      projectId: change.projectId,
+      userId: session.user.id,
+      op: 'changes',
+      commit: change.commit,
+    });
+    const read = answer.ok ? sharedChangesAnswerSchema.safeParse(await answer.json().catch(() => null)) : null;
+    if (!read?.success) {
+      await answer.body?.cancel().catch(() => undefined);
+      return json({ error: 'The change couldn’t be read just now. Try again.' }, 503);
+    }
+    const { state, changed, conflicts } = read.data;
+    // What pressing Accept would do, or why it can't be brought in, in the words Accept itself would answer with.
+    const note =
+      state === 'ready'
+        ? 'Accepting puts this into the project and publishes it.'
+        : notMerged(
+            state === 'conflict' ? { status: 'conflict', files: conflicts } : { status: state },
+            change.offeredBy,
+          );
+    const more = changed.length - OFFERED_FILES_SHOWN;
+    return json({
+      acceptable: state === 'ready' || state === 'already',
+      changed: changed.slice(0, OFFERED_FILES_SHOWN),
+      note: more > 0 ? `And ${more} more ${more === 1 ? 'file' : 'files'}. ${note}` : note,
+    });
+  });
+
+/** Why an accepted change wasn't brought in, for the person who pressed Accept. */
+function notMerged(answer: Exclude<SharedMergeAnswer, { status: 'merged' }>, offeredBy: string): string {
+  switch (answer.status) {
+    case 'conflict': {
+      const files = answer.files.slice(0, 5).join(', ');
+      const more = answer.files.length > 5 ? ` and ${answer.files.length - 5} more` : '';
+      return `This change no longer fits: the project has since changed ${files}${more} too. Ask ${offeredBy} to bring their change up to date and offer it again.`;
+    }
+    case 'missing':
+      return `The change is no longer kept: ${offeredBy} removed it, or the workspace they made it in. Ask them to offer it again.`;
+    case 'unrelated':
+      return 'This change wasn’t made on this project’s versions, so it can’t be brought in.';
+    case 'secrets':
+      return 'This change holds a file of secrets (such as .env), so it wasn’t brought in.';
+    case 'moved':
+      return 'The project changed while this was brought in. Try again.';
+    case 'already':
+      return 'The project already has this change.';
+  }
+}
+
+/**
+ * `POST /api/showcase/threads/accept`: someone who can edit the project accepts the change a thread offers. A runtime
+ * in the project's account brings its commit into main (`mergeIntoMain`), which is published as any push of main is;
+ * the push is recorded as the accepter's, and the thread is on its way until that version is live.
+ */
+export const acceptChangeAction: Handler = ({ request, env }) =>
+  signedInShowcase(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, threadIdSchema, 'Name the thread.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const userId = session.user.id;
+    const change = await offeredChange(env.DB, { threadId: body.data.threadId, userId });
+    const author = await memberIdentity(env.DB, userId);
+    if (!author) {
+      return json({ error: 'Your account has no email to make the change in your name.' }, 409);
+    }
+    const answer = await askProjectAccount(request, env, {
+      projectId: change.projectId,
+      userId,
+      op: SHARED_MERGE,
+      commit: change.commit,
+      body: {
+        commit: change.commit,
+        message: `Accept ${change.offeredBy}'s change (#${change.number})`,
+        author,
+      },
+    });
+    const merged = answer.ok ? sharedMergeAnswerSchema.safeParse(await answer.json().catch(() => null)) : null;
+    if (!merged?.success) {
+      await answer.body?.cancel().catch(() => undefined);
+      return json({ error: 'The change couldn’t be brought in just now. Try again.' }, 503);
+    }
+    if (merged.data.status !== 'merged' && merged.data.status !== 'already') {
+      return json({ error: notMerged(merged.data, change.offeredBy) }, 409);
+    }
+    let fixCommit = change.commit;
+    if (merged.data.status === 'merged') {
+      fixCommit = merged.data.to;
+      await recordMainPush(env.DB, {
+        projectId: change.projectId,
+        userId,
+        oldCommit: merged.data.from,
+        newCommit: merged.data.to,
+        pushedAt: Date.now(),
+      });
+    }
+    await markThreadOnItsWay(env.DB, { userId, threadId: change.threadId, fixCommit });
+    return json({ thread: await findThread(env.DB, change.threadId, userId) });
   });
 
 const commentIdSchema = z.strictObject({ commentId: ID });

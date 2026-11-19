@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
+import { findAccessibleProject, findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
 import { ShowcaseError } from '~/lib/cloudflare/data/posts.server';
 import {
   addAgentReply,
@@ -9,6 +9,7 @@ import {
   listReplies,
   listThreads,
   markThreadOnItsWay,
+  offerChange,
   openThreadCount,
   postOfProject,
 } from '~/lib/cloudflare/data/post-threads.server';
@@ -17,6 +18,7 @@ import type { PostComment, PostThread } from '~/lib/showcase';
 import {
   commentsRequestSchema,
   COULD_NOT_FINISH,
+  suggestRequestSchema,
   type CommentsListAnswer,
   type CommentsShowAnswer,
   type CommentsThreadSummary,
@@ -94,7 +96,9 @@ export async function runtimeCommentsAction({ request, env }: { request: Request
         closeReason: thread.closeReason,
         sameAs: thread.sameAs,
         locked: thread.locked,
-        suggestion: thread.suggestion ? { name: thread.suggestion.name, path: thread.suggestion.path } : null,
+        suggestion: thread.suggestion
+          ? { name: thread.suggestion.name, path: thread.suggestion.path, ownChange: thread.suggestion.ownChange }
+          : null,
       },
       replies: (await listReplies(env.DB, thread.id)).map(reply),
     };
@@ -177,4 +181,49 @@ export async function runtimeCommentsAnsweredAction({
   const text = body.outcome === 'answered' ? body.text : COULD_NOT_FINISH;
   const posted = await addAgentReply(env.DB, { threadId: body.threadId, askerId: identity.userId, body: text });
   return json({ posted: posted !== null });
+}
+
+/**
+ * `POST /api/cloudflare/runtime-projects/suggest`: `cloudchef suggest` from a workspace on a project the person may
+ * see but, usually, not change. Their commit, which their workspace saved in the project's repository, is offered on
+ * the project's post as a suggestion thread, for the people who can change the project to accept or decline; an offer
+ * of theirs still open takes the new commit instead. Whether the repository holds the commit is found when it is
+ * looked at or accepted, in the project's account.
+ */
+export async function runtimeSuggestAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  const authenticated = await readAuthenticatedRuntimeRequest(env, request, suggestRequestSchema, {
+    maxBytes: MAX_REQUEST_BYTES,
+    label: 'Suggestion',
+    invalid: 'Invalid suggestion.',
+  });
+  if (authenticated instanceof Response) {
+    return authenticated;
+  }
+  const { body, identity } = authenticated;
+  // Someone the project is theirs, their team's or shared with: only their workspaces save commits in it.
+  const project = await findAccessibleProject(env.DB, body.orgProjectId, identity.userId);
+  const post = project ? await postOfProject(env.DB, project.id) : null;
+  if (!project || !post) {
+    return json(
+      {
+        error:
+          'This project has no post yet (it gets one when it is published), so there is nowhere to offer a change. Tell the people who make it another way.',
+      },
+      409,
+    );
+  }
+  try {
+    const offered = await offerChange(env.DB, {
+      userId: identity.userId,
+      postId: post.id,
+      body: body.message,
+      commit: body.commit,
+    });
+    return json({ post: post.path, ...offered });
+  } catch (error) {
+    if (error instanceof ShowcaseError) {
+      return json({ error: error.message }, error.status);
+    }
+    throw error;
+  }
 }

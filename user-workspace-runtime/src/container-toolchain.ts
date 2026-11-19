@@ -12,7 +12,7 @@ import {
 } from '../../app/lib/.server/cloudflare/cloudflare-api-proxy';
 import { ZERO_OID } from '../../app/lib/.server/cloudflare/repository-wire';
 import { REEL_PROXY_HOST } from '../../app/lib/reel';
-import { COMMENTS_PROXY_PATH } from '../../app/lib/thread-comments';
+import { COMMENTS_PROXY_PATH, SUGGEST_PROXY_PATH } from '../../app/lib/thread-comments';
 
 /**
  * One content-addressed pnpm store for every install this container runs. Passed explicitly on the
@@ -434,10 +434,45 @@ const COMMENTS_SENDER = [
 ].join('\n');
 
 /**
+ * `cloudchef suggest "<message>"`: offers the commit checked out to the people who can change the project, as a
+ * suggestion thread on its post. The commit is kept first, on a branch of its own that the save hook keeps among the
+ * workspace's saved branches in the project's repository, so it stays there whatever is committed next; then the
+ * commit and the message go to the runtime's proxy for `showcase.internal`, which asks CloudChef.
+ */
+const SUGGEST_SENDER = [
+  `const response = await fetch(${JSON.stringify(`http://${REEL_PROXY_HOST}${SUGGEST_PROXY_PATH}`)}, {`,
+  "  method: 'POST', headers: { 'content-type': 'application/json' },",
+  '  body: JSON.stringify({ commit: process.argv[1], message: process.argv[2] }),',
+  '});',
+  'const answer = await response.text();',
+  '(response.ok ? process.stdout : process.stderr).write(answer);',
+  'process.exit(response.ok ? 0 : 1);',
+].join('\n');
+
+function suggestCommandLines(): string[] {
+  return [
+    'if [ "${1:-}" = suggest ]; then',
+    '  message="${2:-}"',
+    `  [ -n "$message" ] && [ "$#" -eq 2 ] || { echo ${shellQuote('Usage: cloudchef suggest "<what the change does, for the people who make the project>"')} >&2; exit 2; }`,
+    '  commit="$(git rev-parse -q --verify HEAD 2>/dev/null)" || commit=',
+    `  [ -n "$commit" ] || { echo ${shellQuote('There is no commit here to offer: run this in the project, after committing the change.')} >&2; exit 2; }`,
+    `  [ -z "$(git status --porcelain)" ] || { echo ${shellQuote('Commit the change first: cloudchef suggest offers the commit checked out, and some files here are not in it.')} >&2; exit 2; }`,
+    '  saved="$(git config --get cloudchef.saved || true)"',
+    `  [ -n "$saved" ] || { echo ${shellQuote('This workspace is not a project’s, so there is nobody to offer a change to.')} >&2; exit 2; }`,
+    '  short="$(printf %s "$commit" | cut -c1-12)"',
+    '  git branch -f "suggested/$short" "$commit" >/dev/null 2>&1 || true',
+    `  git push -q --force origin "$commit:$saved/suggested/$short" || { echo ${shellQuote('The change could not be kept in the project just now. Try again.')} >&2; exit 1; }`,
+    `  exec node --input-type=module -e ${shellQuote(SUGGEST_SENDER)} -- "$commit" "$message"`,
+    'fi',
+  ];
+}
+
+/**
  * `cloudchef validate` is answered by the agent's exec tool itself, which runs the project's full validation (the
  * one a publish recognizes) when the command is exactly that. Reaching this script with it means it was run some
  * other way: inside a longer command line, or from the terminal. `cloudchef reel` sends a clip to the agent;
- * `cloudchef comments` reads, and closes, the threads on the project's public post.
+ * `cloudchef comments` reads, and closes, the threads on the project's public post; `cloudchef suggest` offers the
+ * commit checked out to the people who can change the project.
  */
 export function cloudchefCommandScript(): string {
   return [
@@ -450,6 +485,7 @@ export function cloudchefCommandScript(): string {
     '  shift',
     `  exec node --input-type=module -e ${shellQuote(COMMENTS_SENDER)} -- "$@"`,
     'fi',
+    ...suggestCommandLines(),
     `echo ${shellQuote(`${VALIDATE_COMMAND} runs the project's full checks when the agent runs it as a command of its own, exactly as written.`)} >&2`,
     'exit 2',
     '',

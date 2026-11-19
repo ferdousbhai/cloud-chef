@@ -9,10 +9,13 @@ import {
   cutToComment,
   deleteComment,
   listCopies,
+  listReplies,
   listThreads,
   markThreadOnItsWay,
   mentionedUsernames,
   mentionsCloudChef,
+  offerChange,
+  offeredChange,
   openThreadsOfProjects,
   reopenThread,
   setThreadFollowing,
@@ -214,6 +217,37 @@ describe('CloudChef and copies', () => {
       siteUrl: 'https://ben-recipes.example.workers.dev',
     });
     expect(kindsOf(database, 'sara')).toEqual(['change_suggested']);
+  });
+
+  it('offers a change made on the project itself, which only its makers decide on, and updates the open offer', async () => {
+    const { database, db, postId } = await seeded();
+    const first = await offerChange(db, { userId: 'ben', postId, body: 'Printing', commit: 'b'.repeat(40) });
+    expect(first.updated).toBe(false);
+    const [thread] = (await listThreads(db, postId, 'sara')).threads;
+    expect(thread?.suggestion).toEqual({ name: 'Recipe Box', path: null, siteUrl: null, ownChange: true });
+    expect(kindsOf(database, 'sara')).toEqual(['change_suggested']);
+    // Ben, who offered it, can't decide on it; Sara, who makes the app, can.
+    await expect(offeredChange(db, { threadId: thread!.id, userId: 'ben' })).rejects.toMatchObject({ status: 403 });
+    expect(await offeredChange(db, { threadId: thread!.id, userId: 'sara' })).toMatchObject({
+      number: first.number,
+      projectId: 'recipes',
+      commit: 'b'.repeat(40),
+      offeredBy: 'Ben',
+    });
+    // Offering again gives the open offer the new commit, with the message as a reply.
+    const again = await offerChange(db, { userId: 'ben', postId, body: 'Up to date', commit: 'c'.repeat(40) });
+    expect(again).toEqual({ number: first.number, updated: true });
+    expect((await offeredChange(db, { threadId: thread!.id, userId: 'sara' })).commit).toBe('c'.repeat(40));
+    expect((await listReplies(db, thread!.id)).map((reply) => reply.body)).toEqual(['Up to date']);
+    // Once decided, it isn't accepted again, and a new offer starts a new thread.
+    await closeThread(db, { userId: 'sara', threadId: thread!.id, reason: 'not_planned' });
+    await expect(offeredChange(db, { threadId: thread!.id, userId: 'sara' })).rejects.toMatchObject({ status: 409 });
+    expect((await offerChange(db, { userId: 'ben', postId, body: 'Another', commit: 'd'.repeat(40) })).updated).toBe(
+      false,
+    );
+    // A plain comment offers nothing to accept.
+    const comment = await startThread(db, { userId: 'ben', postId, body: 'Nice' });
+    await expect(offeredChange(db, { threadId: comment.id, userId: 'sara' })).rejects.toMatchObject({ status: 409 });
   });
 });
 
