@@ -81,6 +81,7 @@ const migrationPolicies = [
       '0062_move_requests.sql': 'bdc3a218a8beaa9dacb94222b3749c81cde3c3753ad362248c99c1ed0fa9760f',
       '0063_comment_threads.sql': '9f1f408d1980e175dae98c627aea4dcb4455cbd0a47764f1b93382457103c084',
       '0064_mention_requests.sql': '3fde0a9e09b0769d65b5a907fe807c8dd751f96fe9a71ef995987a2f8de2a375',
+      '0065_thread_runs_without_answering.sql': '5952d49d0fccfbac9a7a3192be38ee535e22f92d3b52a922b6178a0e495454c4',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -145,6 +146,9 @@ const migrationPolicies = [
       // as in 0059. Every existing comment becomes an open thread, numbered and followed (whole-table UPDATE and
       // INSERT ... SELECT), which is additive.
       '0063_comment_threads.sql',
+      // thread_runs' answering_id and answering_since, unread since 0064 moved each mention to mention_requests: a
+      // foreign-key column can't be dropped in place, so the table is rebuilt with every row copied. Nothing references it.
+      '0065_thread_runs_without_answering.sql',
     ],
   },
   {

@@ -260,13 +260,13 @@ describe('sharing a project', () => {
     expect(forwarded.length).toBe(before);
   });
 
-  it('refuses a runtime asking about a project of its own account, one not shared with it, or an unknown request', async () => {
+  it('reads a project of the runtime’s own account through CloudChef, but refuses pushing to it, one not shared, or an unknown request', async () => {
     const { env, ada, bo } = await world();
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response('ok')),
     );
-    // Ada's own project, read in her own account: her runtime reads it itself.
+    // Ada's own project, read in her own account: a read goes through, as one of a team project she may only view would.
     const own = await runtimeSharedAction({
       request: await ada.runtime(`/api/cloudflare/runtime-shared/${RECIPES}/head`, {
         method: 'GET',
@@ -274,7 +274,17 @@ describe('sharing a project', () => {
       }),
       env,
     });
-    expect(own.status).toBe(403);
+    expect(own.status).toBe(200);
+    // A push to a project of her own account: her runtime pushes to it itself.
+    const ownPush = await runtimeSharedAction({
+      request: await ada.runtime(`/api/cloudflare/runtime-shared/${RECIPES}/git/git-receive-pack`, {
+        method: 'POST',
+        body: 'pack',
+        headers: { 'x-cloudchef-workspace': 'ws1' },
+      }),
+      env,
+    });
+    expect(ownPush.status).toBe(403);
     const notShared = await runtimeSharedAction({
       request: await bo.runtime(`/api/cloudflare/runtime-shared/${RECIPES}/head`, {
         method: 'GET',

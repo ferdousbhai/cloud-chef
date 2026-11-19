@@ -46,9 +46,10 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
   const readable =
     isSharedRead(op) || !write ? await findReadableProject(env.DB, { id: match[1]! }, identity.userId) : null;
   const project = readable ?? (await findAccessibleProject(env.DB, match[1]!, identity.userId));
-  // Only a project of another account than this runtime's (one in its own account it reaches itself): for its reads
-  // and fetches, any they may read; for a push, one shared with them.
-  if (!project || project.connectionId === connection.id || (!readable && !project.shared)) {
+  // Reads and fetches: any project they may read, in any account, their own included (a team project they may only
+  // view, or a public copy beside the original). A push: only one shared with them from another account, since a
+  // runtime pushes to a project of its own account itself.
+  if (!project || (!readable && (project.connectionId === connection.id || !project.shared))) {
     return refusal('This project is not shared with you.', 403);
   }
   const role = project.role === 'edit' ? 'edit' : 'view';
