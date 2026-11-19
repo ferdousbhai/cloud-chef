@@ -45,7 +45,7 @@ The person sees ${project.defaultBranch}'s history as the project's versions and
  */
 export type ThreadFacts = {
   /** The project's public post (`/<owner>/<slug>`) and how many of its threads are open and on their way. */
-  comments?: { post: string; open: number; onItsWay: number; runsInPost?: boolean | null } | null;
+  comments?: { post: string; open: number; onItsWay: number; runsInPost?: boolean | null; isPrivate?: boolean } | null;
   /** The thread whose `@cloudchef` mentions this chat answers. */
   mention?: { number: number; post: string; access: 'edit' | 'read' } | null;
   /** A read-only chat: a copy of the public post's project, at the version live when it started. */
@@ -67,7 +67,7 @@ function commentsSection(facts: ThreadFacts): string | null {
         ? ` and ${onItsWay} on ${onItsWay === 1 ? 'its' : 'their'} way (a change made for it waits to go live)`
         : '';
     lines.push(
-      `- The project's public post, ${post}, has ${open} open comment thread${open === 1 ? '' : 's'}${waiting}. \`cloudchef comments\` lists the open and on-its-way ones, and \`cloudchef comments show <n>\` shows one whole, from any chat or the person's terminal.`,
+      `- The project's ${facts.comments.isPrivate ? 'post (private: only the people who may view the project see it)' : 'public post'}, ${post}, has ${open} open comment thread${open === 1 ? '' : 's'}${waiting}. \`cloudchef comments\` lists the open and on-its-way ones, and \`cloudchef comments show <n>\` shows one whole, from any chat or the person's terminal.`,
       `- The post runs the live site inside https://cloudchef.build, where anyone can use it, so the app must let that origin frame it: \`frame-ancestors\` naming https://cloudchef.build, and no \`X-Frame-Options\` that refuses it. No other site needs to frame it.`,
     );
     if (facts.comments.runsInPost === false) {

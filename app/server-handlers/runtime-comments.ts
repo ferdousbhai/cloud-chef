@@ -78,6 +78,7 @@ export async function runtimeCommentsAction({ request, env }: { request: Request
       open: await openThreadCount(env.DB, post.id),
       threads: threads.filter((thread) => thread.state !== 'closed').map(summary),
       runsInPost: project.siteFrameable,
+      isPrivate: !post.isPublic,
     };
     return json(answer);
   }

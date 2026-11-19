@@ -88,7 +88,13 @@ export async function openThreads(
   env: RuntimeEnv,
   identity: Identity,
   orgProjectId: string,
-): Promise<{ post: string; open: number; onItsWay: number; runsInPost: boolean | null } | null> {
+): Promise<{
+  post: string;
+  open: number;
+  onItsWay: number;
+  runsInPost: boolean | null;
+  isPrivate: boolean;
+} | null> {
   try {
     const response = await ask(env, identity, { op: 'list', orgProjectId });
     if (!response.ok) {
@@ -101,6 +107,7 @@ export async function openThreads(
       open: list.open,
       onItsWay: list.threads.filter((thread) => thread.state === 'on_its_way').length,
       runsInPost: list.runsInPost ?? null,
+      isPrivate: list.isPrivate ?? false,
     };
   } catch {
     return null;

@@ -65,6 +65,8 @@ export const commentsListAnswerSchema = z.object({
    * until checked. Optional: a runtime may meet a control plane from before it was said.
    */
   runsInPost: z.boolean().nullable().optional(),
+  /** The project is private: its post is seen only by the people who may view the project. */
+  isPrivate: z.boolean().optional(),
 });
 export type CommentsListAnswer = z.infer<typeof commentsListAnswerSchema>;
 

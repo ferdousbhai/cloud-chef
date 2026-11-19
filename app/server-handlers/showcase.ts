@@ -205,6 +205,22 @@ export const openThreadsAction: Handler = ({ request, env }) =>
     return json({ open: await openThreadsOfProjects(env.DB, parsed.data) });
   });
 
+/** A refusing site is asked again at most this often for a post, in this isolate, so a page view rarely waits on it. */
+const RECHECK_INTERVAL_MS = 10 * 60_000;
+const rechecked = new Map<string, number>();
+
+function recheckDue(postId: string, now = Date.now()): boolean {
+  const last = rechecked.get(postId);
+  if (last !== undefined && now - last < RECHECK_INTERVAL_MS) {
+    return false;
+  }
+  if (rechecked.size > 1_000) {
+    rechecked.clear();
+  }
+  rechecked.set(postId, now);
+  return true;
+}
+
 /**
  * `GET /api/showcase/post?owner=&slug=`: the post at a project's address as the signed-in person sees it, a private
  * project's among them when they may view it. The page itself is rendered the same for everyone, from public posts
@@ -228,7 +244,7 @@ export const postByAddressAction: Handler = ({ request, env }) =>
     }
     // A private project's post has no picture to fall back on, and its site is checked only at a publish: one recorded
     // as refusing is asked again here, so a fix made since shows the working app at once.
-    if (found.post && !found.post.siteFrameable && !found.project.isPublic) {
+    if (found.post && !found.post.siteFrameable && !found.project.isPublic && recheckDue(found.post.id)) {
       await recordRunsInPost(env.DB, { postId: found.post.id, siteUrl: found.post.siteUrl });
       const again = await findPostByAddress(env.DB, owner.data, slug.data, session!.user.id);
       return json(again.project ? again : found);

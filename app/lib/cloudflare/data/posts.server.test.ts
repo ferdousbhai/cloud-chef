@@ -163,6 +163,23 @@ describe('showing posts', () => {
     expect((await findPostByAddress(db, 'sara', 'recipe-box', 'ben')).post?.id).toBe(postId);
   });
 
+  it('takes a report of a private project’s post only from someone who may view it', async () => {
+    const { db } = seeded();
+    const post = (await findPostByAddress(db, 'sara', 'diary', 'sara')).post!;
+    const report = (reporterId: string | null) =>
+      fileReport(db, {
+        postId: post.id,
+        commentId: null,
+        reporterId,
+        reporterIpHash: 'ip',
+        reason: 'spam',
+        note: null,
+      });
+    await expect(report('ben')).rejects.toMatchObject({ status: 404 });
+    await expect(report(null)).rejects.toMatchObject({ status: 404 });
+    await expect(report('sara')).resolves.toEqual({ held: false });
+  });
+
   it('gives a private project published before it could post its post on a member’s first visit', async () => {
     const { db } = seeded();
     const found = await findPostByAddress(db, 'sara', 'diary', 'sara');

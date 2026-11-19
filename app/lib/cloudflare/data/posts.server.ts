@@ -1263,6 +1263,10 @@ export async function fileReport(
   if (!target) {
     throw new ShowcaseError('That isn’t on CloudChef any more.', 404);
   }
+  // Only someone who can see a post reports it: a private project's post, nobody but the people who may view it.
+  if (!args.automatic && !(await findPostFacts(db, args.postId, args.reporterId))) {
+    throw new ShowcaseError('That isn’t on CloudChef any more.', 404);
+  }
   if (!args.automatic) {
     const filed = await db
       .prepare(
