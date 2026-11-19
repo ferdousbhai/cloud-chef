@@ -98,8 +98,8 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
       });
     } else if (mention?.status === 'failed') {
       toast.error(mention.message ?? 'CloudChef couldn’t start. Try again.');
-    } else if (mention?.status === 'busy') {
-      toast(mention.message ?? 'CloudChef is still answering you here. It will pick this up next.');
+    } else if (mention?.status === 'queued') {
+      toast(mention.message ?? 'CloudChef will answer this once it finishes what it’s working on now.');
     }
   };
 
@@ -122,7 +122,7 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
                         ...each,
                         replies: [...each.replies, comment],
                         replyCount: each.replyCount + 1,
-                        working: each.working || mention?.status === 'working',
+                        working: each.working || mention?.status === 'working' || mention?.status === 'queued',
                       }
                     : each,
                 ) ?? null,
@@ -133,7 +133,7 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
         : startThread(postId, body).then(({ thread: started, mention }) => {
             setThreads((current) => [
               ...(current ?? []).filter((each) => each.pinned),
-              { ...started, working: started.working || mention?.status === 'working' },
+              { ...started, working: started.working || mention?.status === 'working' || mention?.status === 'queued' },
               ...(current ?? []).filter((each) => !each.pinned),
             ]);
             setOpen((count) => count + 1);

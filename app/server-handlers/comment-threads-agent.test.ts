@@ -31,6 +31,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** A mention of `userId`'s in a thread, sent to their chat `chatId` and not answered yet. */
+function mentioned(
+  database: ReturnType<typeof controlPlaneDatabase>['database'],
+  args: { threadId: string; userId: string; commentId: string; chatId: string; access: 'edit' | 'read' },
+) {
+  database
+    .prepare(
+      `INSERT OR REPLACE INTO thread_runs (thread_id, user_id, chat_id, access, created_at) VALUES (?, ?, ?, ?, 1)`,
+    )
+    .run(args.threadId, args.userId, args.chatId, args.access);
+  database
+    .prepare(
+      `INSERT OR REPLACE INTO mention_requests (comment_id, thread_id, user_id, chat_id, created_at)
+       VALUES (?, ?, ?, ?, 1)`,
+    )
+    .run(args.commentId, args.threadId, args.userId, args.chatId);
+}
+
 /**
  * Ada's public Recipe Box with its post, in her own account; Bo with an account of his own; Cy with nowhere to
  * build yet. Each with a username, and the first two with a workspace runtime CloudChef can reach.
@@ -158,12 +176,21 @@ describe('cloudchef comments', () => {
 
     // No mention run: refused, even for the project's owner.
     expect((await close(ada, 'ada-chat')).status).toBe(403);
-    database
-      .prepare(
-        `INSERT INTO thread_runs (thread_id, user_id, chat_id, access, answering_id, created_at)
-         VALUES (?, ?, 'ada-chat', 'edit', ?, 1), (?, ?, 'bo-chat', 'read', ?, 1)`,
-      )
-      .run(thread.id, ada.userId, thread.id, thread.id, bo.userId, thread.id);
+    const adaAsks = await addReply(db, { userId: ada.userId, threadId: thread.id, body: '@cloudchef fix it' });
+    mentioned(database, {
+      threadId: thread.id,
+      userId: ada.userId,
+      commentId: adaAsks.id,
+      chatId: 'ada-chat',
+      access: 'edit',
+    });
+    mentioned(database, {
+      threadId: thread.id,
+      userId: bo.userId,
+      commentId: thread.id,
+      chatId: 'bo-chat',
+      access: 'read',
+    });
     // Another chat of hers, or Bo's read-only run: refused.
     expect((await close(ada, 'other-chat')).status).toBe(403);
     expect((await close(bo, 'bo-chat')).status).toBe(403);
@@ -171,8 +198,8 @@ describe('cloudchef comments', () => {
     const closed = await close(ada, 'ada-chat');
     expect(closed).toEqual({ status: 200, body: { state: 'on_its_way' } });
     expect((await findThread(db, thread.id, null))?.state).toBe('on_its_way');
-    // Once its turn ended, no more.
-    database.prepare('UPDATE thread_runs SET answering_id = NULL').run();
+    // Once her mention is answered, no more.
+    database.prepare('UPDATE mention_requests SET answered_at = 2 WHERE comment_id = ?').run(adaAsks.id);
     expect((await close(ada, 'ada-chat', 'not_planned')).status).toBe(403);
   });
 });
@@ -181,12 +208,13 @@ describe('a mention turn ending', () => {
   it('posts the final message as CloudChef’s reply once, and nothing for a stopped turn or another chat', async () => {
     const { db, database, bo, postId, env } = await world();
     const thread = await startThread(db, { userId: bo.userId, postId, body: '@cloudchef how does this store lists?' });
-    database
-      .prepare(
-        `INSERT INTO thread_runs (thread_id, user_id, chat_id, access, answering_id, created_at)
-         VALUES (?, ?, 'bo-chat', 'read', ?, 1)`,
-      )
-      .run(thread.id, bo.userId, thread.id);
+    mentioned(database, {
+      threadId: thread.id,
+      userId: bo.userId,
+      commentId: thread.id,
+      chatId: 'bo-chat',
+      access: 'read',
+    });
     const answered = async (chatId: string, outcome: string, text: string) =>
       answerSchema.parse(
         await (
@@ -212,7 +240,7 @@ describe('a mention turn ending', () => {
       .prepare('SELECT body, by_agent, author_id FROM post_comments WHERE parent_id = ?')
       .all(thread.id);
     expect(replies).toEqual([{ body: 'In a D1 table, one row per item.', by_agent: 1, author_id: bo.userId }]);
-    expect(database.prepare('SELECT answering_id FROM thread_runs').get()).toEqual({ answering_id: null });
+    expect(database.prepare('SELECT answered_at IS NOT NULL AS done FROM mention_requests').get()).toEqual({ done: 1 });
   });
 
   it('posts that CloudChef couldn’t finish, with why, for a failed turn; nothing for a stopped one', async () => {
@@ -232,12 +260,13 @@ describe('a mention turn ending', () => {
         )
         .then((request) => runtimeCommentsAnsweredAction({ request, env }));
     const claim = () =>
-      database
-        .prepare(
-          `INSERT OR REPLACE INTO thread_runs (thread_id, user_id, chat_id, access, answering_id, created_at)
-           VALUES (?, ?, 'bo-chat', 'read', ?, 1)`,
-        )
-        .run(thread.id, bo.userId, thread.id);
+      mentioned(database, {
+        threadId: thread.id,
+        userId: bo.userId,
+        commentId: thread.id,
+        chatId: 'bo-chat',
+        access: 'read',
+      });
     claim();
     await run('stopped', '');
     claim();
@@ -263,7 +292,7 @@ describe('@cloudchef', () => {
   }
 
   it('starts a read-only run in the asker’s own space for someone who can’t edit, and later mentions go to it', async () => {
-    const { db, database, env, bo, postId } = await world();
+    const { db, env, bo, postId } = await world();
     const calls = stubRuntime((body) => Response.json({ status: 'started', chatId: body.chatId }));
     const thread = await startThread(db, { userId: bo.userId, postId, body: '@cloudchef how does this work?' });
     const request = new Request(`${ORIGIN}/api/showcase/comments/add`);
@@ -285,20 +314,10 @@ describe('@cloudchef', () => {
     expect(String(calls[0]!.body.text)).toContain('@cloudchef how does this work?');
     expect(await findThread(db, thread.id, null)).toMatchObject({ working: true });
 
-    // A second mention while the first is answered: busy, and nothing is sent.
+    // A second mention while the first is answered goes to the same chat, which answers it next.
     const reply = await addReply(db, { userId: bo.userId, threadId: thread.id, body: '@cloudchef and also this' });
-    const busy = await answerMention(env, {
-      request,
-      session: await bo.session(),
-      threadId: thread.id,
-      commentId: reply.id,
-    });
-    expect(busy?.status).toBe('busy');
-    expect(calls).toHaveLength(1);
-
-    // Once answered, the next mention goes to the same chat.
-    database.prepare('UPDATE thread_runs SET answering_id = NULL').run();
     await answerMention(env, { request, session: await bo.session(), threadId: thread.id, commentId: reply.id });
+    expect(calls).toHaveLength(2);
     expect(calls[1]!.body.chatId).toBe(calls[0]!.body.chatId);
     expect(String(calls[1]!.body.text)).toContain(
       'The comment that mentioned you, by @bo:\n> @cloudchef and also this',
@@ -349,9 +368,11 @@ describe('@cloudchef', () => {
     expect(database.prepare('SELECT body FROM post_comments WHERE parent_id = ?').all(thread.id)).toEqual([
       { body: 'CloudChef couldn’t finish this: The workspace is upgrading.' },
     ]);
-    expect(database.prepare('SELECT answering_id FROM thread_runs WHERE thread_id = ?').get(thread.id)).toEqual({
-      answering_id: null,
-    });
+    expect(
+      database
+        .prepare('SELECT answered_at IS NOT NULL AS done FROM mention_requests WHERE thread_id = ?')
+        .get(thread.id),
+    ).toEqual({ done: 1 });
   });
 });
 

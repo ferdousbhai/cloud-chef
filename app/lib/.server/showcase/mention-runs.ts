@@ -13,14 +13,14 @@ import { couldNotFinish } from '~/lib/thread-comments';
 export type MentionAnswer =
   | { status: 'working' }
   | { status: 'no_space'; message: string }
-  | { status: 'busy'; message: string }
+  | { status: 'queued'; message: string }
   | { status: 'failed'; message: string };
 
-const BUSY = 'CloudChef is still working on your last request here. Ask again once it has replied.';
+const QUEUED = 'CloudChef will answer this once it finishes what it’s working on now.';
 /** How long the person's runtime is given to take the turn on. */
 const START_TIMEOUT_MS = 30_000;
 
-const startAnswerSchema = z.object({ status: z.enum(['started', 'busy']), chatId: z.string().min(1).max(512) });
+const startAnswerSchema = z.object({ status: z.enum(['started', 'queued']), chatId: z.string().min(1).max(512) });
 
 /**
  * `@cloudchef` in a thread (docs/proposals/comment-threads.md): starts, or continues, the writer's chat for this
@@ -66,9 +66,6 @@ export async function answerMention(
     commentId,
     newChatId: crypto.randomUUID(),
   });
-  if (claim.status === 'busy') {
-    return { status: 'busy', message: BUSY };
-  }
   const failed = async (reason: string): Promise<MentionAnswer> => {
     if (await endThreadRun(env.DB, { threadId, userId, commentId })) {
       await addAgentReply(env.DB, { threadId, askerId: userId, body: couldNotFinish(reason) });
@@ -119,12 +116,8 @@ export async function answerMention(
     const error = z.object({ error: z.string() }).safeParse(answered);
     return failed(error.success ? error.data.error : 'your workspace didn’t take the request');
   }
-  if (started.data.status === 'busy') {
-    await endThreadRun(env.DB, { threadId, userId, commentId });
-    return { status: 'busy', message: BUSY };
-  }
-  await setThreadRunChat(env.DB, { threadId, userId, chatId: started.data.chatId });
-  return { status: 'working' };
+  await setThreadRunChat(env.DB, { threadId, userId, commentId, chatId: started.data.chatId });
+  return started.data.status === 'queued' ? { status: 'queued', message: QUEUED } : { status: 'working' };
 }
 
 async function postOfThread(db: D1Database, threadId: string): Promise<PublicPostFacts | null> {

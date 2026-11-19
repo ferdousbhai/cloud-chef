@@ -40,7 +40,7 @@ const mentionRequestSchema = z.discriminatedUnion('access', [
  * for, in this person's own runtime, as the browser opens a chat and sends a first message. With edit access it is the
  * project's chat; otherwise a read-only chat named after the thread, seeded from the post's project at its live
  * commit and tied to no project. The turn goes to the chat's newest conversation. Answers the chat it went to, and
- * whether it started or a turn was already running there.
+ * whether it started or waits its turn behind what the chat is doing now.
  */
 export async function userRuntimeMentionStartAction(args: {
   request: Request;

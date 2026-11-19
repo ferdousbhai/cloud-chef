@@ -1,7 +1,7 @@
 import type { CloseReason, NotificationView, PostComment, PostThread, ThreadState } from '~/lib/showcase';
 import { COMMENT_MAX } from '~/lib/showcase';
 import { findAccessibleProject } from './org-projects.server';
-import { THREAD_RUN_STALE_MS } from './thread-runs.server';
+import { MENTION_STALE_MS } from './thread-runs.server';
 import {
   COMMENTS_PER_DAY,
   ShowcaseError,
@@ -112,8 +112,9 @@ const THREAD_COLUMNS = `${COMMENT_COLUMNS}, comments.post_id, comments.number, c
   (SELECT COUNT(*) FROM post_comments AS replies JOIN "user" AS repliers ON repliers.id = replies.author_id
    WHERE replies.parent_id = comments.id AND replies.status = 'visible' AND repliers.showcase_paused_at IS NULL)
    AS reply_count,
-  EXISTS (SELECT 1 FROM thread_runs WHERE thread_runs.thread_id = comments.id AND thread_runs.answering_id IS NOT NULL
-     AND thread_runs.answering_since > CAST(strftime('%s', 'now') AS INTEGER) * 1000 - ${THREAD_RUN_STALE_MS})
+  EXISTS (SELECT 1 FROM mention_requests AS requests WHERE requests.thread_id = comments.id
+     AND requests.answered_at IS NULL
+     AND requests.created_at > CAST(strftime('%s', 'now') AS INTEGER) * 1000 - ${MENTION_STALE_MS})
    AS working,
   copies.name AS suggested_name,
   CASE WHEN copy_posts.status = 'visible' AND copies.visibility = 'public' AND copy_owners.username IS NOT NULL

@@ -1256,24 +1256,50 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   /**
    * A `@cloudchef` mention (docs/proposals/comment-threads.md): CloudChef's control plane starts a turn here, through
    * the runtime's `/v1/mentions/start`, as if the person had sent the message in this chat, with the model their
-   * account starts chats on. Busy while a turn runs here. When the turn ends, its final message is reported for the
-   * thread (`settleMentionTurn`). An internal Durable Object RPC, not `@callable`: only the runtime calls it.
+   * account starts chats on. While a turn runs here, or an earlier mention's answer is still being reported, it waits
+   * in line and starts when the chat is free (`startNextMention`). When its turn ends, its final message is reported
+   * for the thread (`settleMentionTurn`). An internal Durable Object RPC, not `@callable`: only the runtime calls it.
    */
-  async startMentionTurn(input: MentionStart): Promise<{ status: 'started' | 'busy' }> {
+  async startMentionTurn(input: MentionStart): Promise<{ status: 'started' | 'queued' }> {
     const parsed = mentionStartSchema.safeParse(input);
     if (!parsed.success) {
       throw new AgentRefusal('Invalid mention', 400);
     }
     const start = parsed.data;
     await this.initializeIdentity({ userId: start.ownerId });
-    const binding = this.transcriptBinding;
-    if (!binding) {
+    if (!this.transcriptBinding) {
       throw new AgentRefusal('Agent not found.', 404);
     }
-    // An answer decided but not yet delivered gives way to the new mention.
-    const waiting = this.mentions.pending();
-    if (this.state.activeTurn || this.startingTurns > 0 || (waiting && !waiting.outcome)) {
-      return { status: 'busy' };
+    if (this.mentionWaits() || this.mentions.queued().length > 0) {
+      if (!this.mentions.enqueue(start)) {
+        throw new AgentRefusal('Too many requests are waiting in this chat. Ask again later.', 429);
+      }
+      return { status: 'queued' };
+    }
+    this.beginMention(start);
+    return { status: 'started' };
+  }
+
+  /** Whether a mention must wait: a turn runs or is starting here, or an earlier mention isn't reported yet. */
+  private mentionWaits(): boolean {
+    return Boolean(this.state.activeTurn || this.startingTurns > 0 || this.mentions.pending());
+  }
+
+  /** The chat is free: the mention at the front of the line starts. */
+  private startNextMention(): void {
+    if (this.mentionWaits()) {
+      return;
+    }
+    const next = this.mentions.dequeue();
+    if (next) {
+      this.beginMention(next);
+    }
+  }
+
+  private beginMention(start: MentionStart): void {
+    const binding = this.transcriptBinding;
+    if (!binding) {
+      return;
     }
     if (start.question && !this.mentions.question()) {
       this.mentions.setQuestion(start.question);
@@ -1323,7 +1349,6 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       }
     })();
     this.ctx.waitUntil(starting);
-    return { status: 'started' };
   }
 
   /** The turn a mention started ended: its answer is reported for the thread, a stopped one as posting nothing. */
@@ -1372,6 +1397,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       });
       if (told) {
         this.mentions.clearPending(decided.commentId);
+        this.startNextMention();
         return;
       }
       await abortableSleep(2_000 * (attempt + 1));
@@ -1383,6 +1409,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const pending = this.mentions.pending();
     if (pending?.outcome && !this.state.activeTurn) {
       this.ctx.waitUntil(this.deliverMentionAnswer(pending).catch(() => logger.warn('Unable to report the mention')));
+    } else {
+      // Mentions left waiting when the agent last stopped start once the chat is free.
+      this.startNextMention();
     }
   }
 
@@ -2875,6 +2904,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       validationProgress: null,
     });
     this.settleMentionTurn(turn, result.status);
+    // A turn of the person's own, or a mention whose answer is already reported: the next mention may start.
+    this.startNextMention();
   }
 }
 

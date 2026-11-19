@@ -1,14 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import { recordPublication } from './posts.server';
-import { startThread } from './post-threads.server';
-import {
-  THREAD_RUN_STALE_MS,
-  chatMayCloseThread,
-  claimThreadRun,
-  endThreadRun,
-  setThreadRunChat,
-} from './thread-runs.server';
+import { addReply, startThread } from './post-threads.server';
+import { chatMayCloseThread, claimThreadRun, endThreadRun, setThreadRunChat } from './thread-runs.server';
 
 async function seeded() {
   const { database, db } = controlPlaneDatabase();
@@ -27,44 +21,42 @@ async function seeded() {
   // SAFETY: the column selected is the posts table's id, of the row this test made.
   const postId = (database.prepare(`SELECT id FROM posts WHERE project_id = 'recipes'`).get() as { id: string }).id;
   const thread = await startThread(db, { userId: 'ben', postId, body: '@cloudchef why?' });
-  return { db, thread };
+  const reply = async () => (await addReply(db, { userId: 'ben', threadId: thread.id, body: '@cloudchef and?' })).id;
+  return { db, thread, reply };
 }
 
 describe('mention runs', () => {
-  it('keeps one chat per person per thread, one running turn at a time, and a new chat when access changes', async () => {
-    const { db, thread } = await seeded();
-    const claim = (access: 'edit' | 'read', newChatId: string) =>
-      claimThreadRun(db, { threadId: thread.id, userId: 'ben', access, commentId: thread.id, newChatId });
+  it('keeps one chat per person per thread, and a new chat when access changes', async () => {
+    const { db, thread, reply } = await seeded();
+    const claim = (access: 'edit' | 'read', commentId: string, newChatId: string) =>
+      claimThreadRun(db, { threadId: thread.id, userId: 'ben', access, commentId, newChatId });
 
-    expect(await claim('read', 'first')).toEqual({ status: 'claimed', chatId: 'first', fresh: true });
-    expect(await claim('read', 'second')).toEqual({ status: 'busy' });
-    await setThreadRunChat(db, { threadId: thread.id, userId: 'ben', chatId: 'ben-chat' });
+    expect(await claim('read', thread.id, 'first')).toEqual({ chatId: 'first', fresh: true });
+    await setThreadRunChat(db, { threadId: thread.id, userId: 'ben', commentId: thread.id, chatId: 'ben-chat' });
+    // Read-only: it may not close the thread.
     expect(await chatMayCloseThread(db, { threadId: thread.id, userId: 'ben', chatId: 'ben-chat' })).toBe(false);
-    expect(await endThreadRun(db, { threadId: thread.id, userId: 'ben', commentId: thread.id, chatId: 'other' })).toBe(
-      false,
-    );
-    expect(await endThreadRun(db, { threadId: thread.id, userId: 'ben', commentId: thread.id })).toBe(true);
-
-    expect(await claim('read', 'third')).toEqual({ status: 'claimed', chatId: 'ben-chat', fresh: false });
-    await endThreadRun(db, { threadId: thread.id, userId: 'ben', commentId: thread.id });
-    // Given edit access since: a chat on the project, which may close the thread while it answers.
-    expect(await claim('edit', 'fourth')).toEqual({ status: 'claimed', chatId: 'fourth', fresh: true });
-    expect(await chatMayCloseThread(db, { threadId: thread.id, userId: 'ben', chatId: 'fourth' })).toBe(true);
+    expect(await claim('read', await reply(), 'second')).toEqual({ chatId: 'ben-chat', fresh: false });
+    // Given edit access since: a chat on the project.
+    expect(await claim('edit', await reply(), 'third')).toEqual({ chatId: 'third', fresh: true });
   });
 
-  it('takes a turn that never reported back as lost after a few hours', async () => {
-    const { db, thread } = await seeded();
-    const claim = (now: number) =>
-      claimThreadRun(db, {
-        threadId: thread.id,
-        userId: 'ben',
-        access: 'read',
-        commentId: thread.id,
-        newChatId: `c-${now}`,
-        now,
-      });
-    expect((await claim(1_000)).status).toBe('claimed');
-    expect(await claim(1_000 + THREAD_RUN_STALE_MS - 1)).toEqual({ status: 'busy' });
-    expect(await claim(1_000 + THREAD_RUN_STALE_MS + 1)).toEqual({ status: 'claimed', chatId: 'c-1000', fresh: false });
+  it('keeps every mention until it is answered, once, so a second can wait while the first runs', async () => {
+    const { db, thread, reply } = await seeded();
+    const first = thread.id;
+    const second = await reply();
+    await claimThreadRun(db, { threadId: thread.id, userId: 'ben', access: 'edit', commentId: first, newChatId: 'c' });
+    await claimThreadRun(db, { threadId: thread.id, userId: 'ben', access: 'edit', commentId: second, newChatId: 'x' });
+    await setThreadRunChat(db, { threadId: thread.id, userId: 'ben', commentId: first, chatId: 'c' });
+    await setThreadRunChat(db, { threadId: thread.id, userId: 'ben', commentId: second, chatId: 'c' });
+    expect(await chatMayCloseThread(db, { threadId: thread.id, userId: 'ben', chatId: 'c' })).toBe(true);
+
+    const end = (commentId: string, chatId?: string) =>
+      endThreadRun(db, { threadId: thread.id, userId: 'ben', commentId, chatId });
+    expect(await end(first, 'other')).toBe(false);
+    expect(await end(first, 'c')).toBe(true);
+    expect(await end(first, 'c')).toBe(false);
+    expect(await chatMayCloseThread(db, { threadId: thread.id, userId: 'ben', chatId: 'c' })).toBe(true);
+    expect(await end(second)).toBe(true);
+    expect(await chatMayCloseThread(db, { threadId: thread.id, userId: 'ben', chatId: 'c' })).toBe(false);
   });
 });

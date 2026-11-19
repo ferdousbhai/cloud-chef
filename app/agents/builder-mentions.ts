@@ -61,10 +61,15 @@ const KEYS = {
   thread: 'cloudchef.mention.thread',
   question: 'cloudchef.mention.question',
   pending: 'cloudchef.mention.pending',
+  queue: 'cloudchef.mention.queue',
 };
 
+/** Mentions waiting for the chat to be free, oldest first; more than this many waiting is more than anyone asks. */
+const QUEUE_MAX = 50;
+const queueSchema = z.array(mentionStartSchema).max(QUEUE_MAX);
+
 /** What the store keeps; each is parsed again when read. */
-type Stored = MentionThread | QuestionSource | PendingMention;
+type Stored = MentionThread | QuestionSource | PendingMention | MentionStart[];
 /** The agent's `ctx.storage.kv`, as much of it as the store uses. */
 type Kv = {
   get(key: string): Stored | undefined;
@@ -99,6 +104,38 @@ export class BuilderMentionStore {
 
   setPending(pending: PendingMention): void {
     this.kv.put(KEYS.pending, pending);
+  }
+
+  /** Mentions waiting their turn, oldest first. */
+  queued(): MentionStart[] {
+    return queueSchema.safeParse(this.kv.get(KEYS.queue)).data ?? [];
+  }
+
+  /** Puts a mention at the back of the line; false when the line is full. One already waiting isn't added twice. */
+  enqueue(start: MentionStart): boolean {
+    const queue = this.queued();
+    if (queue.some((waiting) => waiting.commentId === start.commentId)) {
+      return true;
+    }
+    if (queue.length >= QUEUE_MAX) {
+      return false;
+    }
+    this.kv.put(KEYS.queue, [...queue, start]);
+    return true;
+  }
+
+  /** Takes the mention at the front of the line. */
+  dequeue(): MentionStart | null {
+    const [next, ...rest] = this.queued();
+    if (!next) {
+      return null;
+    }
+    if (rest.length > 0) {
+      this.kv.put(KEYS.queue, rest);
+    } else {
+      this.kv.delete(KEYS.queue);
+    }
+    return next;
   }
 
   clearPending(commentId: string): void {
