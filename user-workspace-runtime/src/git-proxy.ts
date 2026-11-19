@@ -359,20 +359,20 @@ export async function handleSharedProjectRequest(
   }
   if (shared.op === SHARED_PREVIEW) {
     const asked = sharedPreviewRequestSchema.safeParse(await request.json().catch(() => null));
-    // The preview runs the offered code with the project's own database and storage, so only someone who can
-    // change the project has it built.
-    if (shared.role !== 'edit') {
-      return new Response('Only someone who can change this project has a change to it built.', { status: 403 });
-    }
     if (request.method !== 'POST' || !asked.success) {
       return new Response('Name the commit and its branch.', { status: 400 });
     }
-    const kept = await repositories.setBranch(project.repo, asked.data.branch, asked.data.commit);
-    if (kept) {
+    const { branch, commit } = asked.data;
+    // Building one is for someone who can change the project; removing its branch for whoever closed the thread.
+    if (commit && shared.role !== 'edit') {
+      return new Response('Only someone who can change this project has a change to it built.', { status: 403 });
+    }
+    const kept = await repositories.setBranch(project.repo, branch, commit);
+    if (kept && commit) {
       await publishPush(env, project.deploysWith === 'cloudchef' ? { orgProjectId: shared.projectId } : null, {
-        ref: `refs/heads/${asked.data.branch}`,
+        ref: `refs/heads/${branch}`,
         oldOid: '0'.repeat(40),
-        newOid: asked.data.commit,
+        newOid: commit,
       });
     }
     return Response.json({ kept }, { headers: { 'Cache-Control': 'no-store' } });

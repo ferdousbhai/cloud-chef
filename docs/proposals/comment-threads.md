@@ -151,9 +151,11 @@ The code is the project's compiled output: what the people deciding read is the 
 is a preview of the change. A preview runs the offered code as a version of the project's own Worker, with its
 database and storage, so none is built when a change is offered. It is built when someone who can edit the project
 looks at the offer (the first step of Accept): a runtime in the project's account puts the commit on a branch of its
-own, `suggested-<thread number>` (`preview`), which is built as any pushed branch is. For a project CloudChef deploys
-itself the thread then shows **Try it**, the preview's address (`project_deployments`); a project Workers Builds
-deploys gets its preview there, not yet linked from the thread. The branch is deleted once the change is accepted.
+own, `suggested-<thread number>` (`preview`), which is built as any pushed branch is. The thread then shows **Try it**, the
+preview's address: from `project_deployments` for a project CloudChef deploys itself, and for one Workers Builds
+deploys from what Workers Builds reports for the commit, kept in `post_comments.suggested_preview_url` (0067) the
+next time an editor looks. The branch is deleted when the change is accepted, and when the thread is closed any
+other way on the post's page.
 
 On the thread, someone who can edit the project sees **Accept** and **Decline**:
 

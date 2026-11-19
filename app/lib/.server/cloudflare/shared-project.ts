@@ -42,8 +42,12 @@ export function suggestedBranch(threadNumber: number): string {
   return `suggested-${threadNumber}`;
 }
 
+/** `commit` null removes the branch: the thread was closed, so its preview has served. */
 export const sharedPreviewRequestSchema = z.strictObject({
-  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  commit: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/)
+    .nullable(),
   branch: SUGGESTED_BRANCH,
 });
 

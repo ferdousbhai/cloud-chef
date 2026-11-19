@@ -44,6 +44,8 @@ import {
   markThreadOnItsWay,
   mentionsCloudChef,
   offeredChange,
+  offeredChangeNumber,
+  recordOfferedPreview,
   openThreadsOfProjects,
   reopenThread,
   setThreadFollowing,
@@ -58,7 +60,7 @@ import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor 
 import { SENDER } from './email-auth';
 import { copyProjectFor, forwardToProjectAccount } from './command-line';
 import { deploymentOfCommit } from '~/lib/cloudflare/data/project-deployments.server';
-import { memberIdentity } from './runtime-projects';
+import { memberIdentity, workersBuildOfCommit } from './runtime-projects';
 import { findAccessibleProject, recordMainPush } from '~/lib/cloudflare/data/org-projects.server';
 import {
   SHARED_MERGE,
@@ -394,8 +396,11 @@ export const threadStateAction: Handler = ({ request, env }) =>
     const userId = session.user.id;
     const change = body.data;
     switch (change.action) {
-      case 'close':
-        return json({ thread: await closeThread(env.DB, { userId, ...change }) });
+      case 'close': {
+        const thread = await closeThread(env.DB, { userId, ...change });
+        await removeOfferedPreviewBranch(request, env, { threadId: thread.id, userId });
+        return json({ thread });
+      }
       case 'reopen':
         return json({ thread: await reopenThread(env.DB, { userId, threadId: change.threadId }) });
       case 'lock':
@@ -449,6 +454,40 @@ async function askProjectAccount(
   }
 }
 
+/**
+ * A closed thread that offered a change has no more use for the branch its preview was built from: it is removed from
+ * the project's repository, by whoever closed the thread (someone who can edit the project, or who offered the
+ * change). A branch that can't be removed now only stays listed. An accepted change's is removed by the merge.
+ */
+async function removeOfferedPreviewBranch(
+  request: Request,
+  env: Env,
+  args: { threadId: string; userId: string },
+): Promise<void> {
+  try {
+    const offered = await offeredChangeNumber(env.DB, args.threadId);
+    const project = offered ? await findAccessibleProject(env.DB, offered.projectId, args.userId) : null;
+    if (!offered || !project) {
+      return;
+    }
+    const asked = new Request(new URL('/api/showcase/threads/state', request.url), {
+      method: 'POST',
+      body: JSON.stringify({ commit: null, branch: suggestedBranch(offered.number) }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const answer = await forwardToProjectAccount(asked, env, {
+      project: { id: project.id, connectionId: project.connectionId },
+      userId: args.userId,
+      role: project.role === 'edit' ? 'edit' : 'view',
+      op: SHARED_PREVIEW,
+      workspace: 'offered-change',
+    });
+    await answer.body?.cancel();
+  } catch {
+    console.warn({ event: 'offered_change_branch_not_removed' });
+  }
+}
+
 const threadIdSchema = z.strictObject({ threadId: ID });
 
 /** The most files of an offered change named before the rest are counted. */
@@ -488,11 +527,36 @@ export const offeredChangeAction: Handler = ({ request, env }) =>
             state === 'conflict' ? { status: 'conflict', files: conflicts } : { status: state },
             change.offeredBy,
           );
-    // Its preview, the way to try it before deciding: started now if it wasn't, on a branch of its own.
-    const preview = await deploymentOfCommit(env.DB, { projectId: change.projectId, commit: change.commit });
-    let started = false;
-    if (state === 'ready' && !preview) {
-      started = await askProjectAccount(request, env, {
+    // Its preview, the way to try it before deciding: started now if it wasn't, on a branch of its own. A project
+    // CloudChef deploys itself has it among its deployments; Workers Builds is asked about one it deploys, and the
+    // address it gives is kept for the thread to link.
+    const project = await findAccessibleProject(env.DB, change.projectId, session.user.id);
+    let built: 'none' | 'building' | 'succeeded' | 'failed' | 'unknown' = 'none';
+    if (project?.deploysWith === 'workers_builds') {
+      const build = await workersBuildOfCommit(env, project, change.commit);
+      built = !build
+        ? 'unknown'
+        : build.state === 'queued'
+          ? 'building'
+          : build.state === 'succeeded' && !build.previewUrl
+            ? 'unknown'
+            : build.state;
+      if (build?.previewUrl) {
+        await recordOfferedPreview(env.DB, change.threadId, build.previewUrl);
+      }
+    } else {
+      const preview = await deploymentOfCommit(env.DB, { projectId: change.projectId, commit: change.commit });
+      built =
+        preview?.kind !== 'preview'
+          ? 'none'
+          : preview.state === 'succeeded' || preview.state === 'failed'
+            ? preview.state
+            : preview.state === 'queued' || preview.state === 'building' || preview.state === 'deploying'
+              ? 'building'
+              : 'unknown';
+    }
+    if (state === 'ready' && built === 'none') {
+      const started = await askProjectAccount(request, env, {
         projectId: change.projectId,
         userId: session.user.id,
         op: SHARED_PREVIEW,
@@ -505,18 +569,16 @@ export const offeredChangeAction: Handler = ({ request, env }) =>
         },
         () => false,
       );
+      built = started ? 'building' : 'unknown';
     }
-    const trying = !preview
-      ? started
-        ? 'Its preview is being built now: open this again in a minute or two for the link to try it. '
-        : ''
-      : preview.kind !== 'preview'
-        ? ''
-        : preview.state === 'succeeded'
-          ? 'Try it first with the link above. '
-          : preview.state === 'failed'
-            ? 'Its preview couldn’t be built, so it can’t be tried first. '
-            : 'Its preview is still being built: open this again in a minute for the link to try it. ';
+    const trying =
+      built === 'succeeded'
+        ? 'Try it first: close this and use Try it on the thread (reload the page if it isn’t there yet). '
+        : built === 'failed'
+          ? 'Its preview couldn’t be built, so it can’t be tried first. '
+          : built === 'building'
+            ? 'Its preview is being built: open this again in a minute or two for the link to try it. '
+            : '';
     const more = changed.length - OFFERED_FILES_SHOWN;
     return json({
       acceptable: state === 'ready' || state === 'already',

@@ -11,6 +11,7 @@ import {
   productionOrigins,
   recordProjectWorker,
   projectBuildStatus,
+  type ProjectBuildStatus,
   type OpenWorkersBuildsAccountApi,
   type WorkersBuildsAccountApi,
 } from '~/lib/.server/cloudflare/workers-builds';
@@ -650,6 +651,31 @@ async function withWorkersBuilds(
   } catch (error) {
     if (error instanceof CloudflareAccountApiError) {
       return json({ error: `Workers Builds could not be read: ${error.message}` }, 502);
+    }
+    throw error;
+  }
+}
+
+/**
+ * How a Workers Builds project's own build of `commit` went, as its account reports it (a branch's with its Preview's
+ * address); null when the account or Workers Builds can't be asked now.
+ */
+export async function workersBuildOfCommit(
+  env: Env,
+  project: Project,
+  commit: string,
+): Promise<ProjectBuildStatus | null> {
+  const connection = await findActiveCloudflareConnection(env.DB, project.connectionId);
+  if (!connection) {
+    return null;
+  }
+  try {
+    const api = await openWorkersBuildsAccountApi(env, connection);
+    const worker = await recordProjectWorker(env.DB, api, project, (found) => productionOrigins(api, found));
+    return worker ? await projectBuildStatus(api, { accountId: connection.accountId, worker, commit }) : null;
+  } catch (error) {
+    if (error instanceof CloudflareAccountApiError) {
+      return null;
     }
     throw error;
   }

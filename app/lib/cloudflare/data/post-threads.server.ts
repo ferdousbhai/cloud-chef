@@ -130,10 +130,11 @@ const THREAD_COLUMNS = `${COMMENT_COLUMNS}, comments.post_id, comments.number, c
     THEN '/' || copy_owners.username || '/' || copies.slug END AS suggested_path,
   CASE WHEN copies.visibility = 'public' THEN copies.site_url END AS suggested_site,
   (comments.suggested_project_id = posts.project_id) AS suggested_here,
-  (SELECT previews.url FROM project_deployments AS previews
-   WHERE previews.project_id = posts.project_id AND previews.commit_sha = comments.suggested_commit
-     AND previews.kind = 'preview' AND previews.state = 'succeeded'
-   ORDER BY previews.created_at DESC LIMIT 1) AS suggested_preview,
+  COALESCE(comments.suggested_preview_url,
+    (SELECT previews.url FROM project_deployments AS previews
+     WHERE previews.project_id = posts.project_id AND previews.commit_sha = comments.suggested_commit
+       AND previews.kind = 'preview' AND previews.state = 'succeeded'
+     ORDER BY previews.created_at DESC LIMIT 1)) AS suggested_preview,
   (SELECT 1 - followers.muted FROM thread_followers AS followers
    WHERE followers.thread_id = comments.id AND followers.user_id = ?1) AS following`;
 
@@ -881,8 +882,34 @@ export async function offerChange(
     return { number: thread.number, updated: false };
   }
   await addReply(db, { userId: args.userId, threadId: open.id, body: args.body, now: args.now });
-  await db.prepare('UPDATE post_comments SET suggested_commit = ? WHERE id = ?').bind(args.commit, open.id).run();
+  await db
+    .prepare('UPDATE post_comments SET suggested_commit = ?, suggested_preview_url = NULL WHERE id = ?')
+    .bind(args.commit, open.id)
+    .run();
   return { number: open.number, updated: true };
+}
+
+/** The preview of a thread's offered change, where Workers Builds built it, for the thread to link. */
+export async function recordOfferedPreview(db: D1Database, threadId: string, url: string): Promise<void> {
+  await db.prepare('UPDATE post_comments SET suggested_preview_url = ? WHERE id = ?').bind(url, threadId).run();
+}
+
+/**
+ * Whether a thread offers a change made on the post's own project, with its number and project: for removing the branch its
+ * preview was built from once the thread is closed.
+ */
+export async function offeredChangeNumber(
+  db: D1Database,
+  threadId: string,
+): Promise<{ number: number; projectId: string } | null> {
+  const row = await db
+    .prepare(
+      `SELECT comments.number, posts.project_id FROM post_comments AS comments JOIN posts ON posts.id = comments.post_id
+       WHERE comments.id = ? AND comments.kind = 'suggestion' AND comments.suggested_project_id = posts.project_id`,
+    )
+    .bind(threadId)
+    .first<{ number: number; project_id: string }>();
+  return row ? { number: row.number, projectId: row.project_id } : null;
 }
 
 /**

@@ -101,7 +101,7 @@ export async function findProjectWorker(
 }
 
 /** What Workers Builds reports for one commit of a project. */
-type ProjectBuildStatus = {
+export type ProjectBuildStatus = {
   state: 'none' | 'queued' | 'building' | 'succeeded' | 'failed';
   /** The production site, for a build of main that succeeded. */
   url?: string;
