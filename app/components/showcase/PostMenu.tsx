@@ -27,8 +27,11 @@ export function PostMenu({
   onCaption,
   onGone,
   onReelRemoved,
+  isPrivate = false,
 }: {
   post: PostView;
+  /** A private project's post: it is on nobody's page, so there's nothing to hide it from. */
+  isPrivate?: boolean;
   onCaption: (caption: string | null) => void;
   /** Hidden or deleted: gone from this page. */
   onGone: () => void;
@@ -86,10 +89,12 @@ export function PostMenu({
                 Remove clip
               </MenuItem>
             ) : null}
-            <MenuItem action={hide}>
-              <EyeNoneIcon />
-              Hide from my page
-            </MenuItem>
+            {isPrivate ? null : (
+              <MenuItem action={hide}>
+                <EyeNoneIcon />
+                Hide from my page
+              </MenuItem>
+            )}
             <MenuSeparator />
           </>
         ) : null}

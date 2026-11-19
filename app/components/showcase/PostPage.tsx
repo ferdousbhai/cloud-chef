@@ -53,6 +53,7 @@ function PostPageContent({ initial, isPrivate }: { initial: PostView; isPrivate:
       onCaption={(caption) => setPost({ ...post, caption })}
       onGone={() => setGone(true)}
       onReelRemoved={() => setPost({ ...post, reel: null })}
+      isPrivate={isPrivate}
     />
   );
   const when = timeAgo(post.shownAt);
