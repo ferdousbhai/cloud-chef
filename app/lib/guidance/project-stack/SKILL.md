@@ -9,6 +9,7 @@ When a generated app needs a framework, use TanStack Start on Cloudflare Workers
 
 - `src/application.ts` is the request handler; it answers `/api/*` and serves the built client through `env.ASSETS`. The client is `index.html`, `src/main.ts`, `src/styles.css`.
 - `src/plain-server.ts` (and `src/server.ts` once the Agent capability is enabled) are the Worker entrypoints; they wrap the application with CloudChef's security headers.
+- A public project's post on CloudChef runs its live site inside `https://cloudchef.build`, where anyone can use it. Those security headers allow exactly that origin in `frame-ancestors` and nothing else; keep it, and send no `X-Frame-Options`, in any app, framework or not.
 - Bindings are reached through `src/app-bindings.ts`; the production build rejects application code that imports `cloudflare:workers`.
 - TanStack Start's Vite plugin goes in `frameworkPlugins` in `vite.config.ts`. Its request handler is exported from `src/application.ts`, and `index.html` and `src/main.ts` are no longer needed when it renders the document.
 - Worker-only: package.json `cloudchef.projectType` is "worker", `src/server.ts` is the fetch handler and the `cloudflare.project.json` entrypoint, and there is no `"assets"` entry or client. Automatic deployment does not yet support scheduled, queue, email, or Tail handlers.

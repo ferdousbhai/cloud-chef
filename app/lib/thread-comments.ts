@@ -60,6 +60,11 @@ export const commentsListAnswerSchema = z.object({
   /** How many of the post's threads are open, all of them (`threads` holds the latest). */
   open: z.number(),
   threads: z.array(threadSummarySchema),
+  /**
+   * Whether the live site lets cloudchef.build show it running in the post, as last checked after a publish; null
+   * until checked. Optional: a runtime may meet a control plane from before it was said.
+   */
+  runsInPost: z.boolean().nullable().optional(),
 });
 export type CommentsListAnswer = z.infer<typeof commentsListAnswerSchema>;
 

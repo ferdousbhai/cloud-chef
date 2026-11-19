@@ -3,6 +3,8 @@ import type { ProductionPublish } from '~/lib/cloudflare/data/org-projects.serve
 import { classifyMedia, takeScreenshot } from './screenshot';
 import { mediaKey } from './media';
 import { scanVerdict, submitScan } from './url-scanner';
+import { siteAllowsFraming } from '~/lib/.server/site-framing';
+import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
 
 /**
  * Showcase work done in the background, on the `cloudchef-showcase` queue: a post's screenshot after a publish, and
@@ -53,6 +55,29 @@ export async function projectPublished(env: PostingEnv, publish: ProductionPubli
   }
 }
 
+/**
+ * Whether the post can run its live site, asked of the site itself once it is live after each publish, whichever way
+ * it was published: the post shows the working app when the site lets cloudchef.build frame it, else its picture. An
+ * answer that couldn't be had leaves what was known.
+ */
+export async function recordRunsInPost(
+  db: D1Database,
+  job: { postId: string; siteUrl: string },
+  check: (url: string, origin: string) => Promise<boolean | null> = siteAllowsFraming,
+): Promise<void> {
+  const frameable = await check(job.siteUrl, CANONICAL_ORIGIN);
+  if (frameable === null) {
+    return;
+  }
+  await db
+    .prepare(
+      `UPDATE org_projects SET site_frameable = ?1, site_url = COALESCE(site_url, ?3)
+       WHERE id = (SELECT project_id FROM posts WHERE id = ?2) AND (site_url IS NULL OR site_url = ?3)`,
+    )
+    .bind(frameable ? 1 : 0, job.postId, job.siteUrl)
+    .run();
+}
+
 /** The queue consumer: each job once, retried by the queue when it throws. */
 export async function runShowcaseJobs(batch: MessageBatch<ShowcaseJob>, env: Env): Promise<void> {
   for (const message of batch.messages) {
@@ -72,6 +97,7 @@ export async function runShowcaseJobs(batch: MessageBatch<ShowcaseJob>, env: Env
 
 async function runJob(env: Env, job: ShowcaseJob): Promise<void> {
   if (job.kind === 'screenshot') {
+    await recordRunsInPost(env.DB, job).catch(() => undefined);
     const shot = await takeScreenshot(env, job.siteUrl);
     if (shot) {
       const id = crypto.randomUUID();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
-import { projectPublished, type ShowcaseJob } from './jobs';
+import { projectPublished, recordRunsInPost, type ShowcaseJob } from './jobs';
 
 const COMMIT = 'a'.repeat(40);
 
@@ -50,5 +50,23 @@ describe('projectPublished', () => {
     await projectPublished(env, publish);
     expect(database.prepare('SELECT COUNT(*) AS count FROM posts').get()).toEqual({ count: 0 });
     expect(sent).toEqual([]);
+  });
+});
+
+describe('recordRunsInPost', () => {
+  it('records whether the post can run its live site, and keeps what was known when the site can’t be asked', async () => {
+    const { database, env } = seeded('public');
+    await projectPublished(env, publish);
+    // SAFETY: the column selected is the posts table's id, of the row this test made.
+    const postId = (database.prepare('SELECT id FROM posts').get() as { id: string }).id;
+    const frameable = () => database.prepare('SELECT site_frameable FROM org_projects').get();
+    const job = { postId, siteUrl: publish.siteUrl };
+
+    await recordRunsInPost(env.DB, job, async () => false);
+    expect(frameable()).toEqual({ site_frameable: 0 });
+    await recordRunsInPost(env.DB, job, async () => null);
+    expect(frameable()).toEqual({ site_frameable: 0 });
+    await recordRunsInPost(env.DB, job, async (_url, origin) => origin === 'https://cloudchef.build');
+    expect(frameable()).toEqual({ site_frameable: 1 });
   });
 });

@@ -82,6 +82,18 @@ describe('comment threads in the environment', () => {
     expect(prompt).not.toContain('cloudchef comments close');
   });
 
+  it('says the post runs the app, and asks for a fix when the live site refuses to be framed there', () => {
+    const allowed = systemPrompt('', APP, {
+      comments: { post: '/sara/recipes', open: 0, onItsWay: 0, runsInPost: true },
+    });
+    expect(allowed).toContain('frame-ancestors');
+    expect(allowed).not.toContain('refuses to be framed');
+    const refused = systemPrompt('', APP, {
+      comments: { post: '/sara/recipes', open: 0, onItsWay: 0, runsInPost: false },
+    });
+    expect(refused).toContain('refuses to be framed by https://cloudchef.build now');
+  });
+
   it('tells a mention-started chat which thread, that its final message is public, and its length', () => {
     const prompt = systemPrompt('', APP, {
       comments: { post: '/sara/recipes', open: 1, onItsWay: 0 },

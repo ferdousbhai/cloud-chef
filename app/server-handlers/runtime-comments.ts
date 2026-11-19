@@ -77,6 +77,7 @@ export async function runtimeCommentsAction({ request, env }: { request: Request
       post: post.path,
       open: await openThreadCount(env.DB, post.id),
       threads: threads.filter((thread) => thread.state !== 'closed').map(summary),
+      runsInPost: project.siteFrameable,
     };
     return json(answer);
   }

@@ -45,7 +45,7 @@ The person sees ${project.defaultBranch}'s history as the project's versions and
  */
 export type ThreadFacts = {
   /** The project's public post (`/<owner>/<slug>`) and how many of its threads are open and on their way. */
-  comments?: { post: string; open: number; onItsWay: number } | null;
+  comments?: { post: string; open: number; onItsWay: number; runsInPost?: boolean | null } | null;
   /** The thread whose `@cloudchef` mentions this chat answers. */
   mention?: { number: number; post: string; access: 'edit' | 'read' } | null;
   /** A read-only chat: a copy of the public post's project, at the version live when it started. */
@@ -68,7 +68,13 @@ function commentsSection(facts: ThreadFacts): string | null {
         : '';
     lines.push(
       `- The project's public post, ${post}, has ${open} open comment thread${open === 1 ? '' : 's'}${waiting}. \`cloudchef comments\` lists the open and on-its-way ones, and \`cloudchef comments show <n>\` shows one whole, from any chat or the person's terminal.`,
+      `- The post runs the live site inside https://cloudchef.build, where anyone can use it, so the app must let that origin frame it: \`frame-ancestors\` naming https://cloudchef.build, and no \`X-Frame-Options\` that refuses it. No other site needs to frame it.`,
     );
+    if (facts.comments.runsInPost === false) {
+      lines.push(
+        `- Its live site refuses to be framed by https://cloudchef.build now, so the post shows only a picture of it. Fix that when you next change the project, and say so in a sentence.`,
+      );
+    }
   }
   if (facts.mention) {
     const { number, post, access } = facts.mention;
