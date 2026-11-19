@@ -16,7 +16,7 @@ import { chatMayCloseThread, endThreadRun } from '~/lib/cloudflare/data/thread-r
 import type { PostComment, PostThread } from '~/lib/showcase';
 import {
   commentsRequestSchema,
-  couldNotFinish,
+  COULD_NOT_FINISH,
   type CommentsListAnswer,
   type CommentsShowAnswer,
   type CommentsThreadSummary,
@@ -172,7 +172,7 @@ export async function runtimeCommentsAnsweredAction({
   if (!ended || body.outcome === 'stopped') {
     return json({ posted: false });
   }
-  const text = body.outcome === 'answered' ? body.text : couldNotFinish(body.text);
+  const text = body.outcome === 'answered' ? body.text : COULD_NOT_FINISH;
   const posted = await addAgentReply(env.DB, { threadId: body.threadId, askerId: identity.userId, body: text });
   return json({ posted: posted !== null });
 }

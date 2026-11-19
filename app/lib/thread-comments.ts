@@ -187,8 +187,9 @@ export function parseCommentsArguments(args: readonly string[]): CommentsCommand
   return { usage };
 }
 
-/** What a failed mention turn posts in the thread, with why. */
-export function couldNotFinish(reason: string): string {
-  const said = reason.trim().replace(/\.$/, '');
-  return `CloudChef couldn’t finish this: ${said || 'the turn failed'}.`;
-}
+/**
+ * What a failed mention turn posts in the thread. Why it failed is said only to the person who asked (in their chat,
+ * or on the post page when it couldn't start): it can be a model provider's or their account's own words.
+ */
+export const COULD_NOT_FINISH =
+  'CloudChef couldn’t finish this. The person who asked can see why in their chat, and ask again.';

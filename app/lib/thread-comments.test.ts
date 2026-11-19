@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { couldNotFinish, formatCommentsList, formatCommentsThread, parseCommentsArguments } from './thread-comments';
+import { COULD_NOT_FINISH, formatCommentsList, formatCommentsThread, parseCommentsArguments } from './thread-comments';
 
 const AT = Date.UTC(2026, 10, 18, 9, 30);
 
@@ -88,8 +88,7 @@ describe('cloudchef comments', () => {
     expect(text).toContain('CloudChef, asked by @ben, 2026-11-18 09:30:\n    It follows the system setting now.');
   });
 
-  it('says why CloudChef couldn’t finish, in one sentence', () => {
-    expect(couldNotFinish('The turn failed.')).toBe('CloudChef couldn’t finish this: The turn failed.');
-    expect(couldNotFinish('')).toBe('CloudChef couldn’t finish this: the turn failed.');
+  it('says publicly only that CloudChef couldn’t finish, never why', () => {
+    expect(COULD_NOT_FINISH).not.toMatch(/error|failed:/i);
   });
 });

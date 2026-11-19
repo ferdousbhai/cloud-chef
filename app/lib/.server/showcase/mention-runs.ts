@@ -7,7 +7,7 @@ import { addAgentReply, findThread, listReplies } from '~/lib/cloudflare/data/po
 import { claimThreadRun, endThreadRun, setThreadRunChat } from '~/lib/cloudflare/data/thread-runs.server';
 import type { PostComment, PostThread } from '~/lib/showcase';
 import { runtimeFor } from '~/server-handlers/command-line';
-import { couldNotFinish } from '~/lib/thread-comments';
+import { COULD_NOT_FINISH } from '~/lib/thread-comments';
 
 /** What the comment box is told after a comment that mentions `@cloudchef`. */
 export type MentionAnswer =
@@ -68,7 +68,7 @@ export async function answerMention(
   });
   const failed = async (reason: string): Promise<MentionAnswer> => {
     if (await endThreadRun(env.DB, { threadId, userId, commentId })) {
-      await addAgentReply(env.DB, { threadId, askerId: userId, body: couldNotFinish(reason) });
+      await addAgentReply(env.DB, { threadId, askerId: userId, body: COULD_NOT_FINISH });
     }
     return { status: 'failed', message: reason };
   };

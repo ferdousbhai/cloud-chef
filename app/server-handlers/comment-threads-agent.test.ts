@@ -272,7 +272,7 @@ describe('a mention turn ending', () => {
     claim();
     await run('failed', 'No model was available for this turn.');
     expect(database.prepare('SELECT body FROM post_comments WHERE parent_id = ?').all(thread.id)).toEqual([
-      { body: 'CloudChef couldn’t finish this: No model was available for this turn.' },
+      { body: 'CloudChef couldn’t finish this. The person who asked can see why in their chat, and ask again.' },
     ]);
   });
 });
@@ -366,7 +366,7 @@ describe('@cloudchef', () => {
     });
     expect(failed).toEqual({ status: 'failed', message: 'The workspace is upgrading.' });
     expect(database.prepare('SELECT body FROM post_comments WHERE parent_id = ?').all(thread.id)).toEqual([
-      { body: 'CloudChef couldn’t finish this: The workspace is upgrading.' },
+      { body: 'CloudChef couldn’t finish this. The person who asked can see why in their chat, and ask again.' },
     ]);
     expect(
       database
