@@ -148,18 +148,19 @@ The person's offer that is still open takes a new commit instead, with the messa
 a push. A project with no post yet has nowhere to offer a change.
 
 The code is the project's compiled output: what the people deciding read is the offer's message, and what they try
-is a preview of the change. A preview runs the offered code as a version of the project's own Worker, with its
-database and storage, so none is built when a change is offered. It is built when someone who can edit the project
-looks at the offer (the first step of Accept): a runtime in the project's account puts the commit on a branch of its
-own, `suggested-<thread number>` (`preview`), which is built as any pushed branch is. The thread then shows **Try it**, the
+is a preview of the change. The preview is built when the change is
+offered, so it is there when they come: a runtime in the project's account puts the commit on a branch of its own,
+`suggested-<thread number>` (`preview`), which is built as any pushed branch is. It runs the offered code as a
+version of the project's own Worker, with its database and storage; only people the project is shared with and its
+team can offer a change, and the owner accepts that (2026-11-19). The thread then shows **Try it**, the
 preview's address: from `project_deployments` for a project CloudChef deploys itself, and for one Workers Builds
-deploys from what Workers Builds reports for the commit, kept in `post_comments.suggested_preview_url` (0067) the
-next time an editor looks. The branch is deleted when the change is accepted, and when the thread is closed any
+deploys from what Workers Builds reports for the commit, asked when someone who can edit the project reads the
+threads and kept in `post_comments.suggested_preview_url` (0067). The branch is deleted when the change is accepted, and when the thread is closed any
 other way on the post's page.
 
 On the thread, someone who can edit the project sees **Accept** and **Decline**:
 
-- **Accept** first has the preview built and says whether it is ready to try, and lists, as detail, the files the
+- **Accept** first says whether the preview is ready to try, and lists, as detail, the files the
   commit changes since it and main last shared a commit (`changes`, read in the project's account). **Accept and publish** then has a runtime in the project's account bring the commit into main
   (`mergeIntoMain`): main moves to it when main hasn't changed since, and otherwise takes a merge commit in the
   accepter's name with both as parents. The merge is by whole files; when both sides changed the same file nothing is

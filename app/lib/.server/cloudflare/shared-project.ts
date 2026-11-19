@@ -31,8 +31,9 @@ export const SHARED_MERGE = 'merge';
 /**
  * CloudChef's own request too: a change was offered, and its commit goes on a branch of its own in the project's
  * repository (`suggested-<thread number>`), which builds a preview of it as any pushed branch does, for the people
- * deciding on it to try. A preview runs the offered code with the project's own database and storage, so it is built
- * only when someone who can edit the project asks to look at the offer, never when it is offered.
+ * deciding on it to try. It is built when the change is offered, by anyone who may see the project (people it is
+ * shared with and its team, whom its owner trusts): the preview runs the offered code with the project's own
+ * database and storage, which the owner accepts.
  */
 export const SHARED_PREVIEW = 'preview';
 const SUGGESTED_BRANCH = z.string().regex(/^suggested-[0-9]{1,7}$/);

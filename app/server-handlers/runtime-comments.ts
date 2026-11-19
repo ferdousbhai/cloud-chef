@@ -23,6 +23,8 @@ import {
   type CommentsShowAnswer,
   type CommentsThreadSummary,
 } from '~/lib/thread-comments';
+import { SHARED_PREVIEW, suggestedBranch } from '~/lib/.server/cloudflare/shared-project';
+import { forwardToProjectAccount } from './command-line';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 
 /**
@@ -32,6 +34,8 @@ import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
  */
 
 const MAX_REQUEST_BYTES = 8 * 1024;
+/** How long starting an offered change's preview may hold up the offer's answer. */
+const PREVIEW_START_TIMEOUT_MS = 12_000;
 const NO_POST = 'This project has no post yet (it gets one when it is published), so it has no comment threads.';
 
 function json<Answer>(body: Answer, status = 200): Response {
@@ -187,7 +191,7 @@ export async function runtimeCommentsAnsweredAction({
  * `POST /api/cloudflare/runtime-projects/suggest`: `cloudchef suggest` from a workspace on a project the person may
  * see but, usually, not change. Their commit, which their workspace saved in the project's repository, is offered on
  * the project's post as a suggestion thread, for the people who can change the project to accept or decline; an offer
- * of theirs still open takes the new commit instead. Whether the repository holds the commit is found when it is
+ * of theirs still open takes the new commit instead. A preview of the change is built at once. Whether the repository holds the commit is found when it is
  * looked at or accepted, in the project's account.
  */
 export async function runtimeSuggestAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
@@ -219,6 +223,23 @@ export async function runtimeSuggestAction({ request, env }: { request: Request;
       body: body.message,
       commit: body.commit,
     });
+    // Its preview, there for the people deciding on it when they come: the commit goes on a branch of its own in the
+    // project's account, which builds it as any pushed branch. An offer whose preview couldn't be started is still
+    // made, and looking at it starts the preview again.
+    const preview = new Request(new URL('/api/cloudflare/runtime-projects/suggest', request.url), {
+      method: 'POST',
+      body: JSON.stringify({ commit: body.commit, branch: suggestedBranch(offered.number) }),
+      signal: AbortSignal.timeout(PREVIEW_START_TIMEOUT_MS),
+    });
+    await forwardToProjectAccount(preview, env, {
+      project: { id: project.id, connectionId: project.connectionId },
+      userId: identity.userId,
+      role: project.role === 'edit' ? 'edit' : 'view',
+      op: SHARED_PREVIEW,
+      workspace: 'offered-change',
+    })
+      .then((answer) => answer.body?.cancel())
+      .catch(() => console.warn({ event: 'offered_change_preview_not_started' }));
     return json({ post: post.path, ...offered });
   } catch (error) {
     if (error instanceof ShowcaseError) {

@@ -45,6 +45,7 @@ import {
   mentionsCloudChef,
   offeredChange,
   offeredChangeNumber,
+  offeredChangesAwaitingPreview,
   recordOfferedPreview,
   openThreadsOfProjects,
   reopenThread,
@@ -199,6 +200,29 @@ export const feedAction: Handler = ({ request, env }) =>
     json(await listFeedPosts(env.DB, session.user.id, cursorFrom(new URL(request.url)))),
   );
 
+/**
+ * For someone who can edit the project, reading its threads: the previews Workers Builds has built of the changes
+ * offered there, whose addresses only it knows, are asked for and kept, so each thread links its own. Nothing a page
+ * view should fail on.
+ */
+async function findOfferedPreviews(env: Env, postId: string, userId: string): Promise<void> {
+  try {
+    const awaiting = await offeredChangesAwaitingPreview(env.DB, postId);
+    const project = awaiting[0] ? await findAccessibleProject(env.DB, awaiting[0].projectId, userId) : null;
+    if (project?.role !== 'edit') {
+      return;
+    }
+    for (const change of awaiting) {
+      const build = await workersBuildOfCommit(env, project, change.commit);
+      if (build?.previewUrl) {
+        await recordOfferedPreview(env.DB, change.threadId, build.previewUrl);
+      }
+    }
+  } catch {
+    console.warn({ event: 'offered_previews_not_found' });
+  }
+}
+
 /** `GET /api/showcase/threads?postId=`: a post's comment threads, for anyone who may see it. */
 export const threadsAction: Handler = ({ request, env }) =>
   answering(async () => {
@@ -207,6 +231,9 @@ export const threadsAction: Handler = ({ request, env }) =>
       return json({ error: 'Name a post.' }, 400);
     }
     const session = await getAuthSession(env, request);
+    if (session) {
+      await findOfferedPreviews(env, postId.data, session.user.id);
+    }
     return json(await listThreads(env.DB, postId.data, session?.user.id ?? null));
   });
 
@@ -495,9 +522,8 @@ const OFFERED_FILES_SHOWN = 12;
 
 /**
  * `POST /api/showcase/threads/change`: someone who can edit the project looks at the change a thread offers, before
- * deciding. Answers whether it still fits and, as detail, the files it changes; and has its preview built, if it
- * isn't yet, for them to try. A POST from CloudChef's own pages only: the preview runs the offered code with the
- * project's own database and storage, so no link someone is sent starts one.
+ * deciding. Answers whether it still fits and, as detail, the files it changes, and whether its preview is ready to
+ * try; one that wasn't started when the change was offered is started now.
  */
 export const offeredChangeAction: Handler = ({ request, env }) =>
   signedInShowcase(request, env, async ({ session }) => {

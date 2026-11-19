@@ -363,10 +363,6 @@ export async function handleSharedProjectRequest(
       return new Response('Name the commit and its branch.', { status: 400 });
     }
     const { branch, commit } = asked.data;
-    // Building one is for someone who can change the project; removing its branch for whoever closed the thread.
-    if (commit && shared.role !== 'edit') {
-      return new Response('Only someone who can change this project has a change to it built.', { status: 403 });
-    }
     const kept = await repositories.setBranch(project.repo, branch, commit);
     if (kept && commit) {
       await publishPush(env, project.deploysWith === 'cloudchef' ? { orgProjectId: shared.projectId } : null, {
