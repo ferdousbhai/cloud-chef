@@ -171,7 +171,14 @@ async function createConversationFromAgent(
   // The earlier conversation is closed now, so it refuses new work whatever happens below; this stops what it
   // has under way, so that nothing but the new conversation changes the project from here.
   try {
-    await env.ConversationAgent.getByName(identity.agentName).closeForSuccessor(args.sessionId);
+    const mentions = await env.ConversationAgent.getByName(identity.agentName).closeForSuccessor(args.sessionId);
+    // A chat answering @cloudchef mentions keeps doing so in its new conversation (docs/proposals/comment-threads.md).
+    if (mentions && (mentions.thread || mentions.question || mentions.queued.length > 0)) {
+      const next = transcriptIdentity(
+        await requireConversation(env.DB, { workspaceId: workspace.id, conversationIndex }),
+      );
+      await env.ConversationAgent.getByName(next.agentName).adoptMentionFacts(mentions);
+    }
   } catch {
     // The new conversation exists either way, and the earlier one refuses changes from now on.
     console.warn('The earlier conversation did not settle before the new one started');

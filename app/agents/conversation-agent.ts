@@ -210,8 +210,10 @@ import type { ThreadFacts } from 'cloudchef-agent/prompts/system';
 import {
   BuilderMentionStore,
   finalAssistantText,
+  mentionFactsSchema,
   mentionRequestId,
   mentionStartSchema,
+  type MentionFacts,
   type MentionStart,
   type PendingMention,
 } from './builder-mentions';
@@ -1588,14 +1590,14 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
    *
    * An internal Durable Object RPC, not `@callable`: the data API calls it when the new conversation starts.
    */
-  async closeForSuccessor(ownerId: string): Promise<void> {
+  async closeForSuccessor(ownerId: string): Promise<MentionFacts | null> {
     if (!transcriptOwnerIdSchema.safeParse(ownerId).success) {
       throw new AgentRefusal('Invalid transcript owner', 400);
     }
     const identity = await this.hydrateDurableIdentity();
     if (!identity) {
       // Never started, so nothing runs here.
-      return;
+      return null;
     }
     if (identity.userId !== ownerId) {
       throw new AgentRefusal('Agent not found.', 404);
@@ -1606,6 +1608,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (!this.state.conversationClosed) {
       this.setState({ ...this.state, conversationClosed: true });
     }
+    // Mentions still waiting go to the new conversation, before the turn's end could start one here.
+    const mentions = this.mentions.handOver();
     // The running turn stops, and pi-durable resolves the abort once nothing more runs.
     await this.cancelActiveTurn();
     // A save that found this conversation current runs to the end whatever the Stop: reported saved, it must be
@@ -1613,6 +1617,25 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (!(await this.waitForWorkspaceWrites(WORKSPACE_WRITES_SETTLE_MS))) {
       throw new Error('The earlier conversation did not settle in time.');
     }
+    return mentions;
+  }
+
+  /**
+   * The chat's earlier conversation handed over its mention facts (`closeForSuccessor`): this one keeps answering the
+   * thread, a read-only chat keeps its source, and mentions that were waiting start here once it's free. An internal
+   * Durable Object RPC, not `@callable`: the data API calls it when this conversation starts.
+   */
+  async adoptMentionFacts(input: MentionFacts): Promise<void> {
+    const facts = mentionFactsSchema.safeParse(input);
+    if (!facts.success) {
+      throw new AgentRefusal('Invalid mention facts', 400);
+    }
+    const ownerId = facts.data.queued[0]?.ownerId;
+    if (ownerId) {
+      await this.initializeIdentity({ userId: ownerId });
+    }
+    this.mentions.adopt(facts.data);
+    this.startNextMention();
   }
 
   /** Whether every editor save under way settled within `timeoutMs`. */

@@ -86,4 +86,20 @@ describe('a mention-started chat', () => {
     expect(store.dequeue()?.commentId).toBe(second);
     expect(store.dequeue()).toBeNull();
   });
+
+  it('hands its thread, source and waiting mentions to the chat’s next conversation', () => {
+    const before = new BuilderMentionStore(memoryKv());
+    const thread: MentionThread = { threadId: THREAD, number: 4, post: '/sara/recipes', access: 'read' };
+    before.setThread(thread);
+    before.setQuestion({ projectId: THREAD, commit: 'a'.repeat(40), post: '/sara/recipes' });
+    before.enqueue({ ownerId: 'sara', text: 'And this?', commentId: COMMENT, thread });
+    const facts = before.handOver();
+    expect(before.queued()).toEqual([]);
+
+    const after = new BuilderMentionStore(memoryKv());
+    after.adopt(facts);
+    expect(after.thread()).toEqual(thread);
+    expect(after.question()?.commit).toBe('a'.repeat(40));
+    expect(after.queued().map((waiting) => waiting.commentId)).toEqual([COMMENT]);
+  });
 });

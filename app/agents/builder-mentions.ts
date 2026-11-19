@@ -41,6 +41,14 @@ export const mentionStartSchema = z.strictObject({
 });
 export type MentionStart = z.infer<typeof mentionStartSchema>;
 
+/** What a chat's conversation hands its next one: see `BuilderMentionStore.handOver`. */
+export const mentionFactsSchema = z.strictObject({
+  thread: mentionThreadSchema.nullable(),
+  question: questionSourceSchema.nullable(),
+  queued: z.array(mentionStartSchema).max(50),
+});
+export type MentionFacts = z.infer<typeof mentionFactsSchema>;
+
 /** The turn a mention started, until its answer is reported. */
 const pendingMentionSchema = z.strictObject({
   threadId: z.string().uuid(),
@@ -122,6 +130,29 @@ export class BuilderMentionStore {
     }
     this.kv.put(KEYS.queue, [...queue, start]);
     return true;
+  }
+
+  /**
+   * What a chat's next conversation takes over when this one hands off: the thread, a read-only chat's source, and the
+   * mentions still waiting, which leave this conversation's line.
+   */
+  handOver(): MentionFacts {
+    const facts = { thread: this.thread(), question: this.question(), queued: this.queued() };
+    this.kv.delete(KEYS.queue);
+    return facts;
+  }
+
+  /** Takes over what the conversation before this one in the chat handed over; this one's own facts stand. */
+  adopt(facts: MentionFacts): void {
+    if (facts.thread && !this.thread()) {
+      this.setThread(facts.thread);
+    }
+    if (facts.question && !this.question()) {
+      this.setQuestion(facts.question);
+    }
+    for (const start of facts.queued) {
+      this.enqueue(start);
+    }
   }
 
   /** Takes the mention at the front of the line. */
