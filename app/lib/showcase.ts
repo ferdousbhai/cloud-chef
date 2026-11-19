@@ -85,7 +85,8 @@ export type PostThread = {
   replyCount: number;
   /**
    * For a suggestion: the public copy it came from; or, with `ownChange`, a change someone who may see the project
-   * made in their own workspace on it and offers, which the people who can change the project accept or decline.
+   * made in their own workspace on it and offers, which the people who can change the project accept or decline;
+   * `siteUrl` is then the offered change's own preview, once built.
    */
   suggestion: { name: string; path: string | null; siteUrl: string | null; ownChange?: boolean } | null;
   /** CloudChef is answering a mention in it now. */

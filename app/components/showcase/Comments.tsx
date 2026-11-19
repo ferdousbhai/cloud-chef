@@ -446,20 +446,19 @@ function Thread({
         }
         extra={
           <>
-            {thread.suggestion?.ownChange ? (
-              <>
-                <p className="mt-1 text-xs text-content-secondary">A change offered to this project</p>
-                {thread.state === 'open' && thread.viewer?.canEdit ? (
-                  <OfferedChangeDecision thread={thread} state={state} />
-                ) : null}
-              </>
-            ) : thread.suggestion ? (
+            {thread.suggestion ? (
               <p className="mt-1 text-xs text-content-secondary">
-                A change suggested from{' '}
-                {thread.suggestion.path ? (
-                  <a href={thread.suggestion.path}>{thread.suggestion.name}</a>
+                {thread.suggestion.ownChange ? (
+                  'A change offered to this project'
                 ) : (
-                  thread.suggestion.name
+                  <>
+                    A change suggested from{' '}
+                    {thread.suggestion.path ? (
+                      <a href={thread.suggestion.path}>{thread.suggestion.name}</a>
+                    ) : (
+                      thread.suggestion.name
+                    )}
+                  </>
                 )}
                 {thread.suggestion.siteUrl ? (
                   <>
@@ -470,6 +469,9 @@ function Thread({
                   </>
                 ) : null}
               </p>
+            ) : null}
+            {thread.suggestion?.ownChange && thread.state === 'open' && thread.viewer?.canEdit ? (
+              <OfferedChangeDecision thread={thread} state={state} />
             ) : null}
             {thread.onEarlierVersion && thread.state === 'open' ? (
               <p className="mt-1 text-xs text-content-tertiary">On an earlier version</p>

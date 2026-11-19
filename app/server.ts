@@ -331,7 +331,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/showcase/post': ['GET', showcase.postByAddressAction],
     '/api/showcase/threads/replies': ['GET', showcase.repliesAction],
     '/api/showcase/threads/state': ['POST', showcase.threadStateAction],
-    '/api/showcase/threads/change': ['GET', showcase.offeredChangeAction],
+    '/api/showcase/threads/change': ['POST', showcase.offeredChangeAction],
     '/api/showcase/threads/accept': ['POST', showcase.acceptChangeAction],
     '/api/showcase/open-threads': ['GET', showcase.openThreadsAction],
     '/api/showcase/post-copies': ['GET', showcase.copiesAction],

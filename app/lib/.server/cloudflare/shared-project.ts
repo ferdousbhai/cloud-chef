@@ -28,8 +28,28 @@ export type SharedOp = SharedRead | (typeof SHARED_GIT)[number];
  */
 export const SHARED_MERGE = 'merge';
 
-/** What a merge is asked with, and by whom the merge commit is. */
+/**
+ * CloudChef's own request too: a change was offered, and its commit goes on a branch of its own in the project's
+ * repository (`suggested-<thread number>`), which builds a preview of it as any pushed branch does, for the people
+ * deciding on it to try. A preview runs the offered code with the project's own database and storage, so it is built
+ * only when someone who can edit the project asks to look at the offer, never when it is offered.
+ */
+export const SHARED_PREVIEW = 'preview';
+const SUGGESTED_BRANCH = z.string().regex(/^suggested-[0-9]{1,7}$/);
+
+/** The branch an offered change's preview is built from. */
+export function suggestedBranch(threadNumber: number): string {
+  return `suggested-${threadNumber}`;
+}
+
+export const sharedPreviewRequestSchema = z.strictObject({
+  commit: z.string().regex(/^[0-9a-f]{40}$/),
+  branch: SUGGESTED_BRANCH,
+});
+
+/** What a merge is asked with, and by whom the merge commit is; the change's preview branch is deleted once it is in. */
 export const sharedMergeRequestSchema = z.strictObject({
+  branch: SUGGESTED_BRANCH.optional(),
   commit: z.string().regex(/^[0-9a-f]{40}$/),
   message: z.string().min(1).max(500),
   author: z.strictObject({ name: z.string().min(1).max(256), email: z.string().min(3).max(320) }),

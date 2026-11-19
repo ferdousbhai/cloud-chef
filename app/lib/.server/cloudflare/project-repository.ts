@@ -798,6 +798,37 @@ export class ProjectRepositories {
     }
   }
 
+  /**
+   * Points the branch at `commit`, which the repository already holds (an offered change, for its preview), or
+   * deletes the branch with `commit` null. False when the repository doesn't hold the commit.
+   */
+  async setBranch(repo: string, branch: string, commit: string | null): Promise<boolean> {
+    if (commit && !(await this.resolve(repo, commit))) {
+      return false;
+    }
+    const ref = `refs/heads/${branch}`;
+    const remote = await this.#pushRemote(repo);
+    try {
+      const head = (await readRemoteRefs(this.#fetch, remote)).get(ref) ?? ZERO_OID;
+      if (head === (commit ?? ZERO_OID)) {
+        return true;
+      }
+      const result = await updateRemoteRef(
+        this.#fetch,
+        remote,
+        { ref, oldOid: head, newOid: commit ?? ZERO_OID },
+        // A delete sends no pack; a move sends an empty one, since the repository has the commit.
+        commit ? await packObjects(await objectStore(), []) : new Uint8Array(),
+      );
+      if (!result.ok) {
+        throw new Error(`The repository refused to set ${branch} (${result.reason}).`);
+      }
+      return true;
+    } finally {
+      await this.#revokePushToken(repo, remote);
+    }
+  }
+
   /** Points main at `commit`, which the repository already holds (a fork's reset to an older commit). */
   async resetMain(repo: string, commit: string): Promise<void> {
     const remote = await this.#pushRemote(repo);

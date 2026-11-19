@@ -32,6 +32,7 @@ import {
   isSharedOp,
   sharedCapabilitySubject,
   type SHARED_MERGE,
+  type SHARED_PREVIEW,
   SHARED_WORKSPACE_HEADER,
   type SharedOp,
 } from '~/lib/.server/cloudflare/shared-project';
@@ -705,7 +706,7 @@ export async function forwardToProjectAccount(
     project: { id: string; connectionId: string };
     userId: string;
     role: 'view' | 'edit';
-    op: SharedOp | typeof SHARED_MERGE;
+    op: SharedOp | typeof SHARED_MERGE | typeof SHARED_PREVIEW;
     workspace: string;
   },
 ): Promise<Response> {

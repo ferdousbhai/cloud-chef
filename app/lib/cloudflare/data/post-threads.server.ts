@@ -109,6 +109,7 @@ type ThreadRow = CommentRow & {
   suggested_path: string | null;
   suggested_site: string | null;
   suggested_here: number | null;
+  suggested_preview: string | null;
   following: number | null;
 };
 
@@ -129,6 +130,10 @@ const THREAD_COLUMNS = `${COMMENT_COLUMNS}, comments.post_id, comments.number, c
     THEN '/' || copy_owners.username || '/' || copies.slug END AS suggested_path,
   CASE WHEN copies.visibility = 'public' THEN copies.site_url END AS suggested_site,
   (comments.suggested_project_id = posts.project_id) AS suggested_here,
+  (SELECT previews.url FROM project_deployments AS previews
+   WHERE previews.project_id = posts.project_id AND previews.commit_sha = comments.suggested_commit
+     AND previews.kind = 'preview' AND previews.state = 'succeeded'
+   ORDER BY previews.created_at DESC LIMIT 1) AS suggested_preview,
   (SELECT 1 - followers.muted FROM thread_followers AS followers
    WHERE followers.thread_id = comments.id AND followers.user_id = ?1) AS following`;
 
@@ -161,7 +166,7 @@ function toThread(row: ThreadRow, replies: PostComment[], viewer: { id: string; 
     suggestion:
       row.kind === 'suggestion' && row.suggested_name
         ? row.suggested_here === 1
-          ? { name: row.suggested_name, path: null, siteUrl: null, ownChange: true }
+          ? { name: row.suggested_name, path: null, siteUrl: row.suggested_preview, ownChange: true }
           : { name: row.suggested_name, path: row.suggested_path, siteUrl: row.suggested_site }
         : null,
     working: row.working === 1,

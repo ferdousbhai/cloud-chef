@@ -175,9 +175,9 @@ const offeredChangeSchema = z.object({
 });
 export type OfferedChange = z.infer<typeof offeredChangeSchema>;
 
-/** What the change a thread offers would change in the project, for someone who can edit it. */
+/** Looks at the change a thread offers, as someone who can edit the project: this also has its preview built. */
 export async function loadOfferedChange(threadId: string): Promise<OfferedChange> {
-  return getJson(`/api/showcase/threads/change?threadId=${encodeURIComponent(threadId)}`, offeredChangeSchema);
+  return postJson('/api/showcase/threads/change', { threadId }, offeredChangeSchema);
 }
 
 /** Accepts the change a thread offers: it goes into the project and is published. */

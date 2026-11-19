@@ -147,10 +147,18 @@ on the project's post whose `suggested_project_id` is the project itself and who
 The person's offer that is still open takes a new commit instead, with the message as a reply, as a pull request takes
 a push. A project with no post yet has nowhere to offer a change.
 
+The code is the project's compiled output: what the people deciding read is the offer's message, and what they try
+is a preview of the change. A preview runs the offered code as a version of the project's own Worker, with its
+database and storage, so none is built when a change is offered. It is built when someone who can edit the project
+looks at the offer (the first step of Accept): a runtime in the project's account puts the commit on a branch of its
+own, `suggested-<thread number>` (`preview`), which is built as any pushed branch is. For a project CloudChef deploys
+itself the thread then shows **Try it**, the preview's address (`project_deployments`); a project Workers Builds
+deploys gets its preview there, not yet linked from the thread. The branch is deleted once the change is accepted.
+
 On the thread, someone who can edit the project sees **Accept** and **Decline**:
 
-- **Accept** first lists the files the commit changes since it and main last shared a commit (`changes`, read in the
-  project's account). **Accept and publish** then has a runtime in the project's account bring the commit into main
+- **Accept** first has the preview built and says whether it is ready to try, and lists, as detail, the files the
+  commit changes since it and main last shared a commit (`changes`, read in the project's account). **Accept and publish** then has a runtime in the project's account bring the commit into main
   (`mergeIntoMain`): main moves to it when main hasn't changed since, and otherwise takes a merge commit in the
   accepter's name with both as parents. The merge is by whole files; when both sides changed the same file nothing is
   written, and the accepter is told to ask for the change to be brought up to date and offered again. Main is

@@ -57,11 +57,14 @@ import { deleteGoneMediaBestEffort, serveMediaForReview } from '~/lib/.server/sh
 import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor } from '~/lib/showcase';
 import { SENDER } from './email-auth';
 import { copyProjectFor, forwardToProjectAccount } from './command-line';
+import { deploymentOfCommit } from '~/lib/cloudflare/data/project-deployments.server';
 import { memberIdentity } from './runtime-projects';
 import { findAccessibleProject, recordMainPush } from '~/lib/cloudflare/data/org-projects.server';
 import {
   SHARED_MERGE,
+  SHARED_PREVIEW,
   sharedChangesAnswerSchema,
+  suggestedBranch,
   sharedMergeAnswerSchema,
   type SharedMergeAnswer,
 } from '~/lib/.server/cloudflare/shared-project';
@@ -414,7 +417,13 @@ const OFFERED_CHANGE_TIMEOUT_MS = 60_000;
 async function askProjectAccount(
   request: Request,
   env: Env,
-  args: { projectId: string; userId: string; op: 'changes' | typeof SHARED_MERGE; commit: string; body?: unknown },
+  args: {
+    projectId: string;
+    userId: string;
+    op: 'changes' | typeof SHARED_MERGE | typeof SHARED_PREVIEW;
+    commit: string;
+    body?: unknown;
+  },
 ): Promise<Response> {
   const project = await findAccessibleProject(env.DB, args.projectId, args.userId);
   if (!project || project.role !== 'edit') {
@@ -445,13 +454,19 @@ const threadIdSchema = z.strictObject({ threadId: ID });
 /** The most files of an offered change named before the rest are counted. */
 const OFFERED_FILES_SHOWN = 12;
 
-/** `GET /api/showcase/threads/change?threadId=`: the files an offered change changes, and whether it still fits. */
+/**
+ * `POST /api/showcase/threads/change`: someone who can edit the project looks at the change a thread offers, before
+ * deciding. Answers whether it still fits and, as detail, the files it changes; and has its preview built, if it
+ * isn't yet, for them to try. A POST from CloudChef's own pages only: the preview runs the offered code with the
+ * project's own database and storage, so no link someone is sent starts one.
+ */
 export const offeredChangeAction: Handler = ({ request, env }) =>
   signedInShowcase(request, env, async ({ session }) => {
-    const threadId = ID.safeParse(new URL(request.url).searchParams.get('threadId'));
-    if (!threadId.success) {
-      return json({ error: 'Name the thread.' }, 400);
+    const asked = await readJsonRequest(request, threadIdSchema, 'Name the thread.');
+    if ('response' in asked) {
+      return asked.response;
     }
+    const threadId = { data: asked.data.threadId };
     const change = await offeredChange(env.DB, { threadId: threadId.data, userId: session.user.id });
     const answer = await askProjectAccount(request, env, {
       projectId: change.projectId,
@@ -473,11 +488,40 @@ export const offeredChangeAction: Handler = ({ request, env }) =>
             state === 'conflict' ? { status: 'conflict', files: conflicts } : { status: state },
             change.offeredBy,
           );
+    // Its preview, the way to try it before deciding: started now if it wasn't, on a branch of its own.
+    const preview = await deploymentOfCommit(env.DB, { projectId: change.projectId, commit: change.commit });
+    let started = false;
+    if (state === 'ready' && !preview) {
+      started = await askProjectAccount(request, env, {
+        projectId: change.projectId,
+        userId: session.user.id,
+        op: SHARED_PREVIEW,
+        commit: change.commit,
+        body: { commit: change.commit, branch: suggestedBranch(change.number) },
+      }).then(
+        async (kicked) => {
+          await kicked.body?.cancel();
+          return kicked.ok;
+        },
+        () => false,
+      );
+    }
+    const trying = !preview
+      ? started
+        ? 'Its preview is being built now: open this again in a minute or two for the link to try it. '
+        : ''
+      : preview.kind !== 'preview'
+        ? ''
+        : preview.state === 'succeeded'
+          ? 'Try it first with the link above. '
+          : preview.state === 'failed'
+            ? 'Its preview couldn’t be built, so it can’t be tried first. '
+            : 'Its preview is still being built: open this again in a minute for the link to try it. ';
     const more = changed.length - OFFERED_FILES_SHOWN;
     return json({
       acceptable: state === 'ready' || state === 'already',
       changed: changed.slice(0, OFFERED_FILES_SHOWN),
-      note: more > 0 ? `And ${more} more ${more === 1 ? 'file' : 'files'}. ${note}` : note,
+      note: `${more > 0 ? `And ${more} more ${more === 1 ? 'file' : 'files'}. ` : ''}${state === 'ready' ? trying : ''}${note}`,
     });
   });
 
@@ -525,6 +569,7 @@ export const acceptChangeAction: Handler = ({ request, env }) =>
       op: SHARED_MERGE,
       commit: change.commit,
       body: {
+        branch: suggestedBranch(change.number),
         commit: change.commit,
         message: `Accept ${change.offeredBy}'s change (#${change.number})`,
         author,

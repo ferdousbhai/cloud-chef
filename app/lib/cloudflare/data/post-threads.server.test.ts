@@ -226,6 +226,15 @@ describe('CloudChef and copies', () => {
     const [thread] = (await listThreads(db, postId, 'sara')).threads;
     expect(thread?.suggestion).toEqual({ name: 'Recipe Box', path: null, siteUrl: null, ownChange: true });
     expect(kindsOf(database, 'sara')).toEqual(['change_suggested']);
+    // Once its preview is built, the thread links it for anyone reading to try.
+    database.exec(
+      `INSERT INTO project_deployments (id, project_id, branch, kind, commit_sha, state, url, created_at, updated_at)
+       VALUES ('d1', 'recipes', 'suggested-1', 'preview', '${'b'.repeat(40)}', 'succeeded',
+         'https://suggested-1-recipes.example.workers.dev', 1, 1)`,
+    );
+    expect((await listThreads(db, postId, 'ben')).threads[0]?.suggestion?.siteUrl).toBe(
+      'https://suggested-1-recipes.example.workers.dev',
+    );
     // Ben, who offered it, can't decide on it; Sara, who makes the app, can.
     await expect(offeredChange(db, { threadId: thread!.id, userId: 'ben' })).rejects.toMatchObject({ status: 403 });
     expect(await offeredChange(db, { threadId: thread!.id, userId: 'sara' })).toMatchObject({

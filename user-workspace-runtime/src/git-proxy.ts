@@ -23,7 +23,9 @@ import {
   SHARED_WORKSPACE_HEADER,
   isSharedRead,
   SHARED_MERGE,
+  SHARED_PREVIEW,
   sharedMergeRequestSchema,
+  sharedPreviewRequestSchema,
   type SharedMergeAnswer,
 } from '../../app/lib/.server/cloudflare/shared-project';
 import { sharedProjectRequest } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
@@ -330,7 +332,7 @@ export async function handleSharedProjectRequest(
   shared: { projectId: string; userId: string; role: 'view' | 'edit'; op: string },
 ): Promise<Response> {
   const identity = runtimeConnectionIdentity(env);
-  if (!identity || (!isSharedOp(shared.op) && shared.op !== SHARED_MERGE)) {
+  if (!identity || (!isSharedOp(shared.op) && shared.op !== SHARED_MERGE && shared.op !== SHARED_PREVIEW)) {
     return new Response('Not found.', { status: 404 });
   }
   let project: Awaited<ReturnType<typeof openProject>>;
@@ -354,6 +356,26 @@ export async function handleSharedProjectRequest(
       mayEdit: shared.role === 'edit',
       deploysWith: project.deploysWith,
     });
+  }
+  if (shared.op === SHARED_PREVIEW) {
+    const asked = sharedPreviewRequestSchema.safeParse(await request.json().catch(() => null));
+    // The preview runs the offered code with the project's own database and storage, so only someone who can
+    // change the project has it built.
+    if (shared.role !== 'edit') {
+      return new Response('Only someone who can change this project has a change to it built.', { status: 403 });
+    }
+    if (request.method !== 'POST' || !asked.success) {
+      return new Response('Name the commit and its branch.', { status: 400 });
+    }
+    const kept = await repositories.setBranch(project.repo, asked.data.branch, asked.data.commit);
+    if (kept) {
+      await publishPush(env, project.deploysWith === 'cloudchef' ? { orgProjectId: shared.projectId } : null, {
+        ref: `refs/heads/${asked.data.branch}`,
+        oldOid: '0'.repeat(40),
+        newOid: asked.data.commit,
+      });
+    }
+    return Response.json({ kept }, { headers: { 'Cache-Control': 'no-store' } });
   }
   if (!isSharedOp(shared.op)) {
     return new Response('Not found.', { status: 404 });
@@ -422,7 +444,12 @@ async function mergeSuggestedChange(
   if (!asked.success) {
     return new Response('Name the commit to bring in.', { status: 400 });
   }
-  const result = await repositories.mergeIntoMain({ repo: project.repo, ...asked.data });
+  const { branch, ...change } = asked.data;
+  const result = await repositories.mergeIntoMain({ repo: project.repo, ...change });
+  if (branch && ('merged' in result || 'already' in result)) {
+    // Its preview's branch has served; a branch that can't be deleted now only stays listed.
+    await repositories.setBranch(project.repo, branch, null).catch(() => undefined);
+  }
   let answer: SharedMergeAnswer;
   if ('merged' in result) {
     answer = { status: 'merged', ...result.merged };

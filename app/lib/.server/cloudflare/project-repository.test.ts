@@ -218,6 +218,12 @@ describe('ProjectRepositories', { timeout: 30_000 }, () => {
       { path: 'n.txt', change: 'added' },
     ]);
     expect(await repositories.planMerge('p-1', 'f'.repeat(40))).toEqual({ kind: 'missing' });
+    // Its preview's branch: set to the commit, never to one the repository lacks, and deleted again.
+    expect(await repositories.setBranch('p-1', 'suggested-1', first)).toBe(true);
+    expect(await artifacts.head('p-1', 'suggested-1')).toBe(first);
+    expect(await repositories.setBranch('p-1', 'suggested-2', 'f'.repeat(40))).toBe(false);
+    expect(await repositories.setBranch('p-1', 'suggested-1', null)).toBe(true);
+    expect((await repositories.refs('p-1')).has('refs/heads/suggested-1')).toBe(false);
 
     // Another suggestion from the same start, made before the first one went in.
     const second = await suggest('two', [text('a.txt', 'A'), text('b.txt', 'b')]);
