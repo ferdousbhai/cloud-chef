@@ -162,3 +162,48 @@ html.dark .showcase-page {
     transform: none;
   }
 }
+
+/* CloudChef answering in a comment thread: three dots that rise and brighten in turn. */
+.showcase-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 1rem;
+}
+
+.showcase-working > span {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--cc-content-link);
+  opacity: 0.35;
+  animation: showcase-working-dot 1.2s ease-in-out infinite;
+}
+
+.showcase-working > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.showcase-working > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes showcase-working-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .showcase-working > span {
+    animation: none;
+    opacity: 0.6;
+  }
+}

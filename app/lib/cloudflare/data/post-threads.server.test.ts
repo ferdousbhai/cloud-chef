@@ -6,6 +6,7 @@ import {
   addReply,
   closeThread,
   closeThreadsWentLive,
+  cutToComment,
   deleteComment,
   listCopies,
   listThreads,
@@ -223,5 +224,16 @@ describe('openThreadsOfProjects', () => {
     const closed = await startThread(db, { userId: 'ben', postId, body: 'Two' });
     await closeThread(db, { userId: 'sara', threadId: closed.id, reason: 'not_planned' });
     expect(await openThreadsOfProjects(db, ['recipes', 'ben-recipes'])).toEqual({ recipes: 1 });
+  });
+});
+
+describe('cutToComment', () => {
+  it('ends a reply too long for a comment at its last sentence that fits', () => {
+    const sentence = 'This sentence is exactly fifty characters long ok. ';
+    const cut = cutToComment(sentence.repeat(30));
+    expect(cut.length).toBeLessThanOrEqual(1000);
+    expect(cut.endsWith('ok.…')).toBe(true);
+    const words = cutToComment('word '.repeat(400));
+    expect(words.endsWith('word…')).toBe(true);
   });
 });

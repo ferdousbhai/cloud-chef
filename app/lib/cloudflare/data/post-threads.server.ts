@@ -612,9 +612,23 @@ export async function addAgentReply(
     return null;
   }
   const trimmed = args.body.trim() || 'CloudChef had nothing to add.';
-  const body = trimmed.length > COMMENT_MAX ? `${trimmed.slice(0, COMMENT_MAX - 1).trimEnd()}…` : trimmed;
+  const body = trimmed.length > COMMENT_MAX ? cutToComment(trimmed) : trimmed;
   const now = args.now ?? Date.now();
   return readComment(db, await insertReply(db, { thread, authorId: args.askerId, body, byAgent: true, now }));
+}
+
+/**
+ * A reply longer than a comment, cut to fit with "…": at its last paragraph or sentence that fits, when that keeps
+ * most of it, else at the last word, else where the room ends.
+ */
+export function cutToComment(text: string): string {
+  const room = text.slice(0, COMMENT_MAX - 1);
+  const ends = [room.lastIndexOf('\n\n'), ...[...room.matchAll(/[.!?](?=\s)/g)].map((end) => (end.index ?? 0) + 1)];
+  const sentence = Math.max(...ends);
+  const word = room.lastIndexOf(' ');
+  const cut =
+    sentence >= COMMENT_MAX * 0.6 ? room.slice(0, sentence) : word >= COMMENT_MAX * 0.6 ? room.slice(0, word) : room;
+  return `${cut.trimEnd()}…`;
 }
 
 /** Closes a thread with a reason: by an editor or its starter. A duplicate names another thread of the post. */

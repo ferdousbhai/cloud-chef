@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useSyncExternalStore } from 'react';
+import { classNames } from '~/utils/classNames';
 import type { PostView } from '~/lib/showcase';
 import { timeAgo } from '~/lib/showcase';
 import { Avatar } from './Avatar';
@@ -11,7 +12,7 @@ import { PostMedia } from './PostMedia';
 import { PostMenu } from './PostMenu';
 import { PersonLink } from './ShowcaseLinks';
 import { ShowcaseNotice } from './ShowcaseShell';
-import { ShowcaseViewerProvider } from './ViewerContext';
+import { ShowcaseViewerProvider, useShowcaseViewer } from './ViewerContext';
 
 /**
  * A post's own page, `/<owner>/<slug>`, the project's address on CloudChef: the picture large, and beside
@@ -32,7 +33,6 @@ function PostPageContent({ initial }: { initial: PostView }) {
   const commentBox = useRef<HTMLTextAreaElement>(null);
   const copy = useCopyFromPost({ id: post.projectId, name: post.title, path: post.path });
   const [showCopies, setShowCopies] = useState(false);
-  const [trying, setTrying] = useState(false);
   const comments = useThreads(post.id, (change) =>
     setPost((current) => ({ ...current, commentCount: current.commentCount + change })),
   );
@@ -65,28 +65,7 @@ function PostPageContent({ initial }: { initial: PostView }) {
           {menu}
         </header>
         <div className="flex items-center justify-center bg-[#0c0d12] md:h-full">
-          <div className="relative aspect-[16/10] w-full md:aspect-auto md:h-full">
-            {trying ? (
-              <iframe
-                src={post.siteUrl}
-                title={`${post.title}, live`}
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
-                allow="clipboard-write; fullscreen"
-                className="size-full border-0 bg-white"
-              />
-            ) : (
-              <PostMedia post={post} variant="page" priority />
-            )}
-            {post.siteFrameable ? (
-              <button
-                type="button"
-                onClick={() => setTrying((current) => !current)}
-                className="absolute bottom-3 right-3 rounded-full bg-black/65 px-3.5 py-1.5 text-sm font-semibold text-white shadow-lg ring-1 ring-white/25 backdrop-blur-sm hover:bg-black/75"
-              >
-                {trying ? 'Back to picture' : 'Try it here'}
-              </button>
-            ) : null}
-          </div>
+          <PostApp post={post} />
         </div>
         <div className="flex min-h-0 flex-col md:border-l md:border-bolt-elements-borderColor">
           <header className="hidden items-center gap-2.5 border-b border-bolt-elements-borderColor px-4 py-3 md:flex">
@@ -135,6 +114,66 @@ function PostPageContent({ initial }: { initial: PostView }) {
         />
       ) : null}
     </main>
+  );
+}
+
+/** Whether the page runs in the browser: false while it is drawn on the server and hydrated, true from then on. */
+const noChanges = () => () => undefined;
+
+/**
+ * The app itself, running, where the post's picture would be: anyone can use it right here. The picture shows until
+ * it has loaded, and stays when the app doesn't let other sites show it (then its maker is told how to allow it). A
+ * post with a clip can switch to it.
+ */
+function PostApp({ post }: { post: PostView }) {
+  const { manages } = useShowcaseViewer();
+  const [clip, setClip] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  // Added once the page runs in the browser, so its load is seen: one that finished before would never say so.
+  const mounted = useSyncExternalStore(
+    noChanges,
+    () => true,
+    () => false,
+  );
+  const live = post.siteFrameable && !clip;
+  return (
+    <div
+      className={classNames(
+        'relative w-full md:h-full',
+        post.siteFrameable ? 'h-[70dvh] min-h-[420px] md:min-h-0' : 'aspect-[16/10] md:aspect-auto',
+      )}
+    >
+      {live && mounted ? (
+        <iframe
+          src={post.siteUrl}
+          title={`${post.title}, running`}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads"
+          allow="clipboard-write; fullscreen"
+          onLoad={() => setLoaded(true)}
+          className="size-full border-0 bg-white"
+        />
+      ) : null}
+      {!live || !loaded ? (
+        <div className={classNames('size-full', { 'pointer-events-none absolute inset-0': live })}>
+          <PostMedia post={post} variant="page" priority />
+        </div>
+      ) : null}
+      {post.siteFrameable && post.reel ? (
+        <button
+          type="button"
+          onClick={() => setClip((current) => !current)}
+          className="absolute bottom-3 right-3 rounded-full bg-black/65 px-3.5 py-1.5 text-sm font-semibold text-white shadow-lg ring-1 ring-white/25 backdrop-blur-sm hover:bg-black/75"
+        >
+          {clip ? 'Use the app' : 'Watch the clip'}
+        </button>
+      ) : null}
+      {!post.siteFrameable && manages(post.id) ? (
+        <p className="absolute inset-x-3 bottom-3 rounded-md bg-black/70 px-3 py-2 text-xs text-white backdrop-blur-sm">
+          Your app doesn’t let other sites show it, so people see this picture. Ask @cloudchef to let cloudchef.build
+          show it, and the next update puts the working app here.
+        </p>
+      ) : null}
+    </div>
   );
 }
 

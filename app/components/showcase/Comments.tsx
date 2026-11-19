@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -28,6 +27,7 @@ import { COMMENT_MAX, timeAgo, type PostComment, type PostThread } from '~/lib/s
 import { classNames } from '~/utils/classNames';
 import { Avatar } from './Avatar';
 import { PersonLink } from './ShowcaseLinks';
+import { CommentMarkdown } from './CommentMarkdown';
 import { ReportDialog } from './PostDialogs';
 import { useShowcaseViewer } from './ViewerContext';
 
@@ -117,7 +117,8 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
             setThreads(
               (current) =>
                 current?.map((each) =>
-                  each.id === thread.id
+                  // The list read again while this was posted may hold it already.
+                  each.id === thread.id && !each.replies.some((reply) => reply.id === comment.id)
                     ? {
                         ...each,
                         replies: [...each.replies, comment],
@@ -132,9 +133,9 @@ export function useThreads(postId: string, onCount?: (change: number) => void) {
           })
         : startThread(postId, body).then(({ thread: started, mention }) => {
             setThreads((current) => [
-              ...(current ?? []).filter((each) => each.pinned),
+              ...(current ?? []).filter((each) => each.pinned && each.id !== started.id),
               { ...started, working: started.working || mention?.status === 'working' || mention?.status === 'queued' },
-              ...(current ?? []).filter((each) => !each.pinned),
+              ...(current ?? []).filter((each) => !each.pinned && each.id !== started.id),
             ]);
             setOpen((count) => count + 1);
             setAdded(started.id);
@@ -350,7 +351,7 @@ function closedWords(thread: PostThread, short = false): string {
 }
 
 function StateLine({ thread }: { thread: PostThread }) {
-  if (thread.state === 'open' && !thread.working) {
+  if (thread.state === 'open') {
     return null;
   }
   const words =
@@ -369,11 +370,6 @@ function StateLine({ thread }: { thread: PostThread }) {
           )}
         >
           {words}
-        </p>
-      ) : null}
-      {thread.working ? (
-        <p className="text-content-secondary" role="status">
-          CloudChef is working on this…
         </p>
       ) : null}
     </div>
@@ -455,7 +451,7 @@ function Thread({
         }
         menu={<ThreadMenuItems thread={thread} state={state} onSameAs={onSameAs} />}
       />
-      {thread.replies.length > 0 || hidden > 0 ? (
+      {thread.replies.length > 0 || hidden > 0 || thread.working ? (
         <ol className="ml-10 grid gap-2.5" aria-label={`Replies to #${thread.number}`}>
           {hidden > 0 ? (
             <li>
@@ -473,9 +469,29 @@ function Thread({
               <Comment comment={reply} thread={thread} state={state} goTo={goTo} onReport={onReport} size={26} />
             </li>
           ))}
+          {thread.working ? (
+            <li>
+              <CloudChefWorking />
+            </li>
+          ) : null}
         </ol>
       ) : null}
     </li>
+  );
+}
+
+/** Where CloudChef's reply will be, while it works on it: its picture and three dots that rise in turn. */
+function CloudChefWorking() {
+  return (
+    <div className="flex items-center gap-2.5" role="status">
+      <img src="/cloudchef-logo.svg" alt="" width={26} height={26} className="shrink-0 rounded-full" />
+      <span className="text-sm font-semibold text-content-primary">CloudChef</span>
+      <span className="showcase-working" aria-label="is working on this">
+        <span />
+        <span />
+        <span />
+      </span>
+    </div>
   );
 }
 
@@ -516,19 +532,21 @@ function Comment({
         </PersonLink>
       )}
       <div className="min-w-0 flex-1 text-sm">
-        <p className="wrap-anywhere whitespace-pre-line text-content-primary">
+        <p className="text-content-primary">
           {comment.byAgent ? (
-            <span className="mr-1.5 font-semibold">CloudChef</span>
+            <span className="font-semibold">CloudChef</span>
           ) : (
             <PersonLink
               username={comment.author.username}
-              className="mr-1.5 font-semibold text-content-primary no-underline hover:underline"
+              className="font-semibold text-content-primary no-underline hover:underline"
             >
               {comment.author.username ?? comment.author.name}
             </PersonLink>
           )}
-          <CommentText text={comment.body} goTo={goTo} />
         </p>
+        <div className="mt-0.5 text-content-primary">
+          <CommentMarkdown text={comment.body} goTo={goTo} />
+        </div>
         {extra}
         <p className="mt-0.5 flex flex-wrap items-center gap-x-3 text-xs text-content-tertiary">
           {badge}
@@ -653,48 +671,6 @@ function SameAsForm({
         Cancel
       </button>
     </div>
-  );
-}
-
-const TOKEN = /((?<![\w@./-])@[a-z0-9](?:[a-z0-9]|-(?=[a-z0-9])){0,38}(?![\w-])|(?<![\w&#])#\d{1,6}\b)/gi;
-
-/** A comment's words, with `@someone` linking to their page and `#3` to thread 3 on this post. */
-function CommentText({ text, goTo }: { text: string; goTo: (number: number) => void }) {
-  const parts = text.split(TOKEN);
-  return (
-    <>
-      {parts.map((part, index) => {
-        if (index % 2 === 0) {
-          return <Fragment key={index}>{part}</Fragment>;
-        }
-        if (part.startsWith('#')) {
-          const number = Number(part.slice(1));
-          return (
-            <a
-              key={index}
-              href={`#thread-${number}`}
-              className="text-content-link no-underline hover:underline"
-              onClick={(event) => {
-                event.preventDefault();
-                goTo(number);
-              }}
-            >
-              {part}
-            </a>
-          );
-        }
-        const name = part.slice(1).toLowerCase();
-        return name === 'cloudchef' ? (
-          <span key={index} className="font-semibold">
-            {part}
-          </span>
-        ) : (
-          <a key={index} href={`/${name}`} className="text-content-link no-underline hover:underline">
-            {part}
-          </a>
-        );
-      })}
-    </>
   );
 }
 
