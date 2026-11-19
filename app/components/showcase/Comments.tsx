@@ -274,7 +274,7 @@ export function ThreadList({ state, onReply }: { state: ThreadsState; onReply: (
         <p className="text-sm text-content-tertiary">No comments yet. Say what you think, or ask for something.</p>
       ) : null}
       {threads && threads.length > 0 ? (
-        <ol ref={list} className="grid gap-4" aria-label="Comments">
+        <ol ref={list} className="grid grid-cols-[minmax(0,1fr)] gap-4" aria-label="Comments">
           {threads.map((thread) =>
             thread.state === 'closed' && !thread.pinned && !unfolded.has(thread.id) ? (
               <li key={thread.id} id={`thread-${thread.number}`}>
@@ -395,7 +395,7 @@ function Thread({
 }) {
   const hidden = thread.replyCount - thread.replies.length;
   return (
-    <li id={`thread-${thread.number}`} className="grid min-w-0 gap-2.5 scroll-mt-3">
+    <li id={`thread-${thread.number}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2.5 scroll-mt-3">
       <Comment
         comment={thread.first}
         thread={thread}
@@ -452,7 +452,7 @@ function Thread({
         menu={<ThreadMenuItems thread={thread} state={state} onSameAs={onSameAs} />}
       />
       {thread.replies.length > 0 || hidden > 0 || thread.working ? (
-        <ol className="ml-10 grid gap-2.5" aria-label={`Replies to #${thread.number}`}>
+        <ol className="ml-10 grid grid-cols-[minmax(0,1fr)] gap-2.5" aria-label={`Replies to #${thread.number}`}>
           {hidden > 0 ? (
             <li>
               <button

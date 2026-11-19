@@ -124,7 +124,7 @@ function components(goTo: (number: number) => void): Components {
     ),
     table: ({ children }) => (
       <div className="max-w-full overflow-x-auto">
-        <table className="text-xs [&_td]:border [&_td]:border-bolt-elements-borderColor [&_td]:px-1.5 [&_th]:border [&_th]:border-bolt-elements-borderColor [&_th]:px-1.5">
+        <table className="text-xs [overflow-wrap:normal] [&_th]:whitespace-nowrap [&_td]:border [&_td]:border-bolt-elements-borderColor [&_td]:px-1.5 [&_th]:border [&_th]:border-bolt-elements-borderColor [&_th]:px-1.5">
           {children}
         </table>
       </div>
@@ -141,7 +141,7 @@ export const CommentMarkdown = memo(function CommentMarkdown({
   goTo: (number: number) => void;
 }) {
   return (
-    <div className="grid min-w-0 gap-1.5 wrap-anywhere">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5 wrap-anywhere">
       <ReactMarkdown skipHtml remarkPlugins={REMARK_PLUGINS} components={components(goTo)}>
         {text}
       </ReactMarkdown>
