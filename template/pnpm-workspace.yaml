@@ -9,6 +9,9 @@ auditConfig:
     # braces <=3.0.3 has no patched release; it reaches only build-time file watching and
     # globbing (eslint plugins, tailwind's chokidar), never a deployed Worker. Drop on release.
     - "GHSA-vfj7-8cjw-p6xm"
+    # picomatch <=4.0.7 has no patched release; it matches only globs written in build tools'
+    # configuration (vite, tinyglobby, babel and knip), never input to a deployed Worker. Drop on release.
+    - "GHSA-fc5q-39xc-vjpf"
 blockExoticSubdeps: true
 overrides:
   # Keep every transitive range on the fully patched brace-expansion releases.

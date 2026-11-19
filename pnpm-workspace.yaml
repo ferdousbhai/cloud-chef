@@ -11,6 +11,9 @@ auditConfig:
     # braces <=3.0.3 has no patched release; it reaches only build-time file watching and
     # globbing (eslint plugins, tailwind's chokidar), never a deployed Worker. Drop on release.
     - 'GHSA-vfj7-8cjw-p6xm'
+    # picomatch <=4.0.7 has no patched release; it matches only globs written in build tools'
+    # configuration (vite, tinyglobby, babel and knip), never input to a deployed Worker. Drop on release.
+    - 'GHSA-fc5q-39xc-vjpf'
     # sprintf-js <=1.1.3 has no patched release; it reaches only the printf builtin of agents'
     # just-bash shell emulation, which CloudChef doesn't import. Drop on release.
     - 'GHSA-hp3w-g68c-fv3c'
