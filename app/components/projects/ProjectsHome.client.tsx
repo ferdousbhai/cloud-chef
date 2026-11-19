@@ -753,8 +753,8 @@ function TeamProjects({
 
 /**
  * Projects others shared with this person from accounts not theirs, opened in the account they are working in now:
- * Edit (Can edit) or Open (Can view) opens a workspace there, where a viewer's changes stay; History, Clone and Download
- * for both. Shown only when there are some. Someone with no Cloudflare account yet is told that opening one needs it.
+ * Edit (Can edit) or Open (Can view) opens a workspace there; History, Clone, Download and Make a copy for both: a
+ * viewer changes the project only in a copy of their own. Shown only when there are some. Someone with no Cloudflare account yet is told that opening one needs it.
  */
 function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
   const [shared, setShared] = useState<SharedWithMe | null>(null);
@@ -848,6 +848,14 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
                     <DownloadIcon />
                     Download ZIP
                   </MenuItem>
+                  {shared.canOpen ? (
+                    <MenuItem
+                      action={() => onDialog({ kind: 'copy', project: { id: project.id, name: project.name } })}
+                    >
+                      <CopyIcon />
+                      Make a copy
+                    </MenuItem>
+                  ) : null}
                 </>
               }
             />

@@ -111,7 +111,8 @@ describe('comment threads in the environment', () => {
       expect(prompt).toContain(`${project.name}, `);
       expect(prompt).toContain('## Viewing only');
       expect(prompt).toContain('its repository refuses every push from here');
-      expect(prompt).toContain("stay in this person's own workspace and reach nobody");
+      expect(prompt).toContain('Do not commit here');
+      expect(prompt).toContain('the person makes a copy of it, as a fork on GitHub');
       expect(prompt).not.toContain('## Publishing');
       expect(prompt).not.toContain('## History');
     }
