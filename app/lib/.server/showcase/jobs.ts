@@ -28,12 +28,17 @@ function sendJob(env: PostingEnv, job: ShowcaseJob, delaySeconds?: number): Prom
 /**
  * A project's production publish, as `recordProductionPublish` answers it the first time a commit of main is recorded
  * live: a public project's post is made or updated (`recordPublication`), on the page of whoever pushed the commit
- * (else the project's author), and a new screenshot taken; private projects never post. Called with that function's
+ * (else the project's author), and a new screenshot taken. A private project's post, seen only by the people who may
+ * view the project, has no picture: whether its site may run in the post is asked at once. Called with that function's
  * non-null answer, from both places it is recorded (CloudChef's builder reporting a deploy, and a Workers Builds
  * status read). Asking again about a commit the post already shows changes nothing. Never throws: the publish has
  * succeeded whatever happens to its post.
  */
-export async function projectPublished(env: PostingEnv, publish: ProductionPublish): Promise<void> {
+export async function projectPublished(
+  env: PostingEnv,
+  publish: ProductionPublish,
+  check: (url: string, origin: string) => Promise<boolean | null> = siteAllowsFraming,
+): Promise<void> {
   try {
     const outcome = await recordPublication(env.DB, {
       projectId: publish.projectId,
@@ -42,6 +47,11 @@ export async function projectPublished(env: PostingEnv, publish: ProductionPubli
       siteUrl: publish.siteUrl,
     });
     if (outcome.kind !== 'created' && outcome.kind !== 'updated') {
+      return;
+    }
+    if (!outcome.isPublic) {
+      // CloudChef keeps pictures only of public sites: a private project's post shows its app running, or its name.
+      await recordRunsInPost(env.DB, { postId: outcome.postId, siteUrl: outcome.siteUrl }, check);
       return;
     }
     await sendJob(env, {

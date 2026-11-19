@@ -1,4 +1,6 @@
-import { useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { LockClosedIcon } from '@radix-ui/react-icons';
+import { loadPostAtAddress } from '~/lib/showcase-api';
 import { classNames } from '~/utils/classNames';
 import type { PostView } from '~/lib/showcase';
 import { timeAgo } from '~/lib/showcase';
@@ -19,15 +21,15 @@ import { ShowcaseViewerProvider, useShowcaseViewer } from './ViewerContext';
  * it who made it, the caption and comments, then the actions and a box to comment. On a phone they stack, picture
  * first.
  */
-export function PostPage({ post }: { post: PostView }) {
+export function PostPage({ post, isPrivate = false }: { post: PostView; isPrivate?: boolean }) {
   return (
     <ShowcaseViewerProvider postIds={[post.id]}>
-      <PostPageContent initial={post} />
+      <PostPageContent initial={post} isPrivate={isPrivate} />
     </ShowcaseViewerProvider>
   );
 }
 
-function PostPageContent({ initial }: { initial: PostView }) {
+function PostPageContent({ initial, isPrivate }: { initial: PostView; isPrivate: boolean }) {
   const [post, setPost] = useState(initial);
   const [gone, setGone] = useState(false);
   const commentBox = useRef<HTMLTextAreaElement>(null);
@@ -92,6 +94,12 @@ function PostPageContent({ initial }: { initial: PostView }) {
           >
             <div className="grid gap-1">
               <h1 className="text-base font-semibold text-content-primary">{post.title}</h1>
+              {isPrivate ? (
+                <p className="flex items-center gap-1.5 text-xs text-content-secondary">
+                  <LockClosedIcon aria-hidden />
+                  Private: only people with access to this project see this post.
+                </p>
+              ) : null}
               {post.caption ? <Caption username={post.author.username} text={post.caption} folded={false} /> : null}
             </div>
             <ThreadList state={comments} onReply={() => commentBox.current?.focus()} />
@@ -190,6 +198,38 @@ function AuthorLine({ post }: { post: PostView }) {
         <span className="block truncate text-xs text-content-secondary">{post.author.name}</span>
       </span>
     </PersonLink>
+  );
+}
+
+/**
+ * An address with no public post: a private project's post, for someone signed in who may view it, else nothing here.
+ * Asked once the browser knows who is looking.
+ */
+export function MemberPost({ owner, slug }: { owner: string; slug: string }) {
+  const [found, setFound] = useState<Awaited<ReturnType<typeof loadPostAtAddress>> | undefined>(undefined);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadPostAtAddress(owner, slug, controller.signal).then((answer) => {
+      if (!controller.signal.aborted) {
+        setFound(answer);
+      }
+    });
+    return () => controller.abort();
+  }, [owner, slug]);
+  // Until the browser has asked (and for anyone who may not see one), the page says what the server said.
+  if (!found) {
+    return (
+      <ShowcaseNotice title="This page does not exist.">
+        <p>
+          <a href="/explore">See what people made</a>
+        </p>
+      </ShowcaseNotice>
+    );
+  }
+  return found.post ? (
+    <PostPage key={found.post.id} post={found.post} isPrivate={!found.project.isPublic} />
+  ) : (
+    <PostNotShown projectName={found.project.name} />
   );
 }
 

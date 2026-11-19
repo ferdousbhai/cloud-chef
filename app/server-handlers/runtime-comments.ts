@@ -10,7 +10,7 @@ import {
   listThreads,
   markThreadOnItsWay,
   openThreadCount,
-  publicPostOfProject,
+  postOfProject,
 } from '~/lib/cloudflare/data/post-threads.server';
 import { chatMayCloseThread, endThreadRun } from '~/lib/cloudflare/data/thread-runs.server';
 import type { PostComment, PostThread } from '~/lib/showcase';
@@ -30,7 +30,7 @@ import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
  */
 
 const MAX_REQUEST_BYTES = 8 * 1024;
-const NO_POST = 'This project has no public post, so it has no comment threads.';
+const NO_POST = 'This project has no post yet (it gets one when it is published), so it has no comment threads.';
 
 function json<Answer>(body: Answer, status = 200): Response {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
@@ -67,7 +67,7 @@ export async function runtimeCommentsAction({ request, env }: { request: Request
   const userId = identity.userId;
   // Threads are on public posts only, which anyone signed in may read: a project they may read, then.
   const project = await findReadableProject(env.DB, { id: body.orgProjectId }, userId);
-  const post = project ? await publicPostOfProject(env.DB, project.id) : null;
+  const post = project ? await postOfProject(env.DB, project.id) : null;
   if (!project || !post) {
     return json({ error: NO_POST }, 409);
   }

@@ -37,7 +37,7 @@ import {
 import { usableWorkspaceRuntime } from './cloudflare-integration';
 import { signedIn } from './signed-in';
 import { usernameProblem } from '~/lib/usernames';
-import { hidePostOfPrivateProject, recordCopy } from '~/lib/cloudflare/data/posts.server';
+import { forgetMediaOfPrivateProject, recordCopy } from '~/lib/cloudflare/data/posts.server';
 import { deleteGoneMediaBestEffort } from '~/lib/.server/showcase/media';
 
 /**
@@ -977,14 +977,14 @@ async function accountNamed(env: Env, userId: string, name: string) {
 const visibilitySchema = z.strictObject({ projectId: z.string().uuid(), visibility: z.enum(['private', 'public']) });
 
 /**
- * A project its manager makes public or private; false when it isn't theirs. A project made private takes its post
- * off its author's page, and the post's screenshot is deleted.
+ * A project its manager makes public or private; false when it isn't theirs. A project made private keeps its post for
+ * the people who may view it, off its author's page, and the post's pictures are deleted.
  */
 async function setVisibility(env: Env, userId: string, id: string, visibility: ProjectVisibility) {
   if (!(await setProjectVisibility(env.DB, { userId, projectId: id, visibility }))) {
     return false;
   }
-  if (visibility === 'private' && (await hidePostOfPrivateProject(env.DB, id))) {
+  if (visibility === 'private' && (await forgetMediaOfPrivateProject(env.DB, id))) {
     await deleteGoneMediaBestEffort(env);
   }
   return true;

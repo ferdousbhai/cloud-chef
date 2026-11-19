@@ -191,7 +191,7 @@ describe('CloudChef and copies', () => {
 
   it('lists public copies and takes a suggestion only from the copy’s maker', async () => {
     const { database, db, postId } = await seeded();
-    expect(await listCopies(db, postId)).toEqual([
+    expect(await listCopies(db, postId, null)).toEqual([
       {
         name: "Ben's Recipe Box",
         path: '/ben/recipe-box',
@@ -235,5 +235,28 @@ describe('cutToComment', () => {
     expect(cut.endsWith('ok.…')).toBe(true);
     const words = cutToComment('word '.repeat(400));
     expect(words.endsWith('word…')).toBe(true);
+  });
+});
+
+describe('a private project’s post', () => {
+  it('takes threads only from people who may view the project, and tells only them', async () => {
+    const { database, db, postId } = await seeded();
+    database.exec(`UPDATE org_projects SET visibility = 'private' WHERE id = 'recipes'`);
+    database.exec(
+      `INSERT INTO project_shares (project_id, user_id, role, shared_at) VALUES ('recipes', 'ben', 'view', 1)`,
+    );
+
+    await expect(startThread(db, { userId: 'mira', postId, body: 'Hello' })).rejects.toMatchObject({ status: 404 });
+    expect(await listThreads(db, postId, 'mira')).toEqual({ threads: [], open: 0 });
+    expect(await listThreads(db, postId, null)).toEqual({ threads: [], open: 0 });
+
+    const thread = await startThread(db, { userId: 'ben', postId, body: 'Ask @mira and @sara?' });
+    expect((await listThreads(db, postId, 'sara')).threads.map((each) => each.id)).toEqual([thread.id]);
+    await expect(addReply(db, { userId: 'mira', threadId: thread.id, body: 'Hi' })).rejects.toMatchObject({
+      status: 404,
+    });
+    // Mira can't see the project: her mention tells her nothing.
+    expect(kindsOf(database, 'mira')).toEqual([]);
+    expect(kindsOf(database, 'sara')).toEqual(['post_commented']);
   });
 });

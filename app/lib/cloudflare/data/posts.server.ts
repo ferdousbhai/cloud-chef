@@ -1,4 +1,5 @@
 import type { NotificationView, PostView, PublicPerson, ReportReason, ShowcaseCursor } from '~/lib/showcase';
+import { findAccessibleProject } from './org-projects.server';
 
 /**
  * Showcase posts (docs/proposals/showcase-and-feed.md): one per public project, made and updated by its publishes,
@@ -263,34 +264,67 @@ export async function listFeedPosts(
 }
 
 /**
- * The post at `/<owner>/<slug>`, the project's own address: its public view, or null when it has none anyone may see.
- * `exists` says whether there is a public project there at all, so its page can say the post is not shown rather
- * than that nothing is there.
+ * The post at a project's address, `/<owner>/<slug>`, as `viewerId` may see it: a public project's for anyone, a
+ * private project's only for someone who may view the project (null `viewerId`: nobody signed in). An address the
+ * project had before a rename finds it too: `project.slug` says the current one. A private project published before it
+ * could post gets its post on its first visit, showing what was live then.
  */
 export async function findPostByAddress(
   db: D1Database,
   owner: string,
   slug: string,
-): Promise<{ post: PostView | null; project: { id: string; name: string; slug: string } | null }> {
+  viewerId: string | null = null,
+): Promise<{
+  post: PostView | null;
+  project: { id: string; name: string; slug: string; isPublic: boolean } | null;
+}> {
   // The project at the address, else the one that had it before a rename: `slug` says which address is current.
   const project = await db
     .prepare(
-      `SELECT projects.id, projects.name, projects.slug FROM org_projects AS projects
+      `SELECT projects.id, projects.name, projects.slug, projects.visibility, projects.site_url, projects.created_by
+       FROM org_projects AS projects
        JOIN "user" AS owners ON owners.id = projects.created_by
-       WHERE owners.username = ?1 AND projects.visibility = 'public' AND (projects.slug = ?2 OR projects.id = (
+       WHERE owners.username = ?1 AND (projects.slug = ?2 OR projects.id = (
          SELECT project_id FROM project_slug_redirects WHERE created_by = owners.id AND slug = ?2))
        ORDER BY projects.slug = ?2 DESC LIMIT 1`,
     )
     .bind(owner, slug)
-    .first<{ id: string; name: string; slug: string }>();
-  if (!project) {
+    .first<{
+      id: string;
+      name: string;
+      slug: string;
+      visibility: 'public' | 'private';
+      site_url: string | null;
+      created_by: string;
+    }>();
+  const isPublic = project?.visibility === 'public';
+  if (!project || !(await maySee(db, { id: project.id, isPublic }, viewerId))) {
     return { post: null, project: null };
   }
-  const row = await db
-    .prepare(`SELECT ${POST_COLUMNS} FROM ${POST_FROM} WHERE posts.project_id = ?1 AND ${PUBLIC}`)
-    .bind(project.id)
-    .first<PostRow>();
-  return { post: row ? toPostView(row) : null, project };
+  const found = { id: project.id, name: project.name, slug: project.slug, isPublic };
+  const read = () =>
+    db
+      .prepare(`SELECT ${POST_COLUMNS} FROM ${POST_FROM} WHERE posts.project_id = ?1 AND ${isPublic ? PUBLIC : SHOWN}`)
+      .bind(project.id)
+      .first<PostRow>();
+  let row = await read();
+  if (!row && !isPublic && project.site_url) {
+    const live = await db
+      .prepare(
+        `SELECT new_commit FROM project_main_pushes WHERE project_id = ? AND published_at IS NOT NULL
+         ORDER BY published_at DESC LIMIT 1`,
+      )
+      .bind(project.id)
+      .first<{ new_commit: string }>();
+    await recordPublication(db, {
+      projectId: project.id,
+      commit: live?.new_commit ?? '',
+      by: project.created_by,
+      siteUrl: project.site_url,
+    });
+    row = await read();
+  }
+  return { post: row ? toPostView(row) : null, project: found };
 }
 
 /** A post anyone may see, by id. */
@@ -388,12 +422,19 @@ export async function followsPerson(db: D1Database, userId: string, username: st
 
 /** What a publish did to a project's post: made or updated it (and so wants a new screenshot), or nothing. */
 export type PublicationOutcome =
-  | { kind: 'created' | 'updated'; postId: string; siteUrl: string; visible: boolean }
+  | {
+      kind: 'created' | 'updated';
+      postId: string;
+      siteUrl: string;
+      visible: boolean;
+      /** The project is public: its post is on its author's page, and CloudChef may keep a picture of its site. */
+      isPublic: boolean;
+    }
   | { kind: 'unchanged' | 'not_posted' };
 
 /**
- * Records that main's `commit` of a project went live at `siteUrl` (or its recorded live address). Only a public
- * project posts. No post yet: one is made, on the page of whoever pushed the commit (else `by`, else the project's
+ * Records that main's `commit` of a project went live at `siteUrl` (or its recorded live address). Every project
+ * posts; a private project's post is seen only by the people who may view the project (`findPostFacts`). No post yet: one is made, on the page of whoever pushed the commit (else `by`, else the project's
  * author). A post already there shows the new commit; a visible one moves back to the top of feeds when it last
  * moved more than a day ago. A post its author hid, or one held after reports, stays hidden; one hidden because the
  * project went private shows again, since the project is public once more. A post an operator removed stays removed.
@@ -409,9 +450,10 @@ export async function recordPublication(
     .bind(args.projectId)
     .first<{ visibility: 'public' | 'private'; created_by: string | null; site_url: string | null }>();
   const siteUrl = args.siteUrl ?? project?.site_url ?? null;
-  if (!project || project.visibility !== 'public' || !siteUrl) {
+  if (!project || !siteUrl) {
     return { kind: 'not_posted' };
   }
+  const isPublic = project.visibility === 'public';
   const existing = await db
     .prepare('SELECT id, commit_sha, status, hidden_reason FROM posts WHERE project_id = ?')
     .bind(args.projectId)
@@ -437,7 +479,9 @@ export async function recordPublication(
       .bind(postId, args.projectId, authorId, args.commit, siteUrl, now)
       .run();
     // Two reads of the same build at once: the other made it.
-    return inserted.meta.changes === 1 ? { kind: 'created', postId, siteUrl, visible: true } : { kind: 'unchanged' };
+    return inserted.meta.changes === 1
+      ? { kind: 'created', postId, siteUrl, visible: true, isPublic }
+      : { kind: 'unchanged' };
   }
   if (existing.commit_sha === args.commit || existing.status === 'removed') {
     return { kind: 'unchanged' };
@@ -454,28 +498,21 @@ export async function recordPublication(
     .bind(existing.id, args.commit, siteUrl, now, showsAgain ? 1 : 0, POST_MOVE_INTERVAL_MS)
     .run();
   return updated.meta.changes === 1
-    ? { kind: 'updated', postId: existing.id, siteUrl, visible: showsAgain || existing.status === 'visible' }
+    ? { kind: 'updated', postId: existing.id, siteUrl, visible: showsAgain || existing.status === 'visible', isPublic }
     : { kind: 'unchanged' };
 }
 
 /**
- * A project made private: its post is hidden (an author's own hiding stays theirs) and its media deleted, so nothing
- * of a private project stays public. Making it public again posts at its next publish, or when its author shows it.
+ * A project made private: its post stays, for the people who may view the project, and leaves its author's page and
+ * feeds (a private project's post is never public); its media is deleted, since CloudChef keeps pictures only of
+ * public sites. Whether there was a post.
  */
-export async function hidePostOfPrivateProject(db: D1Database, projectId: string): Promise<boolean> {
+export async function forgetMediaOfPrivateProject(db: D1Database, projectId: string): Promise<boolean> {
   const post = await db.prepare('SELECT id FROM posts WHERE project_id = ?').bind(projectId).first<{ id: string }>();
   if (!post) {
     return false;
   }
-  await db.batch([
-    db
-      .prepare(
-        `UPDATE posts SET status = 'hidden', hidden_reason = 'project_private', updated_at = ?2
-         WHERE id = ?1 AND status = 'visible'`,
-      )
-      .bind(post.id, Date.now()),
-    db.prepare('DELETE FROM post_media WHERE post_id = ?').bind(post.id),
-  ]);
+  await db.prepare('DELETE FROM post_media WHERE post_id = ?').bind(post.id).run();
   return true;
 }
 
@@ -854,15 +891,50 @@ export async function listFollowPeople(
   return results;
 }
 
-/** What a thread needs of a post anyone may see: its project, author, and the commit live now. */
-export type PublicPostFacts = { id: string; projectId: string; authorId: string; commitSha: string; path: string };
+/** What a thread needs of a post: its project, author, the commit live now, and whether the project is public. */
+export type PublicPostFacts = {
+  id: string;
+  projectId: string;
+  authorId: string;
+  commitSha: string;
+  path: string;
+  isPublic: boolean;
+};
 
-export async function findPublicPostFacts(db: D1Database, postId: string): Promise<PublicPostFacts | null> {
+/**
+ * Who a post is asked about for: a person (or null for someone not signed in), who sees a public post, and a private
+ * project's post only when they may view the project; or `TRUSTED`, CloudChef's own work on a post whose access was
+ * checked already (a publish, a mention's answer).
+ */
+export const TRUSTED = Symbol('trusted');
+export type PostViewer = string | null | typeof TRUSTED;
+
+/** What a private project's post shows, like PUBLIC without the project being public. */
+const SHOWN = `posts.status = 'visible' AND authors.username IS NOT NULL AND authors.showcase_paused_at IS NULL
+  AND owners.username IS NOT NULL AND projects.slug IS NOT NULL`;
+
+/** Whether `viewer` may see a post of the project: anyone a public one, a private one only who may view it. */
+async function maySee(
+  db: D1Database,
+  project: { id: string; isPublic: boolean },
+  viewer: PostViewer,
+): Promise<boolean> {
+  if (project.isPublic || viewer === TRUSTED) {
+    return true;
+  }
+  return viewer !== null && (await findAccessibleProject(db, project.id, viewer)) !== null;
+}
+
+export async function findPostFacts(
+  db: D1Database,
+  postId: string,
+  viewer: PostViewer,
+): Promise<PublicPostFacts | null> {
   const row = await db
     .prepare(
       `SELECT posts.id, posts.project_id, posts.author_id, posts.commit_sha, owners.username AS owner_username,
-         projects.slug AS project_slug
-       FROM ${POST_FROM} WHERE posts.id = ?1 AND ${PUBLIC}`,
+         projects.slug AS project_slug, projects.visibility
+       FROM ${POST_FROM} WHERE posts.id = ?1 AND ${SHOWN}`,
     )
     .bind(postId)
     .first<{
@@ -872,24 +944,36 @@ export async function findPublicPostFacts(db: D1Database, postId: string): Promi
       commit_sha: string;
       owner_username: string;
       project_slug: string;
+      visibility: 'public' | 'private';
     }>();
-  return row
-    ? {
-        id: row.id,
-        projectId: row.project_id,
-        authorId: row.author_id,
-        commitSha: row.commit_sha,
-        path: `/${row.owner_username}/${row.project_slug}`,
-      }
-    : null;
+  if (!row) {
+    return null;
+  }
+  const isPublic = row.visibility === 'public';
+  if (!(await maySee(db, { id: row.project_id, isPublic }, viewer))) {
+    return null;
+  }
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    authorId: row.author_id,
+    commitSha: row.commit_sha,
+    path: `/${row.owner_username}/${row.project_slug}`,
+    isPublic,
+  };
 }
 
-async function requirePublicPost(db: D1Database, postId: string): Promise<PostView & { authorId: string }> {
+/** A post `viewer` may see, whole: for liking it. */
+async function requireVisiblePost(
+  db: D1Database,
+  postId: string,
+  viewer: PostViewer,
+): Promise<PostView & { authorId: string }> {
   const row = await db
-    .prepare(`SELECT ${POST_COLUMNS} FROM ${POST_FROM} WHERE posts.id = ?1 AND ${PUBLIC}`)
+    .prepare(`SELECT ${POST_COLUMNS}, projects.visibility FROM ${POST_FROM} WHERE posts.id = ?1 AND ${SHOWN}`)
     .bind(postId)
-    .first<PostRow>();
-  if (!row) {
+    .first<PostRow & { visibility: 'public' | 'private' }>();
+  if (!row || !(await maySee(db, { id: row.project_id, isPublic: row.visibility === 'public' }, viewer))) {
     throw new ShowcaseError('This post isn’t shown any more.', 404);
   }
   return { ...toPostView(row), authorId: row.author_id };
@@ -900,7 +984,7 @@ export async function setLiked(
   db: D1Database,
   args: { userId: string; postId: string; like: boolean; now?: number },
 ): Promise<{ liked: boolean; likeCount: number }> {
-  const post = await requirePublicPost(db, args.postId);
+  const post = await requireVisiblePost(db, args.postId, args.userId);
   const now = args.now ?? Date.now();
   if (args.like) {
     const added = await db

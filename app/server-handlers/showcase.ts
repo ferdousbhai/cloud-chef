@@ -30,6 +30,7 @@ import {
   unpausePerson,
   unreadNotifications,
   viewerStateOfPosts,
+  findPostByAddress,
 } from '~/lib/cloudflare/data/posts.server';
 import {
   addReply,
@@ -48,6 +49,7 @@ import {
   startThread,
 } from '~/lib/cloudflare/data/post-threads.server';
 import { answerMention } from '~/lib/.server/showcase/mention-runs';
+import { recordRunsInPost } from '~/lib/.server/showcase/jobs';
 import { deleteGoneMediaBestEffort, serveMediaForReview } from '~/lib/.server/showcase/media';
 import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor } from '~/lib/showcase';
 import { SENDER } from './email-auth';
@@ -203,6 +205,37 @@ export const openThreadsAction: Handler = ({ request, env }) =>
     return json({ open: await openThreadsOfProjects(env.DB, parsed.data) });
   });
 
+/**
+ * `GET /api/showcase/post?owner=&slug=`: the post at a project's address as the signed-in person sees it, a private
+ * project's among them when they may view it. The page itself is rendered the same for everyone, from public posts
+ * only; the browser asks this when that found none.
+ */
+export const postByAddressAction: Handler = ({ request, env }) =>
+  answering(async () => {
+    const url = new URL(request.url);
+    const owner = USERNAME.safeParse(url.searchParams.get('owner'));
+    const slug = z
+      .string()
+      .regex(/^[a-z0-9-]{1,64}$/)
+      .safeParse(url.searchParams.get('slug'));
+    if (!owner.success || !slug.success) {
+      return json({ error: 'Name a project.' }, 400);
+    }
+    const session = await getAuthSession(env, request);
+    const found = session ? await findPostByAddress(env.DB, owner.data, slug.data, session.user.id) : null;
+    if (!found?.project) {
+      return json({ error: 'Not found.' }, 404);
+    }
+    // A private project's post has no picture to fall back on, and its site is checked only at a publish: one recorded
+    // as refusing is asked again here, so a fix made since shows the working app at once.
+    if (found.post && !found.post.siteFrameable && !found.project.isPublic) {
+      await recordRunsInPost(env.DB, { postId: found.post.id, siteUrl: found.post.siteUrl });
+      const again = await findPostByAddress(env.DB, owner.data, slug.data, session!.user.id);
+      return json(again.project ? again : found);
+    }
+    return json(found);
+  });
+
 /** `GET /api/showcase/threads/replies?threadId=`: every reply in a thread. */
 export const repliesAction: Handler = ({ request, env }) =>
   answering(async () => {
@@ -222,7 +255,7 @@ export const copiesAction: Handler = ({ request, env }) =>
     }
     const session = await getAuthSession(env, request);
     return json({
-      copies: await listCopies(env.DB, postId.data),
+      copies: await listCopies(env.DB, postId.data, session?.user.id ?? null),
       own: session ? await listOwnSuggestableCopies(env.DB, { userId: session.user.id, postId: postId.data }) : [],
     });
   });

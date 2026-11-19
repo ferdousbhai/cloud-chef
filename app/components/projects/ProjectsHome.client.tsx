@@ -345,7 +345,7 @@ function PublicAndCopyItems({
           </MenuItem>
         )
       ) : null}
-      {visibility === 'public' && project.fullName ? (
+      {project.fullName ? (
         <MenuItem action={() => window.location.assign(`/${project.fullName}`)}>
           <ImageIcon />
           View post

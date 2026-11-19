@@ -45,11 +45,12 @@ describe('projectPublished', () => {
     expect(sent).toMatchObject([{ kind: 'screenshot', commit: COMMIT, siteUrl: publish.siteUrl }]);
   });
 
-  it('never posts a private project', async () => {
+  it('posts a private project for its members, with no picture taken, asking at once whether it runs in the post', async () => {
     const { database, env, sent } = seeded('private');
-    await projectPublished(env, publish);
-    expect(database.prepare('SELECT COUNT(*) AS count FROM posts').get()).toEqual({ count: 0 });
+    await projectPublished(env, publish, async () => true);
+    expect(database.prepare('SELECT COUNT(*) AS count FROM posts').get()).toEqual({ count: 1 });
     expect(sent).toEqual([]);
+    expect(database.prepare('SELECT site_frameable FROM org_projects').get()).toEqual({ site_frameable: 1 });
   });
 });
 

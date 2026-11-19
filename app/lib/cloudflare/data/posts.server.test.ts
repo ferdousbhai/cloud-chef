@@ -9,7 +9,7 @@ import {
   fileReport,
   findPerson,
   findPostByAddress,
-  hidePostOfPrivateProject,
+  forgetMediaOfPrivateProject,
   listExplorePosts,
   listFeedPosts,
   listFollowPeople,
@@ -68,20 +68,21 @@ function postOf(database: DatabaseSync, projectId: string) {
 }
 
 describe('recordPublication', () => {
-  it('posts a public project once, on the page of whoever pushed the commit, and never a private one', async () => {
+  it('posts a project once, on the page of whoever pushed the commit, a private one too', async () => {
     const { database, db } = seeded();
     database.exec(`INSERT INTO project_main_pushes (id, project_id, pushed_by, old_commit, new_commit, pushed_at)
       VALUES ('push', 'recipes', 'ben', NULL, '${COMMIT_A}', 1)`);
 
     const first = await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
     const again = await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
-    const hidden = await recordPublication(db, { projectId: 'diary', commit: COMMIT_A, by: 'sara', siteUrl: null });
+    const diary = await recordPublication(db, { projectId: 'diary', commit: COMMIT_A, by: 'sara', siteUrl: null });
 
-    expect(first.kind).toBe('created');
+    expect(first).toMatchObject({ kind: 'created', isPublic: true });
     expect(again.kind).toBe('unchanged');
-    expect(hidden.kind).toBe('not_posted');
-    expect(database.prepare('SELECT author_id, site_url FROM posts').all()).toEqual([
+    expect(diary).toMatchObject({ kind: 'created', isPublic: false });
+    expect(database.prepare('SELECT author_id, site_url FROM posts ORDER BY site_url DESC').all()).toEqual([
       { author_id: 'ben', site_url: 'https://recipes.example.workers.dev' },
+      { author_id: 'sara', site_url: 'https://diary.example.workers.dev' },
     ]);
   });
 
@@ -103,7 +104,7 @@ describe('recordPublication', () => {
     expect(postOf(database, 'recipes')).toMatchObject({ commit_sha: COMMIT_C, shown_at: later, published_count: 3 });
   });
 
-  it('keeps a post its author hid hidden, and shows again one hidden when its project went private', async () => {
+  it('keeps a post its author hid hidden, and a project made private keeps its post', async () => {
     const { database, db } = seeded();
     await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
     const postId = postOf(database, 'recipes')!.id;
@@ -117,8 +118,8 @@ describe('recordPublication', () => {
 
     await setPostShown(db, { postId, userId: 'sara', shown: true });
     database.exec(`UPDATE org_projects SET visibility = 'private' WHERE id = 'recipes'`);
-    await hidePostOfPrivateProject(db, 'recipes');
-    expect(postOf(database, 'recipes')).toMatchObject({ status: 'hidden', hidden_reason: 'project_private' });
+    await forgetMediaOfPrivateProject(db, 'recipes');
+    expect(postOf(database, 'recipes')).toMatchObject({ status: 'visible', hidden_reason: null });
 
     database.exec(`UPDATE org_projects SET visibility = 'public' WHERE id = 'recipes'`);
     await recordPublication(db, { projectId: 'recipes', commit: COMMIT_C, by: 'sara', siteUrl: null });
@@ -127,7 +128,7 @@ describe('recordPublication', () => {
 });
 
 describe('showing posts', () => {
-  it('shows only what anyone may see, and deletes a private project’s media', async () => {
+  it('shows only what anyone may see, and a private project’s post only to who may view it, without media', async () => {
     const { database, db } = seeded();
     await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
     const postId = postOf(database, 'recipes')!.id;
@@ -144,11 +145,29 @@ describe('showing posts', () => {
     expect(JSON.stringify(await listExplorePosts(db))).not.toContain('sara@example.test');
 
     database.exec(`UPDATE org_projects SET visibility = 'private' WHERE id = 'recipes'`);
-    await hidePostOfPrivateProject(db, 'recipes');
+    await forgetMediaOfPrivateProject(db, 'recipes');
     expect((await listExplorePosts(db)).posts).toEqual([]);
+    expect((await findPerson(db, 'sara'))?.posts ?? 0).toBe(0);
     expect(await mediaToServe(db, '00000000-0000-4000-8000-000000000001')).toBeNull();
     expect(await pendingMediaDeletions(db)).toEqual(['posts/x/shot.webp']);
+    // Nobody signed in, and Ben, who has no access, find nothing there; Sara, its owner, finds its post.
     expect(await findPostByAddress(db, 'sara', 'recipe-box')).toEqual({ post: null, project: null });
+    expect(await findPostByAddress(db, 'sara', 'recipe-box', 'ben')).toEqual({ post: null, project: null });
+    const own = await findPostByAddress(db, 'sara', 'recipe-box', 'sara');
+    expect(own.project).toMatchObject({ slug: 'recipe-box', isPublic: false });
+    expect(own.post).toMatchObject({ id: postId, screenshot: null });
+    // Ben once shared the project: he sees it too.
+    database.exec(
+      `INSERT INTO project_shares (project_id, user_id, role, shared_at) VALUES ('recipes', 'ben', 'view', 1)`,
+    );
+    expect((await findPostByAddress(db, 'sara', 'recipe-box', 'ben')).post?.id).toBe(postId);
+  });
+
+  it('gives a private project published before it could post its post on a member’s first visit', async () => {
+    const { db } = seeded();
+    const found = await findPostByAddress(db, 'sara', 'diary', 'sara');
+    expect(found.post).toMatchObject({ title: 'Diary', siteUrl: 'https://diary.example.workers.dev' });
+    expect((await findPostByAddress(db, 'sara', 'diary', 'ben')).post).toBeNull();
   });
 
   it('lets only the people who manage a post hide or delete it', async () => {

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
-import { findPublicPostFacts, type PublicPostFacts } from '~/lib/cloudflare/data/posts.server';
+import { TRUSTED, findPostFacts, type PublicPostFacts } from '~/lib/cloudflare/data/posts.server';
 import { addAgentReply, findThread, listReplies } from '~/lib/cloudflare/data/post-threads.server';
 import { claimThreadRun, endThreadRun, setThreadRunChat } from '~/lib/cloudflare/data/thread-runs.server';
 import type { PostComment, PostThread } from '~/lib/showcase';
@@ -125,7 +125,8 @@ async function postOfThread(db: D1Database, threadId: string): Promise<PublicPos
     .prepare('SELECT post_id FROM post_comments WHERE id = ?')
     .bind(threadId)
     .first<{ post_id: string }>();
-  return row ? findPublicPostFacts(db, row.post_id) : null;
+  // The thread was found for the person asking, which checked they may see its post.
+  return row ? findPostFacts(db, row.post_id, TRUSTED) : null;
 }
 
 function quoted(text: string): string {

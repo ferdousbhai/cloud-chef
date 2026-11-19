@@ -301,3 +301,22 @@ export async function loadOpenThreads(projectIds: readonly string[], signal?: Ab
     )
   ).open;
 }
+
+const postAtAddressSchema = z.object({
+  post: z.custom<PostView>((value) => recordWith('id').safeParse(value).success).nullable(),
+  project: z.object({ id: z.string(), name: z.string(), slug: z.string(), isPublic: z.boolean() }),
+});
+
+/** The post at `/<owner>/<slug>` as the signed-in person sees it (a private project's when they may view it), or null. */
+export async function loadPostAtAddress(owner: string, slug: string, signal?: AbortSignal) {
+  try {
+    return await getJson(
+      `/api/showcase/post?owner=${encodeURIComponent(owner)}&slug=${encodeURIComponent(slug)}`,
+      postAtAddressSchema,
+      undefined,
+      signal,
+    );
+  } catch {
+    return null;
+  }
+}

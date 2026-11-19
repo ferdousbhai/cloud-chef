@@ -6,7 +6,9 @@ import {
   COMMENTS_PER_DAY,
   ShowcaseError,
   captionProblem,
-  findPublicPostFacts,
+  TRUSTED,
+  findPostFacts,
+  type PostViewer,
   type PublicPostFacts,
 } from './posts.server';
 
@@ -45,6 +47,11 @@ export function mentionedUsernames(body: string): string[] {
 /** Whether a comment asks CloudChef, with `@cloudchef`. */
 export function mentionsCloudChef(body: string): boolean {
   return [...body.matchAll(MENTION)].some((match) => match[1].toLowerCase() === 'cloudchef');
+}
+
+/** May `userId` view the project: any role on it. */
+async function canSeeProject(db: D1Database, projectId: string, userId: string): Promise<boolean> {
+  return (await findAccessibleProject(db, projectId, userId)) !== null;
 }
 
 /** May `userId` edit the project: a member or share with the edit role. */
@@ -203,7 +210,7 @@ export async function listThreads(
   postId: string,
   viewerId: string | null,
 ): Promise<{ threads: PostThread[]; open: number }> {
-  const post = await findPublicPostFacts(db, postId);
+  const post = await findPostFacts(db, postId, viewerId);
   if (!post) {
     return { threads: [], open: 0 };
   }
@@ -252,7 +259,7 @@ export async function findThread(
   if (!row) {
     return null;
   }
-  const post = await findPublicPostFacts(db, row.post_id);
+  const post = await findPostFacts(db, row.post_id, viewerId);
   if (!post) {
     return null;
   }
@@ -352,8 +359,11 @@ function follow(db: D1Database, threadId: string, userId: string, now: number): 
     .bind(threadId, userId, now);
 }
 
-/** The ids of the people mentioned in `body` who have a username, at most a few. */
-async function mentionedPeople(db: D1Database, body: string): Promise<string[]> {
+/**
+ * The ids of the people mentioned in `body` who have a username, at most a few: on a private project's post, only those
+ * who may view the project, so a mention never points anyone else at it.
+ */
+async function mentionedPeople(db: D1Database, body: string, post: PublicPostFacts): Promise<string[]> {
   const names = mentionedUsernames(body).slice(0, MENTIONS_MAX);
   if (names.length === 0) {
     return [];
@@ -362,7 +372,16 @@ async function mentionedPeople(db: D1Database, body: string): Promise<string[]> 
     .prepare(`SELECT id FROM "user" WHERE username IN (SELECT value FROM json_each(?)) AND showcase_paused_at IS NULL`)
     .bind(JSON.stringify(names))
     .all<{ id: string }>();
-  return results.map((row) => row.id);
+  if (post.isPublic) {
+    return results.map((row) => row.id);
+  }
+  const allowed: string[] = [];
+  for (const row of results) {
+    if (await canSeeProject(db, post.projectId, row.id)) {
+      allowed.push(row.id);
+    }
+  }
+  return allowed;
 }
 
 /** Who is told of something in a thread: its followers who haven't muted it, and not `exceptIds`. */
@@ -394,7 +413,7 @@ export async function startThread(
   args: { userId: string; postId: string; body: string; suggestFrom?: string; now?: number },
 ): Promise<PostThread> {
   const body = checkedBody(args.body);
-  const post = await findPublicPostFacts(db, args.postId);
+  const post = await findPostFacts(db, args.postId, args.userId);
   if (!post) {
     throw new ShowcaseError('This post isn’t shown any more.', 404);
   }
@@ -405,7 +424,7 @@ export async function startThread(
     suggestion = await requireSuggestableCopy(db, { userId: args.userId, copyId: args.suggestFrom, of: post });
   }
   const id = crypto.randomUUID();
-  const mentioned = await mentionedPeople(db, body);
+  const mentioned = await mentionedPeople(db, body, post);
   const told = new Set<string>([args.userId]);
   const notifications: D1PreparedStatement[] = [];
   if (!told.has(post.authorId)) {
@@ -484,6 +503,7 @@ export async function startThread(
 async function threadFacts(
   db: D1Database,
   threadId: string,
+  viewer: PostViewer,
 ): Promise<{ id: string; authorId: string; state: ThreadState; locked: boolean; post: PublicPostFacts } | null> {
   const row = await db
     .prepare(
@@ -496,12 +516,12 @@ async function threadFacts(
   if (!row) {
     return null;
   }
-  const post = await findPublicPostFacts(db, row.post_id);
+  const post = await findPostFacts(db, row.post_id, viewer);
   return post ? { id: row.id, authorId: row.author_id, state: row.state, locked: row.locked === 1, post } : null;
 }
 
-async function requireThread(db: D1Database, threadId: string) {
-  const thread = await threadFacts(db, threadId);
+async function requireThread(db: D1Database, threadId: string, viewer: PostViewer) {
+  const thread = await threadFacts(db, threadId, viewer);
   if (!thread) {
     throw new ShowcaseError('This thread isn’t shown any more.', 404);
   }
@@ -520,7 +540,7 @@ async function insertReply(
 ): Promise<string> {
   const { thread, now } = args;
   const id = crypto.randomUUID();
-  const mentioned = args.byAgent ? [] : await mentionedPeople(db, args.body);
+  const mentioned = args.byAgent ? [] : await mentionedPeople(db, args.body, thread.post);
   const followers = await followersOf(db, thread.id, args.byAgent ? [] : [args.authorId]);
   const told = new Set<string>(args.byAgent ? [] : [args.authorId]);
   const notifications: D1PreparedStatement[] = [];
@@ -590,7 +610,7 @@ export async function addReply(
   args: { userId: string; threadId: string; body: string; now?: number },
 ): Promise<PostComment> {
   const body = checkedBody(args.body);
-  const thread = await requireThread(db, args.threadId);
+  const thread = await requireThread(db, args.threadId, args.userId);
   const now = args.now ?? Date.now();
   await requireWriter(db, args.userId, now);
   if (thread.locked && !(await canEditProject(db, thread.post.projectId, args.userId))) {
@@ -607,7 +627,7 @@ export async function addAgentReply(
   db: D1Database,
   args: { threadId: string; askerId: string; body: string; now?: number },
 ): Promise<PostComment | null> {
-  const thread = await threadFacts(db, args.threadId);
+  const thread = await threadFacts(db, args.threadId, TRUSTED);
   if (!thread) {
     return null;
   }
@@ -636,7 +656,7 @@ export async function closeThread(
   db: D1Database,
   args: { userId: string; threadId: string; reason: CloseReason; sameAs?: number | null; now?: number },
 ): Promise<PostThread> {
-  const thread = await requireThread(db, args.threadId);
+  const thread = await requireThread(db, args.threadId, args.userId);
   const editor = await canEditProject(db, thread.post.projectId, args.userId);
   if (!editor && thread.authorId !== args.userId) {
     throw new ShowcaseError('Only the people who make this app, or who started the thread, can close it.', 403);
@@ -689,7 +709,7 @@ export async function reopenThread(
   db: D1Database,
   args: { userId: string; threadId: string; now?: number },
 ): Promise<PostThread> {
-  const thread = await requireThread(db, args.threadId);
+  const thread = await requireThread(db, args.threadId, args.userId);
   if (thread.authorId !== args.userId && !(await canEditProject(db, thread.post.projectId, args.userId))) {
     throw new ShowcaseError('Only the people who make this app, or who started the thread, can open it again.', 403);
   }
@@ -705,7 +725,7 @@ export async function reopenThread(
 }
 
 async function requireEditorOf(db: D1Database, threadId: string, userId: string) {
-  const thread = await requireThread(db, threadId);
+  const thread = await requireThread(db, threadId, userId);
   if (!(await canEditProject(db, thread.post.projectId, userId))) {
     throw new ShowcaseError('Only the people who make this app can do that.', 403);
   }
@@ -752,7 +772,7 @@ export async function setThreadFollowing(
   db: D1Database,
   args: { userId: string; threadId: string; follow: boolean; now?: number },
 ): Promise<{ following: boolean }> {
-  const thread = await requireThread(db, args.threadId);
+  const thread = await requireThread(db, args.threadId, args.userId);
   await db
     .prepare(
       `INSERT INTO thread_followers (thread_id, user_id, muted, created_at) VALUES (?1, ?2, ?3, ?4)
@@ -825,8 +845,8 @@ export type CopyOfPost = {
 };
 
 /** The public copies of a post's project that have a post of their own, newest first. */
-export async function listCopies(db: D1Database, postId: string): Promise<CopyOfPost[]> {
-  const post = await findPublicPostFacts(db, postId);
+export async function listCopies(db: D1Database, postId: string, viewerId: string | null): Promise<CopyOfPost[]> {
+  const post = await findPostFacts(db, postId, viewerId);
   if (!post) {
     return [];
   }
@@ -854,7 +874,7 @@ export async function listOwnSuggestableCopies(
   db: D1Database,
   args: { userId: string; postId: string },
 ): Promise<{ id: string; name: string }[]> {
-  const post = await findPublicPostFacts(db, args.postId);
+  const post = await findPostFacts(db, args.postId, args.userId);
   if (!post) {
     return [];
   }
@@ -932,7 +952,7 @@ export async function closeThreadsWentLive(
   args: { projectId: string; threadIds: readonly string[]; at: number },
 ): Promise<void> {
   for (const threadId of args.threadIds) {
-    const thread = await threadFacts(db, threadId);
+    const thread = await threadFacts(db, threadId, TRUSTED);
     if (!thread || thread.post.projectId !== args.projectId || thread.state !== 'on_its_way') {
       continue;
     }
@@ -952,10 +972,10 @@ export async function closeThreadsWentLive(
 // For the agent (`cloudchef comments`)
 // ---------------------------------------------------------------------------------------------------------------
 
-/** A project's post, if it has one anyone may see. */
-export async function publicPostOfProject(db: D1Database, projectId: string): Promise<PublicPostFacts | null> {
+/** A project's post, public or private: for a caller that checked the person may read the project. */
+export async function postOfProject(db: D1Database, projectId: string): Promise<PublicPostFacts | null> {
   const row = await db.prepare('SELECT id FROM posts WHERE project_id = ?').bind(projectId).first<{ id: string }>();
-  return row ? findPublicPostFacts(db, row.id) : null;
+  return row ? findPostFacts(db, row.id, TRUSTED) : null;
 }
 
 /** A thread of a project's post by its number. */
@@ -963,7 +983,7 @@ export async function findThreadByNumber(
   db: D1Database,
   args: { projectId: string; number: number; viewerId: string | null },
 ): Promise<PostThread | null> {
-  const post = await publicPostOfProject(db, args.projectId);
+  const post = await postOfProject(db, args.projectId);
   if (!post) {
     return null;
   }

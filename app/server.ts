@@ -323,6 +323,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/showcase/person': ['GET', showcase.personPageAction],
     '/api/showcase/feed': ['GET', showcase.feedAction],
     '/api/showcase/threads': ['GET', showcase.threadsAction],
+    '/api/showcase/post': ['GET', showcase.postByAddressAction],
     '/api/showcase/threads/replies': ['GET', showcase.repliesAction],
     '/api/showcase/threads/state': ['POST', showcase.threadStateAction],
     '/api/showcase/open-threads': ['GET', showcase.openThreadsAction],

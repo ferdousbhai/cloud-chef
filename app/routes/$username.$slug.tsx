@@ -1,12 +1,13 @@
 import { createFileRoute, notFound, redirect } from '@tanstack/react-router';
-import { PostNotShown, PostPage } from '~/components/showcase/PostPage';
+import { MemberPost, PostNotShown, PostPage } from '~/components/showcase/PostPage';
 import { ShowcaseShell } from '~/components/showcase/ShowcaseShell';
 import { loadPostPage } from '~/lib/showcase-loaders';
 import { createPublicPageHead } from '~/lib/social-meta';
 
 /**
- * A public project's post at the project's own address, `/<owner>/<slug>` (its clone address without `.git`): public
- * on the web, no sign-in to look.
+ * A project's post at its own address, `/<owner>/<slug>` (its clone address without `.git`). A public project's is
+ * rendered on the server, for anyone, no sign-in to look. Anything else is rendered the same for everyone too, and the
+ * browser then asks for a private project's post with the person's session (`MemberPost`).
  */
 export const Route = createFileRoute('/$username/$slug')({
   loader: async ({ params }) => {
@@ -54,7 +55,19 @@ export const Route = createFileRoute('/$username/$slug')({
     });
   },
   component: PostRoute,
+  // The same for everyone on the server: nothing here. Someone who may view a private project there sees its post, in
+  // the browser.
+  notFoundComponent: PostMissing,
 });
+
+function PostMissing() {
+  const { username, slug } = Route.useParams();
+  return (
+    <ShowcaseShell>
+      <MemberPost owner={username} slug={slug} />
+    </ShowcaseShell>
+  );
+}
 
 function PostRoute() {
   const data = Route.useLoaderData();
