@@ -279,7 +279,9 @@ describe('ProjectsHome', () => {
     expect(document.querySelector(ADD)).toBeNull();
     expect(card('Storefront').querySelector('button[aria-label="Edit Storefront"]')).not.toBeNull();
     expect(card('Storefront').textContent).toContain('Can edit');
+    // A project they may only view opens too, as Open: their workspace reads and runs it, and changes nothing.
     expect(card('Docs').querySelector('button[aria-label="Edit Docs"]')).toBeNull();
+    expect(card('Docs').querySelector('button[aria-label="Open Docs"]')).not.toBeNull();
     expect(card('Docs').textContent).toContain('Can view');
     expect(card('Docs').textContent).toContain('Open site');
   });

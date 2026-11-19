@@ -105,6 +105,19 @@ describe('comment threads in the environment', () => {
     expect(prompt).toContain('cloudchef comments close 4 --changed');
   });
 
+  it('tells of a project the person may only view in place of publishing it', () => {
+    for (const project of [APP, SITE]) {
+      const prompt = systemPrompt('', { ...project, viewOnly: true });
+      expect(prompt).toContain(`${project.name}, `);
+      expect(prompt).toContain('## Viewing only');
+      expect(prompt).toContain('its repository refuses every push from here');
+      expect(prompt).toContain("stay in this person's own workspace and reach nobody");
+      expect(prompt).not.toContain('## Publishing');
+      expect(prompt).not.toContain('## History');
+    }
+    expect(systemPrompt('', { ...APP, viewOnly: false })).toBe(systemPrompt('', APP));
+  });
+
   it('describes a read-only chat in place of the project, and offers no closing', () => {
     const prompt = systemPrompt('', APP, {
       comments: { post: '/sara/recipes', open: 1, onItsWay: 0 },

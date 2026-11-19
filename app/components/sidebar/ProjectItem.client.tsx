@@ -11,7 +11,7 @@ import { classNames } from '~/utils/classNames';
 
 /**
  * The projects kept in the account this person works in that they may edit: imported or uploaded ones in Personal,
- * the team's in a team (the ones they may only view are on the projects home), by when each was added.
+ * the team's in a team (the ones they may only view are opened from the projects home), by when each was added.
  */
 export function useEditableProjects(userId: string | null) {
   const [projects, setProjects] = useState<TeamProject[]>([]);

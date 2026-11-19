@@ -68,7 +68,7 @@ export function ProjectCard({
   note?: string | null;
   /** Open comment threads on the project's post, linking to them. */
   openThreads?: { count: number; href: string } | null;
-  /** The main action: Edit, or nothing for a project the person may only view. */
+  /** The main action: Edit, or Open for a project the person may only view. */
   primary: ReactNode;
   menuItems: ReactNode;
 }) {

@@ -161,7 +161,11 @@ export function useConversationAgentChat(args: {
       setUpgradeWaiting(state.upgradeWaiting === true);
       const linked = state.linkedProject ?? null;
       const shownLinked = workbenchStore.linkedProject.get();
-      if (linked?.repository !== shownLinked?.repository || linked?.defaultBranch !== shownLinked?.defaultBranch) {
+      if (
+        linked?.repository !== shownLinked?.repository ||
+        linked?.defaultBranch !== shownLinked?.defaultBranch ||
+        (linked?.viewOnly ?? false) !== (shownLinked?.viewOnly ?? false)
+      ) {
         workbenchStore.linkedProject.set(linked);
       }
       const site = state.linkedSite ?? null;

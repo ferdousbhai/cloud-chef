@@ -24,7 +24,14 @@ export function ProjectDialogs() {
   useEffect(() => () => projectDialogStore.set(null), [workspaceId]);
 
   if (open === 'history') {
-    return <ProjectHistoryDialog project={project} name={name} canRevert={!conversationClosed} onClose={close} />;
+    return (
+      <ProjectHistoryDialog
+        project={project}
+        name={name}
+        canRevert={!conversationClosed && !linkedProject?.viewOnly}
+        onClose={close}
+      />
+    );
   }
   if (open === 'share' && shareable) {
     return <ShareProjectDialog project={{ id: shareable, name }} onClose={close} />;

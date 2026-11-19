@@ -389,6 +389,8 @@ export type BuilderLinkedProjectSummary = {
   repository: string;
   repo?: string;
   defaultBranch: string;
+  /** The person may view the project but not change it: nothing made here is pushed or published. */
+  viewOnly?: boolean;
 };
 
 /**
@@ -687,7 +689,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     await this.settleFiledTeamApprovals().catch(() => logger.warn('Unable to read back filed team approvals'));
     await this.settleChatCloudflareChanges();
     const siteNote = this.linkedSiteNote();
-    const sharedNote = this.sharedProjectNote();
+    const viewOnly = this.readViewOnly();
+    const sharedNote = this.sharedProjectNote(viewOnly);
     const mainNote = this.mainMovedTurnNote();
     const postThreads = this.readPostThreads();
     // Until the turn is recorded active, a restore must not start: it would change the files this turn edits.
@@ -715,6 +718,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       ...untoldChanges,
     ]);
     this.#postThreads = await postThreads;
+    this.noteViewOnly(await viewOnly);
     const shown = await this.chat.messages();
     const userMessages = shown.filter((message) => message.role === 'user').length + 1;
     console.info({ event: 'builder_chat_turn_started', firstUserMessage: userMessages === 1 });
@@ -842,7 +846,11 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           ),
         ),
         systemPrompt: async () => {
-          return systemPrompt((await this.skillContext()).prompt, await this.projectFacts(), this.threadFacts());
+          return systemPrompt(
+            (await this.skillContext()).prompt,
+            { ...(await this.projectFacts()), viewOnly: this.state.linkedProject?.viewOnly === true },
+            this.threadFacts(),
+          );
         },
         afterResponse: (message) => this.reportModelUsage(recordModelResponse(message)),
         afterTools: async () => {
@@ -1723,6 +1731,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (linked && this.state.linkedSite?.kind !== 'preview') {
       void this.showLiveSite(linked.orgProjectId);
     }
+    if (linked) {
+      void this.readViewOnly().then((viewOnly) => this.noteViewOnly(viewOnly));
+    }
     const scope =
       this.userId === null
         ? null
@@ -1753,16 +1764,51 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     this.setState({ ...this.state, linkedSite: next });
   }
 
-  private showLinkedProject(next: BuilderLinkedProjectSummary | null): void {
+  /** `viewOnly` stays as it was shown unless given: only the control plane's answer about the role changes it. */
+  private showLinkedProject(next: Omit<BuilderLinkedProjectSummary, 'viewOnly'> | null, viewOnly?: boolean): void {
     const current = this.state.linkedProject ?? null;
+    const shown = next ? { ...next, viewOnly: viewOnly ?? current?.viewOnly ?? false } : null;
     if (
-      current?.repository === next?.repository &&
-      current?.repo === next?.repo &&
-      current?.defaultBranch === next?.defaultBranch
+      current?.repository === shown?.repository &&
+      current?.repo === shown?.repo &&
+      current?.defaultBranch === shown?.defaultBranch &&
+      (current?.viewOnly ?? false) === (shown?.viewOnly ?? false)
     ) {
       return;
     }
-    this.setState({ ...this.state, linkedProject: next });
+    this.setState({ ...this.state, linkedProject: shown });
+  }
+
+  /**
+   * Whether the person may only view the workspace's project, as the control plane says now: a role changes while a
+   * chat is open. Null when there is no project or it can't be learned quickly, so nothing waits on it.
+   */
+  private async readViewOnly(): Promise<boolean | null> {
+    const identity = runtimeConnectionIdentity(this.env);
+    const read = (async () => {
+      const linked = await this.workspace.linkedProject();
+      return linked && identity ? (await openProject(this.env, identity, linked.orgProjectId)).role !== 'edit' : null;
+    })();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SITE_NOTE_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([read, late]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+      read.catch(() => undefined);
+    }
+  }
+
+  /** Shows the browser, and the next prompt, the role just read; what was shown stays when it couldn't be read. */
+  private noteViewOnly(viewOnly: boolean | null): void {
+    const current = this.state.linkedProject ?? null;
+    if (viewOnly !== null && current && (current.viewOnly ?? false) !== viewOnly) {
+      this.setState({ ...this.state, linkedProject: { ...current, viewOnly } });
+    }
   }
 
   @callable()
@@ -1812,8 +1858,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         return;
       }
       const project = await openProject(this.env, identity, linked.orgProjectId);
-      // A project shared from another account is published there, by the push that changes it.
-      if (project.inAnotherAccount) {
+      // A project shared from another account is published there, by the push that changes it; and someone who may
+      // only view a project starts no deploy of it.
+      if (project.inAnotherAccount || project.role !== 'edit') {
         return;
       }
       // A push that lands after the head is read claims its own commit, and wins over this one.
@@ -2120,11 +2167,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const orgProjectId = opened ?? (await this.createChatProject(identity, binding));
     {
       const project = await openProject(this.env, identity, orgProjectId);
-      if (project.role !== 'edit') {
-        throw new ProjectRefusalError('You can view this project but not edit it.');
-      }
+      // Someone who may only view it gets a workspace too: its files to read and run, with every push refused.
+      const viewOnly = project.role !== 'edit';
       // Named to the browser at once, not minutes later when the workspace is seeded.
-      this.showLinkedProject({ repository: project.name, defaultBranch: MAIN_BRANCH });
+      this.showLinkedProject({ repository: project.name, defaultBranch: MAIN_BRANCH }, viewOnly);
       if (project.inAnotherAccount) {
         // Shared from another account: read from there through CloudChef, and never imported from here.
         if (!project.repo) {
@@ -2134,6 +2180,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         }
         const shared = this.projectRepositories(orgProjectId, project);
         return seedLinkedWorkspace(this.workspace, shared, { orgProjectId, name: project.name, repo: project.repo });
+      }
+      if (viewOnly && !project.repo) {
+        // Its first open imports it, which only someone who may edit it does.
+        throw new ProjectRefusalError(
+          'This project’s code isn’t in CloudChef yet. Ask someone who can edit it to open it once.',
+        );
       }
       const repositories = this.repositories();
       const repo = await ensureProjectRepository(this.env, identity, repositories, project);
@@ -2422,9 +2474,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
 
   /**
    * For a project shared from another account, the turn's context says whose it is and where publishing it goes:
-   * pushing main puts it live on its owner's site. Null for a project of this account.
+   * pushing main puts it live on its owner's site, unless the person may only view it. Null for a project of this
+   * account.
    */
-  private async sharedProjectNote(): Promise<string | null> {
+  private async sharedProjectNote(viewOnly: Promise<boolean | null>): Promise<string | null> {
     try {
       const linked = await this.workspace.linkedProject();
       if (!linked) {
@@ -2436,6 +2489,9 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         return null;
       }
       const owner = shared.ownerName ?? 'someone else';
+      if ((await viewOnly) ?? this.state.linkedProject?.viewOnly === true) {
+        return `This project is ${owner}'s, shared with the person you're working with to view, not to change.`;
+      }
       return (
         `This project is ${owner}'s, shared with the person you're working with. Its site and builds are in ` +
         `${owner}'s Cloudflare account: publishing (pushing main) puts these changes live on ${owner}'s site.`

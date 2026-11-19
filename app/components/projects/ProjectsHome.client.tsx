@@ -7,6 +7,7 @@ import {
   CopyIcon,
   CounterClockwiseClockIcon,
   DownloadIcon,
+  EyeOpenIcon,
   GitHubLogoIcon,
   ImageIcon,
   LockClosedIcon,
@@ -629,18 +630,16 @@ function ConnectionProjectCard({
           : null
       }
       primary={
-        canEdit ? (
-          <Button
-            size="xs"
-            icon={<Pencil1Icon />}
-            aria-label={`Edit ${project.name}`}
-            disabled={connection.opening !== null}
-            loading={connection.opening === project.id}
-            onClick={() => void connection.open(project)}
-          >
-            Edit
-          </Button>
-        ) : null
+        <Button
+          size="xs"
+          icon={canEdit ? <Pencil1Icon /> : <EyeOpenIcon />}
+          aria-label={`${canEdit ? 'Edit' : 'Open'} ${project.name}`}
+          disabled={connection.opening !== null}
+          loading={connection.opening === project.id}
+          onClick={() => void connection.open(project)}
+        >
+          {canEdit ? 'Edit' : 'Open'}
+        </Button>
       }
       menuItems={
         <>
@@ -754,8 +753,8 @@ function TeamProjects({
 
 /**
  * Projects others shared with this person from accounts not theirs, opened in the account they are working in now:
- * with Can edit, Edit opens a workspace there; with Can view, History, Clone and Download. Shown only when there are
- * some. Someone with no Cloudflare account yet is told that opening one needs it.
+ * Edit (Can edit) or Open (Can view) opens a workspace there, where a viewer's changes stay; History, Clone and Download
+ * for both. Shown only when there are some. Someone with no Cloudflare account yet is told that opening one needs it.
  */
 function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
   const [shared, setShared] = useState<SharedWithMe | null>(null);
@@ -816,16 +815,16 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
               badge={canEdit ? 'Can edit' : 'Can view'}
               note={openFailure?.id === project.id ? openFailure.message : null}
               primary={
-                canEdit && shared.canOpen ? (
+                shared.canOpen ? (
                   <Button
                     size="xs"
-                    icon={<Pencil1Icon />}
-                    aria-label={`Edit ${project.name}`}
+                    icon={canEdit ? <Pencil1Icon /> : <EyeOpenIcon />}
+                    aria-label={`${canEdit ? 'Edit' : 'Open'} ${project.name}`}
                     disabled={opening !== null}
                     loading={opening === project.id}
                     onClick={() => void open(project)}
                   >
-                    Edit
+                    {canEdit ? 'Edit' : 'Open'}
                   </Button>
                 ) : null
               }

@@ -25,18 +25,19 @@ export function LinkedProjectIntro({
   onStop: () => void;
   sendMessageInProgress: boolean;
 }) {
-  const { repository } = linkedProject;
+  const { repository, viewOnly } = linkedProject;
   return (
     <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="linked-intro">
         <div className="cloudchef-home-hero">
           <div className="min-w-0">
             <h1 id="linked-intro" className="cloudchef-home-title wrap-break-word">
-              Working on {repository}
+              {viewOnly ? 'Looking at' : 'Working on'} {repository}
             </h1>
             <p className="mt-3 max-w-xl text-balance text-sm text-content-secondary">
-              Ask for a change. To check it first, ask for a preview: a copy of the site with your change, at its own
-              link. When it looks right, ask to publish and the live site updates.
+              {viewOnly
+                ? 'You can view this project but not change it. Ask how it works, or try a change: it stays here in your workspace, and the project and its site stay as they are.'
+                : 'Ask for a change. To check it first, ask for a preview: a copy of the site with your change, at its own link. When it looks right, ask to publish and the live site updates.'}
             </p>
             <Button
               className="mt-3"
@@ -57,7 +58,7 @@ export function LinkedProjectIntro({
                 onStop={onStop}
                 onSend={onSend}
                 hasMessages={false}
-                placeholder={`What should change in ${repository}?`}
+                placeholder={viewOnly ? `Ask about ${repository}` : `What should change in ${repository}?`}
               />
               <DisabledChatMessageSheet message={disabledReason} />
             </div>
