@@ -660,6 +660,8 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
     const toolCallId = requireString(input.toolCallId, 'toolCallId', 512);
     const toolName = requireRemoteToolName(input.toolName);
     const argsJson = requireString(input.argsJson, 'argsJson', MAX_REQUEST_BYTES);
+    // The agent is at work, even when its tool only reads.
+    this.noteContainerUse();
     const started = this.#toolOperations.begin({
       toolCallId,
       toolName,
@@ -1168,6 +1170,9 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       cwd: PROJECT_ROOT,
       projectName: this.linkedProject()?.name ?? 'project',
       size: terminalSize(new URL(request.url)),
+      // What the person types and what their shell prints both keep the container: an attached terminal that is
+      // silent does not.
+      onActivity: () => this.noteContainerUse(),
     });
   }
 
@@ -2206,6 +2211,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       throw error;
     }
     const argsJson = stableJson(args) ?? 'null';
+    this.noteContainerUse();
     const started = this.#toolOperations.begin({
       toolCallId,
       toolName,

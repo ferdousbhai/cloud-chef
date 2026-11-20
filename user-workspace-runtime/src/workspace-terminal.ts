@@ -131,7 +131,7 @@ const terminalResizeSchema = z.object({
  */
 export async function bridgeTerminal(
   container: Pick<Container, 'exec'>,
-  options: { cwd: string; projectName: string; size: TerminalSize },
+  options: { cwd: string; projectName: string; size: TerminalSize; onActivity?: () => void },
 ): Promise<Response> {
   const abort = new AbortController();
   const tmux = await container.exec(terminalSessionCommand(options.cwd, options.projectName), {
@@ -156,6 +156,7 @@ export async function bridgeTerminal(
   };
   tmux.exitCode.then(markExited, markExited);
   server.addEventListener('message', (event) => {
+    options.onActivity?.();
     if (event.data instanceof ArrayBuffer) {
       stdin?.write(new Uint8Array(event.data)).catch(() => undefined);
     } else {
@@ -181,6 +182,7 @@ export async function bridgeTerminal(
           continue;
         }
         sent += chunk.byteLength;
+        options.onActivity?.();
         server.send(JSON.stringify({ type: 'chunk', cursor: String(sent), byteLength: chunk.byteLength }));
         server.send(chunk);
       }

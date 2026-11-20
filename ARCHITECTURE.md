@@ -673,9 +673,11 @@ package nor the binary is in the container. `ProjectWorkspace` and `ProjectBuild
 Container API (`computer-sandbox.ts`, `project-builder.ts`): the runtime's own commands and file transfers run beside
 computerd through `ctx.container.exec`, under GNU `timeout` as process-group leaders (`container-process.ts`), with only the
 environment the runtime passes (`CONTAINER_COMMAND_ENV`; exec inherits nothing but `PATH`); scheduled callbacks are rows
-in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the idle window is
-`ctx.container.setInactivityTimeout` (10 minutes, an hour while a deployment holds its artifact, 15 minutes for the
-builder); and the person's terminal is a tmux client on a pseudo-terminal (`workspace-terminal.ts`), bridged to the
+in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the workspace's idle window (10 minutes, an
+hour while an operation holds the container) is kept by the object itself, which records each use of the container and
+stops it from its alarm (`idleContainerCheck`), because `ctx.container.setInactivityTimeout` counts only from when the
+Durable Object goes quiet and computerd's RPC connection keeps it busy for as long as the container runs; the builder,
+which runs no computerd, relies on that timeout (15 minutes); and the person's terminal is a tmux client on a pseudo-terminal (`workspace-terminal.ts`), bridged to the
 browser's WebSocket, which reattaches to the container's one shell session. The bridge also speaks enough of Sandbox
 0.x's terminal frames that a page loaded before an upgrade keeps working, and the page reads both.
 

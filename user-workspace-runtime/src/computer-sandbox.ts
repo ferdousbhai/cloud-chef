@@ -26,15 +26,37 @@ import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from '../../app/lib/.server
 import { base64ToBytes, sha256Hex } from '../../app/lib/hex-digest';
 
 /**
- * How long a container may sit with no request reaching its Durable Object before the platform stops
- * it: the 10 minutes the terminal's tip tells people about.
+ * How long a container may sit unused before this object stops it: the 10 minutes the terminal's tip tells
+ * people about.
  */
-const WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS = 10 * 60_000;
+export const WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS = 10 * 60_000;
 /**
  * The window while an operation has asked to keep the container: a deployment session holds its
  * validated artifact while the control plane uploads it, with no request to this object meanwhile.
  */
-const WORKSPACE_CONTAINER_KEEP_ALIVE_TIMEOUT_MS = 60 * 60_000;
+export const WORKSPACE_CONTAINER_KEEP_ALIVE_TIMEOUT_MS = 60 * 60_000;
+/** This object's own scheduled callback: the check that stops a container nothing has used for its window. */
+const IDLE_CONTAINER_CHECK = 'stopIdleContainer';
+/** How soon the check runs again after a stop that failed. */
+const IDLE_CONTAINER_RETRY_MS = 60_000;
+
+/**
+ * Whether a running container has gone unused for its window, or how long until it could have.
+ *
+ * This object decides it, on its alarm, because the platform cannot: `setInactivityTimeout` counts only from
+ * when the Durable Object itself goes quiet, and computerd holds its RPC connection to this object (with a
+ * heartbeat every 20 seconds) for as long as the container runs. Left to that timeout, a started container
+ * ran until a release or the platform restarted this object, hours later.
+ */
+export function idleContainerCheck(args: {
+  now: number;
+  lastUse: number;
+  keepAlive: boolean;
+}): { stop: true; idleMs: number } | { stop: false; checkInMs: number } {
+  const idleMs = Math.max(0, args.now - args.lastUse);
+  const windowMs = args.keepAlive ? WORKSPACE_CONTAINER_KEEP_ALIVE_TIMEOUT_MS : WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS;
+  return idleMs >= windowMs ? { stop: true, idleMs } : { stop: false, checkInMs: windowMs - idleMs };
+}
 
 /**
  * Environment every workspace process shares, both computerd's model commands and the runtime's own
@@ -116,6 +138,8 @@ export abstract class ComputerSandboxBase<
   #host: ManagedWorkspaceContainerHost | null = null;
   #runtimeId: string | null;
   #keepAlive = false;
+  /** When the container was last used. In memory: a restarted object starts the window again. */
+  #lastContainerUse = Date.now();
 
   constructor(ctx: DurableObjectState<{}>, env: Env) {
     super(ctx, env);
@@ -151,7 +175,10 @@ export abstract class ComputerSandboxBase<
     );
     // The inactivity timeout does not survive a Durable Object restart, while the container can.
     if (ctx.container?.running) {
-      void ctx.blockConcurrencyWhile(() => this.applyInactivityTimeout());
+      void ctx.blockConcurrencyWhile(async () => {
+        await this.applyInactivityTimeout();
+        await this.scheduleIdleContainerCheck(WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS);
+      });
     }
   }
 
@@ -190,7 +217,18 @@ export abstract class ComputerSandboxBase<
   }
 
   override async alarm(): Promise<void> {
-    await this.scheduledCallbacks.runDue((callback, payload) => this.runScheduledCallback(callback, payload));
+    await this.scheduledCallbacks.runDue((callback, payload) =>
+      callback === IDLE_CONTAINER_CHECK ? this.stopContainerIfIdle() : this.runScheduledCallback(callback, payload),
+    );
+  }
+
+  /**
+   * The container was just used: a command of the runtime's or the agent's, the person's terminal, an operation
+   * starting or ending. Reading the project from the durable VFS is not a use, so a page left open keeps nothing
+   * running.
+   */
+  protected noteContainerUse(): void {
+    this.#lastContainerUse = Date.now();
   }
 
   createComputerWorkspaceOptions(): WorkspaceOptions {
@@ -230,6 +268,7 @@ export abstract class ComputerSandboxBase<
   /** Keep the container through operations no request reaches it during. */
   async setKeepAlive(keepAlive: boolean): Promise<void> {
     this.#keepAlive = keepAlive;
+    this.noteContainerUse();
     await this.applyInactivityTimeout();
   }
 
@@ -338,6 +377,7 @@ export abstract class ComputerSandboxBase<
     if (!container) {
       throw new Error('The workspace Durable Object has no container configured.');
     }
+    this.noteContainerUse();
     if (!container.running) {
       await this.startWorkspaceContainer();
     }
@@ -393,7 +433,9 @@ export abstract class ComputerSandboxBase<
       Date.now(),
     );
     this.#runtimeId = runtimeId;
+    this.noteContainerUse();
     await this.applyInactivityTimeout();
+    await this.scheduleIdleContainerCheck(WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS);
     const processes = new ContainerProcesses(
       async () => container,
       () => this.#runtimeId,
@@ -430,6 +472,35 @@ export abstract class ComputerSandboxBase<
           error: error instanceof Error ? error.message : String(error),
         }),
       );
+  }
+
+  private async scheduleIdleContainerCheck(delayMs: number): Promise<void> {
+    await this.scheduledCallbacks.schedule(Math.ceil(delayMs / 1_000), IDLE_CONTAINER_CHECK, {});
+  }
+
+  /** Stop the container once nothing has used it for its window; until then, look again when it could have. */
+  private async stopContainerIfIdle(): Promise<void> {
+    if (!this.ctx.container?.running) {
+      return;
+    }
+    const check = idleContainerCheck({
+      now: Date.now(),
+      lastUse: this.#lastContainerUse,
+      keepAlive: this.#keepAlive,
+    });
+    if (!check.stop) {
+      await this.scheduleIdleContainerCheck(check.checkInMs);
+      return;
+    }
+    console.info({ event: 'workspace_container_idle_stop', idleMs: check.idleMs, keepAlive: this.#keepAlive });
+    try {
+      await this.destroy();
+    } catch (error) {
+      console.warn('Unable to stop the idle workspace container', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await this.scheduleIdleContainerCheck(IDLE_CONTAINER_RETRY_MS);
+    }
   }
 }
 
