@@ -677,7 +677,7 @@ in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the works
 hour while an operation holds the container) is kept by the object itself, which records each use of the container and
 stops it from its alarm (`idleContainerCheck`), because `ctx.container.setInactivityTimeout` counts only from when the
 Durable Object goes quiet and computerd's RPC connection keeps it busy for as long as the container runs; the builder,
-which runs no computerd, relies on that timeout (15 minutes); and the person's terminal is a tmux client on a pseudo-terminal (`workspace-terminal.ts`), bridged to the
+which runs no computerd, relies on that timeout (5 minutes); and the person's terminal is a tmux client on a pseudo-terminal (`workspace-terminal.ts`), bridged to the
 browser's WebSocket, which reattaches to the container's one shell session. The bridge also speaks enough of Sandbox
 0.x's terminal frames that a page loaded before an upgrade keeps working, and the page reads both.
 

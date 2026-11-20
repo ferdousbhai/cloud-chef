@@ -63,7 +63,7 @@ import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from '../../app/lib/.server
 import { type ScheduledCallbackPayload, ScheduledCallbacks } from './scheduled-callbacks';
 
 /** Kept a while after a publish, so the project's next one finds its tools and package downloads in place. */
-const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 15 * 60_000;
+const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 5 * 60_000;
 
 /**
  * Builds and deploys a project CloudChef deploys itself (an app made in a chat, or one uploaded as a ZIP or pushed

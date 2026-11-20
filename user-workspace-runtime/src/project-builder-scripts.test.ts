@@ -67,6 +67,8 @@ describe("the build container's scripts", () => {
           [
             `sh -c '${child} & kill -STOP $$' >/dev/null 2>&1 &`,
             'parent=$!',
+            // The parent has started its child and stopped itself; then the child that exits at once has.
+            'for i in $(seq 1 200); do [ "$(ps -o stat= -p "$parent" | cut -c1)" = T ] && break; sleep 0.05; done',
             'sleep 0.5',
             `if ${anyStillRunning('--ppid "$parent"')}; then echo running; else echo none; fi`,
             `ps --ppid "$parent" -o stat= | tr -d ' ' | cut -c1`,

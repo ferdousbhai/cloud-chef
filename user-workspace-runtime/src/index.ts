@@ -777,6 +777,13 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       }
     } finally {
       await this.cleanupReadinessRoot().catch(() => undefined);
+      // Only the readiness workspace runs this, on each upgrade of the runtime, and nothing uses its container
+      // afterwards: it stops here rather than at the end of the idle window.
+      await this.recycleWorkspaceContainer().catch((error) =>
+        console.warn('Unable to stop the readiness container', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
   }
 
