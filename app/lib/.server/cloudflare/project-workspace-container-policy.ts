@@ -13,7 +13,7 @@
  * What does get more expensive is idling: a warm container holds 12 GiB instead of 4, roughly
  * $0.11 per idle hour, and the workspace is now warmed when a chat opens rather than when the
  * first command runs — so a chat nobody sends a message in still pays. The workspace runtime's
- * ten-minute idle window bounds that cost.
+ * five-minute idle window bounds that cost.
  *
  * Under the `durable_object` scheduling policy the size is asked for at each `ctx.container.start()`, by the
  * workspace and the project builder alike, rather than set on the application, which takes no instance limit

@@ -186,7 +186,7 @@ export function StorageTip() {
       <InfoCircledIcon aria-hidden className="mt-0.5 shrink-0 text-content-accent" />
       <p className="min-w-0 flex-1">
         <span className="font-semibold text-content-primary">Tip: </span>
-        Your project and home folder (~) are kept. Programs you install are removed when the workspace sleeps, after 10
+        Your project and home folder (~) are kept. Programs you install are removed when the workspace sleeps, after 5
         minutes unused.
       </p>
       <button

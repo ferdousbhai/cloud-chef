@@ -15,9 +15,9 @@ describe('idleContainerCheck', () => {
   });
 
   it('looks again when the window could have passed, counted from the last use', () => {
-    expect(idleContainerCheck({ now: NOW, lastUse: NOW - 4 * 60_000, keepAlive: false })).toEqual({
+    expect(idleContainerCheck({ now: NOW, lastUse: NOW - 2 * 60_000, keepAlive: false })).toEqual({
       stop: false,
-      checkInMs: 6 * 60_000,
+      checkInMs: WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS - 2 * 60_000,
     });
   });
 

@@ -26,10 +26,10 @@ import { PROJECT_WORKSPACE_CONTAINER_INSTANCE_TYPE } from '../../app/lib/.server
 import { base64ToBytes, sha256Hex } from '../../app/lib/hex-digest';
 
 /**
- * How long a container may sit unused before this object stops it: the 10 minutes the terminal's tip tells
+ * How long a container may sit unused before this object stops it: the 5 minutes the terminal's tip tells
  * people about.
  */
-export const WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS = 10 * 60_000;
+export const WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS = 5 * 60_000;
 /**
  * The window while an operation has asked to keep the container: a deployment session holds its
  * validated artifact while the control plane uploads it, with no request to this object meanwhile.

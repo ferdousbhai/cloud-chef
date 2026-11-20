@@ -673,7 +673,7 @@ package nor the binary is in the container. `ProjectWorkspace` and `ProjectBuild
 Container API (`computer-sandbox.ts`, `project-builder.ts`): the runtime's own commands and file transfers run beside
 computerd through `ctx.container.exec`, under GNU `timeout` as process-group leaders (`container-process.ts`), with only the
 environment the runtime passes (`CONTAINER_COMMAND_ENV`; exec inherits nothing but `PATH`); scheduled callbacks are rows
-in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the workspace's idle window (10 minutes, an
+in each object's SQLite run from its alarm (`scheduled-callbacks.ts`); the workspace's idle window (5 minutes, an
 hour while an operation holds the container) is kept by the object itself, which records each use of the container and
 stops it from its alarm (`idleContainerCheck`), because `ctx.container.setInactivityTimeout` counts only from when the
 Durable Object goes quiet and computerd's RPC connection keeps it busy for as long as the container runs; the builder,
@@ -748,7 +748,7 @@ member's runtime can read would need a binding none has today, and restoring a s
 Durable Object is not something the documentation states.
 
 Each start restores the same base, so programs a person installs outside their project are gone once the workspace
-sleeps after 10 minutes unused, as the terminal's tip says. A follow-up could keep them: a per-workspace snapshot taken
+sleeps after 5 minutes unused, as the terminal's tip says. A follow-up could keep them: a per-workspace snapshot taken
 as the container goes idle and restored at its next start, with its own 30-day lifetime and its own key.
 
 #### Moving a runtime from the default policy
@@ -769,7 +769,7 @@ Cloudflare request, GitHub build watch or seeding runs, nor has for two minutes:
    one: the window holds new work back).
 2. It configures the Worker (schedule, subdomain).
 3. It replaces the workspace application, then the builder application. Deleting an application ends its running
-   containers at once: a workspace container still inside its 10-minute idle window, and whatever runs in it that no
+   containers at once: a workspace container still inside its 5-minute idle window, and whatever runs in it that no
    turn records, such as a command typed in the terminal, ends there and then. A model command cannot be running, since
    its turn would hold the window back; one whose post-command pull had not landed keeps its pending-sync intent in
    SQLite, and its retry reports a pull from the replacement container as lost rather than as saved, as for any
