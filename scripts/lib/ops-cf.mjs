@@ -27,6 +27,7 @@ const READ_ONLY_CF_COMMANDS = Object.freeze([
   'ai-gateway logs get-request',
   'ai-gateway logs get-response',
   'builds list',
+  'containers applications instances list',
   'containers applications list',
 ]);
 

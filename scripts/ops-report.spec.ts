@@ -9,6 +9,8 @@ import {
   queryProduction,
   readWorkerInvocations,
   readWorkersAiCatalog,
+  readWorkspaceContainers,
+  describeWorkspaceContainers,
   renderReport,
   workerInvocationsQuery,
   MOVE_REQUESTS_STATEMENT,
@@ -17,6 +19,7 @@ import {
 } from './ops-report.mjs';
 
 const NOW = Date.UTC(2026, 7, 18, 12, 0, 0);
+const noContainers = async () => [{ name: 'cloudchef-workspace-0123456789abcdef', startedAt: [] }];
 const DAY = 86_400_000;
 const CURRENT_RUNTIME = 'a'.repeat(64);
 const OLD_RUNTIME = 'b'.repeat(64);
@@ -153,6 +156,7 @@ describe('production report', () => {
       query: fixtureQuery(healthyRows()),
       readInvocations: healthyInvocations,
       readModelCatalog: healthyCatalog,
+      readContainers: noContainers,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
       pinnedBuilderModel: PIN,
@@ -161,13 +165,14 @@ describe('production report', () => {
     expect(report).toMatchObject({
       controlPlaneReadable: true,
       status: 'ok',
-      headline: 'Everything is healthy: all 9 checks passed.',
+      headline: 'Everything is healthy: all 10 checks passed.',
     });
     expect(report.checks.map((item: { id: string }) => item.id)).toEqual([
       'control-plane-worker',
       'builder-model',
       'cloudflare-accounts',
       'workspace-runtimes',
+      'workspace-containers',
       'users',
       'sessions',
       'projects',
@@ -213,6 +218,7 @@ describe('production report', () => {
           : query(sql),
       readInvocations: healthyInvocations,
       readModelCatalog: healthyCatalog,
+      readContainers: noContainers,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
       pinnedBuilderModel: PIN,
@@ -242,6 +248,7 @@ describe('production report', () => {
       query: fixtureQuery(rows),
       readInvocations: healthyInvocations,
       readModelCatalog: healthyCatalog,
+      readContainers: noContainers,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
       pinnedBuilderModel: PIN,
@@ -263,6 +270,7 @@ describe('production report', () => {
       },
       readInvocations: healthyInvocations,
       readModelCatalog: healthyCatalog,
+      readContainers: noContainers,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
       pinnedBuilderModel: PIN,
@@ -288,6 +296,7 @@ describe('control-plane Worker check', () => {
       query: fixtureQuery(healthyRows()),
       readInvocations: async () => [...healthyInvocationRows(), invocationRow('exception', 12)],
       readModelCatalog: healthyCatalog,
+      readContainers: noContainers,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
       pinnedBuilderModel: PIN,
@@ -307,6 +316,7 @@ describe('control-plane Worker check', () => {
       query: fixtureQuery(healthyRows()),
       readInvocations: async () => [{ groups: [], count: 5 }],
       readModelCatalog: healthyCatalog,
+      readContainers: noContainers,
       now: NOW,
       desiredRuntimeVersion: CURRENT_RUNTIME,
       pinnedBuilderModel: PIN,
@@ -481,3 +491,64 @@ function healthyInvocationRows() {
 async function healthyInvocations() {
   return healthyInvocationRows();
 }
+
+describe('running containers', () => {
+  const WORKSPACE = 'cloudchef-workspace-0123456789abcdef';
+
+  it('lists the running containers of the workspace applications only, through cf', async () => {
+    const calls: string[][] = [];
+    const run = async (_file: string, args: string[]) => {
+      calls.push(args.slice(2));
+      return {
+        stdout: JSON.stringify(
+          args.includes('instances')
+            ? [{ started_at: '2026-08-18T11:00:00.000Z' }]
+            : [
+                { id: 'idle-app', name: `${WORKSPACE}-builder`, health: { instances: { active: 0, starting: 0 } } },
+                { id: 'busy-app', name: WORKSPACE, health: { instances: { active: 1, starting: 0 } } },
+                { id: 'other-app', name: 'storefront', health: { instances: { active: 3, starting: 0 } } },
+              ],
+        ),
+      };
+    };
+
+    // SAFETY: the fake implements the exec invocations this reader makes; no child process is started.
+    await expect(readWorkspaceContainers({ run: run as never, env: {} })).resolves.toEqual([
+      { name: `${WORKSPACE}-builder`, startedAt: [] },
+      { name: WORKSPACE, startedAt: [Date.UTC(2026, 7, 18, 11, 0, 0)] },
+    ]);
+    expect(calls).toEqual([
+      ['containers', 'applications', 'list'],
+      ['containers', 'applications', 'instances', 'list', '--application-id', 'busy-app', '--state', 'active'],
+    ]);
+  });
+
+  it('is healthy with none running, and with one that started recently', () => {
+    expect(describeWorkspaceContainers([{ name: WORKSPACE, startedAt: [] }], NOW)).toMatchObject({
+      level: 'ok',
+      sentence: "No workspace or publish container is running in the operator's account (1 container application).",
+    });
+    expect(describeWorkspaceContainers([{ name: WORKSPACE, startedAt: [NOW - 20 * 60_000] }], NOW)).toMatchObject({
+      level: 'ok',
+      sentence: "1 workspace or publish container is running in the operator's account, the oldest for 20m.",
+    });
+  });
+
+  it('asks for attention when a container has run for hours, naming the oldest', () => {
+    const described = describeWorkspaceContainers(
+      [
+        { name: WORKSPACE, startedAt: [NOW - 7 * 3_600_000] },
+        { name: `${WORKSPACE}-builder`, startedAt: [NOW - 60_000] },
+      ],
+      NOW,
+    );
+    expect(described.level).toBe('attention');
+    expect(described.sentence).toContain(`the oldest, in ${WORKSPACE}, has run for 7h`);
+    expect(described.sentence).toContain('2 workspace or publish containers are running');
+  });
+
+  it('says so in the report when the containers could not be read', async () => {
+    const report = await collectReport({ query: async () => [], now: NOW });
+    expect(report.checks.find((item) => item.id === 'workspace-containers')).toMatchObject({ status: 'unknown' });
+  });
+});

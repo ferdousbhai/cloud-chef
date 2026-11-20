@@ -238,7 +238,7 @@ pnpm exec cf d1 time-travel restore '<database-id>' --bookmark='<bookmark from t
 The operational state of production is reported from a terminal:
 
 ```bash
-pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, runtime staleness, projects
+pnpm run ops        # Worker health, builder model, users, sessions, connected accounts, runtime staleness, running containers, projects
 pnpm run ops:json   # the same report, structured for a coding agent
 pnpm run ops:session -- <chat id | user email | user id>   # one member's recent session, reconstructed
 ```

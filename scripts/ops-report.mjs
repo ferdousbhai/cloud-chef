@@ -526,6 +526,107 @@ export async function readWorkersAiCatalog({ run = execFileAsync, env = process.
   return payload;
 }
 
+/** Every workspace runtime's container applications are named for its Worker: `<worker>` and `<worker>-builder`. */
+const WORKSPACE_APPLICATION_PREFIX = 'cloudchef-workspace-';
+/**
+ * A workspace or publish container stops after 5 minutes unused, so one that has run this
+ * long is either someone at work without a pause or a container nothing is stopping.
+ */
+const CONTAINER_LONG_RUN_MS = 2 * HOUR;
+
+/**
+ * The workspace and publish-builder containers running now in the operator's own Cloudflare account, read as the
+ * authenticated operator: each application, with when each of its running containers started.
+ *
+ * @param {{ run?: typeof execFileAsync; env?: Record<string, string | undefined> }} [options]
+ * @returns {Promise<Array<{ name: string; startedAt: number[] }>>}
+ */
+export async function readWorkspaceContainers({ run = execFileAsync, env = process.env } = {}) {
+  const cf = cfReader({ run, env });
+  const applications = await cf(['containers', 'applications', 'list']);
+  if (!Array.isArray(applications)) {
+    throw new Error('`cf containers applications list` did not return a list of applications.');
+  }
+  const read = [];
+  for (const application of applications) {
+    const name = String(application?.name ?? '');
+    if (!name.startsWith(WORKSPACE_APPLICATION_PREFIX)) {
+      continue;
+    }
+    const counted = application.health?.instances;
+    let instances = [];
+    if (number(counted?.active) + number(counted?.starting) > 0) {
+      instances = await cf([
+        'containers',
+        'applications',
+        'instances',
+        'list',
+        '--application-id',
+        String(application.id),
+        '--state',
+        'active',
+      ]);
+      if (!Array.isArray(instances)) {
+        throw new Error('`cf containers applications instances list` did not return a list of instances.');
+      }
+    }
+    read.push({ name, startedAt: instances.map((instance) => Date.parse(instance?.started_at)) });
+  }
+  return read;
+}
+
+/**
+ * How many workspace and builder containers are running, and for how long the oldest has been.
+ *
+ * @param {Array<{ name: string; startedAt: number[] }>} applications
+ * @param {number} now
+ */
+export function describeWorkspaceContainers(applications, now) {
+  const running = applications.flatMap((application) =>
+    application.startedAt.map((startedAt) => ({ application: application.name, startedAt })),
+  );
+  const detail = {
+    applications: applications.length,
+    running: running.map((container) => ({
+      application: container.application,
+      startedAt: Number.isFinite(container.startedAt) ? new Date(container.startedAt).toISOString() : null,
+    })),
+  };
+  if (running.length === 0) {
+    return {
+      level: 'ok',
+      sentence: `No workspace or publish container is running in the operator's account (${applications.length} container ${plural(applications.length, 'application')}).`,
+      detail,
+    };
+  }
+  const oldest = running.reduce((first, container) => (container.startedAt < first.startedAt ? container : first));
+  const age = now - oldest.startedAt;
+  const counted = `${running.length} workspace or publish ${plural(running.length, 'container is', 'containers are')} running in the operator's account`;
+  if (!Number.isFinite(age)) {
+    return { level: 'attention', sentence: `${counted}, and when one of them started could not be read.`, detail };
+  }
+  return age >= CONTAINER_LONG_RUN_MS
+    ? {
+        level: 'attention',
+        sentence: `${counted}; the oldest, in ${bounded(oldest.application, 80)}, has run for ${formatDuration(age)}. One stops after 5 minutes unused, so this is someone at work without a pause or a container nothing is stopping, at about $0.11 an hour.`,
+        detail,
+      }
+    : { level: 'ok', sentence: `${counted}, the oldest for ${formatDuration(age)}.`, detail };
+}
+
+const CONTAINERS_CHECK_HINT =
+  "Read with `cf containers applications list` and `instances list` through the operator's own cf login; containers in anyone else's Cloudflare account are not visible to it.";
+
+function buildContainersCheck(containersAttempt, now) {
+  if (!containersAttempt.ok) {
+    return unknownCheck('workspace-containers', 'Running containers', containersAttempt, CONTAINERS_CHECK_HINT);
+  }
+  const described = describeWorkspaceContainers(containersAttempt.value, now);
+  return check('workspace-containers', 'Running containers', described.level, described.sentence, {
+    detail: described.detail,
+  });
+}
+
 function catalogProperty(entry, id) {
   return entry?.properties?.find((property) => property.property_id === id)?.value;
 }
@@ -613,6 +714,7 @@ function buildBuilderModelCheck(catalogAttempt, pin) {
  *   query: (sql: string) => Promise<Array<Array<Record<string, unknown>>>>;
  *   readInvocations?: (options: { now: number }) => Promise<Array<Record<string, unknown>>>;
  *   readModelCatalog?: () => Promise<Array<Record<string, unknown>>>;
+ *   readContainers?: () => Promise<Array<{ name: string; startedAt: number[] }>>;
  *   now?: number;
  *   desiredRuntimeVersion?: string | null;
  *   pinnedBuilderModel?: { id: string; minimumContextTokens: number } | null;
@@ -629,24 +731,30 @@ export async function collectReport({
   readModelCatalog = () => {
     throw new Error('No Workers AI catalog reader was supplied to this report.');
   },
+  // Same contract again: containers nobody counted must not be absent from the report.
+  readContainers = () => {
+    throw new Error('No container reader was supplied to this report.');
+  },
   now = Date.now(),
   desiredRuntimeVersion = null,
   pinnedBuilderModel = null,
 }) {
   const statements = coreStatements(now);
-  const [core, projects, showcase, moveRequests, invocations, catalog] = await Promise.all([
+  const [core, projects, showcase, moveRequests, invocations, catalog, containers] = await Promise.all([
     attempt(() => query(statements.join(';\n'))),
     attempt(() => query(PROJECTS_STATEMENT)),
     attempt(() => query(SHOWCASE_STATEMENT)),
     attempt(() => query(MOVE_REQUESTS_STATEMENT)),
     attempt(() => readInvocations({ now })),
     attempt(() => readModelCatalog()),
+    attempt(() => readContainers()),
   ]);
   const checks = [
     buildWorkerCheck(invocations, now),
     buildBuilderModelCheck(catalog, pinnedBuilderModel),
     buildAccountsCheck(core),
     buildRuntimesCheck(core, { now, desiredRuntimeVersion }),
+    buildContainersCheck(containers, now),
     buildUsersCheck(core),
     buildSessionsCheck(core),
     buildProjectsCheck(projects),
@@ -986,6 +1094,7 @@ async function main(argv) {
     query: (sql) => serially(() => queryProduction(sql)),
     readInvocations: ({ now }) => serially(() => readWorkerInvocations({ now })),
     readModelCatalog: () => serially(() => readWorkersAiCatalog()),
+    readContainers: () => serially(() => readWorkspaceContainers()),
     desiredRuntimeVersion,
     pinnedBuilderModel,
   });

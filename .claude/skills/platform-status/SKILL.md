@@ -14,7 +14,8 @@ pnpm run ops
 Add `pnpm run ops:json` when you need to reason over the result structurally rather than quote it.
 
 It takes a few seconds: one combined read-only D1 statement against production, one dry-run Workers Logs query
-(`cf o11y telemetry query`), and one Workers AI catalog read (`cf ai models list`), run one `cf` process at a time.
+(`cf o11y telemetry query`), one Workers AI catalog read (`cf ai models list`), and a list of running containers
+(`cf containers applications list`), run one `cf` process at a time.
 
 ## The checks
 
@@ -26,6 +27,7 @@ Seven checks, in this order in `--json`:
 | Builder model (`builder-model`)               | Whether the pinned default builder model is still served, and whether anything newer is worth a look.      |
 | Cloudflare accounts (`cloudflare-accounts`)   | Connected accounts by status, and any connection missing its stored credential.                            |
 | Workspace runtimes (`workspace-runtimes`)     | Each connected account's workspace runtime: status, and whether it is on this checkout's build.            |
+| Running containers (`workspace-containers`)   | Workspace and publish containers running now in the operator's account, and how long the oldest has run.   |
 | Users (`users`)                               | Total users and sign-ups this week against last week.                                                      |
 | Sign-in sessions (`sessions`)                 | Unexpired sign-in sessions.                                                                                |
 | Projects (`projects`)                         | Each project, whose it is, and its Artifacts repository or the GitHub one it is still to be imported from. |
@@ -77,7 +79,7 @@ code.
 
 `scripts/ops-report.mjs`, a plain ESM Node script. It reads production control-plane D1 with `cf d1 query` (the
 database id comes from `cloudflare.config.ts`), the control-plane Worker's invocation outcomes from Workers Logs with
-`cf o11y telemetry query` run as a dry run, which saves no query or result, and the Workers AI catalog with `cf ai models list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
+`cf o11y telemetry query` run as a dry run, which saves no query or result, the Workers AI catalog with `cf ai models list`, and the running containers with `cf containers applications list`, all under the operator's existing `cf` login. Every statement is a `SELECT` and every command is a
 read, checked against a read-only allowlist (`scripts/lib/ops-cf.mjs`) before it runs; the tool never writes, deletes, or upgrades anything, and holds no credential of its own. If the login can see more
 than one account, set `CLOUDFLARE_ACCOUNT_ID` so `cf` knows which one to ask about.
 
