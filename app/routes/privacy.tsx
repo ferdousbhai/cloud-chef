@@ -29,6 +29,11 @@ function PrivacyPage() {
           <li>your Cloudflare account details, if you connect one</li>
           <li>when you joined the waitlist for a space CloudChef runs, if you did, until you leave it</li>
           <li>
+            your subscription to a space CloudChef runs, if you have one: the customer and subscription numbers Stripe
+            gave it, whether it is in its free month, active or ended, and the dates of its free month and current
+            period. Your card is given to Stripe on Stripe&apos;s own page; CloudChef never receives or stores it
+          </li>
+          <li>
             each site you asked to have moved (on <Link to="/move">Move your site</Link>): its address, the platform you
             chose, your note if you left one, and when you asked, until you withdraw the request or erase your account
           </li>
@@ -145,6 +150,24 @@ function PrivacyPage() {
           nothing is sent back to GitHub. When a member asks for a draft to become a team project, the draft&apos;s own
           repository, already in the team&apos;s account, becomes the project if an admin approves it. GitHub&apos;s own
           terms and privacy statement govern repositories on GitHub.
+        </p>
+      </TrustSection>
+
+      <TrustSection title="A space CloudChef runs">
+        <p>
+          A space CloudChef runs is a place in a team whose Cloudflare account belongs to CloudChef&apos;s operator, so
+          what the Teams section says holds with the operator as that team&apos;s administrator. Your chats,
+          transcripts, project files, and deployed applications are stored in the operator&apos;s Cloudflare account,
+          and the operator can read them, including the AI Gateway logs of your model requests unless you turned that
+          logging off in Settings. Other people with a space there cannot open your projects or your workspace. The
+          operator looks at a space&apos;s contents only to keep the service running, to help when you ask, to stop
+          abuse, or where law requires it.
+        </p>
+        <p>
+          The operator counts the tokens of your builder turns, never their content, to hold each space to its monthly
+          building allowance. Stripe, Inc. processes the payment as its own page collects it: your card, billing
+          address, and email address go to Stripe under Stripe&apos;s privacy policy, and Stripe tells CloudChef only
+          whether the subscription is in its free month, paid, or ended.
         </p>
       </TrustSection>
 
@@ -324,6 +347,10 @@ function PrivacyPage() {
           <li>your team project requests, and GitHub connections you started</li>
           <li>the sites you asked to have moved</li>
           <li>
+            your subscription record, after the subscription itself is cancelled at Stripe so that nothing more is
+            charged; Stripe keeps its own record of past payments under its policy
+          </li>
+          <li>
             the records of when you sent team invites and created teams, so a team&apos;s daily invite limit stops
             counting the invites you sent
           </li>
@@ -359,6 +386,7 @@ function PrivacyPage() {
           <li>GitHub connections you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
           <li>the sites you asked to have moved</li>
+          <li>your subscription to a space CloudChef runs, without the numbers Stripe gave it</li>
         </ul>
         <p>
           Encrypted credential material, initialisation vectors, credential handles, session token hashes, and the

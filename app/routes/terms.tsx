@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { MANAGED_SPACE_MONTHLY_PRICE_USD, MANAGED_SPACE_TRIAL_DAYS, usd } from '~/lib/managed-space';
 import { TrustPage, TrustSection } from '~/components/trust/TrustPage';
 import { CLOUDCHEF_OPERATOR, TRUST_PAGE_HEADINGS, createPublicBetaTrustPageHead } from '~/lib/trust';
 
@@ -37,8 +38,9 @@ function TermsPage() {
       </TrustSection>
       <TrustSection title="Public-beta service, availability, and costs">
         <p>
-          CloudChef currently charges no fee for access during the public beta. Using it requires a compatible
-          Cloudflare account, Workers Paid, and Containers. You are responsible for charges from Cloudflare, including:
+          CloudChef charges no fee for building in your own Cloudflare account or in a team&apos;s. That requires a
+          compatible Cloudflare account, Workers Paid, and Containers, and the account&apos;s holder is responsible for
+          charges from Cloudflare, including:
         </p>
         <ul>
           <li>inference or prepaid AI Gateway credits</li>
@@ -49,6 +51,26 @@ function TermsPage() {
           <li>deployed infrastructure</li>
         </ul>
         <p>CloudChef does not purchase credits or automatically change your Cloudflare plan.</p>
+        <p>
+          A space CloudChef runs is the paid alternative, for people without a Cloudflare account. It costs{' '}
+          {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month, charged by Stripe to the card you give on Stripe&apos;s page,
+          in advance and until you cancel. A first subscription starts with {MANAGED_SPACE_TRIAL_DAYS} free days; the
+          card is charged when they end unless you cancel before. You can cancel at any time in Settings, and the space
+          then lasts to the end of the period already paid for. Payments already made are not refunded, except where the
+          law gives you that right.
+        </p>
+        <p>
+          The price covers the Cloudflare resources your space uses and a monthly allowance of building with the default
+          model. When a month&apos;s allowance is used up, building stops until the next calendar month; applications
+          you published keep running. If a payment fails or the subscription ends, the space is paused: you can no
+          longer build in it, your published applications keep running for the time being, and the operator may remove
+          them and the space&apos;s contents 30 days later. Download your code first.
+        </p>
+        <p>
+          A space CloudChef runs is in the operator&apos;s Cloudflare account, on addresses the operator controls. The
+          operator may take down a published application, or suspend a space, that breaks these Terms, and the price or
+          what it includes may change with notice before your next period.
+        </p>
         <p>
           CloudChef uses AI and preview Cloudflare technology to generate, validate, preview, and deploy applications.
           It is pre-release software provided on an as-available basis and depends on Cloudflare and other third-party

@@ -286,7 +286,7 @@ export function compatibleBuilderModels(
  * Claude: the newest Opus. Pi still speaks to every Claude it lists (`piGatewayModel`).
  */
 function isUnofferedClaude(id: string): boolean {
-  return id.startsWith('anthropic/') && !/^anthropic\/claude-opus-/.test(id);
+  return id.startsWith('anthropic/') && !id.startsWith('anthropic/claude-opus-');
 }
 
 /**

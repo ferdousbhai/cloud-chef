@@ -25,6 +25,7 @@ const ACCOUNT_EXPORT_SECTION_LABELS = {
   oauthStates: 'your Cloudflare authorizations in progress',
   showcase: 'your page, posts, comments, follows and likes',
   moveRequests: 'the sites you asked to have moved',
+  subscription: 'your subscription to a space CloudChef runs',
 } as const;
 
 export type AccountExportSectionName = keyof typeof ACCOUNT_EXPORT_SECTION_LABELS;

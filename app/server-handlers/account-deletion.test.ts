@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   clearAuthSessionCookie: vi.fn(() => 'cloudchef_session=; Path=/; HttpOnly; Max-Age=0'),
   getAuthSession: vi.fn(),
   eraseControlPlaneAccount: vi.fn(),
+  cancelSubscriptionForErasure: vi.fn(async () => true),
 }));
 
 vi.mock('~/lib/.server/auth', () => ({
@@ -57,13 +58,21 @@ describe('deleteAccountAction', () => {
     mocks.eraseControlPlaneAccount.mockRejectedValueOnce(
       new OrganizationAdminRequiredError('Make someone else an admin of your team first.'),
     );
-    const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
+    const response = await deleteAccountAction({
+      request: deletionRequest(validBody),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: 'Make someone else an admin of your team first.' });
   });
 
   it('erases the control plane, expires the cookie, and reports the revocation outcome', async () => {
-    const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
+    const response = await deleteAccountAction({
+      request: deletionRequest(validBody),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -74,6 +83,18 @@ describe('deleteAccountAction', () => {
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(mocks.eraseControlPlaneAccount).toHaveBeenCalledWith({ env, userId: 'user-1' });
+  });
+
+  it('erases nothing while a subscription could not be cancelled at Stripe', async () => {
+    mocks.getAuthSession.mockResolvedValue(freshSession());
+    mocks.cancelSubscriptionForErasure.mockResolvedValueOnce(false);
+    const response = await deleteAccountAction({
+      request: deletionRequest(validBody),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
+    expect(response.status).toBe(502);
+    expect(mocks.eraseControlPlaneAccount).not.toHaveBeenCalled();
   });
 
   it('rejects a cross-origin request', async () => {
@@ -89,7 +110,11 @@ describe('deleteAccountAction', () => {
   it('requires an authenticated session', async () => {
     mocks.getAuthSession.mockResolvedValue(null);
 
-    const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
+    const response = await deleteAccountAction({
+      request: deletionRequest(validBody),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
 
     expect(response.status).toBe(401);
     expect(mocks.eraseControlPlaneAccount).not.toHaveBeenCalled();
@@ -98,7 +123,11 @@ describe('deleteAccountAction', () => {
   it('requires a recent Cloudflare re-authentication', async () => {
     mocks.getAuthSession.mockResolvedValue(freshSession(Date.now() - ACCOUNT_REAUTHENTICATION_WINDOW_MS - 1));
 
-    const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
+    const response = await deleteAccountAction({
+      request: deletionRequest(validBody),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toMatchObject({ code: 'reauthentication_required' });
@@ -111,7 +140,11 @@ describe('deleteAccountAction', () => {
     ['an unapproved extra field', { ...validBody, alsoDeleteMyWorkers: true }],
     ['no body fields at all', {}],
   ])('refuses to erase anything with %s', async (_case, body) => {
-    const response = await deleteAccountAction({ request: deletionRequest(body), env });
+    const response = await deleteAccountAction({
+      request: deletionRequest(body),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
 
     expect(response.status).toBe(400);
     expect(mocks.eraseControlPlaneAccount).not.toHaveBeenCalled();
@@ -123,7 +156,11 @@ describe('deleteAccountAction', () => {
       workspacesLeftIn: ['Acme'],
     });
 
-    const response = await deleteAccountAction({ request: deletionRequest(validBody), env });
+    const response = await deleteAccountAction({
+      request: deletionRequest(validBody),
+      env,
+      cancelSubscription: mocks.cancelSubscriptionForErasure,
+    });
 
     await expect(response.json()).resolves.toEqual({
       status: 'deleted',

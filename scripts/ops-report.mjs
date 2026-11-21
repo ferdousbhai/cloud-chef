@@ -372,6 +372,17 @@ export const MOVE_REQUESTS_STATEMENT = `SELECT users.email AS email, requests.si
   ORDER BY requests.created_at DESC
   LIMIT ${RUNTIME_ROW_LIMIT}`;
 
+/**
+ * Subscriptions to a space CloudChef runs (migrations/0068_managed_subscriptions.sql), one row per state Stripe
+ * last reported, with how many of them have their space paused for it. A row whose checkout never finished is
+ * 'none'.
+ */
+export const SUBSCRIPTIONS_STATEMENT = `SELECT status, COUNT(*) AS count,
+    SUM(CASE WHEN space_paused_at IS NOT NULL THEN 1 ELSE 0 END) AS paused
+  FROM managed_subscriptions
+  GROUP BY status
+  ORDER BY status`;
+
 export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.name AS organization, owners.email AS owner,
     projects.artifact_repo AS artifact_repo,
     projects.import_repo_full_name AS import_repo_full_name,
@@ -740,8 +751,9 @@ export async function collectReport({
   pinnedBuilderModel = null,
 }) {
   const statements = coreStatements(now);
-  const [core, projects, showcase, moveRequests, invocations, catalog, containers] = await Promise.all([
+  const [core, subscriptions, projects, showcase, moveRequests, invocations, catalog, containers] = await Promise.all([
     attempt(() => query(statements.join(';\n'))),
+    attempt(() => query(SUBSCRIPTIONS_STATEMENT)),
     attempt(() => query(PROJECTS_STATEMENT)),
     attempt(() => query(SHOWCASE_STATEMENT)),
     attempt(() => query(MOVE_REQUESTS_STATEMENT)),
@@ -757,6 +769,7 @@ export async function collectReport({
     buildContainersCheck(containers, now),
     buildUsersCheck(core),
     buildSessionsCheck(core),
+    buildSubscriptionsCheck(subscriptions),
     buildProjectsCheck(projects),
     buildShowcaseCheck(showcase),
     buildMoveRequestsCheck(moveRequests, now),
@@ -957,6 +970,30 @@ function buildMoveRequestsCheck(moveRequests, now) {
       ? 'No sites waiting to be moved.'
       : `${total} ${plural(total, 'site')} asked to be moved${total > entries.length ? `, the newest ${entries.length}` : ''}: ${listed}.`;
   return check('move-requests', 'Move requests', 'ok', sentence, { detail: { total, entries } });
+}
+
+/**
+ * How many people pay for a space CloudChef runs, are in their free month, or have lapsed. A lapsed
+ * subscription is Stripe's and the person's business, not a fault, so this never asks for attention.
+ */
+function buildSubscriptionsCheck(subscriptions) {
+  if (!subscriptions.ok) {
+    return unknownCheck('subscriptions', 'Subscriptions', subscriptions);
+  }
+  const byStatus = Object.fromEntries(
+    (subscriptions.value[0] ?? []).map((row) => [String(row.status ?? ''), number(row.count)]),
+  );
+  const paused = (subscriptions.value[0] ?? []).reduce((sum, row) => sum + number(row.paused), 0);
+  const paying = byStatus.active ?? 0;
+  const trialing = byStatus.trialing ?? 0;
+  const lapsed = Object.entries(byStatus)
+    .filter(([status]) => !['active', 'trialing', 'none'].includes(status))
+    .reduce((sum, [, count]) => sum + count, 0);
+  const sentence =
+    paying + trialing + lapsed === 0
+      ? 'No subscriptions to a managed space.'
+      : `${paying} paying, ${trialing} in their free month, ${lapsed} lapsed (${paused} ${plural(paused, 'space')} paused for it).`;
+  return check('subscriptions', 'Subscriptions', 'ok', sentence, { detail: { byStatus, spacesPaused: paused } });
 }
 
 function buildRuntimesCheck(core, { now, desiredRuntimeVersion }) {

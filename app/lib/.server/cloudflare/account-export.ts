@@ -13,7 +13,7 @@ import {
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 10;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 11;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -37,6 +37,7 @@ const SECTION_NAMES = [
   'oauthStates',
   'showcase',
   'moveRequests',
+  'subscription',
 ] as const satisfies readonly AccountExportSectionName[];
 
 type SectionName = (typeof SECTION_NAMES)[number];
@@ -205,6 +206,17 @@ type ExportedOAuthState = {
   updatedAt: string;
 };
 
+/** Their subscription to a space CloudChef runs, as Stripe last reported it. Stripe's own ids are left out. */
+type ExportedSubscription = {
+  status: string;
+  trialEndsAt: string | null;
+  currentPeriodEndsAt: string | null;
+  cancelsAtPeriodEnd: boolean;
+  spacePausedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** A site they asked to have moved into their own Cloudflare account (`/move`). */
 type ExportedMoveRequest = {
   siteUrl: string;
@@ -248,6 +260,7 @@ type ControlPlaneExport = {
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
     showcase: ExportedSection<{ showcase: Awaited<ReturnType<typeof exportShowcase>> }>;
     moveRequests: ExportedSection<BoundedList<{ requests: ExportedMoveRequest[] }>>;
+    subscription: ExportedSection<{ subscription: ExportedSubscription | null }>;
   };
 };
 
@@ -275,6 +288,7 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
     showcase: await exportSection('showcase', async () => ({ showcase: await exportShowcase(db, args.userId) })),
     moveRequests: await exportSection('moveRequests', () => readMoveRequests(db, args.userId)),
+    subscription: await exportSection('subscription', () => readSubscription(db, args.userId)),
   };
   const unavailableSections = SECTION_NAMES.filter((name) => sections[name].status === 'unavailable');
 
@@ -587,6 +601,41 @@ async function readQuotaEvents(db: D1Database, userId: string): Promise<BoundedL
     }),
   );
   return { events, ...bounds };
+}
+
+async function readSubscription(
+  db: D1Database,
+  userId: string,
+): Promise<{ subscription: ExportedSubscription | null }> {
+  const row = await db
+    .prepare(
+      `SELECT status, trial_ends_at, current_period_ends_at, cancels_at_period_end, space_paused_at, created_at,
+              updated_at
+       FROM managed_subscriptions WHERE user_id = ?`,
+    )
+    .bind(userId)
+    .first<{
+      status: string;
+      trial_ends_at: number | null;
+      current_period_ends_at: number | null;
+      cancels_at_period_end: number;
+      space_paused_at: number | null;
+      created_at: number;
+      updated_at: number;
+    }>();
+  return {
+    subscription: row
+      ? {
+          status: row.status,
+          trialEndsAt: optionalIsoTimestamp(row.trial_ends_at),
+          currentPeriodEndsAt: optionalIsoTimestamp(row.current_period_ends_at),
+          cancelsAtPeriodEnd: row.cancels_at_period_end === 1,
+          spacePausedAt: optionalIsoTimestamp(row.space_paused_at),
+          createdAt: isoTimestamp(row.created_at),
+          updatedAt: isoTimestamp(row.updated_at),
+        }
+      : null,
+  };
 }
 
 async function readMoveRequests(

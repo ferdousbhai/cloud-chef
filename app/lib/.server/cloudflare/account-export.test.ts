@@ -238,6 +238,7 @@ describe('control-plane account export', () => {
       'oauthStates',
       'showcase',
       'moveRequests',
+      'subscription',
     ]);
     warn.mockRestore();
   });

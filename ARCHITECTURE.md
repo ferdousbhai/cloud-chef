@@ -156,9 +156,18 @@ context, a connection the person may use, chosen with the workspace switcher; a 
 on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a team's space,
 reached by its admin's invite, or their own Cloudflare account, connected there after a short list of what happens
-on Cloudflare's site; a space CloudChef runs comes later (`docs/proposals/managed-spaces.md`), and until then is a
-waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`; `pnpm run ops`
-counts it). It's asked when they
+on Cloudflare's site; or a space CloudChef runs, by subscription. That space is a membership of one team in
+CloudChef's own Cloudflare account (`MANAGED_SPACE_ORG_ID`), paid for through Stripe (`STRIPE_PRICE_ID`, and the
+secrets `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and starts the free month,
+its webhook (`POST /api/billing/webhook`) reports every change, and
+`app/lib/cloudflare/data/managed-subscriptions.server.ts` adds the person to the team while the subscription is in
+its free month or paid, pauses them there when it lapses, and resumes only a pause it made itself. Everything a
+team member is kept from holds for them. Each finished turn's tokens, priced at the team's default model, count
+against a monthly allowance, and `runtime-access` refuses the next model request once it is used
+(`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
+choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);
+`pnpm run ops` counts both. The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` wait on
+Cloudflare's Tenant API. It's asked when they
 try to build, and the account menu offers it until they have a space.
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own

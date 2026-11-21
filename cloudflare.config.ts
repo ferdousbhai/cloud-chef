@@ -82,6 +82,13 @@ export default defineConfig({
       // Who may decide reports at /reports: comma-separated CloudChef user ids. Changed by a release, never in the
       // dashboard.
       OPERATOR_USER_IDS: bindings.text('4128ec6e-8d8b-4c8a-8f93-ea2973525d00'),
+      // Subscriptions to a space CloudChef runs (app/server-handlers/billing.ts). A space is a membership of this
+      // team, which lives in CloudChef's own Cloudflare account, and is paid for with this Stripe price. Either one
+      // empty, subscriptions are unavailable and "Where should your apps live?" offers the waitlist. Stripe's
+      // secret key and webhook signing secret are not declared here, as with the URL Scanner's token below: set
+      // `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` with `cf workers secrets` before setting these two.
+      MANAGED_SPACE_ORG_ID: bindings.text(''),
+      STRIPE_PRICE_ID: bindings.text(''),
       // Cloudflare's URL Scanner in CloudChef's own account, checking each posted site for phishing. Unset, sites are
       // not scanned and reports alone hold a post. Its token (URL Scanner edit on that account) is not declared here:
       // a declared secret must exist before every deploy. To turn scanning on, set `URL_SCANNER_API_TOKEN` with

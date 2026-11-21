@@ -14,6 +14,8 @@ import {
 } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
 import { getJson, messageOf, postJson } from '~/lib/json-request';
+import { usd, type BillingStatus } from '~/lib/managed-space';
+import { openBillingPortal, readBillingStatus, startCheckout } from '~/lib/managed-space-requests';
 import {
   ACCOUNT_MADE_WITH_CLOUDFLARE,
   ACCOUNT_MADE_WITH_PARAM,
@@ -388,7 +390,7 @@ export function ChooseSpace({
       >
         Your apps, their data and the AI that builds them run in your account, and Cloudflare bills you for them.
       </SpaceChoice>
-      <ManagedSpaceWaitlist email={session.user.email} />
+      <ManagedSpace email={session.user.email} />
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
         <CloudflareConnectLegalNotice planNote={false} />
         <button
@@ -401,6 +403,89 @@ export function ChooseSpace({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * A space CloudChef runs: a subscription where it is open, and its waitlist where it isn't yet. Not knowing
+ * which reads as not open, so no one is offered a plan that can't be bought.
+ */
+function ManagedSpace({ email }: { email: string }) {
+  const [billing, setBilling] = useState<BillingStatus | null | undefined>(undefined);
+  const [busy, setBusy] = useState<'checkout' | 'portal' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let canceled = false;
+    void readBillingStatus()
+      .catch(() => null)
+      .then((status) => {
+        if (!canceled) {
+          setBilling(status);
+        }
+      });
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  if (billing === undefined) {
+    return null;
+  }
+  if (!billing?.available) {
+    return <ManagedSpaceWaitlist email={email} />;
+  }
+  const leave = async (kind: 'checkout' | 'portal') => {
+    setBusy(kind);
+    setError(null);
+    try {
+      await (kind === 'checkout' ? startCheckout() : openBillingPortal());
+    } catch (failure) {
+      setError(messageOf(failure, 'Unable to reach payments. Try again.'));
+      // Stripe's page replaces this one on success.
+      setBusy(null);
+    }
+  };
+  const price = usd(billing.monthlyPriceUsd);
+  // Subscribed before, with no space now: the payment failed, or they cancelled.
+  const lapsed = billing.subscription !== null && !billing.subscription.hasSpace;
+  return (
+    <SpaceChoice
+      title="In a space CloudChef runs"
+      details={
+        error ? (
+          <p className="text-sm text-content-error" role="alert">
+            {error}
+          </p>
+        ) : null
+      }
+      action={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button loading={busy === 'checkout'} disabled={busy !== null} onClick={() => void leave('checkout')}>
+            {billing.trialDays > 0 ? 'Start my free month' : `Subscribe for ${price} a month`}
+          </Button>
+          {lapsed ? (
+            <Button
+              variant="neutral"
+              loading={busy === 'portal'}
+              disabled={busy !== null}
+              onClick={() => void leave('portal')}
+            >
+              See my payments
+            </Button>
+          ) : null}
+        </div>
+      }
+    >
+      {lapsed ? (
+        <>Your subscription isn&apos;t active, so your space is paused. What you published keeps running. </>
+      ) : (
+        <>No Cloudflare account needed: CloudChef sets it up and runs it for you. </>
+      )}
+      {billing.trialDays > 0
+        ? `Your first month is free, then ${price} a month. A card is asked for now and charged after the free month; cancel any time in Settings.`
+        : `${price} a month, charged now. Cancel any time in Settings.`}
+    </SpaceChoice>
   );
 }
 

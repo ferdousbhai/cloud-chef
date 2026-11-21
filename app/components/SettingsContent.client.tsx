@@ -7,6 +7,7 @@ import { Toaster } from '~/components/ui/Toaster';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { BrandLink } from '~/components/BrandLink';
 import { CloudflareCard } from '~/components/settings/CloudflareCard.client';
+import { SubscriptionCard } from '~/components/settings/SubscriptionCard.client';
 import { AccountDataCard } from '~/components/settings/AccountDataCard.client';
 import { CommandLineCard } from '~/components/settings/CommandLineCard.client';
 import { AiRequestLogsCard } from '~/components/settings/AiRequestLogsCard.client';
@@ -155,6 +156,7 @@ export function SettingsContent({ authorizationError }: { authorizationError?: s
               <>
                 <ProfileCard />
                 <CloudflareCard initialError={authorizationError} />
+                <SubscriptionCard />
                 <CommandLineCard />
                 <AppearanceCard />
               </>,

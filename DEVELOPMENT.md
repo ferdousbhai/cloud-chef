@@ -84,6 +84,17 @@ It declares these secrets, which are configured in Cloudflare and never stored i
 - `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_APP_SLUG` — CloudChef's
   GitHub App, for importing private repositories as projects; unset, importing those reports itself unavailable
   (public repositories import without it).
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — subscriptions to a space CloudChef runs. Not declared in
+  `cloudflare.config.ts`; set them with `cf workers secrets`. With them, `STRIPE_PRICE_ID` and `MANAGED_SPACE_ORG_ID`
+  in `cloudflare.config.ts` turn subscriptions on; with any of the four unset the plan is not offered and the
+  waitlist is.
+
+To open subscriptions: in Stripe, make a product with one recurring monthly price equal to
+`MANAGED_SPACE_MONTHLY_PRICE_USD` (`app/lib/managed-space.ts`), turn on the customer portal, and add a webhook
+endpoint at `https://cloudchef.build/api/billing/webhook` for `checkout.session.completed` and the
+`customer.subscription.*` events. In CloudChef, make the team the spaces live in, connect it to the operator's
+Cloudflare account, and allow it only the default model (the allowance prices tokens at that model). Set the two
+secrets, then release `STRIPE_PRICE_ID` and `MANAGED_SPACE_ORG_ID` (the team's id) in `cloudflare.config.ts`.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. `pnpm run provision:production` bootstraps the control-plane D1 or reconciles

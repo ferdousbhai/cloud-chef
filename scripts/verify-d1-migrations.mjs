@@ -84,6 +84,7 @@ const migrationPolicies = [
       '0065_thread_runs_without_answering.sql': '5952d49d0fccfbac9a7a3192be38ee535e22f92d3b52a922b6178a0e495454c4',
       '0066_private_posts.sql': 'e4a859d4e93ed4c419a78bad161528e631b4da30b658958e10b9035bfd9a2427',
       '0067_offered_change_preview.sql': '9ee08b3dc8d3adc783836bbd2d4473c0b807a29fcd498e36d0c3f7f8f7f5a7fa',
+      '0068_managed_subscriptions.sql': '7804fd4e67b3e12d6f4209d380c5c61840f580ad7d41ec3dcf1476c57f9a6961',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

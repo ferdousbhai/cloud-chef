@@ -110,6 +110,14 @@ import {
   switchProjectWorkersBuildsAction,
 } from './server-handlers/projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
+import {
+  BILLING_RETURN_PATH,
+  billingPortalAction,
+  billingStatusAction,
+  completeCheckoutAction,
+  startCheckoutAction,
+  stripeWebhookAction,
+} from './server-handlers/billing';
 import { exportAccountAction } from './server-handlers/account-export';
 import {
   deleteProjectAction,
@@ -302,6 +310,11 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/profile/username': ['POST', setUsernameAction],
     '/api/managed-spaces/waitlist': ['GET', managedSpaceWaitlistAction],
     '/api/managed-spaces/waitlist/update': ['POST', updateManagedSpaceWaitlistAction],
+    '/api/billing': ['GET', billingStatusAction],
+    '/api/billing/checkout': ['POST', startCheckoutAction],
+    [BILLING_RETURN_PATH]: ['GET', completeCheckoutAction],
+    '/api/billing/portal': ['POST', billingPortalAction],
+    '/api/billing/webhook': ['POST', stripeWebhookAction],
     '/api/move-requests': ['GET', moveRequestsAction],
     '/api/move-requests/save': ['POST', saveMoveRequestAction],
     '/api/move-requests/withdraw': ['POST', withdrawMoveRequestAction],

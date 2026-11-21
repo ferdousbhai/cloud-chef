@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { runtimeIdentityHeaders, type RuntimeIdentity } from '~/lib/.server/cloudflare/runtime-identity-headers';
@@ -204,6 +205,49 @@ describe('runtimeUsageAction', () => {
 });
 
 describe('runtimeAccessAction', () => {
+  it("refuses a managed space's next model request once its month's allowance is used, and no other team's", async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('member-1', 'Sam', 'sam@acme.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Spaces', 1, 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('org-1', 'member-1', 'member', 1);
+    `);
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    const managed = { STRIPE_SECRET_KEY: 'sk_test', STRIPE_PRICE_ID: 'price_1', MANAGED_SPACE_ORG_ID: 'org-1' };
+    const ask = async (bindings: Record<string, string>) => {
+      const response = await runtimeAccessAction({
+        request: request(await runtimeSecret('member-1', 'connection-1'), {
+          userId: 'member-1',
+          connectionId: 'connection-1',
+          connectionGeneration: 3,
+        }),
+        // SAFETY: the billing bindings' declared types are the empty text the configuration gives them; they are
+        // read only as text.
+        env: envWith({
+          DB: db,
+          CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64,
+          ...bindings,
+        } as Partial<Env>),
+      });
+      const body: unknown = await response.json();
+      return z.object({ modelRefusal: z.string().nullable() }).parse(body).modelRefusal;
+    };
+    expect(await ask(managed)).toBeNull();
+    // Far more output than a month's allowance buys on the default model.
+    database
+      .prepare(
+        `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
+         VALUES ('org-1', 'member-1', ?, 1, 0, 1000000000, 0)`,
+      )
+      .run(new Date().toISOString().slice(0, 10));
+    expect(await ask(managed)).toMatch(/^Your space has used this month's building allowance\. It starts again on /);
+    // The same use in a team that is not the one CloudChef runs spaces in is the team's own business.
+    expect(await ask({ ...managed, MANAGED_SPACE_ORG_ID: 'another-org' })).toBeNull();
+    // The team's admin, who pays for the account, is never held to it.
+    database.exec(`UPDATE organization_members SET role = 'admin'`);
+    expect(await ask(managed)).toBeNull();
+  });
+
   it("says a member may build until they're paused", async () => {
     const { database, db } = controlPlaneDatabase();
     database.exec(`
@@ -229,18 +273,33 @@ describe('runtimeAccessAction', () => {
     // Their model requests are logged in the account's AI Gateway until they turn that off.
     expect(await ask()).toEqual({
       status: 200,
-      body: { organizationAdmin: false, aiGatewayContentLogging: true, member: { name: 'Sam', email: 'sam@acme.com' } },
+      body: {
+        organizationAdmin: false,
+        aiGatewayContentLogging: true,
+        member: { name: 'Sam', email: 'sam@acme.com' },
+        modelRefusal: null,
+      },
     });
     database.exec(`UPDATE organization_members SET role = 'admin'`);
     expect(await ask()).toEqual({
       status: 200,
-      body: { organizationAdmin: true, aiGatewayContentLogging: true, member: { name: 'Sam', email: 'sam@acme.com' } },
+      body: {
+        organizationAdmin: true,
+        aiGatewayContentLogging: true,
+        member: { name: 'Sam', email: 'sam@acme.com' },
+        modelRefusal: null,
+      },
     });
     // Their own opt-out holds in the team's account too.
     database.exec(`UPDATE "user" SET ai_gateway_content_logging = 0 WHERE id = 'member-1'`);
     expect(await ask()).toEqual({
       status: 200,
-      body: { organizationAdmin: true, aiGatewayContentLogging: false, member: { name: 'Sam', email: 'sam@acme.com' } },
+      body: {
+        organizationAdmin: true,
+        aiGatewayContentLogging: false,
+        member: { name: 'Sam', email: 'sam@acme.com' },
+        modelRefusal: null,
+      },
     });
     database.exec(`UPDATE organization_members SET paused_at = 2`);
     expect((await ask()).status).toBe(401);

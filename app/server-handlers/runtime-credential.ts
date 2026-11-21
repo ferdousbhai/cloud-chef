@@ -1,4 +1,6 @@
 import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
+import { billingConfig } from '~/lib/.server/billing/stripe';
+import { spaceUsage } from '~/lib/cloudflare/data/managed-subscriptions.server';
 import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-logging.server';
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -111,9 +113,33 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
       aiGatewayContentLogging: await readAiGatewayContentLogging(args.env.DB, identity.userId),
       // Who the person is, as the commits made in their name say.
       member: await memberIdentity(args.env.DB, identity.userId),
+      modelRefusal:
+        orgId && membership && !isActiveAdmin(membership)
+          ? await allowanceRefusal(args.env, authenticated.connection.id, orgId, identity.userId)
+          : null,
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );
+}
+
+/**
+ * Why a member of the team CloudChef runs spaces in can't make another model request this month: their
+ * space's allowance is used up. Null for any other team, and while there is allowance left.
+ */
+async function allowanceRefusal(env: Env, connectionId: string, orgId: string, userId: string): Promise<string | null> {
+  if (billingConfig(env)?.managedOrgId !== orgId) {
+    return null;
+  }
+  const usage = await spaceUsage(env.DB, connectionId, orgId, userId);
+  if (usage.usedUsd < usage.allowanceUsd) {
+    return null;
+  }
+  const resets = new Date(usage.resetsAt).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+  return `Your space has used this month's building allowance. It starts again on ${resets}; what you published keeps running.`;
 }
 
 /**

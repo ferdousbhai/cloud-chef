@@ -94,6 +94,11 @@ export type UserWorkspaceAccess = {
   organizationAdmin: boolean;
   /** Whether their model requests may be logged with their content in the account's AI Gateway. */
   aiGatewayContentLogging: boolean;
+  /**
+   * Why their next model request is refused though they may still use the account, in words for them:
+   * a space CloudChef runs whose month's allowance is used up. Null when it may run.
+   */
+  modelRefusal?: string | null;
 };
 
 export type ConfirmUserWorkspaceAccess = (
@@ -125,10 +130,12 @@ export const confirmUserWorkspaceAccess: ConfirmUserWorkspaceAccess = async (env
 const accessResponseSchema = z.object({
   organizationAdmin: z.boolean().catch(false),
   aiGatewayContentLogging: z.boolean().catch(false),
+  modelRefusal: z.string().min(1).max(500).nullable().catch(null).optional(),
 });
 
 type ModelRequestAccess =
-  | { allowed: false }
+  /** `reason` is the control plane's own, when it gave one; otherwise they lost the account. */
+  | { allowed: false; reason?: string }
   | {
       allowed: true;
       /** Whether this request may be logged with its content in the account's AI Gateway. */
@@ -160,6 +167,9 @@ export async function modelRequestAccess(
   const access = await confirm(env, identity);
   if (!access) {
     return { allowed: false };
+  }
+  if (access.modelRefusal) {
+    return { allowed: false, reason: access.modelRefusal };
   }
   return {
     allowed: true,
