@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
+import { buttonClassNames } from '~/components/ui/primitives/Button';
 import { TextInput } from '@ui/TextInput';
 import { ACCOUNT_DELETION_CONFIRMATION, accountExportSectionLabel } from '~/lib/account-data';
 import { authClient } from '~/lib/auth-client';
@@ -266,10 +267,22 @@ export function AccountDataCard() {
       </p>
 
       <div className="mt-5 rounded-md border border-red-600/40 p-3">
-        {phase === 'deleted' ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+          <div className="min-w-0 flex-1 basis-52">
+            <h3 className="text-sm font-medium text-content-primary">Delete your CloudChef account</h3>
+            <p className="text-xs text-content-tertiary">Can&apos;t be undone. Your Cloudflare resources stay.</p>
+          </div>
+          <Button size="sm" variant="danger" onClick={() => setPhase('confirming')}>
+            Delete account data
+          </Button>
+        </div>
+      </div>
+      {phase === 'deleted' ? (
+        // Nothing closes it but Done: the Settings behind it belong to an account that no longer exists.
+        <Modal title="Your CloudChef account is erased">
           <div className="grid gap-2 text-sm text-content-secondary" role="status">
             <p>
-              CloudChef erased your account identity, sessions,{' '}
+              You are signed out. CloudChef erased your account identity, sessions,{' '}
               {kept.length === 0
                 ? 'encrypted credentials, '
                 : revoked === null
@@ -313,24 +326,15 @@ export function AccountDataCard() {
               Resources CloudChef deployed are still in the Cloudflare accounts they were deployed to, and still billed
               to them. Clear this browser’s site data to remove its cookie, preferences, and tab-session state.
             </p>
-            <p>
-              <a className="underline" href="/">
-                Return to CloudChef
+            <div>
+              {/* A full page load: nothing of the erased account's Settings stays on screen. */}
+              <a className={buttonClassNames({ variant: 'primary', size: 'md' })} href="/">
+                Done
               </a>
-            </p>
-          </div>
-        ) : (
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-            <div className="min-w-0 flex-1 basis-52">
-              <h3 className="text-sm font-medium text-content-primary">Delete your CloudChef account</h3>
-              <p className="text-xs text-content-tertiary">Can&apos;t be undone. Your Cloudflare resources stay.</p>
             </div>
-            <Button size="sm" variant="danger" onClick={() => setPhase('confirming')}>
-              Delete account data
-            </Button>
           </div>
-        )}
-      </div>
+        </Modal>
+      ) : null}
       {phase === 'confirming' || phase === 'deleting' || phase === 'reauthenticate' ? (
         <Modal title="Delete your CloudChef account data?" onClose={phase === 'deleting' ? undefined : cancelDeletion}>
           <div className="grid gap-3 text-sm text-content-secondary">

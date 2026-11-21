@@ -187,6 +187,11 @@ describe('AccountDataCard', () => {
     expect(document.body.textContent).toContain(
       "Your workspace couldn't be deleted from the Cloudflare account of Acme",
     );
+    // Said in a dialog that only leaves by loading the signed-out home page.
+    const erased = document.querySelector('[role="dialog"]');
+    expect(erased?.textContent).toContain('You are signed out.');
+    expect(erased?.querySelector('a[href="/"]')?.textContent).toBe('Done');
+    expect(erased?.querySelector('button')).toBeNull();
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/account/delete',
