@@ -278,7 +278,15 @@ export function compatibleBuilderModels(
   const models = [...workersAiModels, ...gatewayBuilderModels(gatewayKeys.map(({ provider }) => provider))];
   // Only the newest of each family: an older version a newer one replaces isn't offered (`olderBuilderModelIds`).
   const older = olderBuilderModelIds(models);
-  return models.filter(({ id }) => !older.has(id));
+  return models.filter(({ id }) => !older.has(id) && !isUnofferedClaude(id));
+}
+
+/**
+ * Of Claude's families only Opus is offered, so with the newest-of-each-family rule the picker shows one
+ * Claude: the newest Opus. Pi still speaks to every Claude it lists (`piGatewayModel`).
+ */
+function isUnofferedClaude(id: string): boolean {
+  return id.startsWith('anthropic/') && !/^anthropic\/claude-opus-/.test(id);
 }
 
 /**

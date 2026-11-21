@@ -237,9 +237,7 @@ describe('the builder catalog an account is offered', () => {
 
     expect(without.models.map(({ id }) => id)).toEqual([CLOUDFLARE_WORKERS_AI_MODEL, pro.id]);
     const ids = linked.models.map(({ id }) => id);
-    expect(ids).toEqual(
-      expect.arrayContaining(['anthropic/claude-opus-5-5', 'anthropic/claude-haiku-5-5', 'grok/grok-4.7']),
-    );
+    expect(ids).toEqual(expect.arrayContaining(['anthropic/claude-opus-5-5', 'grok/grok-4.7']));
     // Only the providers the account has a key for.
     expect(new Set(ids.map((id) => gatewayModelProvider(id)))).toEqual(new Set([null, 'anthropic', 'grok']));
     expect(linked.models.find(({ id }) => id === 'anthropic/claude-opus-5-5')).toMatchObject({
@@ -470,7 +468,7 @@ describe("the models an account's admin allows", () => {
     expect(models.map(({ id }) => id)).toEqual(
       compatibleBuilderModels([DEFAULT_WORKERS_AI_MODEL, pro, oss], anthropicKey).map(({ id }) => id),
     );
-    expect(models.map(({ id }) => id)).toContain('anthropic/claude-fable-5-1');
+    expect(models.map(({ id }) => id)).toContain('anthropic/claude-opus-5-5');
   });
 
   it("leaves exactly one model per family and generation across Pi's whole catalog", () => {
@@ -490,9 +488,19 @@ describe("the models an account's admin allows", () => {
       gatewayKeys: anthropicKey,
     });
     const ids = models.map(({ id }) => id);
-    expect(ids).toEqual(expect.arrayContaining(['anthropic/claude-fable-5-1', 'anthropic/claude-sonnet-5-5']));
-    expect(ids).not.toContain('anthropic/claude-fable-5');
-    expect(ids).not.toContain('anthropic/claude-sonnet-4-5');
+    expect(ids).toContain('anthropic/claude-opus-5-5');
+    expect(ids).not.toContain('anthropic/claude-opus-5');
+    expect(ids).not.toContain('anthropic/claude-opus-4-8');
+  });
+
+  it('offers one Claude, the newest Opus', () => {
+    const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
+      ...NO_ACCOUNT_MODEL_SETTINGS,
+      gatewayKeys: anthropicKey,
+    });
+    expect(models.map(({ id }) => id).filter((id) => id.startsWith('anthropic/'))).toEqual([
+      'anthropic/claude-opus-5-5',
+    ]);
   });
 
   it('lists only the allowed models, so one added later is not offered until allowed', () => {
