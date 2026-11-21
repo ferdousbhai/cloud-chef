@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import { createAuthSession, getAuthSession, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import {
+  CloudflareAccountHoldsEmailError,
+  createAuthSession,
+  getAuthSession,
+  upsertVerifiedEmailUser,
+} from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import {
   hasSameOrigin,
@@ -11,21 +16,31 @@ import {
   withinAddressRateLimit,
 } from '~/lib/.server/request-guards';
 import { bytesToBase64Url } from '~/lib/hex-digest';
+import { ACCOUNT_MADE_WITH_CLOUDFLARE, ACCOUNT_MADE_WITH_PARAM } from '~/lib/sign-in-account-notice';
 
 /**
  * Sign in with Google (OpenID Connect, authorization code with PKCE): to an existing CloudChef account,
  * or as a person a team has invited, typically with a company Google Workspace account. Only a verified
  * email is accepted; it is what an organization's invite is addressed to. A Google account with neither
  * goes back to the sign-in page, signed out, which says why.
+ *
+ * An address that an account made with Cloudflare already carries makes no second account: the person
+ * returns signed out, to a page that says so and offers Cloudflare (`ACCOUNT_MADE_WITH_PARAM`), unless
+ * this sign-in was started asking for a separate account.
  */
 export const GOOGLE_RETURN_PATH = '/auth/google/return';
 const STATE_COOKIE = 'cloudchef_google_state';
+/** Set for a sign-in that asked for its own account; it is the person's choice, so the browser may carry it. */
+const SEPARATE_ACCOUNT_COOKIE = 'cloudchef_google_separate_account';
 const STATE_TTL_MS = 10 * 60_000;
 const AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
 
-const startSchema = z.strictObject({ callbackURL: z.string().max(2_048).optional() });
+const startSchema = z.strictObject({
+  callbackURL: z.string().max(2_048).optional(),
+  separateAccount: z.boolean().optional(),
+});
 const tokenSchema = z.looseObject({ access_token: z.string().min(1) });
 /** The OpenID userinfo claims CloudChef reads. `hd` is the Workspace domain, absent for gmail.com. */
 export const googleUserinfoSchema = z.looseObject({
@@ -74,10 +89,17 @@ export async function startGoogleSignInAction({ request, env }: { request: Reque
   authorizationUrl.searchParams.set('code_challenge', challenge);
   authorizationUrl.searchParams.set('code_challenge_method', 'S256');
   authorizationUrl.searchParams.set('prompt', 'select_account');
-  return Response.json(
+  const response = Response.json(
     { authorizationUrl: authorizationUrl.toString() },
     { status: 201, headers: { 'Set-Cookie': stateCookie(state, STATE_TTL_MS / 1_000, request) } },
   );
+  response.headers.append(
+    'Set-Cookie',
+    body.data.separateAccount
+      ? separateAccountCookie('1', STATE_TTL_MS / 1_000, request)
+      : separateAccountCookie('', 0, request),
+  );
+  return response;
 }
 
 export async function completeGoogleSignInAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
@@ -139,12 +161,20 @@ export async function completeGoogleSignInAction({ request, env }: { request: Re
       env.DB,
       { email: info.email, name: info.name, image: info.picture, googleSubject: info.sub },
       signedIn?.user.id ?? null,
+      { separateAccount: readCookie(request, SEPARATE_ACCOUNT_COOKIE) === '1' },
     );
     const { cookie } = await createAuthSession(env, user.id, request);
     const response = redirect(new URL(returnTo, url.origin), cookie);
     response.headers.append('Set-Cookie', stateCookie('', 0, request));
+    response.headers.append('Set-Cookie', separateAccountCookie('', 0, request));
     return response;
   } catch (error) {
+    if (error instanceof CloudflareAccountHoldsEmailError) {
+      // No account is made and no one is signed in: the page they return to says why, and offers Cloudflare.
+      const notice = new URL(returnTo, url.origin);
+      notice.searchParams.set(ACCOUNT_MADE_WITH_PARAM, ACCOUNT_MADE_WITH_CLOUDFLARE);
+      return redirect(notice, stateCookie('', 0, request));
+    }
     if (error instanceof IdentityConflictError) {
       return Response.json({ error: error.message }, { status: 409 });
     }
@@ -166,6 +196,10 @@ function redirect(location: URL, cookie: string): Response {
     status: 303,
     headers: { Location: location.toString(), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' },
   });
+}
+
+function separateAccountCookie(value: string, maxAge: number, request: Request): string {
+  return serializeCookie({ name: SEPARATE_ACCOUNT_COOKIE, value, path: GOOGLE_RETURN_PATH, maxAge, request });
 }
 
 function stateCookie(value: string, maxAge: number, request: Request): string {

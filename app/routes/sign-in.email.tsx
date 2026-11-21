@@ -4,9 +4,10 @@ import { createFileRoute } from '@tanstack/react-router';
 import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
 import { LinkButton } from '~/components/ui/LinkButton';
-import { completeEmailSignIn, describeEmailSignIn } from '~/lib/auth-client';
+import { completeEmailSignIn, describeEmailSignIn, signInWithCloudflare } from '~/lib/auth-client';
 import { createPrivatePageHead } from '~/lib/social-meta';
-import { messageOf } from '~/lib/json-request';
+import { messageOf, RequestError } from '~/lib/json-request';
+import { ACCOUNT_MADE_WITH_CLOUDFLARE_CODE } from '~/lib/sign-in-account-notice';
 
 const emailSignInSearchSchema = z.object({ token: z.string().optional().catch(undefined) });
 
@@ -49,16 +50,35 @@ function EmailSignIn() {
     };
   }, [token]);
 
-  const signIn = async () => {
+  // The address already has an account made with Cloudflare: the link is kept, and after signing in with
+  // Cloudflare this page's button proves the address on that account.
+  const [madeWithCloudflare, setMadeWithCloudflare] = useState(false);
+
+  const signIn = async (options: { separateAccount?: boolean } = {}) => {
     if (!token) {
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      window.location.assign(await completeEmailSignIn(token));
+      window.location.assign(await completeEmailSignIn(token, options));
     } catch (failure) {
-      setError(messageOf(failure, 'Unable to sign in with this link.'));
+      if (failure instanceof RequestError && failure.code === ACCOUNT_MADE_WITH_CLOUDFLARE_CODE) {
+        setMadeWithCloudflare(true);
+      } else {
+        setError(messageOf(failure, 'Unable to sign in with this link.'));
+      }
+      setBusy(false);
+    }
+  };
+  const withCloudflare = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await signInWithCloudflare(window.location.href);
+    } catch (failure) {
+      setError(messageOf(failure, 'Unable to sign in.'));
+    } finally {
       setBusy(false);
     }
   };
@@ -81,7 +101,22 @@ function EmailSignIn() {
             {error}
           </p>
         )}
-        {email || error ? (
+        {madeWithCloudflare ? (
+          <>
+            <p className="mt-4 wrap-break-word text-sm text-content-secondary" role="status">
+              That address already has a CloudChef account, made with Cloudflare. Sign in with Cloudflare, then choose
+              Sign in on this page again; after that, links emailed to this address open the same account.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button loading={busy} onClick={() => void withCloudflare()}>
+                Sign in with Cloudflare
+              </Button>
+              <Button variant="neutral" disabled={busy} onClick={() => void signIn({ separateAccount: true })}>
+                Not my account, make a new one
+              </Button>
+            </div>
+          </>
+        ) : email || error ? (
           <div className="mt-4 flex flex-wrap gap-2">
             {email ? (
               <Button loading={busy} onClick={() => void signIn()}>

@@ -202,7 +202,7 @@ type ProvenEmailOwner = CloudflareAuthUser & {
  * Who proving `email` signs in as: the user with that email, whichever way they first signed in, or no
  * one. A user known only through Cloudflare carries an email CloudChef never checked (anyone can make
  * their Cloudflare login report someone else's), so proving it doesn't sign into them unless they are
- * the one signed in and proving it now; that user is `unchecked`, and gives the email up.
+ * the one signed in and proving it now; that user is `unchecked`.
  */
 async function findProvenEmailOwner(
   db: D1Database,
@@ -223,16 +223,34 @@ async function findProvenEmailOwner(
 }
 
 /**
+ * Raised when someone proves an address that a CloudChef account made with Cloudflare already carries,
+ * unproven. They are most likely the same person, so no second account is made for them: they sign in
+ * with Cloudflare, and the address is then proven on that account (`findProvenEmailOwner` lets the one
+ * signed in prove it). Someone whose address another person's Cloudflare login merely reports asks for
+ * their own account instead (`separateAccount`).
+ */
+export class CloudflareAccountHoldsEmailError extends Error {
+  constructor() {
+    super('This address already has a CloudChef account, made with Cloudflare. Sign in with Cloudflare to open it.');
+  }
+}
+
+/**
  * The user for an email address its holder just proved (an emailed link, or Google with a verified
  * email): the user with that email, whichever way they first signed in, or a new one: anyone may make an account,
  * and chooses where to build after signing in. A Google sign-in also
  * records the Google account, so a later change of email at Google finds the same user.
+ *
+ * An address an account made with Cloudflare carries unproven is that account's to open with Cloudflare
+ * (`CloudflareAccountHoldsEmailError`), unless the person asks for a `separateAccount`: the address is
+ * then taken off the Cloudflare user and they get their own.
  */
 export async function upsertVerifiedEmailUser(
   db: D1Database,
   identity: { email: string; name?: string | null; image?: string | null; googleSubject?: string | null },
   /** Who was signed in when the email was proven, if anyone. */
   signedInUserId: string | null = null,
+  options: { separateAccount?: boolean } = {},
 ): Promise<CloudflareAuthUser> {
   const now = Date.now();
   const email = normalizeEmail(identity.email);
@@ -247,6 +265,9 @@ export async function upsertVerifiedEmailUser(
     }
   }
   const { owner: byEmail, unchecked } = await findProvenEmailOwner(db, email, signedInUserId);
+  if (unchecked && !options.separateAccount) {
+    throw new CloudflareAccountHoldsEmailError();
+  }
   // The unchecked email is taken off the Cloudflare user, and the person who proved it gets their own account.
   if (unchecked) {
     await db
@@ -292,6 +313,18 @@ export async function upsertVerifiedEmailUser(
     return raced;
   }
   return { id, name, email, image };
+}
+
+/**
+ * Whether proving `email` meets an account made with Cloudflare that carries it unproven, so an emailed
+ * link can say so before it is used up.
+ */
+export async function cloudflareAccountHoldsEmail(
+  db: D1Database,
+  email: string,
+  signedInUserId: string | null,
+): Promise<boolean> {
+  return (await findProvenEmailOwner(db, normalizeEmail(email), signedInUserId)).unchecked !== null;
 }
 
 /**

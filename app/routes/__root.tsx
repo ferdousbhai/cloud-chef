@@ -4,6 +4,7 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from '@tanstack/react-r
 import { useEffect, type ReactNode } from 'react';
 import { ErrorDisplay } from '~/components/ErrorComponent';
 import { BrandLink } from '~/components/BrandLink';
+import { ProveAddressAfterCloudflare } from '~/components/ProveAddressAfterCloudflare';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { queryClient } from '~/lib/stores/reactQueryClient';
 import { THEME_KEY, themeStore } from '~/lib/stores/theme';
@@ -143,6 +144,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 function RootComponent() {
   return (
     <Layout>
+      <ProveAddressAfterCloudflare />
       <Outlet />
     </Layout>
   );

@@ -14,6 +14,12 @@ import {
 } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
 import { getJson, messageOf, postJson } from '~/lib/json-request';
+import {
+  ACCOUNT_MADE_WITH_CLOUDFLARE,
+  ACCOUNT_MADE_WITH_PARAM,
+  accountNoticeReturnURL,
+  pageHasParam,
+} from '~/lib/sign-in-account-notice';
 import { CloudflareConnectLegalNotice } from '~/components/CloudflareConnectLegalNotice';
 import { ReauthenticatePrompt } from '~/components/settings/ReauthenticatePrompt';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm';
@@ -84,13 +90,17 @@ function rememberSignIn(method: SignInMethod): void {
   }
 }
 
-function returnURLFor(returnTo: string | undefined): string {
-  return createCloudflareReturnURL(returnTo ? new URL(returnTo, window.location.origin).href : undefined);
+/** Where signing in returns to, without the notice a sign-in before it left on the address. */
+function returnURLFor(returnTo: string | undefined, options: { proveAddress?: boolean } = {}): string {
+  const href = returnTo ? new URL(returnTo, window.location.origin).href : window.location.href;
+  return createCloudflareReturnURL(accountNoticeReturnURL(href, options.proveAddress ?? false));
 }
 
 /**
  * Signing in, the same for everyone: Google, or a link emailed to any address. Either one makes an account for
- * someone new, and the page never says whether an address has one.
+ * someone new, and the page never says whether an address has one, except to the person who just proved it is
+ * theirs: back from Google with an address an account made with Cloudflare already carries, they are told so
+ * and offered Cloudflare (`AccountMadeWithCloudflare`).
  */
 export function SignInOptions({ initialError = null, returnTo }: { initialError?: string | null; returnTo?: string }) {
   const [error, setError] = useState<string | null>(initialError);
@@ -98,6 +108,9 @@ export function SignInOptions({ initialError = null, returnTo }: { initialError?
   const [emailSentTo, setEmailSentTo] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [lastUsed] = useState(readLastSignIn);
+  const [madeWithCloudflare, setMadeWithCloudflare] = useState(() =>
+    pageHasParam(ACCOUNT_MADE_WITH_PARAM, ACCOUNT_MADE_WITH_CLOUDFLARE),
+  );
   const signIn = useGoogleOrEmailSignIn({
     onError: setError,
     onLinkSent: setEmailSentTo,
@@ -116,12 +129,12 @@ export function SignInOptions({ initialError = null, returnTo }: { initialError?
     rememberSignIn('google');
     void signIn.continueWithGoogle(returnURLFor(returnTo));
   };
-  const continueWithCloudflare = async () => {
+  const continueWithCloudflare = async (options: { proveAddress?: boolean } = {}) => {
     rememberSignIn('cloudflare');
     setConnecting(true);
     setError(null);
     try {
-      await signInWithCloudflare(returnURLFor(returnTo));
+      await signInWithCloudflare(returnURLFor(returnTo, options));
     } catch (failure) {
       setError(messageOf(failure, 'Unable to sign in.'));
     } finally {
@@ -129,6 +142,55 @@ export function SignInOptions({ initialError = null, returnTo }: { initialError?
       setConnecting(false);
     }
   };
+
+  if (madeWithCloudflare) {
+    return (
+      <div className="mt-5 grid gap-3">
+        {error ? (
+          <p className="text-sm text-content-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <p className="wrap-break-word text-sm text-content-secondary" role="status">
+          That address already has a CloudChef account, made with Cloudflare. Sign in with Cloudflare to open it; after
+          that, Google opens the same account.
+        </p>
+        <Button
+          size="lg"
+          className="w-full"
+          loading={connecting}
+          onClick={() => void continueWithCloudflare({ proveAddress: true })}
+        >
+          Sign in with Cloudflare
+        </Button>
+        <p className="text-center text-xs text-content-tertiary">
+          Not your account?{' '}
+          <button
+            type="button"
+            className="font-medium text-content-secondary underline hover:text-content-primary disabled:opacity-50"
+            disabled={connecting || signIn.busy !== null}
+            onClick={() => {
+              rememberSignIn('google');
+              void signIn.continueWithGoogle(returnURLFor(returnTo), { separateAccount: true });
+            }}
+          >
+            Make a new one with Google
+          </button>{' '}
+          or{' '}
+          <button
+            type="button"
+            className="font-medium text-content-secondary underline hover:text-content-primary disabled:opacity-50"
+            disabled={connecting || signIn.busy !== null}
+            onClick={() => setMadeWithCloudflare(false)}
+          >
+            sign in another way
+          </button>
+          .
+        </p>
+        <CloudflareConnectLegalNotice className="mt-2 text-center" planNote={false} />
+      </div>
+    );
+  }
 
   return (
     <div className="mt-5 grid gap-3">

@@ -26,7 +26,8 @@ export function useGoogleOrEmailSignIn(args: {
   };
   return {
     busy,
-    continueWithGoogle: (returnTo?: string) => run('google', () => signInWithGoogle(returnTo)),
+    continueWithGoogle: (returnTo?: string, options?: { separateAccount?: boolean }) =>
+      run('google', () => signInWithGoogle(returnTo, options)),
     emailLink: (email: string, returnTo?: string) =>
       run('email', async () => {
         await requestEmailSignInLink(email, returnTo);

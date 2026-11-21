@@ -1,9 +1,17 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
-import { createAuthSession, getAuthSession, normalizeEmail, upsertVerifiedEmailUser } from '~/lib/.server/auth';
+import {
+  CloudflareAccountHoldsEmailError,
+  cloudflareAccountHoldsEmail,
+  createAuthSession,
+  getAuthSession,
+  normalizeEmail,
+  upsertVerifiedEmailUser,
+} from '~/lib/.server/auth';
 import { IdentityConflictError } from '~/lib/.server/identity-conflict-error';
 import { hasSameOrigin, readJsonRequest, safeReturnTo, withinAddressRateLimit } from '~/lib/.server/request-guards';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
+import { ACCOUNT_MADE_WITH_CLOUDFLARE_CODE } from '~/lib/sign-in-account-notice';
 
 /**
  * Signing in with a one-time link sent by email, to the CloudChef account with that address or a new one.
@@ -21,7 +29,8 @@ const startSchema = z.strictObject({
   email: z.email().max(254),
   callbackURL: z.string().max(2_048).optional(),
 });
-const completeSchema = z.strictObject({ token: z.string().min(32).max(128) });
+const describeSchema = z.strictObject({ token: z.string().min(32).max(128) });
+const completeSchema = describeSchema.extend({ separateAccount: z.boolean().optional() });
 
 export async function startEmailSignInAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   if (!hasSameOrigin(request)) {
@@ -90,7 +99,7 @@ export async function describeEmailSignInAction({ request, env }: { request: Req
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
-  const body = await readJsonRequest(request, completeSchema, 'This sign-in link is not valid.');
+  const body = await readJsonRequest(request, describeSchema, 'This sign-in link is not valid.');
   if ('response' in body) {
     return body.response;
   }
@@ -116,15 +125,36 @@ export async function completeEmailSignInAction({ request, env }: { request: Req
   if ('response' in body) {
     return body.response;
   }
-  const { token } = body.data;
+  const { token, separateAccount = false } = body.data;
   const now = Date.now();
+  const tokenHash = await sha256Hex(token);
+  try {
+    // Asked before the link is used up: after signing in with Cloudflare, the same link proves the
+    // address on that account.
+    const signedIn = await getAuthSession(env, request);
+    const waiting = await env.DB.prepare(
+      'SELECT email FROM email_sign_in_tokens WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?',
+    )
+      .bind(tokenHash, now)
+      .first<{ email: string }>();
+    if (
+      waiting &&
+      !separateAccount &&
+      (await cloudflareAccountHoldsEmail(env.DB, waiting.email, signedIn?.user.id ?? null))
+    ) {
+      return accountMadeWithCloudflare();
+    }
+  } catch {
+    console.error('Unable to complete an email sign-in');
+    return Response.json({ error: 'Signing in failed. Try again.' }, { status: 500 });
+  }
   // Used once: the update is the claim, so two tabs opening one link can't both sign in.
   const claimed = await env.DB.prepare(
     `UPDATE email_sign_in_tokens SET used_at = ?
      WHERE token_hash = ? AND used_at IS NULL AND expires_at > ?
      RETURNING email, return_to`,
   )
-    .bind(now, await sha256Hex(token), now)
+    .bind(now, tokenHash, now)
     .first<{ email: string; return_to: string }>();
   if (!claimed) {
     return Response.json(
@@ -134,19 +164,31 @@ export async function completeEmailSignInAction({ request, env }: { request: Req
   }
   try {
     const signedIn = await getAuthSession(env, request);
-    const user = await upsertVerifiedEmailUser(env.DB, { email: claimed.email }, signedIn?.user.id ?? null);
+    const user = await upsertVerifiedEmailUser(env.DB, { email: claimed.email }, signedIn?.user.id ?? null, {
+      separateAccount,
+    });
     const { cookie } = await createAuthSession(env, user.id, request);
     return Response.json(
       { returnTo: safeReturnTo(claimed.return_to, new URL(request.url).origin) },
       { headers: { 'Set-Cookie': cookie, 'Cache-Control': 'no-store' } },
     );
   } catch (error) {
+    if (error instanceof CloudflareAccountHoldsEmailError) {
+      return accountMadeWithCloudflare();
+    }
     if (error instanceof IdentityConflictError) {
       return Response.json({ error: error.message }, { status: 409 });
     }
     console.error('Unable to complete an email sign-in');
     return Response.json({ error: 'Signing in failed. Try again.' }, { status: 500 });
   }
+}
+
+function accountMadeWithCloudflare(): Response {
+  return Response.json(
+    { error: new CloudflareAccountHoldsEmailError().message, code: ACCOUNT_MADE_WITH_CLOUDFLARE_CODE },
+    { status: 409 },
+  );
 }
 
 function signInText(link: string): string {

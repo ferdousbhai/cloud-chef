@@ -165,15 +165,19 @@ async function startCloudflareAuthorization(
  * Sign in with Google: for people without a Cloudflare login, such as members of an organization. Resolves
  * false when the person stays for edits not yet saved; otherwise the page is leaving.
  */
-export function signInWithGoogle(callbackURL = window.location.href): Promise<boolean> {
-  return leavePage(() => startGoogleSignIn(callbackURL));
+export function signInWithGoogle(
+  callbackURL = window.location.href,
+  /** `separateAccount`: make an account of their own for an address an account made with Cloudflare carries. */
+  options: { separateAccount?: boolean } = {},
+): Promise<boolean> {
+  return leavePage(() => startGoogleSignIn(callbackURL, options));
 }
 
-async function startGoogleSignIn(callbackURL: string) {
+async function startGoogleSignIn(callbackURL: string, options: { separateAccount?: boolean }) {
   clearPendingSubmit();
   const { authorizationUrl } = await postJson(
     '/api/auth/google/start',
-    { callbackURL },
+    { callbackURL, separateAccount: options.separateAccount },
     authorizationStartSchema,
     'Unable to start Google sign-in.',
   );
@@ -198,10 +202,10 @@ export async function describeEmailSignIn(token: string): Promise<string> {
 }
 
 /** Completes a sign-in from an emailed link; returns where to go next. */
-export async function completeEmailSignIn(token: string): Promise<string> {
+export async function completeEmailSignIn(token: string, options: { separateAccount?: boolean } = {}): Promise<string> {
   const { returnTo } = await postJson(
     '/api/auth/email/complete',
-    { token },
+    { token, separateAccount: options.separateAccount },
     z.object({ returnTo: z.string() }).catch({ returnTo: '/' }),
     'Unable to sign in with this link.',
   );

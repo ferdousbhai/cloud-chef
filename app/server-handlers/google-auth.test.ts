@@ -6,7 +6,7 @@ import {
   inviteToTeam,
   withStatementHook,
 } from '~/test/control-plane-d1';
-import { getAuthSession } from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import { z } from 'zod';
 import {
   completeGoogleSignInAction,
@@ -45,12 +45,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function start(env: Env) {
+async function start(env: Env, options: { separateAccount?: boolean } = {}) {
   const response = await startGoogleSignInAction({
     request: new Request(`${ORIGIN}/api/auth/google/start`, {
       method: 'POST',
       headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ callbackURL: `${ORIGIN}/settings` }),
+      body: JSON.stringify({ callbackURL: `${ORIGIN}/settings`, ...options }),
     }),
     env,
   });
@@ -126,6 +126,64 @@ describe('Google sign-in', () => {
     expect(done.status).toBe(303);
     expect((await sessionFrom(env, done))?.user.email).toBe('nobody@acme.com');
     expect(database.prepare('SELECT google_subject FROM "user"').get()).toEqual({ google_subject: 'g-9' });
+  });
+
+  it('makes no second account for an address an account made with Cloudflare carries, and says so', async () => {
+    const { env, database } = setup();
+    database
+      .prepare(
+        `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cloudflare_subject)
+         VALUES ('user-cf', 'Sam', 'sam@acme.com', 1, 1, 1, 'cf-sam')`,
+      )
+      .run();
+    google({ sub: 'g-sam', email: 'sam@acme.com', email_verified: true, name: 'Sam' });
+
+    // Signed out: back to where they started, still signed out, with the notice on the address.
+    const first = await start(env);
+    const refused = await completeGoogleSignInAction({ request: callback(first.state), env });
+    expect(refused.status).toBe(303);
+    expect(refused.headers.get('location')).toBe(`${ORIGIN}/settings?account_made_with=cloudflare`);
+    expect(await sessionFrom(env, refused)).toBeNull();
+    expect(database.prepare('SELECT id, email, google_subject FROM "user"').all()).toEqual([
+      { id: 'user-cf', email: 'sam@acme.com', google_subject: null },
+    ]);
+
+    // Signed in with Cloudflare, the trip through Google proves the address on that account.
+    const { cookie } = await createAuthSession(env, 'user-cf', new Request(ORIGIN));
+    const second = await start(env);
+    const signedIn = callback(second.state);
+    signedIn.headers.set('cookie', `cloudchef_google_state=${second.state}; ${cookie.split(';')[0]}`);
+    const linked = await completeGoogleSignInAction({ request: signedIn, env });
+    expect(linked.headers.get('location')).toBe(`${ORIGIN}/settings`);
+    expect((await sessionFrom(env, linked))?.user.id).toBe('user-cf');
+
+    // From then on Google alone opens it.
+    const third = await start(env);
+    const again = await completeGoogleSignInAction({ request: callback(third.state), env });
+    expect((await sessionFrom(env, again))?.user.id).toBe('user-cf');
+    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 1 });
+  });
+
+  it('makes a separate account for that address only when the sign-in asked for one', async () => {
+    const { env, database } = setup();
+    database
+      .prepare(
+        `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cloudflare_subject)
+         VALUES ('user-cf', 'Someone else', 'sam@acme.com', 1, 1, 1, 'cf-other')`,
+      )
+      .run();
+    google({ sub: 'g-sam', email: 'sam@acme.com', email_verified: true, name: 'Sam' });
+    const { state, response } = await start(env, { separateAccount: true });
+    expect(response.headers.getSetCookie().join('\n')).toContain('cloudchef_google_separate_account=1');
+    const request = callback(state);
+    request.headers.set('cookie', `cloudchef_google_state=${state}; cloudchef_google_separate_account=1`);
+    const done = await completeGoogleSignInAction({ request, env });
+    const session = await sessionFrom(env, done);
+    expect(session?.user).toMatchObject({ email: 'sam@acme.com' });
+    expect(session?.user.id).not.toBe('user-cf');
+    expect(database.prepare('SELECT email FROM "user" WHERE id = ?').get('user-cf')).toEqual({
+      email: 'cf-other@users.cloudflare.invalid',
+    });
   });
 
   it('finds the same user when their Google email changes', async () => {

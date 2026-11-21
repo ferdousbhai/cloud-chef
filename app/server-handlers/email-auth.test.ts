@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase, createProvenEmailUser, envWith, inviteToTeam } from '~/test/control-plane-d1';
-import { getAuthSession } from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import {
   completeEmailSignInAction,
   describeEmailSignInAction,
@@ -26,7 +26,7 @@ function setup() {
   return { database, env: envWith(env), sent };
 }
 
-function post(path: string, body: Record<string, string>, origin = ORIGIN): Request {
+function post(path: string, body: Record<string, string | boolean>, origin = ORIGIN): Request {
   return new Request(`${ORIGIN}${path}`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json' },
@@ -136,6 +136,51 @@ describe('email sign-in', () => {
       new Request(ORIGIN, { headers: { cookie: (complete.headers.get('set-cookie') ?? '').split(';')[0] } }),
     );
     expect(session?.user.id).toBe('user-1');
+  });
+
+  it('keeps a link whose address an account made with Cloudflare carries, for after signing in with Cloudflare', async () => {
+    const { database, env, sent } = setup();
+    database
+      .prepare(
+        `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cloudflare_subject)
+         VALUES ('user-cf', 'Ada', 'ada@example.com', 1, 1, 1, 'cf-1')`,
+      )
+      .run();
+    await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'ada@example.com' }), env });
+    const token = tokenFrom(sent[0]);
+
+    // Signed out: no second account, and the link is not used up.
+    const refused = await completeEmailSignInAction({ request: post('/api/auth/email/complete', { token }), env });
+    expect(refused.status).toBe(409);
+    await expect(refused.json()).resolves.toMatchObject({ code: 'account_made_with_cloudflare' });
+    expect(database.prepare('SELECT COUNT(*) AS users FROM "user"').get()).toEqual({ users: 1 });
+
+    // Signed in with Cloudflare, the same link proves the address on that account.
+    const { cookie } = await createAuthSession(env, 'user-cf', new Request(ORIGIN));
+    const signedIn = post('/api/auth/email/complete', { token });
+    signedIn.headers.set('cookie', cookie.split(';')[0]);
+    const proven = await completeEmailSignInAction({ request: signedIn, env });
+    expect(proven.status).toBe(200);
+    expect((await sessionFrom(env, proven))?.user.id).toBe('user-cf');
+    expect(database.prepare('SELECT email_proven_at IS NOT NULL AS proven FROM "user"').get()).toEqual({ proven: 1 });
+  });
+
+  it('makes a separate account from such a link when the person says the account is not theirs', async () => {
+    const { database, env, sent } = setup();
+    database
+      .prepare(
+        `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, cloudflare_subject)
+         VALUES ('user-cf', 'Someone else', 'ada@example.com', 1, 1, 1, 'cf-1')`,
+      )
+      .run();
+    await startEmailSignInAction({ request: post('/api/auth/email/start', { email: 'ada@example.com' }), env });
+    const done = await completeEmailSignInAction({
+      request: post('/api/auth/email/complete', { token: tokenFrom(sent[0]), separateAccount: true }),
+      env,
+    });
+    const session = await sessionFrom(env, done);
+    expect(session?.user.email).toBe('ada@example.com');
+    expect(session?.user.id).not.toBe('user-cf');
   });
 
   it('signs in an existing user who first signed in with Google or a link', async () => {

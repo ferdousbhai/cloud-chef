@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase, createProvenEmailUser, inviteToTeam } from '~/test/control-plane-d1';
-import { attachCloudflareIdentity, upsertCloudflareUser, upsertVerifiedEmailUser } from './auth';
+import {
+  attachCloudflareIdentity,
+  CloudflareAccountHoldsEmailError,
+  upsertCloudflareUser,
+  upsertVerifiedEmailUser,
+} from './auth';
 import { IdentityConflictError } from './identity-conflict-error';
 
 describe('signing in without Cloudflare, then connecting it', () => {
@@ -70,7 +75,15 @@ describe('signing in without Cloudflare, then connecting it', () => {
       null,
     );
     await inviteToTeam(db, 'victim@corp.com');
-    const victim = await upsertVerifiedEmailUser(db, { email: 'victim@corp.com' });
+    // Proving the address never signs the victim into the attacker's account: they are told it has one,
+    await expect(upsertVerifiedEmailUser(db, { email: 'victim@corp.com' })).rejects.toBeInstanceOf(
+      CloudflareAccountHoldsEmailError,
+    );
+    expect(database.prepare(`SELECT id FROM "user" WHERE email = 'victim@corp.com'`).all()).toEqual([
+      { id: attacker.id },
+    ]);
+    // and asking for their own account takes the address off the attacker's.
+    const victim = await upsertVerifiedEmailUser(db, { email: 'victim@corp.com' }, null, { separateAccount: true });
     expect(victim.id).not.toBe(attacker.id);
     expect(database.prepare('SELECT email FROM "user" WHERE id = ?').get(attacker.id)).toEqual({
       email: 'cf-attacker@users.cloudflare.invalid',
@@ -88,6 +101,25 @@ describe('signing in without Cloudflare, then connecting it', () => {
     expect(proven.id).toBe(owner.id);
   });
 
+  it('opens the account made with Cloudflare from Google, once its owner went through Google signed in', async () => {
+    const { database, db } = controlPlaneDatabase();
+    const owner = await upsertCloudflareUser(
+      db,
+      { subject: 'cf-sam', email: 'sam@corp.com', name: 'Sam', picture: null },
+      null,
+    );
+    const sam = { email: 'sam@corp.com', googleSubject: 'g-sam' };
+    // Signed out, Google makes no second account for the address.
+    await expect(upsertVerifiedEmailUser(db, sam)).rejects.toBeInstanceOf(CloudflareAccountHoldsEmailError);
+    // Signed in with Cloudflare, the same trip through Google proves the address on that account,
+    await expect(upsertVerifiedEmailUser(db, sam, owner.id)).resolves.toMatchObject({ id: owner.id });
+    // and from then on Google alone opens it.
+    await expect(upsertVerifiedEmailUser(db, sam)).resolves.toMatchObject({ id: owner.id });
+    expect(database.prepare('SELECT id, email, google_subject FROM "user"').all()).toEqual([
+      { id: owner.id, email: 'sam@corp.com', google_subject: 'g-sam' },
+    ]);
+  });
+
   it('still signs a detached Cloudflare user in with Cloudflare, under their placeholder address', async () => {
     const { db } = controlPlaneDatabase();
     const cloudflareUser = await upsertCloudflareUser(
@@ -97,7 +129,7 @@ describe('signing in without Cloudflare, then connecting it', () => {
     );
     // Someone (perhaps Sam on another device, not signed in) proves sam@corp.com by link, invited to a team.
     await inviteToTeam(db, 'sam@corp.com');
-    await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' });
+    await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' }, null, { separateAccount: true });
     await expect(
       upsertCloudflareUser(db, { subject: 'cf-sam', email: 'Sam@corp.com', name: 'Sam', picture: null }, null),
     ).resolves.toMatchObject({ id: cloudflareUser.id, email: 'cf-sam@users.cloudflare.invalid' });
@@ -134,7 +166,7 @@ describe('signing in with Google or an emailed link', () => {
     });
   });
 
-  it('makes an account for anyone, and takes an address off a Cloudflare login that only reported it', async () => {
+  it('makes an account for anyone, and on request takes an address off a Cloudflare login that only reported it', async () => {
     const { database, db } = controlPlaneDatabase();
     // Someone's Cloudflare login reports the address; CloudChef never checked it.
     const cloudflareUser = await upsertCloudflareUser(
@@ -142,7 +174,7 @@ describe('signing in with Google or an emailed link', () => {
       { subject: 'cf-1', email: 'lee@acme.com', name: null, picture: null },
       null,
     );
-    const lee = await upsertVerifiedEmailUser(db, { email: 'lee@acme.com' });
+    const lee = await upsertVerifiedEmailUser(db, { email: 'lee@acme.com' }, null, { separateAccount: true });
     expect(lee.id).not.toBe(cloudflareUser.id);
     expect(lee.email).toBe('lee@acme.com');
     expect(database.prepare('SELECT email FROM "user" WHERE id = ?').get(cloudflareUser.id)).toEqual({
