@@ -30,8 +30,8 @@ function PrivacyPage() {
           <li>when you joined the waitlist for a space CloudChef runs, if you did, until you leave it</li>
           <li>
             your subscription to a space CloudChef runs, if you have one: the customer and subscription numbers Stripe
-            gave it, whether it is in its free month, active or ended, and the dates of its free month and current
-            period. Your card is given to Stripe on Stripe&apos;s own page; CloudChef never receives or stores it
+            gave it, whether it is in a free period, active or ended, and the dates of its current period. Your card is
+            given to Stripe on Stripe&apos;s own page; CloudChef never receives or stores it
           </li>
           <li>
             each site you asked to have moved (on <Link to="/move">Move your site</Link>): its address, the platform you
@@ -106,9 +106,8 @@ function PrivacyPage() {
 
       <TrustSection title="Operator, scope, and roles">
         <p>
-          {CLOUDCHEF_OPERATOR.legalName}, an {CLOUDCHEF_OPERATOR.legalForm} (Ontario Corporation No.{' '}
-          {CLOUDCHEF_OPERATOR.registrationNumber}), operates CloudChef and is the controller for personal data CloudChef
-          processes to operate the service. Its business correspondence address is{' '}
+          {CLOUDCHEF_OPERATOR.legalName}, a {CLOUDCHEF_OPERATOR.legalForm}, operates CloudChef and is the controller for
+          personal data CloudChef processes to operate the service. Its business correspondence address is{' '}
           {CLOUDCHEF_OPERATOR.correspondenceAddress}. This includes account, authentication, Cloudflare-connection,
           requested AI-building workflow, support, security, and optional product-telemetry processing. Persistent
           server-side project and conversation state remains in the connected Cloudflare account. You control that
@@ -164,10 +163,10 @@ function PrivacyPage() {
           abuse, or where law requires it.
         </p>
         <p>
-          The operator counts the tokens of your builder turns, never their content, to hold each space to its monthly
-          building allowance. Stripe, Inc. processes the payment as its own page collects it: your card, billing
-          address, and email address go to Stripe under Stripe&apos;s privacy policy, and Stripe tells CloudChef only
-          whether the subscription is in its free month, paid, or ended.
+          The operator counts the tokens of your builder turns and the time your workspace runs, never their content, to
+          hold each space to its monthly building allowance. Stripe, Inc. processes the payment as its own page collects
+          it: your card, billing address, and email address go to Stripe under Stripe&apos;s privacy policy, and Stripe
+          tells CloudChef only whether the subscription is in a free period, paid, or ended.
         </p>
       </TrustSection>
 

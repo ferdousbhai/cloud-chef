@@ -45,17 +45,22 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
   }
 }
 
-const runtimeUsageRequestSchema = z
-  .object({
-    inputTokens: z.number().int().min(0).max(100_000_000),
-    outputTokens: z.number().int().min(0).max(100_000_000),
-    cachedTokens: z.number().int().min(0).max(100_000_000),
-  })
-  .strict();
+const runtimeUsageRequestSchema = z.union([
+  z
+    .object({
+      inputTokens: z.number().int().min(0).max(100_000_000),
+      outputTokens: z.number().int().min(0).max(100_000_000),
+      cachedTokens: z.number().int().min(0).max(100_000_000),
+    })
+    .strict(),
+  // A stretch of the workspace container's running time: at most a day, however late it is reported.
+  z.object({ containerSeconds: z.number().int().min(0).max(86_400) }).strict(),
+]);
 
 /**
- * A workspace runtime reporting one finished model turn's token counts. Recorded only for an
- * organization's account, where admins see each member's use; counts only, never content.
+ * A workspace runtime reporting one finished model turn's token counts, or how long its workspace
+ * container has run since it last said. Recorded only for an organization's account, where admins see
+ * each member's use and a space CloudChef runs is held to its allowance; counts only, never content.
  */
 export async function runtimeUsageAction(args: { request: Request; env: Env }): Promise<Response> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, runtimeUsageRequestSchema, {
@@ -68,8 +73,19 @@ export async function runtimeUsageAction(args: { request: Request; env: Env }): 
   }
   const { body, identity } = authenticated;
   const orgId = authenticated.connection.orgId;
-  if (orgId) {
-    const day = new Date().toISOString().slice(0, 10);
+  const day = new Date().toISOString().slice(0, 10);
+  if (!orgId) {
+    return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+  }
+  if ('containerSeconds' in body) {
+    await args.env.DB.prepare(
+      `INSERT INTO organization_usage_daily (org_id, user_id, day, container_seconds) VALUES (?, ?, ?, ?)
+       ON CONFLICT(org_id, user_id, day) DO UPDATE SET
+         container_seconds = container_seconds + excluded.container_seconds`,
+    )
+      .bind(orgId, identity.userId, day, body.containerSeconds)
+      .run();
+  } else {
     await args.env.DB.prepare(
       `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
        VALUES (?, ?, ?, 1, ?, ?, ?)

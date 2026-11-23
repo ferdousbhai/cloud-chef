@@ -58,7 +58,12 @@ import {
 import { findWorkspace } from '../../app/lib/cloudflare/data/workspace-repository.server';
 import { verifyRuntimeCapability } from '../../app/lib/cloudflare/runtime-capability';
 import { builderModelCatalogResponse } from '../../app/lib/.server/llm/workers-ai-model-catalog';
-import { readAccountModelSettings } from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import {
+  confirmUserWorkspaceAccess,
+  readAccountModelSettings,
+  reportUserWorkspaceContainerTime,
+} from '../../app/lib/.server/cloudflare/user-workspace-cloudflare-credential';
+import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import {
   isCloudChefToolResult,
   toolFailure,
@@ -415,6 +420,35 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
       return this.serveTerminal(request);
     }
     return super.fetch(request);
+  }
+
+  /** The container's running time goes to the control plane, which counts it toward a space's allowance. */
+  protected override reportContainerTime(seconds: number): void {
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity) {
+      return;
+    }
+    this.ctx.waitUntil(
+      reportUserWorkspaceContainerTime(this.env, identity, seconds).catch(() => {
+        console.warn('Unable to report container time to the control plane');
+      }),
+    );
+  }
+
+  /**
+   * A space CloudChef runs whose month's allowance is used up starts no container. Anything else, an unreachable
+   * control plane included, lets it start: who may use the account at all is checked where its token is asked for.
+   */
+  protected override async containerStartRefusal(): Promise<string | null> {
+    const identity = runtimeConnectionIdentity(this.env);
+    if (!identity) {
+      return null;
+    }
+    try {
+      return (await confirmUserWorkspaceAccess(this.env, identity))?.modelRefusal ?? null;
+    } catch {
+      return null;
+    }
   }
 
   protected override async startWorkspaceContainer(): Promise<void> {

@@ -48,6 +48,26 @@ const IDLE_CONTAINER_RETRY_MS = 60_000;
  * heartbeat every 20 seconds) for as long as the container runs. Left to that timeout, a started container
  * ran until a release or the platform restarted this object, hours later.
  */
+/** The most container time one report carries: the control plane takes no more than a day at once. */
+const CONTAINER_TIME_REPORT_MAX_SECONDS = 86_400;
+
+/**
+ * The whole seconds a running container has run since it was last counted (from its launch, the first time), and
+ * the moment it is then counted up to: the part of a second left over waits for the next count.
+ */
+export function unreportedContainerTime(args: {
+  launchedAt: number;
+  reportedUntil: number | null;
+  now: number;
+}): { seconds: number; reportedUntil: number } | null {
+  const from = args.reportedUntil ?? args.launchedAt;
+  const seconds = Math.floor((args.now - from) / 1_000);
+  if (seconds < 1) {
+    return null;
+  }
+  return { seconds: Math.min(seconds, CONTAINER_TIME_REPORT_MAX_SECONDS), reportedUntil: from + seconds * 1_000 };
+}
+
 export function idleContainerCheck(args: {
   now: number;
   lastUse: number;
@@ -150,6 +170,16 @@ export abstract class ComputerSandboxBase<
          launched_at INTEGER NOT NULL
        )`,
     );
+    // How far the running container's time has been counted (`countContainerTime`); null from its launch.
+    if (
+      !first(
+        ctx.storage.sql.exec(
+          "SELECT 1 FROM pragma_table_info('cloudchef_container_runtime') WHERE name = 'reported_until'",
+        ),
+      )
+    ) {
+      ctx.storage.sql.exec('ALTER TABLE cloudchef_container_runtime ADD COLUMN reported_until INTEGER');
+    }
     this.scheduledCallbacks = new ScheduledCallbacks(ctx.storage, 'cloudchef_scheduled_callbacks');
     this.scheduledCallbacks.initialize();
     this.#runtimeId =
@@ -198,6 +228,7 @@ export abstract class ComputerSandboxBase<
     }
     this.#host ??= new ManagedWorkspaceContainerHost(container, this.ctx.storage, {
       launch: (spec, clientSecret) => this.launchContainer(spec, clientSecret),
+      stopping: () => this.countContainerTime(),
       adopted: () => this.#runtimeId,
       intercept: (host, ref) => this.interceptWorkspaceOutbound(host, ref),
     });
@@ -229,6 +260,40 @@ export abstract class ComputerSandboxBase<
    */
   protected noteContainerUse(): void {
     this.#lastContainerUse = Date.now();
+  }
+
+  /**
+   * Told how many whole seconds the container ran since it was last told, while it runs and as it is stopped.
+   * The subclass passes it on to whoever keeps count; nothing here depends on it arriving.
+   */
+  protected reportContainerTime(_seconds: number): void {}
+
+  /** Why the container may not be started now, in words for the person; null when it may. */
+  protected async containerStartRefusal(): Promise<string | null> {
+    return null;
+  }
+
+  /**
+   * Counts the running container's time up to now. Called only while it runs or just before this object stops
+   * it: a container that went away by itself is counted up to the last look at it, at most an idle window short.
+   */
+  private countContainerTime(): void {
+    const row = first(
+      this.ctx.storage.sql.exec<{ launched_at: number; reported_until: number | null }>(
+        'SELECT launched_at, reported_until FROM cloudchef_container_runtime WHERE singleton = 1',
+      ),
+    );
+    const time = row
+      ? unreportedContainerTime({ launchedAt: row.launched_at, reportedUntil: row.reported_until, now: Date.now() })
+      : null;
+    if (!time) {
+      return;
+    }
+    this.ctx.storage.sql.exec(
+      'UPDATE cloudchef_container_runtime SET reported_until = ? WHERE singleton = 1',
+      time.reportedUntil,
+    );
+    this.reportContainerTime(time.seconds);
   }
 
   createComputerWorkspaceOptions(): WorkspaceOptions {
@@ -277,6 +342,7 @@ export abstract class ComputerSandboxBase<
     if (this.#host) {
       await this.#host.destroy();
     } else if (this.ctx.container?.running) {
+      this.countContainerTime();
       await this.ctx.container.destroy();
     }
   }
@@ -409,6 +475,10 @@ export abstract class ComputerSandboxBase<
    */
   private async launchContainer(spec: ContainerLaunchSpec, clientSecret: string): Promise<string> {
     const container = this.ctx.container!;
+    const refusal = await this.containerStartRefusal();
+    if (refusal) {
+      throw new Error(refusal);
+    }
     const runtimeId = crypto.randomUUID();
     const started = await startBaseContainer({
       container,
@@ -428,7 +498,8 @@ export abstract class ComputerSandboxBase<
     });
     this.ctx.storage.sql.exec(
       `INSERT INTO cloudchef_container_runtime (singleton, runtime_id, launched_at) VALUES (1, ?, ?)
-       ON CONFLICT(singleton) DO UPDATE SET runtime_id = excluded.runtime_id, launched_at = excluded.launched_at`,
+       ON CONFLICT(singleton) DO UPDATE SET
+         runtime_id = excluded.runtime_id, launched_at = excluded.launched_at, reported_until = NULL`,
       runtimeId,
       Date.now(),
     );
@@ -483,6 +554,7 @@ export abstract class ComputerSandboxBase<
     if (!this.ctx.container?.running) {
       return;
     }
+    this.countContainerTime();
     const check = idleContainerCheck({
       now: Date.now(),
       lastUse: this.#lastContainerUse,
@@ -553,6 +625,8 @@ const storedStringSchema = z.string().min(1);
 type ManagedHostCallbacks = {
   /** Start a container for `spec` and tell computerd to start; the new runtime's id. */
   launch(spec: ContainerLaunchSpec, clientSecret: string): Promise<string>;
+  /** The running container is about to be stopped by this host. */
+  stopping?(): void;
   /** The runtime id of the container already running, as last recorded. */
   adopted(): string | null;
   intercept(host: string, workspace: WorkspaceRef): Promise<void>;
@@ -639,6 +713,7 @@ export class ManagedWorkspaceContainerHost implements IWorkspaceContainerAPI {
   async destroy(): Promise<void> {
     await this.#storage.delete(LAUNCH_DIGEST_KEY);
     if (this.#container.running) {
+      this.#callbacks.stopping?.();
       this.#expectedExitGeneration = this.#generation;
       await this.#container.destroy();
     }

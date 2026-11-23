@@ -1,6 +1,7 @@
 import type { BillingConfig, StripeSubscription } from '~/lib/.server/billing/stripe';
 import { piGatewayModel, piWorkersAiModel } from '~/lib/.server/llm/pi-model-catalog';
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
+import { MANAGED_SPACE_MONTHLY_PRICE_USD } from '~/lib/managed-space';
 import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
 
 /**
@@ -188,15 +189,28 @@ export async function releaseStripeEvent(db: D1Database, eventId: string): Promi
   await db.prepare('DELETE FROM stripe_events WHERE id = ?').bind(eventId).run();
 }
 
-/** What a space may use of the builder's model in a calendar month (UTC), at the model's list price. */
-export const MONTHLY_USAGE_ALLOWANCE_USD = 14;
+/**
+ * What a space may use in a calendar month (UTC): the builder's model at its list price and the workspace
+ * container's running time at Cloudflare's, together. It is the plan's price, so a space's building costs no more
+ * than its person pays; Stripe's fee and what their published applications use are not counted in it.
+ */
+export const MONTHLY_USAGE_ALLOWANCE_USD = MANAGED_SPACE_MONTHLY_PRICE_USD;
+
+/**
+ * What a second of the workspace container costs: `standard-4`'s 12 GiB of memory ($0.0000025 a GiB-second) and
+ * 20 GB of disk ($0.00000007 a GB-second), which Cloudflare bills as provisioned while the container runs, and
+ * one of its four vCPUs ($0.000020 a vCPU-second), which it bills only as used; one busy core on average is on
+ * the dear side of what building uses. About 19 cents an hour. The account's included usage is not taken off.
+ */
+export const CONTAINER_USD_PER_SECOND = 12 * 0.0000025 + 20 * 0.00000007 + 0.00002;
 
 export type SpaceUsage = { usedUsd: number; allowanceUsd: number; resetsAt: number };
 
 /**
- * What the person's builder turns in the managed team cost so far this month, at the list price of the
- * team's default model (its admin should allow no dearer one), against the month's allowance. Tokens
- * come from `organization_usage_daily`, which every finished turn adds to.
+ * What the person's building in the managed team cost so far this month, against the month's allowance: their
+ * builder turns' tokens at the list price of the team's default model (its admin should allow no dearer one),
+ * and their workspace container's running time. Both come from `organization_usage_daily`, which every finished
+ * turn and every stretch of container time adds to.
  */
 export async function spaceUsage(
   db: D1Database,
@@ -208,24 +222,25 @@ export async function spaceUsage(
   const today = new Date(now);
   const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
   const nextMonth = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
-  const [tokens, { defaultModelId }] = await Promise.all([
+  const [counts, { defaultModelId }] = await Promise.all([
     db
       .prepare(
         `SELECT COALESCE(SUM(input_tokens), 0) AS input, COALESCE(SUM(output_tokens), 0) AS output,
-                COALESCE(SUM(cached_tokens), 0) AS cached
+                COALESCE(SUM(cached_tokens), 0) AS cached, COALESCE(SUM(container_seconds), 0) AS containerSeconds
          FROM organization_usage_daily WHERE org_id = ? AND user_id = ? AND day >= ?`,
       )
       .bind(orgId, userId, monthStart.toISOString().slice(0, 10))
-      .first<{ input: number; output: number; cached: number }>(),
+      .first<{ input: number; output: number; cached: number; containerSeconds: number }>(),
     readBuilderModelSettings(db, managedConnectionId),
   ]);
   const modelId = effectiveDefaultModelId(defaultModelId);
   const price = piWorkersAiModel(modelId)?.cost ?? piGatewayModel(modelId)?.model.cost;
-  const used = tokens ?? { input: 0, output: 0, cached: 0 };
+  const used = counts ?? { input: 0, output: 0, cached: 0, containerSeconds: 0 };
   // Dollars per million tokens. Cached tokens are counted among the input ones.
-  const usedUsd = price
+  const modelUsd = price
     ? ((used.input - used.cached) * price.input + used.cached * price.cacheRead + used.output * price.output) /
       1_000_000
     : 0;
+  const usedUsd = modelUsd + used.containerSeconds * CONTAINER_USD_PER_SECOND;
   return { usedUsd, allowanceUsd: MONTHLY_USAGE_ALLOWANCE_USD, resetsAt: nextMonth };
 }

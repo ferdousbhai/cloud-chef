@@ -8,15 +8,14 @@ export const CLOUDFLARE_SUPPORT_URL = 'https://developers.cloudflare.com/support
 // pages cannot answer "who do I call" differently.
 export const TRUST_EMERGENCY_PAIR = { term: 'Immediate danger', detail: 'Local emergency services' } as const;
 export const CLOUDCHEF_OPERATOR = {
-  legalName: 'DOUS SOFTWARE INC.',
-  legalForm: 'Ontario corporation',
-  registrationNumber: '1001622428',
-  correspondenceAddress: '350 Bay Street, Suite 1300B, Toronto, Ontario M5H 2S6, Canada',
+  legalName: 'SummonGhost, Inc.',
+  legalForm: 'Delaware corporation',
+  correspondenceAddress: '131 Continental Dr, Suite 305, Newark, Delaware 19713, United States',
 } as const;
 
-export const TRUST_DOCUMENT_VERSION = '1.9 public beta';
-export const TRUST_DOCUMENT_EFFECTIVE_ISO_DATE = '2026-11-21';
-export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'November 21, 2026';
+export const TRUST_DOCUMENT_VERSION = '1.10 public beta';
+export const TRUST_DOCUMENT_EFFECTIVE_ISO_DATE = '2026-11-23';
+export const TRUST_DOCUMENT_EFFECTIVE_DATE = 'November 23, 2026';
 // A response target is data. The sentence this replaced recited both channels' numbers on both
 // pages, next to each page's own restatement of its own number, so the same fact was on screen
 // three times. Each page now renders its own rows and shares only the caveat.

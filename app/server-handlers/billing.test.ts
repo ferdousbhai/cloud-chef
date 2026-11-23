@@ -126,7 +126,7 @@ describe('subscribing to a space CloudChef runs', () => {
     expect(checkout.status).toBe(503);
   });
 
-  it("sends a first-time subscriber to Stripe's checkout with a card required and the free month", async () => {
+  it("sends a first-time subscriber to Stripe's checkout with a card required and no free days", async () => {
     const { db, env, sam, cookie } = await setup();
     const calls = stripe({
       '/customers': { id: 'cus_1' },
@@ -136,7 +136,7 @@ describe('subscribing to a space CloudChef runs', () => {
     expect(billingStatusSchema.parse(await status.json())).toMatchObject({
       available: true,
       monthlyPriceUsd: 20,
-      trialDays: 30,
+      trialDays: 0,
     });
 
     const checkout = await startCheckoutAction({ request: request('/api/billing/checkout', cookie), env });
@@ -149,9 +149,9 @@ describe('subscribing to a space CloudChef runs', () => {
       client_reference_id: sam.id,
       'line_items[0][price]': 'price_1',
       payment_method_collection: 'always',
-      'subscription_data[trial_period_days]': '30',
       success_url: `${ORIGIN}/api/billing/return?checkout={CHECKOUT_SESSION_ID}`,
     });
+    expect(calls[1].form).not.toHaveProperty('subscription_data[trial_period_days]');
     // The customer is kept, so a second try doesn't make another.
     await expect(findManagedSubscription(db, sam.id)).resolves.toMatchObject({ customerId: 'cus_1', status: 'none' });
     await startCheckoutAction({ request: request('/api/billing/checkout', cookie), env });
@@ -190,7 +190,7 @@ describe('subscribing to a space CloudChef runs', () => {
     expect(billingStatusSchema.parse(await status.json())).toMatchObject({
       trialDays: 0,
       subscription: { status: 'trialing', hasSpace: true },
-      usage: { usedUsd: 0, allowanceUsd: 14 },
+      usage: { usedUsd: 0, allowanceUsd: 20 },
     });
   });
 

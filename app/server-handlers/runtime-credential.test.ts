@@ -193,7 +193,25 @@ describe('runtimeUsageAction', () => {
         input_tokens: 200,
         output_tokens: 40,
         cached_tokens: 80,
+        container_seconds: 0,
       },
+    ]);
+
+    // How long their workspace container ran is added beside, without counting a turn.
+    const ran = (containerSeconds: number) => async () =>
+      runtimeUsageAction({
+        request: request(
+          await runtimeSecret('member-1', 'connection-1'),
+          { userId: 'member-1', connectionId: 'connection-1', connectionGeneration: 3 },
+          { containerSeconds },
+        ),
+        env,
+      });
+    expect((await ran(300)()).status).toBe(204);
+    expect((await ran(45)()).status).toBe(204);
+    expect((await ran(86_401)()).status).toBe(400);
+    expect(database.prepare('SELECT turns, container_seconds FROM organization_usage_daily').all()).toEqual([
+      { turns: 2, container_seconds: 345 },
     ]);
 
     // Someone's own account: authenticated, but nothing to record.
@@ -233,6 +251,14 @@ describe('runtimeAccessAction', () => {
       return z.object({ modelRefusal: z.string().nullable() }).parse(body).modelRefusal;
     };
     expect(await ask(managed)).toBeNull();
+    // A day of the workspace container alone is within the allowance.
+    database
+      .prepare(
+        `INSERT INTO organization_usage_daily (org_id, user_id, day, container_seconds) VALUES ('org-1', 'member-1', ?, 86400)`,
+      )
+      .run(new Date().toISOString().slice(0, 10));
+    expect(await ask(managed)).toBeNull();
+    database.exec('DELETE FROM organization_usage_daily');
     // Far more output than a month's allowance buys on the default model.
     database
       .prepare(

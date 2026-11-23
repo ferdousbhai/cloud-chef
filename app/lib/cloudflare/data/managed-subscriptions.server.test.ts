@@ -5,6 +5,7 @@ import { piWorkersAiModel } from '~/lib/.server/llm/pi-model-catalog';
 import { controlPlaneDatabase, createProvenEmailUser } from '~/test/control-plane-d1';
 import {
   applySubscription,
+  CONTAINER_USD_PER_SECOND,
   claimStripeEvent,
   findManagedSubscription,
   MONTHLY_USAGE_ALLOWANCE_USD,
@@ -139,7 +140,7 @@ describe('a subscription to a space CloudChef runs', () => {
 });
 
 describe("a space's monthly building allowance", () => {
-  it("prices this month's tokens at the team's default model, cached ones at the cached price", async () => {
+  it("prices this month's tokens at the team's default model, cached ones at the cached price, and adds the container's time", async () => {
     const { database, db, sam } = await setup();
     const now = Date.UTC(2026, 10, 21);
     const add = database.prepare(
@@ -149,12 +150,23 @@ describe("a space's monthly building allowance", () => {
     add.run(ORG, sam.id, '2026-11-03', 3_000_000, 1_000_000, 1_000_000);
     // Last month's use is not this month's.
     add.run(ORG, sam.id, '2026-10-30', 90_000_000, 90_000_000, 0);
+    // Two hours of the workspace container this month, and some last month.
+    const ran = database.prepare(
+      `INSERT INTO organization_usage_daily (org_id, user_id, day, container_seconds) VALUES (?, ?, ?, ?)`,
+    );
+    ran.run(ORG, sam.id, '2026-11-04', 7_200);
+    ran.run(ORG, sam.id, '2026-10-29', 500_000);
     const price = piWorkersAiModel(CLOUDFLARE_WORKERS_AI_MODEL)?.cost;
     if (!price) {
       throw new Error("Pi doesn't list the pinned model");
     }
     const usage = await spaceUsage(db, CONNECTION, ORG, sam.id, now);
-    expect(usage.usedUsd).toBeCloseTo(2 * price.input + price.cacheRead + price.output, 6);
+    expect(usage.usedUsd).toBeCloseTo(
+      2 * price.input + price.cacheRead + price.output + 7_200 * CONTAINER_USD_PER_SECOND,
+      6,
+    );
+    // About 19 cents an hour.
+    expect(CONTAINER_USD_PER_SECOND * 3_600).toBeCloseTo(0.185, 3);
     expect(usage.allowanceUsd).toBe(MONTHLY_USAGE_ALLOWANCE_USD);
     expect(usage.resetsAt).toBe(Date.UTC(2026, 11, 1));
   });

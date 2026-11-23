@@ -24,10 +24,9 @@ function TermsPage() {
     >
       <TrustSection title="Operator, acceptance, and eligibility">
         <p>
-          CloudChef is operated by {CLOUDCHEF_OPERATOR.legalName}, an {CLOUDCHEF_OPERATOR.legalForm} (Ontario
-          Corporation No. {CLOUDCHEF_OPERATOR.registrationNumber}), with a business correspondence address at{' '}
-          {CLOUDCHEF_OPERATOR.correspondenceAddress}. These Terms form an agreement between you and the operator. By
-          connecting Cloudflare or using the signed-in service, you agree to these Terms.
+          CloudChef is operated by {CLOUDCHEF_OPERATOR.legalName}, a {CLOUDCHEF_OPERATOR.legalForm}, with a business
+          correspondence address at {CLOUDCHEF_OPERATOR.correspondenceAddress}. These Terms form an agreement between
+          you and the operator. By connecting Cloudflare or using the signed-in service, you agree to these Terms.
         </p>
         <p>You must be:</p>
         <ul>
@@ -54,17 +53,20 @@ function TermsPage() {
         <p>
           A space CloudChef runs is the paid alternative, for people without a Cloudflare account. It costs{' '}
           {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month, charged by Stripe to the card you give on Stripe&apos;s page,
-          in advance and until you cancel. A first subscription starts with {MANAGED_SPACE_TRIAL_DAYS} free days; the
-          card is charged when they end unless you cancel before. You can cancel at any time in Settings, and the space
-          then lasts to the end of the period already paid for. Payments already made are not refunded, except where the
-          law gives you that right.
+          in advance and until you cancel.{' '}
+          {MANAGED_SPACE_TRIAL_DAYS > 0
+            ? `A first subscription starts with ${MANAGED_SPACE_TRIAL_DAYS} free days; the card is charged when they end unless you cancel before.`
+            : 'The first month is charged when you subscribe.'}{' '}
+          You can cancel at any time in Settings, and the space then lasts to the end of the period already paid for.
+          Payments already made are not refunded, except where the law gives you that right.
         </p>
         <p>
-          The price covers the Cloudflare resources your space uses and a monthly allowance of building with the default
-          model. When a month&apos;s allowance is used up, building stops until the next calendar month; applications
-          you published keep running. If a payment fails or the subscription ends, the space is paused: you can no
-          longer build in it, your published applications keep running for the time being, and the operator may remove
-          them and the space&apos;s contents 30 days later. Download your code first.
+          The price covers a monthly allowance of building: the default model&apos;s work and the time your workspace
+          runs, counted together at Cloudflare&apos;s prices. When a month&apos;s allowance is used up, building stops
+          until the next calendar month; applications you published keep running. If a payment fails or the subscription
+          ends, the space is paused: you can no longer build in it, your published applications keep running for the
+          time being, and the operator may remove them and the space&apos;s contents 30 days later. Download your code
+          first.
         </p>
         <p>
           A space CloudChef runs is in the operator&apos;s Cloudflare account, on addresses the operator controls. The

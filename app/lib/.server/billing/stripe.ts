@@ -117,7 +117,7 @@ export async function createCheckout(
   config: BillingConfig,
   args: { customerId: string; userId: string; trialDays: number; successUrl: string; cancelUrl: string },
 ): Promise<string> {
-  // The free month, on a first subscription only.
+  // Free days, on a first subscription only and when the plan has any.
   const trial = args.trialDays > 0 ? { 'subscription_data[trial_period_days]': String(args.trialDays) } : null;
   const session = await stripe(config, 'POST', '/checkout/sessions', z.looseObject({ url: z.url() }), {
     mode: 'subscription',
@@ -125,7 +125,7 @@ export async function createCheckout(
     client_reference_id: args.userId,
     'line_items[0][price]': config.priceId,
     'line_items[0][quantity]': '1',
-    // A card is asked for even when the first month is free, so the plan continues without another step.
+    // A card is asked for even when the first days are free, so the plan continues without another step.
     payment_method_collection: 'always',
     [`subscription_data[metadata][${USER_ID_METADATA}]`]: args.userId,
     success_url: args.successUrl,

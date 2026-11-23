@@ -663,7 +663,8 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
   const { items: usage, ...bounds } = await readBoundedList(
     db,
     userId,
-    `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, COUNT(*) OVER () AS total_rows
+    `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, container_seconds,
+            COUNT(*) OVER () AS total_rows
        FROM organization_usage_daily WHERE user_id = ?
        ORDER BY day DESC LIMIT ?`,
     (row: {
@@ -673,6 +674,7 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
       input_tokens: number;
       output_tokens: number;
       cached_tokens: number;
+      container_seconds: number;
     }) => ({
       organizationId: row.org_id,
       day: row.day,
@@ -680,6 +682,7 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
       inputTokens: row.input_tokens,
       outputTokens: row.output_tokens,
       cachedTokens: row.cached_tokens,
+      containerSeconds: row.container_seconds,
     }),
   );
   return { usage, ...bounds };

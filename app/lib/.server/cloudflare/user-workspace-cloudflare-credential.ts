@@ -88,6 +88,19 @@ export async function reportUserWorkspaceModelUsage(
   await response.body?.cancel().catch(() => undefined);
 }
 
+/**
+ * Reports how long the workspace container has run since the last report, in whole seconds, to the control
+ * plane, which counts it toward a space's monthly allowance. Best-effort, like the token counts.
+ */
+export async function reportUserWorkspaceContainerTime(
+  env: RuntimeCredentialEnv,
+  identity: CloudflareConnectionIdentity,
+  containerSeconds: number,
+): Promise<void> {
+  const response = await postRuntimeRoute(env, identity, 'runtime-usage', { containerSeconds });
+  await response.body?.cancel().catch(() => undefined);
+}
+
 /** What the control plane says about this runtime's person, asked before each model request. */
 export type UserWorkspaceAccess = {
   /** Whether they are an active admin of the organization whose account this is. */
@@ -95,8 +108,9 @@ export type UserWorkspaceAccess = {
   /** Whether their model requests may be logged with their content in the account's AI Gateway. */
   aiGatewayContentLogging: boolean;
   /**
-   * Why their next model request is refused though they may still use the account, in words for them:
-   * a space CloudChef runs whose month's allowance is used up. Null when it may run.
+   * Why their next model request, or the next start of their workspace container, is refused though they may
+   * still use the account, in words for them: a space CloudChef runs whose month's allowance is used up. Null
+   * when it may run.
    */
   modelRefusal?: string | null;
 };

@@ -54,7 +54,7 @@ export function billingStatusAction({ request, env }: { request: Request; env: E
       {
         available: connection !== null,
         monthlyPriceUsd: MANAGED_SPACE_MONTHLY_PRICE_USD,
-        // A first subscription starts with the free month; a later one doesn't.
+        // A first subscription starts with the plan's free days, when it has any; a later one doesn't.
         trialDays: subscription?.subscriptionId ? 0 : MANAGED_SPACE_TRIAL_DAYS,
         subscription:
           subscription && subscription.subscriptionId

@@ -159,12 +159,15 @@ reached by its admin's invite, or their own Cloudflare account, connected there 
 on Cloudflare's site; or a space CloudChef runs, by subscription. That space is a membership of one team in
 CloudChef's own Cloudflare account (`MANAGED_SPACE_ORG_ID`), paid for through Stripe (`STRIPE_PRICE_ID`, CloudChef's
 own portal configuration in a Stripe account shared with other products, and the secrets `STRIPE_SECRET_KEY` and
-`STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and starts the free month,
+`STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and charges the first month,
 its webhook (`POST /api/billing/webhook`) reports every change, and
 `app/lib/cloudflare/data/managed-subscriptions.server.ts` adds the person to the team while the subscription is in
-its free month or paid, pauses them there when it lapses, and resumes only a pause it made itself. Everything a
-team member is kept from holds for them. Each finished turn's tokens, priced at the team's default model, count
-against a monthly allowance, and `runtime-access` refuses the next model request once it is used
+a free period or paid, pauses them there when it lapses, and resumes only a pause it made itself. Everything a
+team member is kept from holds for them. Each finished turn's tokens, priced at the team's default model, and the time
+their workspace container runs, which the runtime reports as it goes (`countContainerTime` in
+`user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
+equal to the plan's price, and `runtime-access` refuses the next model request and the next start of the container
+once it is used
 (`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
 choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);
 `pnpm run ops` counts both. The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` wait on

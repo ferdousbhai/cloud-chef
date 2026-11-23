@@ -5,8 +5,11 @@ import { z } from 'zod';
  * `STRIPE_PRICE_ID` names, and Stripe is what charges it: these are kept equal to it by hand.
  */
 export const MANAGED_SPACE_MONTHLY_PRICE_USD = 20;
-/** The free first month a person's first subscription starts with. */
-export const MANAGED_SPACE_TRIAL_DAYS = 30;
+/**
+ * Free days a person's first subscription starts with. None: the card is charged when they subscribe. Above 0,
+ * checkout starts a trial of that length and the pages say so.
+ */
+export const MANAGED_SPACE_TRIAL_DAYS: number = 0;
 
 /** What `GET /api/billing` answers: the plan, whether it can be bought here, and where this person stands. */
 export const billingStatusSchema = z.object({
