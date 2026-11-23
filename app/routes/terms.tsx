@@ -189,7 +189,7 @@ function TermsPage() {
           If you use CloudChef mainly for a trade, business, craft, or profession, then to the maximum extent permitted
           by law the operator will not be liable for indirect, incidental, special, consequential, exemplary, or
           punitive damages, or for lost profits, revenue, data, goodwill, or business interruption. For those business
-          users, the operator’s aggregate liability arising from the service will not exceed the greater of C$100 and
+          users, the operator’s aggregate liability arising from the service will not exceed the greater of US$100 and
           the amount paid directly to CloudChef during the 12 months before the event giving rise to the claim.
         </p>
         <p>
@@ -202,8 +202,8 @@ function TermsPage() {
       <TrustSection title="Applicable law and disputes">
         <p>
           If you use CloudChef mainly for a trade, business, craft, or profession, these Terms are governed by the laws
-          of Ontario and the federal laws of Canada applicable there, without regard to conflict-of-law rules. The
-          courts in Toronto, Ontario have exclusive jurisdiction over disputes with those business users.
+          of the State of Delaware, without regard to conflict-of-law rules. The state and federal courts located in
+          Delaware have exclusive jurisdiction over disputes with those business users.
         </p>
         <p>
           If you use CloudChef as a consumer, these Terms do not take away mandatory rights, governing law, or courts
