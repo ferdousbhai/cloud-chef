@@ -157,8 +157,9 @@ on each runtime-session request and reloads if another tab switched the session.
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a team's space,
 reached by its admin's invite, or their own Cloudflare account, connected there after a short list of what happens
 on Cloudflare's site; or a space CloudChef runs, by subscription. That space is a membership of one team in
-CloudChef's own Cloudflare account (`MANAGED_SPACE_ORG_ID`), paid for through Stripe (`STRIPE_PRICE_ID`, and the
-secrets `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and starts the free month,
+CloudChef's own Cloudflare account (`MANAGED_SPACE_ORG_ID`), paid for through Stripe (`STRIPE_PRICE_ID`, CloudChef's
+own portal configuration in a Stripe account shared with other products, and the secrets `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and starts the free month,
 its webhook (`POST /api/billing/webhook`) reports every change, and
 `app/lib/cloudflare/data/managed-subscriptions.server.ts` adds the person to the team while the subscription is in
 its free month or paid, pauses them there when it lapses, and resumes only a pause it made itself. Everything a

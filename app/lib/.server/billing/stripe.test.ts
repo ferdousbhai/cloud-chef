@@ -56,15 +56,17 @@ describe("Stripe's webhook deliveries", () => {
 describe('whether subscriptions are available', () => {
   it('needs the secret key, the price and the managed team, and reads the webhook secret when it is set', () => {
     const all = { STRIPE_SECRET_KEY: 'sk_test', STRIPE_PRICE_ID: 'price_1', MANAGED_SPACE_ORG_ID: 'org-1' };
-    // SAFETY: the bindings' declared types are the empty text the configuration gives them, and the two secrets
-    // are not declared at all; `billingConfig` reads each only as text.
+    // SAFETY: the bindings' declared types are the exact text the configuration gives them; `billingConfig` reads
+    // each only as text.
     const env = (bindings: Record<string, string>) => envWith(bindings as Partial<Env>);
     expect(billingConfig(env(all))).toEqual({
       secretKey: 'sk_test',
       webhookSecret: null,
       priceId: 'price_1',
+      portalConfigurationId: null,
       managedOrgId: 'org-1',
     });
+    expect(billingConfig(env({ ...all, STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_1' }))?.portalConfigurationId).toBe('bpc_1');
     for (const missing of Object.keys(all)) {
       expect(billingConfig(env({ ...all, [missing]: '' }))).toBeNull();
     }

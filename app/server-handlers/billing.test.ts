@@ -36,11 +36,12 @@ async function setup(configured = true) {
         STRIPE_SECRET_KEY: 'sk_test',
         STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
         STRIPE_PRICE_ID: 'price_1',
+        STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_1',
         MANAGED_SPACE_ORG_ID: ORG,
       }
     : { STRIPE_PRICE_ID: '', MANAGED_SPACE_ORG_ID: '' };
-  // SAFETY: the billing bindings' declared types are the empty text the configuration gives them, and the two
-  // secrets are not declared at all; the handlers read each only as text.
+  // SAFETY: the billing bindings' declared types are the exact text the configuration gives them; the handlers
+  // read each only as text.
   const env = envWith({ DB: db, ...billing } as Partial<Env>);
   const sam = await createProvenEmailUser(db, 'sam@example.com');
   const { cookie } = await createAuthSession(env, sam.id, new Request(ORIGIN));
@@ -207,7 +208,11 @@ describe('subscribing to a space CloudChef runs', () => {
     const calls = stripe({ '/billing_portal/sessions': { url: 'https://billing.stripe.com/p/1' } });
     const portal = await billingPortalAction({ request: request('/api/billing/portal', cookie), env });
     await expect(portal.json()).resolves.toEqual({ url: 'https://billing.stripe.com/p/1' });
-    expect(calls[0].form).toEqual({ customer: 'cus_1', return_url: `${ORIGIN}/settings` });
+    expect(calls[0].form).toEqual({
+      customer: 'cus_1',
+      return_url: `${ORIGIN}/settings`,
+      configuration: 'bpc_1',
+    });
   });
 });
 

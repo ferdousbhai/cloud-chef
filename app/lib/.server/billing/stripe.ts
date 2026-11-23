@@ -6,9 +6,7 @@ import { constantTimeEqual } from '~/lib/constant-time-equal';
  * signatures checked here. CloudChef never sees a card: Checkout and the customer portal are Stripe's
  * own pages.
  *
- * The secret key and the webhook signing secret are not declared in `cloudflare.config.ts` until they
- * are set (a declared secret must exist before every deploy); without them, and without the price and
- * the managed team's id, subscriptions report themselves unavailable.
+ * Without the secret key, the price or the managed team's id, subscriptions report themselves unavailable.
  */
 const STRIPE_API = 'https://api.stripe.com/v1';
 const STRIPE_TIMEOUT_MS = 20_000;
@@ -19,24 +17,27 @@ export type BillingConfig = {
   secretKey: string;
   webhookSecret: string | null;
   priceId: string;
+  /** CloudChef's own customer-portal configuration; null opens the Stripe account's default one. */
+  portalConfigurationId: string | null;
   /** The team, in CloudChef's own Cloudflare account, whose members are the people who subscribed. */
   managedOrgId: string;
 };
 
-type BillingEnv = Env & { STRIPE_SECRET_KEY?: string; STRIPE_WEBHOOK_SECRET?: string };
-
 /** What subscriptions need, or null when any of it is unset: they are then unavailable. */
 export function billingConfig(env: Env): BillingConfig | null {
-  // SAFETY: the two secrets are set on the Worker without being declared in its configuration (see above), so
-  // its generated `Env` doesn't list them; each is read as possibly absent.
-  const secrets = env as BillingEnv;
-  const secretKey = secrets.STRIPE_SECRET_KEY?.trim();
+  const secretKey = env.STRIPE_SECRET_KEY?.trim();
   const priceId = env.STRIPE_PRICE_ID?.trim();
   const managedOrgId = env.MANAGED_SPACE_ORG_ID?.trim();
   if (!secretKey || !priceId || !managedOrgId) {
     return null;
   }
-  return { secretKey, webhookSecret: secrets.STRIPE_WEBHOOK_SECRET?.trim() || null, priceId, managedOrgId };
+  return {
+    secretKey,
+    webhookSecret: env.STRIPE_WEBHOOK_SECRET?.trim() || null,
+    priceId,
+    portalConfigurationId: env.STRIPE_PORTAL_CONFIGURATION_ID?.trim() || null,
+    managedOrgId,
+  };
 }
 
 export class StripeError extends Error {}
@@ -168,9 +169,12 @@ export async function createPortalSession(
   customerId: string,
   returnUrl: string,
 ): Promise<string> {
+  // CloudChef's own portal, where the Stripe account's default one is another product's.
+  const configuration = config.portalConfigurationId ? { configuration: config.portalConfigurationId } : null;
   const session = await stripe(config, 'POST', '/billing_portal/sessions', z.looseObject({ url: z.url() }), {
     customer: customerId,
     return_url: returnUrl,
+    ...configuration,
   });
   return session.url;
 }

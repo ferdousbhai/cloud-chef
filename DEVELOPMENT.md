@@ -84,17 +84,18 @@ It declares these secrets, which are configured in Cloudflare and never stored i
 - `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_APP_SLUG` — CloudChef's
   GitHub App, for importing private repositories as projects; unset, importing those reports itself unavailable
   (public repositories import without it).
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — subscriptions to a space CloudChef runs. Not declared in
-  `cloudflare.config.ts`; set them with `cf workers secrets`. With them, `STRIPE_PRICE_ID` and `MANAGED_SPACE_ORG_ID`
-  in `cloudflare.config.ts` turn subscriptions on; with any of the four unset the plan is not offered and the
-  waitlist is.
+- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — subscriptions to a space CloudChef runs, with `STRIPE_PRICE_ID`,
+  `STRIPE_PORTAL_CONFIGURATION_ID` and `MANAGED_SPACE_ORG_ID` in `cloudflare.config.ts`. All five belong to one
+  Stripe mode (a sandbox or live) and are changed together; with the price or the team's id empty the plan is not
+  offered and the waitlist is.
 
-To open subscriptions: in Stripe, make a product with one recurring monthly price equal to
-`MANAGED_SPACE_MONTHLY_PRICE_USD` (`app/lib/managed-space.ts`), turn on the customer portal, and add a webhook
-endpoint at `https://cloudchef.build/api/billing/webhook` for `checkout.session.completed` and the
-`customer.subscription.*` events. In CloudChef, make the team the spaces live in, connect it to the operator's
-Cloudflare account, and allow it only the default model (the allowance prices tokens at that model). Set the two
-secrets, then release `STRIPE_PRICE_ID` and `MANAGED_SPACE_ORG_ID` (the team's id) in `cloudflare.config.ts`.
+The Stripe account is shared with other products, so CloudChef has its own product (one recurring monthly price equal
+to `MANAGED_SPACE_MONTHLY_PRICE_USD`, `app/lib/managed-space.ts`), its own customer-portal configuration, and its own
+webhook endpoint at `https://cloudchef.build/api/billing/webhook` for `checkout.session.completed` and the
+`customer.subscription.*` events; deliveries about the other products' subscriptions are answered and ignored. The
+team the spaces live in is connected to the operator's Cloudflare account and allowed only the default model (the
+allowance prices tokens at that model). To move to another Stripe mode, make the same four things there, set the two
+secrets with `cf workers secrets update`, then release the price and portal configuration ids.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. `pnpm run provision:production` bootstraps the control-plane D1 or reconciles
