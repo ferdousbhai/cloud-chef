@@ -14,7 +14,13 @@ import {
 
 const ORG = 'managed-org';
 const CONNECTION = 'managed-connection';
-const config: BillingConfig = { secretKey: 'sk_test', webhookSecret: 'whsec', priceId: 'price_1', managedOrgId: ORG };
+const config: BillingConfig = {
+  secretKey: 'sk_test',
+  webhookSecret: 'whsec',
+  priceId: 'price_1',
+  portalConfigurationId: null,
+  managedOrgId: ORG,
+};
 
 async function setup() {
   const { database, db } = controlPlaneDatabase();
