@@ -154,19 +154,21 @@ function PrivacyPage() {
 
       <TrustSection title="A space CloudChef runs">
         <p>
-          A space CloudChef runs is a place in a team whose Cloudflare account belongs to CloudChef&apos;s operator, so
-          what the Teams section says holds with the operator as that team&apos;s administrator. Your chats,
-          transcripts, project files, and deployed applications are stored in the operator&apos;s Cloudflare account,
-          and the operator can read them, including the AI Gateway logs of your model requests unless you turned that
-          logging off in Settings. Other people with a space there cannot open your projects or your workspace. The
-          operator looks at a space&apos;s contents only to keep the service running, to help when you ask, to stop
-          abuse, or where law requires it.
+          A space CloudChef runs is a team of your own that builds in a Cloudflare account belonging to CloudChef&apos;s
+          operator, so what the Teams section says holds with you running the team and the operator administering the
+          account. Your chats, transcripts, project files, and deployed applications are stored in the operator&apos;s
+          Cloudflare account, and the operator can read them, including the AI Gateway logs of your model requests
+          unless you turned that logging off in Settings. People with other spaces there cannot open your projects or
+          your workspace. People you invite into your space build in it too: you can see and change the projects they
+          make there, as a team&apos;s admin can, and they see the projects you give them. The operator looks at a
+          space&apos;s contents only to keep the service running, to help when you ask, to stop abuse, or where law
+          requires it.
         </p>
         <p>
-          The operator counts the tokens of your builder turns and the time your workspace runs, never their content, to
-          hold each space to its monthly building allowance. Stripe, Inc. processes the payment as its own page collects
-          it: your card, billing address, and email address go to Stripe under Stripe&apos;s privacy policy, and Stripe
-          tells CloudChef only whether the subscription is in a free period, paid, or ended.
+          The operator counts the tokens of builder turns and the time workspaces run in a space, never their content,
+          to hold each space to its monthly building allowance. Stripe, Inc. processes the payment as its own page
+          collects it: your card, billing address, and email address go to Stripe under Stripe&apos;s privacy policy,
+          and Stripe tells CloudChef only whether the subscription is in a free period, paid, or ended.
         </p>
       </TrustSection>
 

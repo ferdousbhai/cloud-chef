@@ -26,6 +26,7 @@ const teamMember: WorkspaceContext = {
   orgName: 'Acme',
   role: 'member',
   draftsAllowed: true,
+  managed: false,
 };
 const teamAdmin: WorkspaceContext = { ...teamMember, role: 'admin' };
 

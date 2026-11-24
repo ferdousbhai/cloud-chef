@@ -6,7 +6,7 @@ import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudfl
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
 import { readCookie, readJsonRequest, safeReturnTo, serializeCookie } from '~/lib/.server/request-guards';
-import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
+import { findMembership, runsTeam } from '~/lib/cloudflare/data/organization-access.server';
 import {
   listGitHubInstallations,
   listReusableGitHubInstallations,
@@ -305,7 +305,7 @@ async function managedScope(db: D1Database, connectionId: string, userId: string
   if (connection.orgId === null) {
     return connection.userId === userId ? { connectionId, orgId: null } : null;
   }
-  return isActiveAdmin(await findMembership(db, connection.orgId, userId))
+  return runsTeam(await findMembership(db, connection.orgId, userId))
     ? { connectionId, orgId: connection.orgId }
     : null;
 }

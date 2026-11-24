@@ -148,7 +148,13 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
     });
     const link = new URL(ORGANIZATION_INVITE_PATH, publicOrigin(request));
     link.searchParams.set('token', token);
-    const emailed = await sendInvite(env, { to: email, orgName: admin.orgName, inviter: session.user.name, link });
+    const emailed = await sendInvite(env, {
+      to: email,
+      orgName: admin.orgName,
+      inviter: session.user.name,
+      link,
+      managed: admin.managed,
+    });
     return Response.json({ inviteUrl: link.toString(), expiresAt, emailed }, { status: 201 });
   });
 }
@@ -364,7 +370,7 @@ export function nameForEmail(name: string, fallback: string): string {
 /** Emails an invite; false when email isn't configured or sending failed (the admin still has the link). */
 async function sendInvite(
   env: Env,
-  details: { to: string; orgName: string; inviter: string; link: URL },
+  details: { to: string; orgName: string; inviter: string; link: URL; managed: boolean },
 ): Promise<boolean> {
   const invite = {
     ...details,
@@ -377,8 +383,16 @@ async function sendInvite(
     `Accept the invite: ${invite.link.toString()}`,
     '',
     `Sign in with this address (${invite.to}), with Google or an emailed link; you don't need a Cloudflare`,
-    `login. What you build is stored in ${invite.orgName}'s Cloudflare account, where its administrators can`,
-    'see it. The invite works once, within 7 days.',
+    ...(invite.managed
+      ? [
+          `login, and it costs you nothing: ${invite.inviter} pays for the space. What you build is stored in a`,
+          `Cloudflare account CloudChef runs, where ${invite.inviter} and CloudChef's operator can see it.`,
+          'The invite works once, within 7 days.',
+        ]
+      : [
+          `login. What you build is stored in ${invite.orgName}'s Cloudflare account, where its administrators can`,
+          'see it. The invite works once, within 7 days.',
+        ]),
   ].join('\n');
   try {
     await env.SIGN_IN_EMAIL.send({

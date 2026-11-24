@@ -346,7 +346,7 @@ describe('ModelsCard', () => {
       await render();
       await settle();
 
-      expect(document.body.textContent).toContain('Chosen by this team’s admins.');
+      expect(document.body.textContent).toContain('Chosen by whoever runs this account.');
       expect(checkboxOf('Claude Opus 5.5')).toMatchObject({ checked: true, disabled: true });
       expect(checkboxOf('Claude Fable 5')).toMatchObject({ checked: false, disabled: true });
       expect(button('Allow all')).toBeUndefined();

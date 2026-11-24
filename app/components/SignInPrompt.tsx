@@ -357,10 +357,7 @@ export function ChooseSpace({
           onError={setError}
         />
       ) : null}
-      <SpaceChoice title="In your team's space">
-        If your team builds with CloudChef, ask its admin to invite{' '}
-        <span className="break-all">{session.user.email}</span>. The invitation&apos;s link brings you straight in.
-      </SpaceChoice>
+      <ManagedSpace email={session.user.email} />
       <SpaceChoice
         title="In your own Cloudflare account"
         details={showCloudflareSteps ? <CloudflareSteps continuing={continuePrompt !== undefined} /> : null}
@@ -390,7 +387,11 @@ export function ChooseSpace({
       >
         Your apps, their data and the AI that builds them run in your account, and Cloudflare bills you for them.
       </SpaceChoice>
-      <ManagedSpace email={session.user.email} />
+      <SpaceChoice title="In someone else's space">
+        If someone you know builds with CloudChef, in a space of theirs or their own Cloudflare account, ask them to
+        invite <span className="break-all">{session.user.email}</span>. The invitation&apos;s link brings you straight
+        in, and what you build there is theirs to pay for.
+      </SpaceChoice>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
         <CloudflareConnectLegalNotice planNote={false} />
         <button
@@ -451,7 +452,7 @@ function ManagedSpace({ email }: { email: string }) {
   const lapsed = billing.subscription !== null && !billing.subscription.hasSpace;
   return (
     <SpaceChoice
-      title="In a space CloudChef runs"
+      title="In a space of your own, run by CloudChef"
       details={
         error ? (
           <p className="text-sm text-content-error" role="alert">
@@ -480,7 +481,10 @@ function ManagedSpace({ email }: { email: string }) {
       {lapsed ? (
         <>Your subscription isn&apos;t active, so your space is paused. What you published keeps running. </>
       ) : (
-        <>No Cloudflare account needed: CloudChef sets it up and runs it for you. </>
+        <>
+          The simplest: no Cloudflare account needed. CloudChef sets your space up and runs it, and you can invite
+          people to build in it with you.{' '}
+        </>
       )}
       {billing.trialDays > 0
         ? `Your first month is free, then ${price} a month. A card is asked for now and charged after the free month; cancel any time in Settings.`

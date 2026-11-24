@@ -266,12 +266,47 @@ describe('runtimeAccessAction', () => {
          VALUES ('org-1', 'member-1', ?, 1, 0, 1000000000, 0)`,
       )
       .run(new Date().toISOString().slice(0, 10));
-    expect(await ask(managed)).toMatch(/^Your space has used this month's building allowance\. It starts again on /);
+    expect(await ask(managed)).toMatch(/^This space has used this month's building allowance\. It starts again on /);
     // The same use in a team that is not the one CloudChef runs spaces in is the team's own business.
     expect(await ask({ ...managed, MANAGED_SPACE_ORG_ID: 'another-org' })).toBeNull();
     // The team's admin, who pays for the account, is never held to it.
     database.exec(`UPDATE organization_members SET role = 'admin'`);
     expect(await ask(managed)).toBeNull();
+  });
+
+  it('holds a space CloudChef runs to one allowance for everyone in it, its subscriber included, and gives none of them the account', async () => {
+    const { database, db } = controlPlaneDatabase();
+    database.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('owner-1', 'Sam', 'sam@acme.com', 1, 1, 1);
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('guest-1', 'Gia', 'gia@acme.com', 1, 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('host', 'Spaces', 1, 1);
+      INSERT INTO organizations (id, name, created_at, updated_at, managed_host_org_id) VALUES ('space-1', 'Sam’s space', 1, 1, 'host');
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('space-1', 'owner-1', 'admin', 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('space-1', 'guest-1', 'member', 2);
+    `);
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'space-1' });
+    const ask = async () => {
+      const response = await runtimeAccessAction({
+        request: request(await runtimeSecret('owner-1', 'connection-1'), {
+          userId: 'owner-1',
+          connectionId: 'connection-1',
+          connectionGeneration: 3,
+        }),
+        env: envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 }),
+      });
+      const body: unknown = await response.json();
+      return z.object({ organizationAdmin: z.boolean(), modelRefusal: z.string().nullable() }).parse(body);
+    };
+    // The subscriber runs the space, never the operator's Cloudflare account.
+    expect(await ask()).toEqual({ organizationAdmin: false, modelRefusal: null });
+    // Someone they invited uses the month's allowance up: it is the space's, so the subscriber is stopped too.
+    database
+      .prepare(
+        `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
+         VALUES ('space-1', 'guest-1', ?, 1, 0, 1000000000, 0)`,
+      )
+      .run(new Date().toISOString().slice(0, 10));
+    expect((await ask()).modelRefusal).toMatch(/^This space has used this month's building allowance/);
   });
 
   it("says a member may build until they're paused", async () => {

@@ -262,7 +262,7 @@ export function ModelsCard() {
                     ? 'The account’s model list could not be refreshed just now, so these are the models it last listed.'
                     : settings.canManage
                       ? "New chats start on this model. Anyone can switch in the chat's model picker."
-                      : "Chosen by this team’s admins. You can switch in the chat's model picker."}
+                      : "Chosen by whoever runs this account. You can switch in the chat's model picker."}
             </p>
           </div>
 
@@ -437,6 +437,9 @@ function ProviderKeyRow({
 function workspaceLabel(context: CloudflareAuthSession['context']): string | null {
   if (!context) {
     return null;
+  }
+  if (context.kind === 'organization' && context.managed) {
+    return `${context.orgName}, which CloudChef runs`;
   }
   if (context.kind === 'organization') {
     return `the ${context.orgName} team${context.accountName ? ` (Cloudflare account ${context.accountName})` : ''}`;

@@ -89,8 +89,10 @@ describe('the sign-in prompt', () => {
     const { text, buttons } = await renderPrompt(signedInWithoutAccount, { title: 'Sign in to open settings.' });
     expect(text).toContain('Where should your apps live?');
     expect(text).toContain("You're signed in as sam@acme.com.");
-    expect(text).toContain("In your team's space");
-    expect(text).toContain('ask its admin to invite sam@acme.com');
+    expect(text).toContain("In someone else's space");
+    expect(text).toContain('ask them to invite sam@acme.com');
+    // Their own account comes before an invitation: an invitation is the one they can't take up themselves.
+    expect(text.indexOf('In your own Cloudflare account')).toBeLessThan(text.indexOf("In someone else's space"));
     expect(text).toContain('In your own Cloudflare account');
     expect(text).toContain('Cloudflare bills you for them');
     expect(buttons).toContain('Use my Cloudflare account');

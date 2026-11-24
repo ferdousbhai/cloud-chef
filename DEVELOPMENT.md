@@ -93,8 +93,8 @@ The Stripe account is shared with other products, so CloudChef has its own produ
 to `MANAGED_SPACE_MONTHLY_PRICE_USD`, `app/lib/managed-space.ts`), its own customer-portal configuration, and its own
 webhook endpoint at `https://cloudchef.build/api/billing/webhook` for `checkout.session.completed` and the
 `customer.subscription.*` events; deliveries about the other products' subscriptions are answered and ignored. The
-team the spaces live in is connected to the operator's Cloudflare account and allowed only the default model (the
-allowance prices tokens at that model). To move to another Stripe mode, make the same four things there, set the two
+host team (`MANAGED_SPACE_ORG_ID`) is connected to the operator's Cloudflare account and allowed only the default
+model: every space is made in that account and follows that team's models, which the allowance prices tokens at. To move to another Stripe mode, make the same four things there, set the two
 secrets with `cf workers secrets update`, then release the price and portal configuration ids.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with

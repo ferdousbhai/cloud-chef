@@ -37,6 +37,7 @@ const workspaceContextSchema = z.discriminatedUnion('kind', [
     orgName: z.string(),
     role: z.enum(['admin', 'member']),
     draftsAllowed: z.boolean(),
+    managed: z.boolean(),
   }),
 ]);
 

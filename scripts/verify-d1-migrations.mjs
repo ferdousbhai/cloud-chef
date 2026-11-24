@@ -86,6 +86,7 @@ const migrationPolicies = [
       '0067_offered_change_preview.sql': '9ee08b3dc8d3adc783836bbd2d4473c0b807a29fcd498e36d0c3f7f8f7f5a7fa',
       '0068_managed_subscriptions.sql': '7804fd4e67b3e12d6f4209d380c5c61840f580ad7d41ec3dcf1476c57f9a6961',
       '0069_container_usage.sql': '4dff45ba2a817135dd8b7474831e295ec6b9e35e65fd3aeaa68f39e247ac47b9',
+      '0070_managed_spaces.sql': '3123adf72618edf5e924667fe118f27099678d17c17c80c8ac1a8bcfd64c27e0',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

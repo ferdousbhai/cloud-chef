@@ -37,9 +37,17 @@ export const BILLING_RETURN_PATH = '/api/billing/return';
 const MAX_WEBHOOK_BYTES = 256 * 1024;
 const UNAVAILABLE = 'A space CloudChef runs is not open yet.';
 
-/** The managed team's connection while it is active: without it a subscription would buy nowhere to build. */
-async function managedConnection(env: Env, config: BillingConfig) {
+/** The host team's connection while it is active: without it a subscription would buy nowhere to build. */
+async function hostConnection(env: Env, config: BillingConfig) {
   const connection = await findCloudflareConnectionForOrganization(env.DB, config.managedOrgId);
+  return connection?.status === 'active' ? connection : null;
+}
+
+/** The connection of the space a subscription gave its person, while it is active. */
+async function spaceConnection(env: Env, subscription: { spaceOrgId: string | null } | null) {
+  const connection = subscription?.spaceOrgId
+    ? await findCloudflareConnectionForOrganization(env.DB, subscription.spaceOrgId)
+    : null;
   return connection?.status === 'active' ? connection : null;
 }
 
@@ -47,12 +55,13 @@ async function managedConnection(env: Env, config: BillingConfig) {
 export function billingStatusAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const config = billingConfig(env);
-    const connection = config ? await managedConnection(env, config) : null;
+    const host = config ? await hostConnection(env, config) : null;
     const subscription = await findManagedSubscription(env.DB, session.user.id);
     const hasSpace = subscription !== null && givesSpace(subscription.status);
+    const space = hasSpace ? await spaceConnection(env, subscription) : null;
     return Response.json(
       {
-        available: connection !== null,
+        available: host !== null,
         monthlyPriceUsd: MANAGED_SPACE_MONTHLY_PRICE_USD,
         // A first subscription starts with the plan's free days, when it has any; a later one doesn't.
         trialDays: subscription?.subscriptionId ? 0 : MANAGED_SPACE_TRIAL_DAYS,
@@ -66,10 +75,8 @@ export function billingStatusAction({ request, env }: { request: Request; env: E
                 cancelsAtPeriodEnd: subscription.cancelsAtPeriodEnd,
               }
             : null,
-        usage:
-          config && connection && hasSpace
-            ? await spaceUsage(env.DB, connection.id, config.managedOrgId, session.user.id)
-            : null,
+        // Everyone's building in their space, against its one allowance.
+        usage: space?.orgId ? await spaceUsage(env.DB, space.id, space.orgId, null) : null,
       },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
@@ -80,7 +87,7 @@ export function billingStatusAction({ request, env }: { request: Request; env: E
 export function startCheckoutAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const config = billingConfig(env);
-    if (!config || !(await managedConnection(env, config))) {
+    if (!config || !(await hostConnection(env, config))) {
       return Response.json({ error: UNAVAILABLE }, { status: 503 });
     }
     const existing = await findManagedSubscription(env.DB, session.user.id);
@@ -141,7 +148,7 @@ export async function completeCheckoutAction({
         return home;
       }
       await applySubscription(env.DB, config, await readSubscription(config, checkout.subscriptionId));
-      const connection = await managedConnection(env, config);
+      const connection = await spaceConnection(env, await findManagedSubscription(env.DB, session.user.id));
       if (connection && (await setSessionContext(env, request, connection.id))) {
         await prepareWorkspace(env, session.user.id, connection);
       }

@@ -31,11 +31,20 @@ export type BuilderModelSettings = {
 
 const storedAllowedModelIdsSchema = z.array(z.string());
 
-/** The account's model choices, as its admin made them. */
+/**
+ * The account's model choices, as its admin made them. A space CloudChef runs has none of its own: it follows
+ * the host team's, whose admins run the account it builds in and what its allowance prices tokens at.
+ */
 export async function readBuilderModelSettings(db: D1Database, connectionId: string): Promise<BuilderModelSettings> {
   const row = await db
     .prepare(
-      'SELECT default_builder_model AS model, allowed_builder_models_json AS allowed FROM cloudflare_connections WHERE id = ?',
+      `SELECT default_builder_model AS model, allowed_builder_models_json AS allowed FROM cloudflare_connections
+       WHERE id = COALESCE(
+         (SELECT host.id FROM cloudflare_connections AS mine
+          JOIN organizations AS space ON space.id = mine.org_id
+          JOIN cloudflare_connections AS host ON host.org_id = space.managed_host_org_id
+          WHERE mine.id = ?1),
+         ?1)`,
     )
     .bind(connectionId)
     .first<{ model: string | null; allowed: string | null }>();

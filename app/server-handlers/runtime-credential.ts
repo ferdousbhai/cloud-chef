@@ -1,4 +1,4 @@
-import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
+import { findMembership, isActiveAdmin, type Membership } from '~/lib/cloudflare/data/organization-access.server';
 import { billingConfig } from '~/lib/.server/billing/stripe';
 import { spaceUsage } from '~/lib/cloudflare/data/managed-subscriptions.server';
 import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-logging.server';
@@ -131,7 +131,7 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
       member: await memberIdentity(args.env.DB, identity.userId),
       modelRefusal:
         orgId && membership && !isActiveAdmin(membership)
-          ? await allowanceRefusal(args.env, authenticated.connection.id, orgId, identity.userId)
+          ? await allowanceRefusal(args.env, authenticated.connection.id, membership, identity.userId)
           : null,
     },
     { headers: { 'Cache-Control': 'no-store' } },
@@ -139,14 +139,20 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
 }
 
 /**
- * Why a member of the team CloudChef runs spaces in can't make another model request this month: their
- * space's allowance is used up. Null for any other team, and while there is allowance left.
+ * Why someone can't make another model request this month: the allowance is used up. A space CloudChef runs
+ * has one allowance for everyone in it; in the host team, where spaces were first given as memberships, each
+ * member has their own. Null for any other team, and while there is allowance left.
  */
-async function allowanceRefusal(env: Env, connectionId: string, orgId: string, userId: string): Promise<string | null> {
-  if (billingConfig(env)?.managedOrgId !== orgId) {
+async function allowanceRefusal(
+  env: Env,
+  connectionId: string,
+  membership: Membership,
+  userId: string,
+): Promise<string | null> {
+  if (!membership.managed && billingConfig(env)?.managedOrgId !== membership.orgId) {
     return null;
   }
-  const usage = await spaceUsage(env.DB, connectionId, orgId, userId);
+  const usage = await spaceUsage(env.DB, connectionId, membership.orgId, membership.managed ? null : userId);
   if (usage.usedUsd < usage.allowanceUsd) {
     return null;
   }
@@ -155,7 +161,7 @@ async function allowanceRefusal(env: Env, connectionId: string, orgId: string, u
     day: 'numeric',
     timeZone: 'UTC',
   });
-  return `Your space has used this month's building allowance. It starts again on ${resets}; what you published keeps running.`;
+  return `This space has used this month's building allowance. It starts again on ${resets}; what you published keeps running.`;
 }
 
 /**

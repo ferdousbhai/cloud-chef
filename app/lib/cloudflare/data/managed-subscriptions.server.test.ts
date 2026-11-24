@@ -3,6 +3,7 @@ import type { BillingConfig, StripeSubscription } from '~/lib/.server/billing/st
 import { CLOUDFLARE_WORKERS_AI_MODEL } from '~/lib/workers-ai-model';
 import { piWorkersAiModel } from '~/lib/.server/llm/pi-model-catalog';
 import { controlPlaneDatabase, createProvenEmailUser } from '~/test/control-plane-d1';
+import { findMembership, isActiveAdmin, runsTeam } from './organization-access.server';
 import {
   applySubscription,
   CONTAINER_USD_PER_SECOND,
@@ -39,11 +40,29 @@ async function setup() {
     )
     .run(CONNECTION, ORG);
   const sam = await createProvenEmailUser(db, 'sam@example.com');
-  const member = () =>
+  /** Sam's space, once a subscription made it: the team, its connection, and everyone in it. */
+  const space = () => {
+    const team = database
+      .prepare(
+        `SELECT organizations.id, organizations.name, organizations.managed_host_org_id AS host,
+                connections.id AS connection, connections.account_id AS account, connections.status
+         FROM managed_subscriptions AS subscriptions
+         JOIN organizations ON organizations.id = subscriptions.space_org_id
+         LEFT JOIN cloudflare_connections AS connections ON connections.org_id = organizations.id
+         WHERE subscriptions.user_id = ?`,
+      )
+      .get(sam.id);
+    return team ?? null;
+  };
+  const members = () =>
     database
-      .prepare('SELECT role, paused_at FROM organization_members WHERE org_id = ? AND user_id = ?')
-      .get(ORG, sam.id);
-  return { database, db, operator, sam, member };
+      .prepare(
+        `SELECT members.user_id, members.role, members.paused_at FROM organization_members AS members
+         JOIN managed_subscriptions AS subscriptions ON subscriptions.space_org_id = members.org_id
+         WHERE subscriptions.user_id = ? ORDER BY members.joined_at, members.user_id`,
+      )
+      .all(sam.id);
+  return { database, db, operator, sam, space, members };
 }
 
 function subscription(userId: string, patch: Partial<StripeSubscription> = {}): StripeSubscription {
@@ -60,60 +79,77 @@ function subscription(userId: string, patch: Partial<StripeSubscription> = {}): 
 }
 
 describe('a subscription to a space CloudChef runs', () => {
-  it('gives the person a place in the managed team while it is in its free month or paid', async () => {
-    const { db, sam, member } = await setup();
+  it("makes the person a space of their own in the host team's Cloudflare account, which they run", async () => {
+    const { database, db, sam, space, members } = await setup();
     await expect(applySubscription(db, config, subscription(sam.id))).resolves.toBe(sam.id);
-    expect(member()).toEqual({ role: 'member', paused_at: null });
+    const made = space();
+    expect(made).toMatchObject({ name: 'sam’s space', host: ORG, account: 'account-1', status: 'active' });
+    expect(members()).toEqual([{ user_id: sam.id, role: 'admin', paused_at: null }]);
+    // They run the team, and nobody in it runs the Cloudflare account.
+    const membership = await findMembership(db, String(made?.id), sam.id);
+    expect(runsTeam(membership)).toBe(true);
+    expect(isActiveAdmin(membership)).toBe(false);
+    // The host team is as it was: they are no member of it.
+    expect(database.prepare('SELECT user_id FROM organization_members WHERE org_id = ?').all(ORG)).toHaveLength(1);
     await expect(findManagedSubscription(db, sam.id)).resolves.toMatchObject({
       customerId: 'cus_1',
       subscriptionId: 'sub_1',
       status: 'trialing',
       trialEndsAt: 2_000,
+      spaceOrgId: made?.id,
     });
+    // Stripe says the same again at every renewal: still the one space.
     await applySubscription(db, config, subscription(sam.id, { status: 'active', trialEndsAt: null }));
-    expect(member()).toEqual({ role: 'member', paused_at: null });
+    expect(space()).toEqual(made);
+    expect(database.prepare('SELECT COUNT(*) AS spaces FROM organizations').get()).toEqual({ spaces: 2 });
   });
 
-  it('pauses the space when a payment fails or it ends, and resumes it when they pay again', async () => {
-    const { db, sam, member } = await setup();
+  it('makes no space while the host team has no Cloudflare account connected, and makes it once it has', async () => {
+    const { database, db, sam, space } = await setup();
+    database.prepare("UPDATE cloudflare_connections SET status = 'revoked' WHERE org_id = ?").run(ORG);
     await applySubscription(db, config, subscription(sam.id));
+    expect(space()).toBeNull();
+    database.prepare("UPDATE cloudflare_connections SET status = 'active' WHERE org_id = ?").run(ORG);
+    await applySubscription(db, config, subscription(sam.id, { status: 'active' }));
+    expect(space()).toMatchObject({ host: ORG });
+  });
+
+  it('pauses everyone in the space when a payment fails or it ends, and resumes them when it is paid again', async () => {
+    const { database, db, operator, sam, space, members } = await setup();
+    await applySubscription(db, config, subscription(sam.id));
+    const spaceId = String(space()?.id);
+    // Someone Sam invited, and someone Sam paused themselves.
+    const guest = await createProvenEmailUser(db, 'guest@example.com');
+    const add = database.prepare(
+      "INSERT INTO organization_members (org_id, user_id, role, joined_at, paused_at) VALUES (?, ?, 'member', 5, ?)",
+    );
+    add.run(spaceId, guest.id, null);
+    add.run(spaceId, operator.id, 77);
     for (const status of ['past_due', 'unpaid', 'canceled']) {
       await applySubscription(db, config, subscription(sam.id, { status }));
-      expect(member()).toMatchObject({ role: 'member', paused_at: expect.any(Number) });
+      expect(members().filter((member) => member.paused_at === null)).toEqual([]);
+      expect(members()).toHaveLength(3);
     }
-    // A new subscription after the old one ended.
+    // A new subscription after the old one ended: the same space, and only billing's pauses are lifted.
     await applySubscription(db, config, subscription(sam.id, { id: 'sub_2', status: 'active' }));
-    expect(member()).toEqual({ role: 'member', paused_at: null });
+    expect(space()?.id).toBe(spaceId);
+    expect(members()).toEqual(
+      expect.arrayContaining([
+        { user_id: sam.id, role: 'admin', paused_at: null },
+        { user_id: guest.id, role: 'member', paused_at: null },
+        { user_id: operator.id, role: 'member', paused_at: 77 },
+      ]),
+    );
     await expect(findManagedSubscription(db, sam.id)).resolves.toMatchObject({ subscriptionId: 'sub_2' });
   });
 
-  it("never lifts a pause the team's admin made", async () => {
-    const { database, db, sam, member } = await setup();
-    await applySubscription(db, config, subscription(sam.id));
-    database.prepare('UPDATE organization_members SET paused_at = 77 WHERE user_id = ?').run(sam.id);
-    // Stripe reports the same paid subscription again, as it does at every renewal.
-    await applySubscription(db, config, subscription(sam.id, { status: 'active' }));
-    expect(member()).toEqual({ role: 'member', paused_at: 77 });
-    // Nor does a lapse and a payment after it: the admin's pause was there first.
-    await applySubscription(db, config, subscription(sam.id, { status: 'past_due' }));
-    await applySubscription(db, config, subscription(sam.id, { status: 'active' }));
-    expect(member()).toEqual({ role: 'member', paused_at: 77 });
-  });
-
-  it("leaves the team's admin alone, whatever their own subscription does", async () => {
-    const { database, db, operator } = await setup();
-    await applySubscription(db, config, subscription(operator.id, { status: 'canceled' }));
-    expect(
-      database.prepare('SELECT role, paused_at FROM organization_members WHERE user_id = ?').get(operator.id),
-    ).toEqual({ role: 'admin', paused_at: null });
-  });
-
   it("does not end the space when an earlier, replaced subscription's ending arrives late", async () => {
-    const { db, sam, member } = await setup();
+    const { db, sam, members } = await setup();
     await applySubscription(db, config, subscription(sam.id, { status: 'canceled' }));
+    expect(members()).toEqual([]);
     await applySubscription(db, config, subscription(sam.id, { id: 'sub_2', status: 'active' }));
     await applySubscription(db, config, subscription(sam.id, { id: 'sub_1', status: 'canceled' }));
-    expect(member()).toEqual({ role: 'member', paused_at: null });
+    expect(members()).toEqual([{ user_id: sam.id, role: 'admin', paused_at: null }]);
     await expect(findManagedSubscription(db, sam.id)).resolves.toMatchObject({
       subscriptionId: 'sub_2',
       status: 'active',
@@ -121,12 +157,12 @@ describe('a subscription to a space CloudChef runs', () => {
   });
 
   it('finds the person by the customer made for them, and ignores a subscription that is no one’s', async () => {
-    const { db, sam, member } = await setup();
+    const { db, sam, members } = await setup();
     await expect(recordCustomer(db, sam.id, 'cus_1')).resolves.toBe('cus_1');
     // A second checkout keeps the first customer.
     await expect(recordCustomer(db, sam.id, 'cus_other')).resolves.toBe('cus_1');
     await expect(applySubscription(db, config, subscription('', { userId: null }))).resolves.toBe(sam.id);
-    expect(member()).toEqual({ role: 'member', paused_at: null });
+    expect(members()).toEqual([{ user_id: sam.id, role: 'admin', paused_at: null }]);
     await expect(
       applySubscription(db, config, subscription('', { id: 'sub_x', customerId: 'cus_unknown', userId: 'nobody' })),
     ).resolves.toBeNull();
@@ -160,6 +196,12 @@ describe("a space's monthly building allowance", () => {
     if (!price) {
       throw new Error("Pi doesn't list the pinned model");
     }
+    // Someone else in the same team, whose use counts when the whole team's is asked for.
+    const guest = await createProvenEmailUser(db, 'guest@example.com');
+    ran.run(ORG, guest.id, '2026-11-05', 3_600);
+    await expect(spaceUsage(db, CONNECTION, ORG, null, now)).resolves.toMatchObject({
+      usedUsd: expect.closeTo(2 * price.input + price.cacheRead + price.output + 10_800 * CONTAINER_USD_PER_SECOND, 6),
+    });
     const usage = await spaceUsage(db, CONNECTION, ORG, sam.id, now);
     expect(usage.usedUsd).toBeCloseTo(
       2 * price.input + price.cacheRead + price.output + 7_200 * CONTAINER_USD_PER_SECOND,

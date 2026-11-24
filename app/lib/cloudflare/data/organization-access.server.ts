@@ -16,6 +16,11 @@ export type Membership = {
   pausedAt: number | null;
   /** Whether they may build new apps of their own here, or only work on the team projects they're given. */
   draftsAllowed: boolean;
+  /**
+   * A space CloudChef runs: the team builds in the operator's Cloudflare account, so its admin (its subscriber)
+   * runs the team and nobody in it runs the account.
+   */
+  managed: boolean;
 };
 
 /** A Cloudflare account a person can build in, as the workspace switcher lists them. */
@@ -29,6 +34,7 @@ export type WorkspaceContextOption =
       orgName: string;
       role: OrganizationRole;
       draftsAllowed: boolean;
+      managed: boolean;
     };
 
 export async function canUseConnection(
@@ -49,7 +55,7 @@ export async function findMembership(db: D1Database, orgId: string, userId: stri
   const row = await db
     .prepare(
       `SELECT members.org_id, organizations.name AS org_name, members.role, members.paused_at,
-              members.drafts_allowed
+              members.drafts_allowed, organizations.managed_host_org_id IS NOT NULL AS managed
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        WHERE members.org_id = ? AND members.user_id = ?`,
@@ -66,12 +72,12 @@ export async function listWorkspaceContexts(db: D1Database, userId: string): Pro
   const { results } = await db
     .prepare(
       `SELECT connections.id AS connection_id, connections.account_name, NULL AS org_id, NULL AS org_name,
-              NULL AS role, 1 AS drafts_allowed, 0 AS sort_group
+              NULL AS role, 1 AS drafts_allowed, 0 AS managed, 0 AS sort_group
        FROM cloudflare_connections AS connections
        WHERE connections.user_id = ?1 AND connections.status = 'active'
        UNION ALL
        SELECT connections.id, connections.account_name, organizations.id, organizations.name, members.role,
-              members.drafts_allowed, 1
+              members.drafts_allowed, organizations.managed_host_org_id IS NOT NULL, 1
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        JOIN cloudflare_connections AS connections
@@ -92,13 +98,23 @@ export async function listWorkspaceContexts(db: D1Database, userId: string): Pro
           orgName: row.org_name,
           role: row.role,
           draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
+          managed: row.managed === 1,
         },
   );
 }
 
-/** An admin who isn't paused: who may run the team. */
-export function isActiveAdmin(membership: Pick<Membership, 'role' | 'pausedAt'> | null): boolean {
+/** An admin who isn't paused: who may run the team (its people, invites and projects). */
+export function runsTeam(membership: Pick<Membership, 'role' | 'pausedAt'> | null): boolean {
   return membership?.role === 'admin' && membership.pausedAt === null;
+}
+
+/**
+ * Who may act on the team's Cloudflare account itself (connect it, change it directly, approve changes to it,
+ * choose its models): an admin who isn't paused, of a team whose account is its own. In a space CloudChef runs
+ * the account is the operator's, so this is nobody there.
+ */
+export function isActiveAdmin(membership: Pick<Membership, 'role' | 'pausedAt' | 'managed'> | null): boolean {
+  return runsTeam(membership) && membership?.managed === false;
 }
 
 /** Whether a member builds new apps of their own, from its stored flag: an admin always may. */
@@ -127,9 +143,10 @@ type MembershipRow = {
   role: OrganizationRole;
   paused_at: number | null;
   drafts_allowed: number;
+  managed: number;
 };
 
-type ContextRow = { connection_id: string; account_name: string | null; drafts_allowed: number } & (
+type ContextRow = { connection_id: string; account_name: string | null; drafts_allowed: number; managed: number } & (
   { org_id: null; org_name: null; role: null } | { org_id: string; org_name: string; role: OrganizationRole }
 );
 
@@ -140,5 +157,6 @@ function membershipFromRow(row: MembershipRow): Membership {
     role: row.role,
     pausedAt: row.paused_at,
     draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
+    managed: row.managed === 1,
   };
 }

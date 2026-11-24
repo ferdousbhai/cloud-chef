@@ -67,11 +67,12 @@ function TermsPage() {
         </p>
         <p>
           The price covers a monthly allowance of {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} of building: the default
-          model&apos;s work and the time your workspace runs, counted together at Cloudflare&apos;s prices. When a
-          month&apos;s allowance is used up, building stops until the next calendar month; applications you published
-          keep running. If a payment fails or the subscription ends, the space is paused: you can no longer build in it,
-          your published applications keep running for the time being, and the operator may remove them and the
-          space&apos;s contents 30 days later. Download your code first.
+          model&apos;s work and the time workspaces run, counted together at Cloudflare&apos;s prices. You may invite
+          people to build in your space; their building counts against the same allowance, and you answer for what they
+          do there. When a month&apos;s allowance is used up, building stops until the next calendar month; applications
+          you published keep running. If a payment fails or the subscription ends, the space is paused: you can no
+          longer build in it, your published applications keep running for the time being, and the operator may remove
+          them and the space&apos;s contents 30 days later. Download your code first.
         </p>
         <p>
           A space CloudChef runs is in the operator&apos;s Cloudflare account, on addresses the operator controls. The

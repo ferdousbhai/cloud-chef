@@ -3,6 +3,7 @@ import { createAuthSession } from '~/lib/.server/auth';
 import { findManagedSubscription } from '~/lib/cloudflare/data/managed-subscriptions.server';
 import { billingStatusSchema } from '~/lib/managed-space';
 import { controlPlaneDatabase, createProvenEmailUser, envWith } from '~/test/control-plane-d1';
+import type { prepareWorkspaceInBackground } from './cloudflare-integration';
 import {
   billingPortalAction,
   billingStatusAction,
@@ -45,10 +46,16 @@ async function setup(configured = true) {
   const env = envWith({ DB: db, ...billing } as Partial<Env>);
   const sam = await createProvenEmailUser(db, 'sam@example.com');
   const { cookie } = await createAuthSession(env, sam.id, new Request(ORIGIN));
+  /** Sam's place in the space their subscription made, once it has. */
   const member = () =>
     database
-      .prepare('SELECT role, paused_at FROM organization_members WHERE org_id = ? AND user_id = ?')
-      .get(ORG, sam.id);
+      .prepare(
+        `SELECT members.role, members.paused_at FROM organization_members AS members
+         JOIN managed_subscriptions AS subscriptions
+           ON subscriptions.space_org_id = members.org_id AND subscriptions.user_id = members.user_id
+         WHERE members.user_id = ?`,
+      )
+      .get(sam.id);
   return { database, db, env, sam, cookie: cookie.split(';')[0], member };
 }
 
@@ -160,7 +167,7 @@ describe('subscribing to a space CloudChef runs', () => {
 
   it('gives the space on the return from checkout, only for the person the checkout was started for', async () => {
     const { env, sam, cookie, member } = await setup();
-    const prepareWorkspace = vi.fn(async () => undefined);
+    const prepareWorkspace = vi.fn<typeof prepareWorkspaceInBackground>(async () => undefined);
     stripe({
       '/checkout/sessions/cs_other': { client_reference_id: 'someone-else', subscription: 'sub_1' },
       '/checkout/sessions/cs_1': { client_reference_id: sam.id, subscription: 'sub_1' },
@@ -180,8 +187,11 @@ describe('subscribing to a space CloudChef runs', () => {
       prepareWorkspace,
     });
     expect(done.headers.get('location')).toBe(`${ORIGIN}/`);
-    expect(member()).toEqual({ role: 'member', paused_at: null });
+    // A space of their own, which they run, and the builder opens in it.
+    expect(member()).toEqual({ role: 'admin', paused_at: null });
     expect(prepareWorkspace).toHaveBeenCalledOnce();
+    expect(prepareWorkspace.mock.calls[0]?.[2]).toMatchObject({ accountId: 'account-1', status: 'active' });
+    expect(prepareWorkspace.mock.calls[0]?.[2]?.orgId).not.toBe(ORG);
 
     // Subscribed: checkout is refused, and a later subscription has no second free month.
     const again = await startCheckoutAction({ request: request('/api/billing/checkout', cookie), env });

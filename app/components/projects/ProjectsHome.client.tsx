@@ -112,7 +112,7 @@ export function ProjectsHome() {
         <TeamProjects
           orgId={team.orgId}
           admin={team.role === 'admin'}
-          heading="Team projects"
+          heading={team.managed ? 'Projects' : 'Team projects'}
           action={addProject}
           reauthorization={reauthorize ? 'prompt' : null}
           onDialog={setDialog}

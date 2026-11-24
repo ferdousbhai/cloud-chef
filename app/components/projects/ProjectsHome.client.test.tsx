@@ -25,6 +25,7 @@ const teamMember: WorkspaceContext = {
   orgName: 'Acme',
   role: 'member',
   draftsAllowed: false,
+  managed: false,
 };
 const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3', role: 'admin', draftsAllowed: true };
 

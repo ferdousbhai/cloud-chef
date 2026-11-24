@@ -22,6 +22,8 @@ const organizationsSchema = z.object({
       orgName: z.string(),
       role: roleSchema,
       pausedAt: z.number().nullable(),
+      // A space CloudChef runs: its subscriber runs the team, and nobody in it the Cloudflare account.
+      managed: z.boolean(),
       connection: z.object({ accountName: z.string().nullable(), active: z.boolean() }).nullable(),
       members: z
         .array(
@@ -341,9 +343,17 @@ function OrganizationRow({
             {organization.orgName}
           </h3>
           <StatusBadge tone={organization.pausedAt ? 'warning' : 'neutral'}>
-            {organization.pausedAt ? 'Paused' : organization.role === 'admin' ? 'Admin' : 'Member'}
+            {organization.pausedAt
+              ? 'Paused'
+              : organization.role !== 'admin'
+                ? 'Member'
+                : organization.managed
+                  ? 'Yours'
+                  : 'Admin'}
           </StatusBadge>
-          {connection === null ? (
+          {organization.managed ? (
+            <StatusBadge tone="success">Run by CloudChef</StatusBadge>
+          ) : connection === null ? (
             <StatusBadge tone="warning">No Cloudflare account</StatusBadge>
           ) : connection.active ? (
             <StatusBadge tone="success">{connection.accountName ?? 'Cloudflare connected'}</StatusBadge>
@@ -356,22 +366,29 @@ function OrganizationRow({
             ) : connectionId ? (
               <OpenButton connectionId={connectionId} />
             ) : null}
-            {admin && !connection?.active ? (
+            {admin && !organization.managed && !connection?.active ? (
               <Button size="xs" variant="primary" onClick={connectCloudflare}>
                 Connect Cloudflare
               </Button>
             ) : null}
             {admin ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
-                <MenuItem action={() => setRenaming(true)}>Rename team</MenuItem>
-                {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
-                {connection?.active ? (
-                  <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
-                ) : null}
-                <MenuSeparator />
-                <MenuItem danger action={() => setDialog('delete')}>
-                  Delete team
+                <MenuItem action={() => setRenaming(true)}>
+                  {organization.managed ? 'Rename space' : 'Rename team'}
                 </MenuItem>
+                {/* A space CloudChef runs has no account of its own to reconnect, and ends with its subscription. */}
+                {organization.managed ? null : (
+                  <>
+                    {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
+                    {connection?.active ? (
+                      <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
+                    ) : null}
+                    <MenuSeparator />
+                    <MenuItem danger action={() => setDialog('delete')}>
+                      Delete team
+                    </MenuItem>
+                  </>
+                )}
               </MoreMenu>
             ) : myUserId ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
@@ -404,6 +421,7 @@ function OrganizationRow({
                   member={member}
                   projects={projects}
                   self={member.userId === myUserId}
+                  managed={organization.managed}
                   onChanged={onChanged}
                   onFeedback={setPeopleFeedback}
                 />
@@ -566,15 +584,18 @@ function InviteDialog({
               onChange={(event) => setEmail(event.target.value)}
               className="min-w-0 flex-1 basis-48"
             />
-            <select
-              aria-label="Role"
-              value={role}
-              onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
-              className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
+            {/* A space CloudChef runs has one person running it: everyone invited is a member. */}
+            {organization.managed ? null : (
+              <select
+                aria-label="Role"
+                value={role}
+                onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
+                className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+            )}
           </div>
           {role === 'member' ? (
             <>
@@ -843,6 +864,7 @@ function MemberRow({
   member,
   projects,
   self,
+  managed,
   onChanged,
   onFeedback,
 }: {
@@ -852,6 +874,8 @@ function MemberRow({
   projects: OrgProject[];
   /** The admin's own row: no pausing themselves, a confirmed step down, and removal is leaving. */
   self: boolean;
+  /** In a space CloudChef runs: its subscriber stays the one who runs it, so no roles change and they don't leave. */
+  managed: boolean;
   onChanged: () => Promise<void>;
   onFeedback: (feedback: Feedback) => void;
 }) {
@@ -920,7 +944,7 @@ function MemberRow({
             {self ? <span className="text-content-tertiary"> (you)</span> : null}
           </span>
           {member.pausedAt ? <StatusBadge tone="warning">Paused</StatusBadge> : null}
-          {member.role === 'admin' ? <StatusBadge>Admin</StatusBadge> : null}
+          {member.role === 'admin' ? <StatusBadge>{managed ? 'Runs this space' : 'Admin'}</StatusBadge> : null}
           {member.role === 'member' && !member.draftsAllowed ? <StatusBadge>Given projects only</StatusBadge> : null}
         </div>
         <p
@@ -932,33 +956,37 @@ function MemberRow({
           {member.usage.turns} {member.usage.turns === 1 ? 'turn' : 'turns'}, {compactCount(tokens)} tokens this month
         </p>
       </div>
-      <MoreMenu title={`Manage ${who}`}>
-        {self ? null : (
-          <MenuItem action={() => void act(member.pausedAt ? 'resume' : 'pause')}>
-            {member.pausedAt ? 'Resume' : 'Pause'}
+      {managed && self ? null : (
+        <MoreMenu title={`Manage ${who}`}>
+          {self ? null : (
+            <MenuItem action={() => void act(member.pausedAt ? 'resume' : 'pause')}>
+              {member.pausedAt ? 'Resume' : 'Pause'}
+            </MenuItem>
+          )}
+          {member.role === 'member' ? (
+            // Without their own apps, a member works only on the projects they're given and never gets the
+            // team's Cloudflare authorization.
+            <MenuItem action={() => void act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}>
+              {member.draftsAllowed ? 'Stop new apps of their own' : 'Allow new apps of their own'}
+            </MenuItem>
+          ) : null}
+          {managed ? null : (
+            <MenuItem
+              action={() =>
+                member.role === 'admin' && self
+                  ? setConfirming('make_member')
+                  : void act(member.role === 'admin' ? 'make_member' : 'make_admin')
+              }
+            >
+              {member.role === 'admin' ? 'Make member' : 'Make admin'}
+            </MenuItem>
+          )}
+          <MenuSeparator />
+          <MenuItem danger action={() => setConfirming('remove')}>
+            {self ? 'Leave team' : managed ? 'Remove from space' : 'Remove from team'}
           </MenuItem>
-        )}
-        {member.role === 'member' ? (
-          // Without their own apps, a member works only on the projects they're given and never gets the
-          // team's Cloudflare authorization.
-          <MenuItem action={() => void act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}>
-            {member.draftsAllowed ? 'Stop new apps of their own' : 'Allow new apps of their own'}
-          </MenuItem>
-        ) : null}
-        <MenuItem
-          action={() =>
-            member.role === 'admin' && self
-              ? setConfirming('make_member')
-              : void act(member.role === 'admin' ? 'make_member' : 'make_admin')
-          }
-        >
-          {member.role === 'admin' ? 'Make member' : 'Make admin'}
-        </MenuItem>
-        <MenuSeparator />
-        <MenuItem danger action={() => setConfirming('remove')}>
-          {self ? 'Leave team' : 'Remove from team'}
-        </MenuItem>
-      </MoreMenu>
+        </MoreMenu>
+      )}
       {self && confirming === 'remove' ? (
         <LeaveOrganization orgId={orgId} orgName={orgName} myUserId={member.userId} onCancel={cancel} />
       ) : confirming ? (

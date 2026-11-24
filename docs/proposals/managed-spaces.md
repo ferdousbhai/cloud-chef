@@ -2,12 +2,13 @@
 
 Status: proposal (wave 1, item 4). Builds in wave 3, item 2. No product code changes with this document.
 
-Built ahead of this design, 2026-11-21: subscriptions to a space that is a membership of one team in the operator's
-own Cloudflare account (`app/server-handlers/billing.ts`), because Tenant API access is not granted yet. It has the
-plan and the hard stop described here, with the allowance counted from builder tokens and workspace container time, and none of the
-per-space account isolation: a member's build or deploy code can still reach another member's application
-databases through the deploy policy (`app/lib/.server/cloudflare/deploy-api-policy.ts`). The per-account design
-below replaces it once Cloudflare grants the Tenant API.
+Built ahead of this design, 2026-11-21 to 24: subscriptions to a space that is a team of the subscriber's own in the
+operator's own Cloudflare account (`app/server-handlers/billing.ts`), which they run and invite people into. It has
+the plan and the hard stop described here, with the allowance counted from builder tokens and workspace container
+time, and none of the per-space account isolation: build or deploy code in one space can still reach another
+space's application databases through the deploy policy (`app/lib/.server/cloudflare/deploy-api-policy.ts`).
+Cloudflare answered on 2026-11-23 that its Agency Partner Program, which gives the Tenant API, is closed to new
+participants, so the per-account design below has no route at present.
 
 ## Problem
 

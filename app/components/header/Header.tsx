@@ -42,7 +42,9 @@ export function Header() {
   const session = authClient.useSession().data;
   const user = session?.user ?? null;
   const teamAdmin =
-    session?.contexts.some((context) => context.kind === 'organization' && context.role === 'admin') ?? false;
+    session?.contexts.some(
+      (context) => context.kind === 'organization' && context.role === 'admin' && !context.managed,
+    ) ?? false;
   // Approvals are in the sidebar; while some wait, its button says so.
   const waitingApprovals = useWaitingApprovals(teamAdmin);
   // An agent in the browser gets a few of CloudChef's actions as tools, while someone is signed in to build.

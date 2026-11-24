@@ -87,7 +87,7 @@ export function CloudflareReauthorizePrompt({
     }
   };
 
-  const canGrant = team === null || team.role === 'admin';
+  const canGrant = team === null || (team.role === 'admin' && !team.managed);
   return (
     <div
       role="status"

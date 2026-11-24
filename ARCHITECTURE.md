@@ -154,24 +154,29 @@ making an account for an address CloudChef hasn't seen (an account first made wi
 with it), and the person then chooses a username (`/<username>`) before anything else. A session works in one
 context, a connection the person may use, chosen with the workspace switcher; a tab names the context it opened in
 on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
-person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a team's space,
-reached by its admin's invite, or their own Cloudflare account, connected there after a short list of what happens
-on Cloudflare's site; or a space CloudChef runs, by subscription. That space is a membership of one team in
-CloudChef's own Cloudflare account (`MANAGED_SPACE_ORG_ID`), paid for through Stripe (`STRIPE_PRICE_ID`, CloudChef's
+person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a space CloudChef
+runs, by subscription; their own Cloudflare account, connected there after a short list of what happens on
+Cloudflare's site; or someone else's space, reached by an invite from whoever runs it. A space CloudChef runs is a
+team of the subscriber's own (`organizations.managed_host_org_id`) with its own connection to the Cloudflare
+account of the host team (`MANAGED_SPACE_ORG_ID`), the operator's, paid for through Stripe (`STRIPE_PRICE_ID`, CloudChef's
 own portal configuration in a Stripe account shared with other products, and the secrets `STRIPE_SECRET_KEY` and
 `STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and charges the first month,
 its webhook (`POST /api/billing/webhook`) reports every change, and
-`app/lib/cloudflare/data/managed-subscriptions.server.ts` adds the person to the team while the subscription is in
-a free period or paid, pauses them there when it lapses, and resumes only a pause it made itself. Everything a
-team member is kept from holds for them. Each finished turn's tokens, priced at the team's default model, and the time
-their workspace container runs, which the runtime reports as it goes (`countContainerTime` in
+`app/lib/cloudflare/data/managed-subscriptions.server.ts` makes the space the first time the subscription is in a
+free period or paid, pauses everyone in it when it lapses, and resumes only the pauses it made itself. The
+subscriber is the space's admin and runs it (`runsTeam`: invites, members, projects, GitHub imports), and nobody in
+it has an admin's powers over the Cloudflare account (`isActiveAdmin` is false there): no `cf` reads or changes, no
+approvals, no connecting or reauthorizing, no model or key settings, which follow the host team's, and no
+publishing over a Worker already in the account. The subscriber neither leaves nor deletes the space, which ends
+with the subscription. Everyone's finished turns' tokens, priced at the host team's default model, and the time
+their workspace containers run, which the runtime reports as it goes (`countContainerTime` in
 `user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
 smaller than the plan's price (`MANAGED_SPACE_MONTHLY_ALLOWANCE_USD`), and `runtime-access` refuses the next model request and the next start of the container
 once it is used
 (`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
 choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);
-`pnpm run ops` counts both. The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` wait on
-Cloudflare's Tenant API. It's asked when they
+`pnpm run ops` counts both. The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` are not
+available: Cloudflare's partner program that gives the Tenant API is closed to new participants (2026-11-23). It's asked when they
 try to build, and the account menu offers it until they have a space.
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own

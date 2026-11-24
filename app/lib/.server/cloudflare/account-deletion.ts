@@ -43,7 +43,9 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   // as it writes: only another admin stepping down in between can still refuse it there, after the
   // workspaces and the teams only they belonged to are gone, and a retry then picks up from there.
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
-    throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
+    throw new OrganizationAdminRequiredError(
+      'Make someone else an admin of your team first, or remove the people you invited into your space.',
+    );
   }
   // While each team's authorization still works: nothing reaches those workspaces once it's revoked.
   const workspacesLeftIn = await deleteTeamWorkspaces(

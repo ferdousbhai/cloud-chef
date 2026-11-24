@@ -5,11 +5,13 @@ import { MANAGED_SPACE_MONTHLY_ALLOWANCE_USD } from '~/lib/managed-space';
 import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
 
 /**
- * Subscriptions to a space CloudChef runs (`migrations/0068_managed_subscriptions.sql`). A space is a
- * membership of one team in CloudChef's own Cloudflare account (`MANAGED_SPACE_ORG_ID`): a subscription
- * in good standing adds the person to it, one that lapses pauses them there, and paying again resumes
- * them. Everything a team member is and is kept from (`canUseConnection`, their own workspace runtime,
- * `cf` reads refused) holds for them unchanged.
+ * Subscriptions to a space CloudChef runs (`migrations/0068_managed_subscriptions.sql`, `0070_managed_spaces.sql`).
+ * A space is a team of the subscriber's own that builds in the operator's Cloudflare account, the one the host
+ * team (`MANAGED_SPACE_ORG_ID`) is connected to: the first subscription in good standing makes it, with its
+ * subscriber as the admin who runs it and may invite people into it; one that lapses pauses everyone in it, and
+ * paying again resumes them. Nobody in a space has an admin's powers over the Cloudflare account
+ * (`isActiveAdmin`), and everything a team member is kept from (`canUseConnection`, their own workspace runtime,
+ * `cf` reads refused) holds for all of them.
  */
 export type ManagedSubscription = {
   userId: string;
@@ -19,6 +21,8 @@ export type ManagedSubscription = {
   trialEndsAt: number | null;
   currentPeriodEndsAt: number | null;
   cancelsAtPeriodEnd: boolean;
+  /** The space this subscription gave them; null before the first one in good standing. */
+  spaceOrgId: string | null;
 };
 
 type SubscriptionRow = {
@@ -29,10 +33,11 @@ type SubscriptionRow = {
   trial_ends_at: number | null;
   current_period_ends_at: number | null;
   cancels_at_period_end: number;
+  space_org_id: string | null;
 };
 
 const COLUMNS = `user_id, stripe_customer_id, stripe_subscription_id, status, trial_ends_at, current_period_ends_at,
-  cancels_at_period_end`;
+  cancels_at_period_end, space_org_id`;
 
 function fromRow(row: SubscriptionRow): ManagedSubscription {
   return {
@@ -43,6 +48,7 @@ function fromRow(row: SubscriptionRow): ManagedSubscription {
     trialEndsAt: row.trial_ends_at,
     currentPeriodEndsAt: row.current_period_ends_at,
     cancelsAtPeriodEnd: row.cancels_at_period_end === 1,
+    spaceOrgId: row.space_org_id,
   };
 }
 
@@ -132,27 +138,27 @@ export async function applySubscription(
 }
 
 /**
- * Makes the person's membership of the managed team match their subscription. A pause billing makes is
- * marked on the subscription (`space_paused_at`), so paying again lifts only that pause and never one an
- * admin made; an admin of the team is never touched.
+ * Makes the person's space match their subscription: made the first time it is in good standing, everyone in it
+ * paused while it isn't, and resumed when it is again. A pause billing makes carries the time on the subscription
+ * (`space_paused_at`), so paying again lifts exactly those pauses and never one the space's own admin made.
  */
-async function syncSpace(db: D1Database, orgId: string, userId: string, hasSpace: boolean, now: number): Promise<void> {
+async function syncSpace(
+  db: D1Database,
+  hostOrgId: string,
+  userId: string,
+  hasSpace: boolean,
+  now: number,
+): Promise<void> {
+  const theirSpace = '(SELECT space_org_id FROM managed_subscriptions WHERE user_id = ?1)';
+  const pausedByBilling = '(SELECT space_paused_at FROM managed_subscriptions WHERE user_id = ?1)';
   if (hasSpace) {
+    await makeSpace(db, hostOrgId, userId, now);
     await db.batch([
       db
         .prepare(
-          `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
-           SELECT id, ?2, 'member', ?3, 1 FROM organizations WHERE id = ?1
-           ON CONFLICT(org_id, user_id) DO NOTHING`,
+          `UPDATE organization_members SET paused_at = NULL WHERE org_id = ${theirSpace} AND paused_at = ${pausedByBilling}`,
         )
-        .bind(orgId, userId, now),
-      db
-        .prepare(
-          `UPDATE organization_members SET paused_at = NULL
-           WHERE org_id = ?1 AND user_id = ?2 AND role = 'member'
-             AND EXISTS (SELECT 1 FROM managed_subscriptions WHERE user_id = ?2 AND space_paused_at IS NOT NULL)`,
-        )
-        .bind(orgId, userId),
+        .bind(userId),
       db.prepare('UPDATE managed_subscriptions SET space_paused_at = NULL WHERE user_id = ?').bind(userId),
     ]);
     return;
@@ -160,18 +166,60 @@ async function syncSpace(db: D1Database, orgId: string, userId: string, hasSpace
   await db.batch([
     db
       .prepare(
-        `UPDATE managed_subscriptions SET space_paused_at = ?3
-         WHERE user_id = ?2 AND space_paused_at IS NULL
-           AND EXISTS (SELECT 1 FROM organization_members
-                       WHERE org_id = ?1 AND user_id = ?2 AND role = 'member' AND paused_at IS NULL)`,
+        `UPDATE managed_subscriptions SET space_paused_at = ?2
+         WHERE user_id = ?1 AND space_paused_at IS NULL AND space_org_id IS NOT NULL`,
+      )
+      .bind(userId, now),
+    db
+      .prepare(
+        `UPDATE organization_members SET paused_at = ${pausedByBilling}
+         WHERE org_id = ${theirSpace} AND paused_at IS NULL AND ${pausedByBilling} IS NOT NULL`,
+      )
+      .bind(userId),
+  ]);
+}
+
+/** The subscription row has no space: none was made yet, or the one made was since deleted. */
+const NO_SPACE = `(space_org_id IS NULL
+  OR NOT EXISTS (SELECT 1 FROM organizations WHERE organizations.id = managed_subscriptions.space_org_id))`;
+
+/**
+ * Makes the subscriber's space unless they have one: a team named for them, with them as its admin, and its own
+ * connection to the Cloudflare account the host team is connected to. All of it or none, in one write, so two
+ * deliveries about the same subscription make one space; none while the host team's account isn't connected.
+ */
+async function makeSpace(db: D1Database, hostOrgId: string, userId: string, now: number): Promise<void> {
+  const person = await db.prepare('SELECT name FROM "user" WHERE id = ?').bind(userId).first<{ name: string }>();
+  const firstName = person?.name.trim().split(/\s+/)[0]?.slice(0, 40);
+  const orgId = crypto.randomUUID();
+  const made = 'EXISTS (SELECT 1 FROM organizations WHERE id = ?1)';
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at, updated_at, managed_host_org_id)
+         SELECT ?1, ?2, ?3, ?4, ?4, host.org_id FROM cloudflare_connections AS host
+         WHERE host.org_id = ?5 AND host.status = 'active'
+           AND EXISTS (SELECT 1 FROM managed_subscriptions WHERE user_id = ?3 AND ${NO_SPACE})`,
+      )
+      .bind(orgId, firstName ? `${firstName}’s space` : 'My space', userId, now, hostOrgId),
+    db
+      .prepare(
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
+         SELECT ?1, ?2, 'admin', ?3, 1 WHERE ${made}`,
       )
       .bind(orgId, userId, now),
     db
       .prepare(
-        `UPDATE organization_members SET paused_at = ?3
-         WHERE org_id = ?1 AND user_id = ?2 AND role = 'member' AND paused_at IS NULL`,
+        `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, connected_at, created_at, updated_at)
+         SELECT ?2, ?1, host.account_id, 'CloudChef', 'active', ?3, ?3, ?3 FROM cloudflare_connections AS host
+         WHERE host.org_id = ?4 AND ${made}`,
       )
-      .bind(orgId, userId, now),
+      .bind(orgId, crypto.randomUUID(), now, hostOrgId),
+    db
+      .prepare(
+        `UPDATE managed_subscriptions SET space_org_id = ?1 WHERE user_id = ?2 AND space_org_id IS NOT ?1 AND ${made}`,
+      )
+      .bind(orgId, userId),
   ]);
 }
 
@@ -207,16 +255,17 @@ export const CONTAINER_USD_PER_SECOND = 12 * 0.0000025 + 20 * 0.00000007 + 0.000
 export type SpaceUsage = { usedUsd: number; allowanceUsd: number; resetsAt: number };
 
 /**
- * What the person's building in the managed team cost so far this month, against the month's allowance: their
- * builder turns' tokens at the list price of the team's default model (its admin should allow no dearer one),
- * and their workspace container's running time. Both come from `organization_usage_daily`, which every finished
- * turn and every stretch of container time adds to.
+ * What building in the team `orgId` cost so far this month, against the month's allowance: everyone's in it, or
+ * `userId`'s alone. Builder turns' tokens are priced at the list price of the default model of the connection
+ * `connectionId` (the host team's for a space; its admins should allow no dearer one), and the workspace
+ * containers' running time at Cloudflare's. Both come from `organization_usage_daily`, which every finished turn
+ * and every stretch of container time adds to.
  */
 export async function spaceUsage(
   db: D1Database,
-  managedConnectionId: string,
+  connectionId: string,
   orgId: string,
-  userId: string,
+  userId: string | null,
   now = Date.now(),
 ): Promise<SpaceUsage> {
   const today = new Date(now);
@@ -227,11 +276,11 @@ export async function spaceUsage(
       .prepare(
         `SELECT COALESCE(SUM(input_tokens), 0) AS input, COALESCE(SUM(output_tokens), 0) AS output,
                 COALESCE(SUM(cached_tokens), 0) AS cached, COALESCE(SUM(container_seconds), 0) AS containerSeconds
-         FROM organization_usage_daily WHERE org_id = ? AND user_id = ? AND day >= ?`,
+         FROM organization_usage_daily WHERE org_id = ?1 AND (?2 IS NULL OR user_id = ?2) AND day >= ?3`,
       )
       .bind(orgId, userId, monthStart.toISOString().slice(0, 10))
       .first<{ input: number; output: number; cached: number; containerSeconds: number }>(),
-    readBuilderModelSettings(db, managedConnectionId),
+    readBuilderModelSettings(db, connectionId),
   ]);
   const modelId = effectiveDefaultModelId(defaultModelId);
   const price = piWorkersAiModel(modelId)?.cost ?? piGatewayModel(modelId)?.model.cost;
