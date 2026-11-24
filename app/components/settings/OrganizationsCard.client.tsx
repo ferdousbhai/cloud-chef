@@ -142,6 +142,8 @@ export function OrganizationsCard() {
   }, [organizations]);
 
   const personal = session?.contexts.find((option) => option.kind === 'personal') ?? null;
+  // A space of the person's own that CloudChef runs is theirs, not a team they are in: it is under Your space.
+  const teams = organizations?.filter((organization) => !isOwnSpace(organization)) ?? null;
 
   return (
     <SettingsCard
@@ -151,7 +153,7 @@ export function OrganizationsCard() {
       action={
         <Button
           size="sm"
-          variant={organizations?.length === 0 ? 'primary' : 'neutral'}
+          variant={teams?.length === 0 ? 'primary' : 'neutral'}
           icon={<PlusIcon aria-hidden />}
           onClick={() => setCreating(true)}
         >
@@ -170,12 +172,12 @@ export function OrganizationsCard() {
           Loading…
         </p>
       ) : null}
-      {organizations?.length === 0 ? (
+      {teams?.length === 0 ? (
         <p className="mt-4 text-sm text-content-secondary">You&apos;re not in a team yet.</p>
       ) : null}
       <div className="mt-4 grid min-w-0 gap-3">
         {/* Someone working in a team can always go back to their own account. */}
-        {personal && organizations?.length ? (
+        {personal && teams?.length ? (
           <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-bolt-elements-borderColor px-3 py-2.5">
             <span className="min-w-0 flex-1 truncate text-sm" title={personal.accountName ?? undefined}>
               Personal
@@ -188,7 +190,7 @@ export function OrganizationsCard() {
             )}
           </div>
         ) : null}
-        {organizations?.map((organization) => (
+        {teams?.map((organization) => (
           <OrganizationRow
             key={organization.orgId}
             organization={organization}
@@ -267,6 +269,55 @@ function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChang
   );
 }
 
+/** A space CloudChef runs that is this person's own: the one their subscription made, which they run. */
+function isOwnSpace(organization: Organization): boolean {
+  return organization.managed && organization.role === 'admin';
+}
+
+/**
+ * The people in the space a person's subscription gave them, inside Your space: alone, an offer to invite
+ * someone and what that adds; with others, who they are, the name they see the space by, and its projects.
+ * Nothing until it loads, or for a space that is paused.
+ */
+export function OwnSpacePeople() {
+  const { data: session } = authClient.useSession();
+  const [space, setSpace] = useState<Organization | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reload = useCallback(
+    () =>
+      getJson('/api/organizations', organizationsSchema, 'Unable to load the people in your space.').then(
+        ({ organizations }) => {
+          setSpace(organizations.find(isOwnSpace) ?? null);
+          setError(null);
+        },
+        (loadError) => setError(messageOf(loadError, 'Unable to load the people in your space.')),
+      ),
+    [],
+  );
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+  if (error) {
+    return <FeedbackLine feedback={errorFeedback(error)} className="mt-4" />;
+  }
+  if (!space || space.pausedAt !== null) {
+    return null;
+  }
+  return (
+    <OrganizationRow
+      own
+      organization={space}
+      connectionId={null}
+      current={session?.context?.kind === 'organization' && session.context.orgId === space.orgId}
+      myUserId={session?.user.id ?? null}
+      // The switcher calls the space Personal until someone else is in it.
+      onChanged={async () => {
+        await Promise.all([reload(), refreshSession()]);
+      }}
+    />
+  );
+}
+
 /** Opens another account to build in; a refusal is shown as a toast, since the page stays. */
 function OpenButton({ connectionId }: { connectionId: string }) {
   const [opening, setOpening] = useState(false);
@@ -289,7 +340,10 @@ function OrganizationRow({
   current,
   myUserId,
   onChanged,
+  own = false,
 }: {
+  /** The person's own space, shown inside Your space: no team heading, and alone in it no list of people. */
+  own?: boolean;
   organization: Organization;
   connectionId: string | null;
   current: boolean;
@@ -304,6 +358,8 @@ function OrganizationRow({
   const connection = organization.connection;
   const projects = organization.projects;
   const people = (organization.members?.length ?? 0) + (organization.invites?.length ?? 0);
+  // Alone in their own space, with nobody invited: there is no team to show yet.
+  const alone = own && people <= 1;
 
   const connectCloudflare = () =>
     void runRequest(
@@ -325,8 +381,8 @@ function OrganizationRow({
     );
 
   return (
-    <div className="min-w-0 rounded-md border border-bolt-elements-borderColor p-3 sm:p-4">
-      {renaming ? (
+    <div className={own ? 'min-w-0' : 'min-w-0 rounded-md border border-bolt-elements-borderColor p-3 sm:p-4'}>
+      {own && !renaming ? null : renaming ? (
         <RenameTeam
           orgId={organization.orgId}
           orgName={organization.orgName}
@@ -413,7 +469,24 @@ function OrganizationRow({
                 Invite
               </Button>
             </div>
-            <ul className="grid min-w-0 divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
+            {alone ? (
+              <p className="text-xs text-content-tertiary">
+                Only you so far. Invite someone to build here with you: each person adds{' '}
+                {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month to your subscription once they join, and{' '}
+                {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the building you share.
+              </p>
+            ) : own && !renaming ? (
+              <p className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-content-tertiary">
+                <span className="min-w-0 wrap-break-word">They see your space as {organization.orgName}.</span>
+                <Button size="xs" variant="neutral" onClick={() => setRenaming(true)}>
+                  Rename
+                </Button>
+              </p>
+            ) : null}
+            <ul
+              hidden={alone}
+              className="grid min-w-0 divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor"
+            >
               {organization.members?.map((member) => (
                 <MemberRow
                   key={member.userId}
@@ -455,19 +528,23 @@ function OrganizationRow({
             </ul>
             <FeedbackLine feedback={peopleFeedback} className="" />
           </div>
-          <OrgProjectsSection
-            orgId={organization.orgId}
-            github={organization.github}
-            projects={projects}
-            members={organization.members ?? []}
-            onChanged={onChanged}
-          />
+          {/* Alone, their projects are on the home page; here only once GitHub is connected, to manage that. */}
+          {alone && organization.github.length === 0 ? null : (
+            <OrgProjectsSection
+              orgId={organization.orgId}
+              github={organization.github}
+              projects={projects}
+              members={organization.members ?? []}
+              onChanged={onChanged}
+              space={organization.managed}
+            />
+          )}
         </>
-      ) : (
+      ) : own ? null : (
         <MyOrgProjects projects={projects} />
       )}
       {dialog === 'invite' ? (
-        <InviteDialog organization={organization} onChanged={onChanged} onClose={() => setDialog(null)} />
+        <InviteDialog organization={organization} alone={alone} onChanged={onChanged} onClose={() => setDialog(null)} />
       ) : dialog === 'delete' ? (
         <DeleteTeam orgId={organization.orgId} orgName={organization.orgName} onCancel={() => setDialog(null)} />
       ) : dialog === 'leave' && myUserId ? (
@@ -485,9 +562,12 @@ function OrganizationRow({
 /** Inviting someone by email: their role, whether they may start apps of their own, and their projects. */
 function InviteDialog({
   organization,
+  alone = false,
   onChanged,
   onClose,
 }: {
+  /** The first invitation to a person's own space, which until now was theirs alone. */
+  alone?: boolean;
   organization: Organization;
   onChanged: () => Promise<void>;
   onClose: () => void;
@@ -549,8 +629,12 @@ function InviteDialog({
 
   return (
     <Modal
-      title={`Invite to ${organization.orgName}`}
-      description="They sign in with Google or an emailed link."
+      title={alone ? 'Invite someone to your space' : `Invite to ${organization.orgName}`}
+      description={
+        alone
+          ? `They sign in with Google or an emailed link, and see your space as ${organization.orgName}.`
+          : 'They sign in with Google or an emailed link.'
+      }
       onClose={onClose}
     >
       {inviteUrl ? (
@@ -737,7 +821,7 @@ function RenameTeam({
       await postJson('/api/organizations/rename', { orgId, name: name.trim() }, noContentSchema);
       await onDone(true);
     } catch (renameError) {
-      setFeedback(errorFeedback(messageOf(renameError, 'Unable to rename the team.')));
+      setFeedback(errorFeedback(messageOf(renameError, 'That name could not be saved.')));
       setSaving(false);
     }
   };

@@ -38,6 +38,7 @@ import {
 } from '~/lib/.server/cloudflare/shared-project';
 import { usableWorkspaceRuntime } from './cloudflare-integration';
 import { signedIn } from './signed-in';
+import { PERSONAL_WORKSPACE_NAME, workspaceName } from '~/lib/workspace-name';
 import { usernameProblem } from '~/lib/usernames';
 import { forgetMediaOfPrivateProject, recordCopy } from '~/lib/cloudflare/data/posts.server';
 import { deleteGoneMediaBestEffort } from '~/lib/.server/showcase/media';
@@ -210,10 +211,11 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
     return Response.json({ error: 'Use a command-line token from CloudChef Settings.' }, { status: 401 });
   }
   const origin = publicOrigin(request);
+  const contexts = await listWorkspaceContexts(env.DB, userId);
   const accounts = await Promise.all(
-    (await listWorkspaceContexts(env.DB, userId)).map(async (context) => {
+    contexts.map(async (context) => {
       const projects = await listAccessibleProjects(env.DB, context.connectionId, userId);
-      const account = context.kind === 'organization' ? context.orgName : 'Personal';
+      const account = workspaceName(context, contexts);
       return Promise.all(
         projects.map(async (project) => {
           const publish =
@@ -561,13 +563,11 @@ export async function commandLineCreateProjectAction({
   if (!name) {
     return Response.json({ error: 'Name the project.' }, { status: 400 });
   }
-  const wanted = url.searchParams.get('account') ?? 'Personal';
+  const wanted = url.searchParams.get('account') ?? PERSONAL_WORKSPACE_NAME;
   const contexts = await listWorkspaceContexts(env.DB, userId);
-  const context = contexts.find((option) =>
-    option.kind === 'organization' ? option.orgName === wanted : wanted === 'Personal',
-  );
+  const context = contexts.find((option) => workspaceName(option, contexts) === wanted);
   if (!context) {
-    const names = contexts.map((option) => (option.kind === 'organization' ? option.orgName : 'Personal'));
+    const names = contexts.map((option) => workspaceName(option, contexts));
     return Response.json({ error: `No account named ${wanted}. Yours: ${names.join(', ')}.` }, { status: 404 });
   }
   const runtime = await runtimeFor(request, env, userId, context.connectionId);
@@ -937,7 +937,7 @@ export async function commandLineCopyProjectAction({
   if (!source) {
     return Response.json({ error: 'That project isn’t one you can copy.' }, { status: 404 });
   }
-  const context = await accountNamed(env, userId, body.data.account ?? 'Personal');
+  const context = await accountNamed(env, userId, body.data.account ?? PERSONAL_WORKSPACE_NAME);
   if ('error' in context) {
     return Response.json({ error: context.error }, { status: 404 });
   }
@@ -966,11 +966,9 @@ export async function commandLineCopyProjectAction({
 /** The account the person calls `name`: Personal, or one of their teams by its name. */
 async function accountNamed(env: Env, userId: string, name: string) {
   const contexts = await listWorkspaceContexts(env.DB, userId);
-  const context = contexts.find((option) =>
-    option.kind === 'organization' ? option.orgName === name : name === 'Personal',
-  );
+  const context = contexts.find((option) => workspaceName(option, contexts) === name);
   if (!context) {
-    const names = contexts.map((option) => (option.kind === 'organization' ? option.orgName : 'Personal'));
+    const names = contexts.map((option) => workspaceName(option, contexts));
     return { error: `No account named ${name}. Yours: ${names.join(', ')}.` };
   }
   return context;

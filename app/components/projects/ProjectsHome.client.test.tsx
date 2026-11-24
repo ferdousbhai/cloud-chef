@@ -26,6 +26,7 @@ const teamMember: WorkspaceContext = {
   role: 'member',
   draftsAllowed: false,
   managed: false,
+  solo: false,
 };
 const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3', role: 'admin', draftsAllowed: true };
 

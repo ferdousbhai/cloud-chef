@@ -44,7 +44,7 @@ export function HomeIntro({
             {projectsOnly !== null ? (
               <div className="cloudchef-home-composer-stack" role="status">
                 <p className="app-page-lede mx-auto wrap-break-word text-center">
-                  {projectsOnly} lets you work on its team projects. Choose one below to start.
+                  {projectsOnly} lets you work on the projects it gave you. Choose one below to start.
                 </p>
               </div>
             ) : (

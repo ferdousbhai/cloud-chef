@@ -439,7 +439,8 @@ function workspaceLabel(context: CloudflareAuthSession['context']): string | nul
     return null;
   }
   if (context.kind === 'organization' && context.managed) {
-    return `${context.orgName}, which CloudChef runs`;
+    // Alone in it, it is the person's own space; with others, it goes by its name.
+    return context.solo ? 'your space, which CloudChef runs' : `${context.orgName}, which CloudChef runs`;
   }
   if (context.kind === 'organization') {
     return `the ${context.orgName} team${context.accountName ? ` (Cloudflare account ${context.accountName})` : ''}`;

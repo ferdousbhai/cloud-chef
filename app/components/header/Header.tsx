@@ -13,6 +13,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm';
 import { useWebMcpTools } from '~/lib/webmcp.client';
+import { workspaceName } from '~/lib/workspace-name';
 import { useUnreadNotifications } from '~/lib/showcase-api';
 
 const ProjectMenu = lazy(() => import('./ProjectMenu.client').then((module) => ({ default: module.ProjectMenu })));
@@ -52,7 +53,7 @@ export function Header() {
   useWebMcpTools(
     context
       ? {
-          account: context.kind === 'organization' ? context.orgName : 'Personal',
+          account: workspaceName(context, session?.contexts ?? []),
           mayStartProjects: context.kind !== 'organization' || context.draftsAllowed,
         }
       : null,

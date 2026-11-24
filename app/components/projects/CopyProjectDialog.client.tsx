@@ -4,6 +4,7 @@ import { Modal } from '@ui/Modal';
 import { Spinner } from '@ui/Spinner';
 import { TextInput } from '@ui/TextInput';
 import { authClient } from '~/lib/auth-client';
+import { workspaceName } from '~/lib/workspace-name';
 import { copyProject } from '~/lib/cloudflare/org-projects.client';
 import { messageOf } from '~/lib/json-request';
 
@@ -21,8 +22,8 @@ export function CopyProjectDialog({
   onOpenProject: (initialId: string) => void;
   onClose: () => void;
 }) {
-  const context = authClient.useSession().data?.context ?? null;
-  const account = context?.kind === 'organization' ? context.orgName : 'Personal';
+  const session = authClient.useSession().data;
+  const account = workspaceName(session?.context ?? { kind: 'personal' }, session?.contexts ?? []);
   const [name, setName] = useState(project.name);
   const [copying, setCopying] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -744,13 +744,13 @@ function TeamProjects({
       ) : projects === null ? (
         <>
           <p className="text-sm text-content-tertiary" role="status">
-            Loading team projects…
+            {`Loading ${heading.toLowerCase()}…`}
           </p>
           <ProjectCardSkeletons />
         </>
       ) : projects.length === 0 ? (
         <p className="text-sm text-content-secondary">
-          {admin ? 'No team projects yet.' : 'No team projects are shared with you yet.'}
+          {admin ? `No ${heading.toLowerCase()} yet.` : `No ${heading.toLowerCase()} are shared with you yet.`}
         </p>
       ) : (
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

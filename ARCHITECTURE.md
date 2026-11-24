@@ -168,7 +168,11 @@ subscriber is the space's admin and runs it (`runsTeam`: invites, members, proje
 it has an admin's powers over the Cloudflare account (`isActiveAdmin` is false there): no `cf` reads or changes, no
 approvals, no connecting or reauthorizing, no model or key settings, which follow the host team's, and no
 publishing over a Worker already in the account. The subscriber neither leaves nor deletes the space, which ends
-with the subscription. Everyone's finished turns' tokens, priced at the host team's default model, and the time
+with the subscription. To its subscriber the space is their own account, not a team: while they are alone in it a
+session's context says so (`solo`), every place that names an account calls it Personal (`workspaceName` in
+`app/lib/workspace-name.ts`, by its own name instead beside a Cloudflare account of their own, so no two are
+Personal), and Settings keeps it under Your space with an offer to invite someone, never among their teams; once
+someone else has joined it goes by its name, which the people in it see. Everyone's finished turns' tokens, priced at the host team's default model, and the time
 their workspace containers run, which the runtime reports as it goes (`countContainerTime` in
 `user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
 smaller than the plan's price (`MANAGED_SPACE_MONTHLY_ALLOWANCE_USD`), and `runtime-access` refuses the next model request and the next start of the container

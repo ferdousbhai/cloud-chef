@@ -4,6 +4,7 @@ import { Menu, MenuItem } from '@ui/Menu';
 import { authClient } from '~/lib/auth-client';
 import { switchAccount } from '~/lib/account-actions.client';
 import type { WorkspaceContext } from '~/lib/.server/auth';
+import { workspaceName } from '~/lib/workspace-name';
 
 /**
  * Which Cloudflare account the builder works in: the person's own, or an organization's they belong
@@ -24,10 +25,12 @@ export function WorkspaceSwitcher({ className, align }: { className?: string; al
         size: 'xs',
         className,
         // The button names the workspace briefly; its Cloudflare account is in the tooltip and the menu.
-        title: current ? `${fullLabel(current)}. Switch account or manage teams` : 'Manage teams',
+        title: current ? `${fullLabel(current, session.contexts)}. Switch account or manage teams` : 'Manage teams',
         children: (
           <>
-            <span className="min-w-0 truncate">{current ? shortLabel(current) : 'No workspace'}</span>
+            <span className="min-w-0 truncate">
+              {current ? workspaceName(current, session.contexts) : 'No workspace'}
+            </span>
             <ChevronDownIcon aria-hidden className="shrink-0" />
           </>
         ),
@@ -60,7 +63,7 @@ function WorkspaceMenuItems() {
         >
           <CheckIcon aria-hidden className={option.connectionId === current?.connectionId ? '' : 'invisible'} />
           <span className="flex min-w-0 flex-col">
-            <span className="wrap-break-word">{shortLabel(option)}</span>
+            <span className="wrap-break-word">{workspaceName(option, session.contexts)}</span>
             {option.accountName ? (
               <span className="wrap-break-word text-xs text-content-tertiary">{option.accountName}</span>
             ) : null}
@@ -70,16 +73,14 @@ function WorkspaceMenuItems() {
       <MenuItem action={organizations}>
         <PlusIcon aria-hidden />
         {/* The session lists only teams with a connected account, so a member of one still unconnected sees Teams too. */}
-        {session.contexts.some((option) => option.kind === 'organization') ? 'Manage teams' : 'Teams'}
+        {/* A space with only its subscriber in it is their own account, not a team to manage. */}
+        {session.contexts.some((option) => option.kind === 'organization' && !option.solo) ? 'Manage teams' : 'Teams'}
       </MenuItem>
     </>
   );
 }
 
-function shortLabel(option: WorkspaceContext) {
-  return option.kind === 'organization' ? option.orgName : 'Personal';
-}
-
-function fullLabel(option: WorkspaceContext) {
-  return option.accountName ? `${shortLabel(option)} · ${option.accountName}` : shortLabel(option);
+function fullLabel(option: WorkspaceContext, all: readonly WorkspaceContext[]) {
+  const name = workspaceName(option, all);
+  return option.accountName ? `${name} · ${option.accountName}` : name;
 }

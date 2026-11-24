@@ -49,7 +49,10 @@ export function OrgProjectsSection({
   projects,
   members,
   onChanged,
+  space = false,
 }: {
+  /** A space CloudChef runs, which isn't called a team. */
+  space?: boolean;
   orgId: string;
   github: z.infer<typeof orgGitHubSchema>;
   projects: OrgProject[];
@@ -110,7 +113,7 @@ export function OrgProjectsSection({
               Import from GitHub
             </Button>
           ) : null}
-          <MoreMenu title="GitHub for this team">
+          <MoreMenu title={space ? 'GitHub for this space' : 'GitHub for this team'}>
             {github.length === 0 ? (
               <MenuItem action={connect}>Connect GitHub</MenuItem>
             ) : (
@@ -127,7 +130,9 @@ export function OrgProjectsSection({
         </span>
       </div>
       {workingHere ? null : (
-        <p className="text-xs text-content-tertiary">To import a project from GitHub, switch to this team first.</p>
+        <p className="text-xs text-content-tertiary">
+          To import a project from GitHub, switch to this {space ? 'space' : 'team'} first.
+        </p>
       )}
       {projects.length > 0 ? (
         <ul className="grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">

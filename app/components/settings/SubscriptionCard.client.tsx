@@ -9,6 +9,7 @@ import {
 } from '~/lib/managed-space';
 import { buyCredit, openBillingPortal, readBillingStatus } from '~/lib/managed-space-requests';
 import { errorFeedback, FeedbackLine } from './Feedback';
+import { OwnSpacePeople } from './OrganizationsCard.client';
 import { SettingsCard, StatusBadge } from './SettingsLayout';
 
 /** Credit left, to the cent below: never shown as more than there is. */
@@ -83,7 +84,7 @@ export function SubscriptionCard() {
     <SettingsCard
       id="subscription"
       title="Your space"
-      description="A space CloudChef runs for you, paid for by the person: you, and each person you invite. Stripe takes the payment; CloudChef never sees your card."
+      description="Your own space to build in, run by CloudChef. It is yours alone until you invite someone, and paid for by the person: you, and each person who joins. Stripe takes the payment; CloudChef never sees your card."
       action={
         <Button size="sm" variant="neutral" loading={opening} onClick={() => void manage()}>
           Card, invoices, cancel
@@ -145,6 +146,7 @@ export function SubscriptionCard() {
         </>
       ) : null}
       <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
+      {subscription.hasSpace ? <OwnSpacePeople /> : null}
     </SettingsCard>
   );
 }

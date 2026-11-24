@@ -73,6 +73,19 @@ describe('a space CloudChef runs, for the person who subscribes to it', () => {
     expect(listed?.invites).toHaveLength(1);
   });
 
+  it('is theirs alone until someone else joins it: an invitation not yet accepted changes nothing', async () => {
+    const { database, db, sam, space } = await setup();
+    expect(space.solo).toBe(true);
+    await createInvite(db, { orgId: space.orgId, email: 'gia@example.com', role: 'member', invitedBy: sam.id });
+    await expect(listWorkspaceContexts(db, sam.id)).resolves.toMatchObject([{ solo: true }]);
+    const gia = await createProvenEmailUser(db, 'gia@example.com');
+    database
+      .prepare("INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'member', 2)")
+      .run(space.orgId, gia.id);
+    await expect(listWorkspaceContexts(db, sam.id)).resolves.toMatchObject([{ solo: false }]);
+    await expect(listWorkspaceContexts(db, gia.id)).resolves.toMatchObject([{ solo: false, role: 'member' }]);
+  });
+
   it('has one person running it for as long as they subscribe: no second admin, no leaving, no deleting', async () => {
     const { database, db, sam, space } = await setup();
     const gia = await createProvenEmailUser(db, 'gia@example.com');
