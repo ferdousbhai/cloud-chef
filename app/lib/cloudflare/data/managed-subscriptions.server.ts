@@ -1,7 +1,7 @@
 import type { BillingConfig, StripeSubscription } from '~/lib/.server/billing/stripe';
 import { piGatewayModel, piWorkersAiModel } from '~/lib/.server/llm/pi-model-catalog';
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
-import { MANAGED_SPACE_MONTHLY_ALLOWANCE_USD } from '~/lib/managed-space';
+import { MANAGED_SPACE_CREDIT_PRICE_RATIO, MANAGED_SPACE_MONTHLY_ALLOWANCE_USD } from '~/lib/managed-space';
 import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
 
 /**
@@ -275,7 +275,7 @@ type MonthUse = { month: string; input: number; output: number; cached: number; 
  * and every stretch of container time adds to.
  *
  * A space's bought credit is what was bought less what every month, this one included, used beyond its
- * allowance, at today's prices: nothing is written as credit is used, so there is no balance to drift.
+ * allowance, at today's prices times the credit's margin (`MANAGED_SPACE_CREDIT_PRICE_RATIO`): nothing is written as credit is used, so there is no balance to drift.
  */
 export async function spaceUsage(
   db: D1Database,
@@ -328,7 +328,7 @@ export async function spaceUsage(
   return {
     usedUsd,
     allowanceUsd: MONTHLY_USAGE_ALLOWANCE_USD,
-    creditUsd: Math.max(0, (bought?.usd ?? 0) - overAllowanceUsd),
+    creditUsd: Math.max(0, (bought?.usd ?? 0) - overAllowanceUsd * MANAGED_SPACE_CREDIT_PRICE_RATIO),
     resetsAt: nextMonth,
   };
 }

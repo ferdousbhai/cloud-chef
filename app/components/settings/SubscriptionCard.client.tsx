@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Button } from '~/components/ui/primitives/Button';
 import { messageOf } from '~/lib/json-request';
-import { MANAGED_SPACE_CREDIT_AMOUNTS_USD, usd, type BillingStatus } from '~/lib/managed-space';
+import {
+  MANAGED_SPACE_CREDIT_AMOUNTS_USD,
+  MANAGED_SPACE_CREDIT_PRICE_RATIO,
+  usd,
+  type BillingStatus,
+} from '~/lib/managed-space';
 import { buyCredit, openBillingPortal, readBillingStatus } from '~/lib/managed-space-requests';
 import { errorFeedback, FeedbackLine } from './Feedback';
 import { SettingsCard, StatusBadge } from './SettingsLayout';
@@ -112,7 +117,9 @@ export function SubscriptionCard() {
             </h3>
             <p className="text-xs text-content-tertiary">
               One payment, used after the month’s {usd(billing.usage.allowanceUsd)} for everyone building in your space,
-              and kept until it is used.
+              and kept until it is used. Building on credit is charged at {MANAGED_SPACE_CREDIT_PRICE_RATIO} times its
+              cost at Cloudflare’s prices: {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD[0])} of credit buys about{' '}
+              {usd(roundedDown(MANAGED_SPACE_CREDIT_AMOUNTS_USD[0] / MANAGED_SPACE_CREDIT_PRICE_RATIO))} of building.
             </p>
             <div className="flex flex-wrap gap-2">
               {MANAGED_SPACE_CREDIT_AMOUNTS_USD.map((amountUsd) => (

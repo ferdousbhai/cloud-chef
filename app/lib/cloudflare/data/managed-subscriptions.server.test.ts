@@ -238,13 +238,14 @@ describe("a space's monthly building allowance", () => {
     await expect(recordCreditPurchase(db, purchase)).resolves.toBe(true);
     await expect(recordCreditPurchase(db, purchase)).resolves.toBe(false);
     const topped = await usage(october);
-    expect(topped.creditUsd).toBeCloseTo(45, 1);
+    // Building beyond the allowance takes one and a half times its cost from credit: $7.50 for October's $5.
+    expect(topped.creditUsd).toBeCloseTo(42.5, 1);
     expect(allowanceUsed(topped)).toBe(false);
-    // November starts with its own allowance and the credit left; $30 of building takes $10 more of it.
+    // November starts with its own allowance and the credit left; $30 of building takes $15 more of it.
     ran.run(spaceId, sam.id, '2026-11-05', hours(30));
     const later = await usage(november);
     expect(later.usedUsd).toBeCloseTo(30, 1);
-    expect(later.creditUsd).toBeCloseTo(35, 1);
+    expect(later.creditUsd).toBeCloseTo(27.5, 1);
     expect(allowanceUsed(later)).toBe(false);
     // Credit is only ever a space's: none is recorded for a team that is not one.
     await expect(recordCreditPurchase(db, { ...purchase, id: 'cs_2', orgId: ORG })).resolves.toBe(false);

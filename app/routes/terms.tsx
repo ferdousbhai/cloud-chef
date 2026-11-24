@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import {
   MANAGED_SPACE_CREDIT_AMOUNTS_USD,
+  MANAGED_SPACE_CREDIT_PRICE_RATIO,
   MANAGED_SPACE_MONTHLY_ALLOWANCE_USD,
   MANAGED_SPACE_MONTHLY_PRICE_USD,
   MANAGED_SPACE_TRIAL_DAYS,
@@ -78,11 +79,11 @@ function TermsPage() {
         <p>
           You can buy building credit for your space in Settings, in single payments of{' '}
           {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD[0])} to {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD.at(-1) ?? 0)} that Stripe
-          charges when you buy. Credit is used only after a month&apos;s allowance, counted the same way and for
-          everyone building in the space, and what is left carries over from month to month. It buys building in your
-          space and nothing else: it has no cash value, cannot be moved to another space or account, and is not
-          refunded, except where the law gives you that right. It can be used only while the subscription is active, and
-          is lost when the space&apos;s contents are removed.
+          charges when you buy. Credit is used only after a month&apos;s allowance, for everyone building in the space,
+          at {MANAGED_SPACE_CREDIT_PRICE_RATIO} times what that building costs at Cloudflare&apos;s prices, and what is
+          left carries over from month to month. It buys building in your space and nothing else: it has no cash value,
+          cannot be moved to another space or account, and is not refunded, except where the law gives you that right.
+          It can be used only while the subscription is active, and is lost when the space&apos;s contents are removed.
         </p>
         <p>
           A space CloudChef runs is in the operator&apos;s Cloudflare account, on addresses the operator controls. The
