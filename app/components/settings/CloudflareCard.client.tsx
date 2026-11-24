@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Button, buttonClassNames } from '~/components/ui/primitives/Button';
+import { Button } from '~/components/ui/primitives/Button';
 import {
   authClient,
   createCloudflareReturnURL,
@@ -21,8 +21,7 @@ type ConnectionStatus = z.infer<typeof connectionStatusSchema>;
 /** The Cloudflare account this session builds in, whether it is connected, and connecting it. */
 export function CloudflareCard({ initialError = null }: { initialError?: string | null }) {
   const { data: session } = authClient.useSession();
-  // In a team's account, its admins connect and reauthorize it (under Teams).
-  const organization = session?.context?.kind === 'organization' ? session.context : null;
+  const organization = session?.context ?? null;
   const [connection, setConnection] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -30,10 +29,12 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
   // Attaching a Cloudflare login to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
   // In a space CloudChef runs the account is CloudChef's: nobody in the space connects or reauthorizes it.
-  const managed = organization?.managed === true;
+  const managed = organization?.hosting === 'cloudchef';
+  // Whoever runs a space with a Cloudflare account of its own connects and reauthorizes it.
   const admin = organization?.role === 'admin' && !managed;
-  // A team member can't change its connection; they may connect an account of their own.
-  const offersOwnAccount = organization !== null && !session?.contexts.some((option) => option.kind === 'personal');
+  // Anyone else can't change the space's connection; they may connect a Cloudflare account of their own, which
+  // becomes a space of theirs.
+  const offersOwnAccount = organization !== null && !admin && !session?.contexts.some((option) => option.personal);
 
   useEffect(() => {
     let canceled = false;
@@ -63,7 +64,11 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
     setConnecting(true);
     setError(null);
     try {
-      await signInWithCloudflare(createCloudflareReturnURL(window.location.href));
+      await signInWithCloudflare(
+        createCloudflareReturnURL(window.location.href),
+        // The space made for the person is the one a Cloudflare sign-in connects; any other they run is named.
+        admin && organization && !organization.personal ? { organizationId: organization.orgId } : {},
+      );
     } catch (connectionError) {
       if (connectionError instanceof ReauthenticationRequiredError) {
         setReauthenticateReason(connectionError.message);
@@ -76,17 +81,13 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
 
   const accountName = connection?.accountName ?? organization?.accountName ?? null;
 
-  const action = organization ? (
-    admin ? (
-      <a href="#teams" className={buttonClassNames({ variant: 'neutral', size: 'sm' })}>
-        Manage in Teams
-      </a>
-    ) : offersOwnAccount ? (
+  const action = loading ? null : organization && !admin ? (
+    offersOwnAccount ? (
       <Button size="sm" variant="neutral" loading={connecting} onClick={() => void connect()}>
         Connect your own account
       </Button>
     ) : null
-  ) : loading ? null : (
+  ) : (
     <Button size="sm" variant={connection ? 'neutral' : 'primary'} loading={connecting} onClick={() => void connect()}>
       {connection ? 'Reauthorize Cloudflare' : 'Connect Cloudflare'}
     </Button>
@@ -109,7 +110,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
         </span>
         {loading ? null : connection ? (
           <StatusBadge tone="success">
-            {managed ? 'Run by CloudChef' : organization ? `Managed by ${organization.orgName}` : 'Connected'}
+            {managed ? 'Run by CloudChef' : organization && !admin ? `Managed by ${organization.orgName}` : 'Connected'}
           </StatusBadge>
         ) : organization ? (
           <StatusBadge>{managed ? 'Run by CloudChef' : `Managed by ${organization.orgName}`}</StatusBadge>

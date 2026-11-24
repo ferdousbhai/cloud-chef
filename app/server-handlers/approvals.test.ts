@@ -105,7 +105,7 @@ describe('a member’s change to the team’s account', () => {
     expect(sent).toEqual([]);
 
     // Only an admin sees it, and only an admin can approve it.
-    expect(await list(sara.cookie)).toMatchObject({ admin: false, waiting: [] });
+    expect(await list(sara.cookie)).toMatchObject({ waiting: [] });
     expect(await list(admin.cookie)).toMatchObject({ admin: true, waiting: [{ id: approvalId, status: 'pending' }] });
     expect((await decide(sara.cookie, approvalId, 'approve')).status).toBe(409);
     expect(sent).toEqual([]);
@@ -170,7 +170,7 @@ describe('a member’s change to the team’s account', () => {
         )
       ).status,
     ).toBe(400);
-    // Sara's own account has no team admins to ask.
+    // In the space made for her Sara runs the account herself: there is nobody to ask.
     expect((await file(change, { connection: 'own', toolCallId: 'call-4' })).status).toBe(403);
     expect((await list(admin.cookie)).waiting).toHaveLength(2);
   });

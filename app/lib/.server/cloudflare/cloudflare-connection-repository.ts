@@ -1,20 +1,20 @@
 type CloudflareConnectionStatus = 'active' | 'revoked';
 
-/** Who a connection belongs to: one person's own Cloudflare account, or an organization's. */
-export type CloudflareConnectionOwner = { kind: 'user'; userId: string } | { kind: 'organization'; orgId: string };
-
 /**
- * One space building in a Cloudflare account: a person's own, or a team's. Its id and generation are the
- * space's own (sessions, workspaces, projects and GitHub installations are keyed by them); its credential and
- * scopes are the account's one authorization (`cloudflare_authorizations`), shared by every space in that
- * account, so one reconnect updates all of them.
+ * One space's connection to the Cloudflare account it builds in. Its id and generation are the space's own
+ * (sessions, workspaces, projects and GitHub installations are keyed by them); its credential and scopes are the
+ * account's one authorization (`cloudflare_authorizations`), shared by every space in that account, so one
+ * reconnect updates all of them.
  */
 export type CloudflareConnection = {
   id: string;
-  /** The person whose own connection this is; null for an organization's. */
-  userId: string | null;
-  /** The organization whose connection this is; null for a person's own. */
-  orgId: string | null;
+  /** The space (`organizations`) whose connection this is. */
+  orgId: string;
+  /**
+   * The person this space was made for, when it was made for one (their own Cloudflare account, connected by
+   * signing in with it): their workspace there keeps the name and secret it had before spaces had people.
+   */
+  personalUserId: string | null;
   accountId: string;
   accountName: string | null;
   status: CloudflareConnectionStatus;
@@ -36,8 +36,8 @@ export class CloudflareConnectionChangedError extends Error {
 
 type CloudflareConnectionRow = {
   id: string;
-  user_id: string | null;
-  org_id: string | null;
+  org_id: string;
+  personal_user_id: string | null;
   account_id: string;
   account_name: string | null;
   status: CloudflareConnectionStatus;
@@ -48,33 +48,56 @@ type CloudflareConnectionRow = {
   connection_generation: number;
 };
 
-const CONNECTION_SELECT = `SELECT connections.id, connections.user_id, connections.org_id, connections.account_id,
+const CONNECTION_SELECT = `SELECT connections.id, connections.org_id, spaces.personal_user_id, connections.account_id,
               connections.account_name, connections.status, authorizations.credential_handle,
               authorizations.granted_oauth_scopes_json, connections.connected_at, connections.updated_at,
               connections.connection_generation
        FROM cloudflare_connections AS connections
+       JOIN organizations AS spaces ON spaces.id = connections.org_id
        LEFT JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id`;
 
-export function findCloudflareConnectionForUser(db: D1Database, userId: string): Promise<CloudflareConnection | null> {
-  return findCloudflareConnectionForOwner(db, { kind: 'user', userId });
-}
-
-export function findCloudflareConnectionForOrganization(
+/** The connection of the space `orgId`, whatever its status; null while it has none. */
+export async function findCloudflareConnectionForOrganization(
   db: D1Database,
   orgId: string,
 ): Promise<CloudflareConnection | null> {
-  return findCloudflareConnectionForOwner(db, { kind: 'organization', orgId });
-}
-
-export async function findCloudflareConnectionForOwner(
-  db: D1Database,
-  owner: CloudflareConnectionOwner,
-): Promise<CloudflareConnection | null> {
   const row = await db
-    .prepare(`${CONNECTION_SELECT} WHERE connections.${ownerColumn(owner)} = ?`)
-    .bind(ownerId(owner))
+    .prepare(`${CONNECTION_SELECT} WHERE connections.org_id = ?`)
+    .bind(orgId)
     .first<CloudflareConnectionRow>();
   return row ? connectionFromRow(row) : null;
+}
+
+/** The connection of the space made for `userId` (their own Cloudflare account), whatever its status. */
+export async function findCloudflareConnectionForPerson(
+  db: D1Database,
+  userId: string,
+): Promise<CloudflareConnection | null> {
+  const row = await db
+    .prepare(`${CONNECTION_SELECT} WHERE spaces.personal_user_id = ?`)
+    .bind(userId)
+    .first<CloudflareConnectionRow>();
+  return row ? connectionFromRow(row) : null;
+}
+
+/**
+ * Whether `userId`'s workspace in `connection`'s account is the one they had when the account was theirs alone:
+ * it keeps the name and secret it always had, and its runtime answers as the account's owner, which they remain.
+ */
+function isFoundersWorkspace(connection: Pick<CloudflareConnection, 'personalUserId'>, userId: string): boolean {
+  return connection.personalUserId === userId;
+}
+
+/**
+ * The connection a workspace's name and secret are bound to beside its person and account, so the workspaces one
+ * person has in two spaces of the same Cloudflare account never share either; null for the workspace they had
+ * when the account was theirs alone, which keeps the name and secret it always had.
+ */
+export function workspaceBindingConnectionId(
+  connection: Pick<CloudflareConnection, 'id' | 'personalUserId'>,
+  userId: string,
+): string | null {
+  return isFoundersWorkspace(connection, userId) ? null : connection.id;
 }
 
 export async function findActiveCloudflareConnection(
@@ -99,14 +122,6 @@ export async function requireActiveCloudflareConnection(
   return connection;
 }
 
-function ownerColumn(owner: CloudflareConnectionOwner): 'user_id' | 'org_id' {
-  return owner.kind === 'user' ? 'user_id' : 'org_id';
-}
-
-function ownerId(owner: CloudflareConnectionOwner): string {
-  return owner.kind === 'user' ? owner.userId : owner.orgId;
-}
-
 /** The account's one authorization, which every space building in it uses; null when it has none. */
 export async function findCloudflareAuthorization(
   db: D1Database,
@@ -125,23 +140,21 @@ export async function findCloudflareAuthorization(
 }
 
 /**
- * Whether `userId` runs every space building in `accountId` other than `owner`'s (the one they are
- * connecting): each is their own or a team they are an active admin of, spaces CloudChef runs there aside. Only then may they bring a space
+ * Whether `userId` runs every space building in `accountId` other than `orgId` (the one they are connecting):
+ * each is one they are an active admin of, spaces CloudChef runs there aside. Only then may they bring a space
  * into that account while its authorization, which all of those spaces use, still works. `userId` is null
  * for someone signing in with Cloudflare for the first time, who runs no space yet.
  */
 export async function runsEveryOtherSpaceInAccount(
   db: D1Database,
-  args: { userId: string | null; owner: CloudflareConnectionOwner | null; accountId: string },
+  args: { userId: string | null; orgId: string | null; accountId: string },
 ): Promise<boolean> {
-  const notTheirs = args.owner ? `AND connections.${ownerColumn(args.owner)} IS NOT ?2` : '';
+  const notTheirs = args.orgId ? 'AND connections.org_id IS NOT ?2' : '';
   const row = await db
     .prepare(
       `SELECT COUNT(*) AS others
        FROM cloudflare_connections AS connections
        WHERE connections.account_id = ?1 AND connections.status = 'active' ${notTheirs}
-         -- Without a person (?3 null) nothing is their own: comparing to NULL would drop every team's space.
-         AND (?3 IS NULL OR connections.user_id IS NOT ?3)
          -- A space CloudChef runs is the host team's to answer for, and that team is counted itself.
          AND NOT EXISTS (
            SELECT 1 FROM organizations AS space
@@ -153,7 +166,7 @@ export async function runsEveryOtherSpaceInAccount(
              AND members.role = 'admin' AND members.paused_at IS NULL
          )`,
     )
-    .bind(args.accountId, args.owner ? ownerId(args.owner) : null, args.userId)
+    .bind(args.accountId, args.orgId, args.userId)
     .first<{ others: number }>();
   return (row?.others ?? 0) === 0;
 }
@@ -196,7 +209,7 @@ export function credentialUnreferenced(handle: string): string {
 export const CREDENTIAL_UNREFERENCED = credentialUnreferenced('?1');
 
 /**
- * Connects `owner`'s space to the account, or reconnects it, with a new authorization: the space advances
+ * Connects the space `orgId` to the account, or reconnects it, with a new authorization: the space advances
  * its own generation (expected to still be `expectedGeneration`, null for a first connection), and the
  * account's authorization, which every space building in that account uses, becomes this one in place of
  * `replacedCredentialHandle`, the one the caller read (null when the account had none). All of it is
@@ -206,7 +219,7 @@ export const CREDENTIAL_UNREFERENCED = credentialUnreferenced('?1');
  */
 export async function activateCloudflareConnection(args: {
   db: D1Database;
-  owner: CloudflareConnectionOwner;
+  orgId: string;
   accountId: string;
   accountName: string | null;
   credentialHandle: string;
@@ -218,13 +231,12 @@ export async function activateCloudflareConnection(args: {
   const connectionId = crypto.randomUUID();
   const grantedScopesJson = JSON.stringify(args.grantedOAuthScopes);
   const intendedGeneration = args.expectedGeneration === null ? 1 : args.expectedGeneration + 1;
-  const owner = ownerColumn(args.owner);
   // The account's authorization first, only while the space is as the caller read it and the account still
   // has the authorization they read (compare-and-set).
   const spaceAsRead =
     args.expectedGeneration === null
-      ? `NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE ${owner} = ?1)`
-      : `EXISTS (SELECT 1 FROM cloudflare_connections WHERE ${owner} = ?1 AND connection_generation = ?7)`;
+      ? `NOT EXISTS (SELECT 1 FROM cloudflare_connections WHERE org_id = ?1)`
+      : `EXISTS (SELECT 1 FROM cloudflare_connections WHERE org_id = ?1 AND connection_generation = ?7)`;
   const authorization = args.db
     .prepare(
       `INSERT INTO cloudflare_authorizations (account_id, credential_handle, granted_oauth_scopes_json, created_at, updated_at)
@@ -236,7 +248,7 @@ export async function activateCloudflareConnection(args: {
        WHERE cloudflare_authorizations.credential_handle IS ?3`,
     )
     .bind(
-      ownerId(args.owner),
+      args.orgId,
       args.accountId,
       args.replacedCredentialHandle,
       now,
@@ -252,34 +264,27 @@ export async function activateCloudflareConnection(args: {
       ? args.db
           .prepare(
             `INSERT INTO cloudflare_connections (
-               id, ${owner}, account_id, account_name, status, connected_at, created_at, updated_at
+               id, org_id, account_id, account_name, status, connected_at, created_at, updated_at
              ) SELECT ?4, ?1, ?2, ?5, 'active', ?6, ?6, ?6 WHERE ${authorized}
-             ON CONFLICT(${owner}) DO NOTHING`,
+             ON CONFLICT(org_id) DO NOTHING`,
           )
-          .bind(ownerId(args.owner), args.accountId, args.credentialHandle, connectionId, args.accountName, now)
+          .bind(args.orgId, args.accountId, args.credentialHandle, connectionId, args.accountName, now)
       : args.db
           .prepare(
             `UPDATE cloudflare_connections
              SET account_id = ?2, account_name = ?5, status = 'active', connected_at = ?6,
                  connection_generation = connection_generation + 1, updated_at = ?6
-             WHERE ${owner} = ?1 AND connection_generation = ?4 AND ${authorized}`,
+             WHERE org_id = ?1 AND connection_generation = ?4 AND ${authorized}`,
           )
-          .bind(
-            ownerId(args.owner),
-            args.accountId,
-            args.credentialHandle,
-            args.expectedGeneration,
-            args.accountName,
-            now,
-          );
+          .bind(args.orgId, args.accountId, args.credentialHandle, args.expectedGeneration, args.accountName, now);
   // Written only when the space's own write above was.
   const written = `EXISTS (
     SELECT 1 FROM cloudflare_connections
-    WHERE ${owner} = ?1 AND account_id = ?2 AND connection_generation = ?3 AND connected_at = ?4
+    WHERE org_id = ?1 AND account_id = ?2 AND connection_generation = ?3 AND connected_at = ?4
   )`;
   const accountName = args.db
     .prepare(`UPDATE cloudflare_connections SET account_name = ?5 WHERE account_id = ?2 AND ${written}`)
-    .bind(ownerId(args.owner), args.accountId, intendedGeneration, now, args.accountName);
+    .bind(args.orgId, args.accountId, intendedGeneration, now, args.accountName);
   const verifyCommitted = () =>
     isExactActivatedCloudflareConnection({ ...args, connectionId, grantedScopesJson, now }).catch(() => false);
   let committed: boolean;
@@ -308,8 +313,8 @@ async function isExactActivatedCloudflareConnection(
   },
 ): Promise<boolean> {
   const row = await args.db
-    .prepare(`${CONNECTION_SELECT} WHERE connections.${ownerColumn(args.owner)} = ?`)
-    .bind(ownerId(args.owner))
+    .prepare(`${CONNECTION_SELECT} WHERE connections.org_id = ?`)
+    .bind(args.orgId)
     .first<CloudflareConnectionRow>();
   const intendedGeneration = args.expectedGeneration === null ? 1 : args.expectedGeneration + 1;
   if (
@@ -332,8 +337,8 @@ async function isExactActivatedCloudflareConnection(
 function connectionFromRow(row: CloudflareConnectionRow): CloudflareConnection {
   return {
     id: row.id,
-    userId: row.user_id,
     orgId: row.org_id,
+    personalUserId: row.personal_user_id,
     accountId: row.account_id,
     accountName: row.account_name,
     status: row.status,

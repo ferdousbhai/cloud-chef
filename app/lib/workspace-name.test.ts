@@ -1,24 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { workspaceName } from './workspace-name';
+import { spaceNameFor, workspaceName } from './workspace-name';
 
-const own = { kind: 'personal' } as const;
-const team = { kind: 'organization', orgName: 'Studio', solo: false } as const;
-const aloneInSpace = { kind: 'organization', orgName: 'Sam’s space', solo: true } as const;
+const mine = { orgName: 'Sam’s space', solo: true };
+const studio = { orgName: 'Studio', solo: false };
 
-describe('what an account is called to the person building in it', () => {
-  it('calls their own Cloudflare account Personal and a team by its name', () => {
-    expect(workspaceName(own, [own, team])).toBe('Personal');
-    expect(workspaceName(team, [own, team])).toBe('Studio');
-  });
-
-  it('calls a space CloudChef runs Personal while they are alone in it, and by its name once others are', () => {
-    expect(workspaceName(aloneInSpace, [aloneInSpace, team])).toBe('Personal');
-    const shared = { ...aloneInSpace, solo: false };
+describe('what a space is called to the person building in it', () => {
+  it('calls one they are alone in Personal, and one with other people in it by its name', () => {
+    expect(workspaceName(mine, [mine, studio])).toBe('Personal');
+    expect(workspaceName(studio, [mine, studio])).toBe('Studio');
+    // Once someone has joined theirs, it goes by the name those people see.
+    const shared = { ...mine, solo: false };
     expect(workspaceName(shared, [shared])).toBe('Sam’s space');
   });
 
-  it('never calls two accounts Personal: a space beside a Cloudflare account of their own goes by its name', () => {
-    expect(workspaceName(aloneInSpace, [own, aloneInSpace])).toBe('Sam’s space');
-    expect(workspaceName(own, [own, aloneInSpace])).toBe('Personal');
+  it('never calls two spaces Personal: alone in more than one, each goes by its name', () => {
+    const paid = { orgName: 'Paid space', solo: true };
+    expect(workspaceName(mine, [mine, paid])).toBe('Sam’s space');
+    expect(workspaceName(paid, [mine, paid])).toBe('Paid space');
+  });
+});
+
+describe('what a space made for one person is called until they rename it', () => {
+  it('is theirs by their first name, or simply theirs when they have none', () => {
+    expect(spaceNameFor('Sam Rivera')).toBe('Sam’s space');
+    expect(spaceNameFor('  ')).toBe('My space');
   });
 });

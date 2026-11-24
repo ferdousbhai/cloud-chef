@@ -25,9 +25,9 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
   }
   const { body, identity } = authenticated;
   // A member who only works on GitHub projects reaches production through GitHub alone: their
-  // workspace is never handed the organization's Cloudflare authorization.
-  if (authenticated.connection.orgId) {
-    const membership = await findMembership(args.env.DB, authenticated.connection.orgId, identity.userId);
+  // workspace is never handed the space's Cloudflare authorization.
+  const membership = await findMembership(args.env.DB, authenticated.connection.orgId, identity.userId);
+  {
     if (!membership?.draftsAllowed) {
       return credentialResponse(
         {
@@ -80,9 +80,6 @@ export async function runtimeUsageAction(args: { request: Request; env: Env }): 
   const { body, identity } = authenticated;
   const orgId = authenticated.connection.orgId;
   const day = new Date().toISOString().slice(0, 10);
-  if (!orgId) {
-    return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
-  }
   if ('containerSeconds' in body) {
     await args.env.DB.prepare(
       `INSERT INTO organization_usage_daily (org_id, user_id, day, container_seconds) VALUES (?, ?, ?, ?)
@@ -127,7 +124,7 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
   const { identity } = authenticated;
   // An organization's admins may use its Cloudflare authorization directly (the agent's Cloudflare tool).
   const orgId = authenticated.connection.orgId;
-  const membership = orgId ? await findMembership(args.env.DB, orgId, identity.userId) : null;
+  const membership = await findMembership(args.env.DB, orgId, identity.userId);
   return Response.json(
     {
       organizationAdmin: isActiveAdmin(membership),
@@ -136,7 +133,7 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
       // Who the person is, as the commits made in their name say.
       member: await memberIdentity(args.env.DB, identity.userId),
       modelRefusal:
-        orgId && membership && !isActiveAdmin(membership)
+        membership && !isActiveAdmin(membership)
           ? await allowanceRefusal(args.env, authenticated.connection.id, membership, identity.userId)
           : null,
     },

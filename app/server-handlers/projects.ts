@@ -97,8 +97,8 @@ export function listMyProjectsAction({
               role,
               fullName: rest.fullName,
               visibility: rest.visibility,
-              // Its owner (a person's own account) or a team's admin may change who can see it.
-              canManage: session.context?.kind !== 'organization' || session.context.role === 'admin',
+              // Whoever runs the space may change who can see it.
+              canManage: session.context?.role === 'admin',
               importRepoFullName: importSource?.fullName ?? null,
               // When it was added, as a person's own app is dated by when it was made.
               createdAt: new Date(createdAt).toISOString(),

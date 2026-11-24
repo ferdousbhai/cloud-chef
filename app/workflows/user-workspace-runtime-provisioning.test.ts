@@ -12,6 +12,7 @@ import {
 
 const mocks = {
   requireActiveConnection: vi.fn(),
+  canUse: vi.fn(),
   deriveSecret: vi.fn(),
   waitForReadiness: vi.fn(),
   upsertRuntime: vi.fn(),
@@ -47,8 +48,8 @@ const NOW = 100 * 60 * 60_000;
 
 const connection: CloudflareConnection = {
   id: 'connection-1',
-  userId: 'user-1',
-  orgId: null,
+  orgId: 'space-1',
+  personalUserId: 'user-1',
   accountId: '0af9e0921b880657d84a6c07307f8aef',
   accountName: 'Account',
   status: 'active',
@@ -61,6 +62,7 @@ const connection: CloudflareConnection = {
 
 const dependencies = {
   requireConnection: mocks.requireActiveConnection,
+  canUse: mocks.canUse,
   openAccountApi: async () => mocks.accountApi,
   deriveSecret: mocks.deriveSecret,
   waitForReadiness: mocks.waitForReadiness,
@@ -74,6 +76,7 @@ describe('workspace runtime provisioning Workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.requireActiveConnection.mockResolvedValue(connection);
+    mocks.canUse.mockResolvedValue(true);
     mocks.deriveSecret.mockResolvedValue('s'.repeat(64));
     mocks.accountApi.readWorkspaceContainersEntitlement.mockResolvedValue({ status: 'entitled' });
     mocks.accountApi.getWorkersSubdomain.mockResolvedValue('user');
@@ -125,13 +128,23 @@ describe('workspace runtime provisioning Workflow', () => {
     expect(second.id).not.toBe(first.id);
   });
 
-  it("keeps a person's own workspace and their organization's apart in one Cloudflare account", async () => {
-    const personal = await workspaceRuntimeNames({ accountId: 'account-1', id: 'mine', orgId: null }, 'user-1');
-    const organization = await workspaceRuntimeNames({ accountId: 'account-1', id: 'acme', orgId: 'org-1' }, 'user-1');
-    expect(organization.workerName).not.toBe(personal.workerName);
-    expect(organization.databaseName).not.toBe(personal.databaseName);
-    // A person's own workspace keeps the name it has always had.
+  it('keeps the workspaces a person has in two spaces of one Cloudflare account apart', async () => {
+    // The space made for them, and another they were invited into, both building in the same account.
+    const personal = await workspaceRuntimeNames(
+      { accountId: 'account-1', id: 'mine', personalUserId: 'user-1' },
+      'user-1',
+    );
+    const other = await workspaceRuntimeNames({ accountId: 'account-1', id: 'acme', personalUserId: null }, 'user-1');
+    expect(other.workerName).not.toBe(personal.workerName);
+    expect(other.databaseName).not.toBe(personal.databaseName);
+    // The workspace they had when the account was theirs alone keeps the name it has always had.
     expect(personal.workerName).toBe(`cloudchef-workspace-${(await sha256Hex('account-1:user-1')).slice(0, 16)}`);
+    // Someone they invite into their space gets one named for that space, never theirs.
+    const guest = await workspaceRuntimeNames(
+      { accountId: 'account-1', id: 'mine', personalUserId: 'user-1' },
+      'user-2',
+    );
+    expect(guest.workerName).toBe(`cloudchef-workspace-${(await sha256Hex('account-1:user-2:mine')).slice(0, 16)}`);
   });
 
   it('builds a workspace again when its finished Workflow left nothing ready, as after leaving and rejoining', async () => {
@@ -297,10 +310,8 @@ describe('workspace runtime provisioning Workflow', () => {
   });
 
   it("doesn't deploy a workspace for someone who lost access while it was being prepared", async () => {
-    // Allowed when the run starts; removed (here: someone else's connection) by the time it deploys.
-    mocks.requireActiveConnection
-      .mockResolvedValueOnce(connection)
-      .mockResolvedValue({ ...connection, userId: 'someone-else' });
+    // Allowed when the run starts; removed from the space by the time it deploys.
+    mocks.canUse.mockResolvedValueOnce(true).mockResolvedValue(false);
 
     await expect(runUserWorkspaceRuntimeProvisioningWorkflow(workflowArgs())).resolves.toMatchObject({
       status: 'error',

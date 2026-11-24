@@ -553,7 +553,8 @@ describe('a runtime adding a project uploaded as a ZIP', () => {
         .get(UPLOADED),
     ).toEqual({
       connection_id: 'sara-own',
-      org_id: null,
+      // The space made for Sara, which her own connection became.
+      org_id: 'sara-own',
       name: 'Bakery',
       created_from: 'zip',
       artifact_repo: `t-${UPLOADED}`,

@@ -146,10 +146,20 @@ Because a deferred runtime keeps serving the current browser and control plane u
 browser or control-plane calls that runtime cannot serve bumps the protocol version, and user-workspace D1
 migrations, applied before the deferred redeploy, must be additive.
 
-## Accounts, Organizations, and Contexts
+## Accounts, Spaces, and Contexts
 
-A Cloudflare connection belongs to one person (their own account) or to an organization (its admins connect the
-organization's account once). Sign-in is separate from connecting: Google or an emailed one-time link signs anyone in,
+Every place a person builds is a space: an organization (`organizations`) with the people in it and one connection
+to the Cloudflare account it builds in. A space has two properties that don't depend on each other: who hosts it
+(`hosting`: 'own', a Cloudflare account its admins connected, which Cloudflare bills; or 'cloudchef', the
+operator's account, by subscription) and who is in it (one person, or the people they invited). There is no
+separate kind for a person's own account or for a team: a person's own Cloudflare account is a space with one
+person in it (`organizations.personal_user_id` names the person it was made for, and it is made the first time
+they sign in with Cloudflare), and inviting someone into it works as into any other. Every access rule reads
+membership of the space (`canUseConnection`, `runsTeam`, `isActiveAdmin` in `organization-access.server.ts`); the
+one thing `personal_user_id` still decides is that person's workspace there, which keeps the name and secret it had
+before spaces had people (`workspaceBindingConnectionId`), and that they stay its admin. Migration 0074 made each
+connection that was one person's own into such a space, keeping its id, and its rollout triggers make any written
+the old way by the release before into one as it lands. Sign-in is separate from connecting: Google or an emailed one-time link signs anyone in,
 making an account for an address CloudChef hasn't seen (an account first made with a Cloudflare login still signs in
 with it), and the person then chooses a username (`/<username>`) before anything else. A session works in one
 context, a connection the person may use, chosen with the workspace switcher; a tab names the context it opened in
@@ -157,7 +167,7 @@ on each runtime-session request and reloads if another tab switched the session.
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a space CloudChef
 runs, by subscription; their own Cloudflare account, connected there after a short list of what happens on
 Cloudflare's site; or someone else's space, reached by an invite from whoever runs it. A space CloudChef runs is a
-team of the subscriber's own (`organizations.managed_host_org_id`) with its own connection to the Cloudflare
+space of the subscriber's own (`organizations.managed_host_org_id`) with its own connection to the Cloudflare
 account of the host team (`MANAGED_SPACE_ORG_ID`), the operator's, paid for through Stripe (`STRIPE_PRICE_ID`, CloudChef's
 own portal configuration in a Stripe account shared with other products, and the secrets `STRIPE_SECRET_KEY` and
 `STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and charges the first month,
@@ -168,11 +178,11 @@ subscriber is the space's admin and runs it (`runsTeam`: invites, members, proje
 it has an admin's powers over the Cloudflare account (`isActiveAdmin` is false there): no `cf` reads or changes, no
 approvals, no connecting or reauthorizing, no model or key settings, which follow the host team's, and no
 publishing over a Worker already in the account. The subscriber neither leaves nor deletes the space, which ends
-with the subscription. To its subscriber the space is their own account, not a team: while they are alone in it a
-session's context says so (`solo`), every place that names an account calls it Personal (`workspaceName` in
-`app/lib/workspace-name.ts`, by its own name instead beside a Cloudflare account of their own, so no two are
-Personal), and Settings keeps it under Your space with an offer to invite someone, never among their teams; once
-someone else has joined it goes by its name, which the people in it see. Everyone's finished turns' tokens, priced at the host team's default model, and the time
+with the subscription. A space with one person in it, whoever hosts it, is to that person their own account: a session's context says so
+(`solo`), every place that names a space calls it Personal (`workspaceName` in `app/lib/workspace-name.ts`; alone
+in more than one, each goes by its name, so no two are Personal), and Settings, Spaces lists it like any other,
+with an offer to invite someone in place of a list of people; once someone else has joined it goes by its name,
+which the people in it see. Everyone's finished turns' tokens, priced at the host team's default model, and the time
 their workspace containers run, which the runtime reports as it goes (`countContainerTime` in
 `user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
 smaller than the plan's price (`MANAGED_SPACE_MONTHLY_ALLOWANCE_USD`), and `runtime-access` refuses the next model request and the next start of the container

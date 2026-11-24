@@ -25,7 +25,7 @@ import {
   listApprovals,
   rejectApproval,
 } from '~/lib/cloudflare/data/approval-requests.server';
-import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
+import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { runtimeFor } from './command-line';
 import { json } from './runtime-projects';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
@@ -191,9 +191,13 @@ export async function runtimeFileApprovalAction(args: { request: Request; env: E
     return authenticated;
   }
   const { body, identity, connection } = authenticated;
-  const membership = connection.orgId ? await findMembership(args.env.DB, connection.orgId, identity.userId) : null;
-  if (!connection.orgId || !membership) {
+  const membership = await findMembership(args.env.DB, connection.orgId, identity.userId);
+  if (!membership) {
     return json({ error: 'Only a team’s members file changes for its admins.' }, 403);
+  }
+  if (isActiveAdmin(membership)) {
+    // Whoever runs the space's account changes it themselves: there is nobody for them to ask.
+    return json({ error: 'You run this space, so your changes go to its Cloudflare account directly.' }, 403);
   }
   if (membership.managed) {
     // The account is the operator's: nobody in the space could approve a change to it.

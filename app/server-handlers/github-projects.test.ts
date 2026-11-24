@@ -930,7 +930,9 @@ describe('projects', () => {
     expect(asked).toContain('https://github.com/ada/blog.git/info/refs?service=git-upload-pack');
     expect(
       database.prepare('SELECT connection_id, org_id, name, import_repo_id, import_branch FROM org_projects').all(),
-    ).toEqual([{ connection_id: 'sam-own', org_id: null, name: 'blog', import_repo_id: null, import_branch: 'trunk' }]);
+    ).toEqual([
+      { connection_id: 'sam-own', org_id: 'sam-own', name: 'blog', import_repo_id: null, import_branch: 'trunk' },
+    ]);
     // Their own projects, in their own account; nobody else's, not even a team admin's.
     expect(await myProjects(env, member.cookie)).toEqual(['ada/blog: edit']);
     expect(await myProjects(env, admin.cookie)).toEqual([]);

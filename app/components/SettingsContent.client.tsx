@@ -20,7 +20,7 @@ type Tab = 'account' | 'teams' | 'models' | 'data';
 
 const TABS: { id: Tab; label: string; icon: ReactNode }[] = [
   { id: 'account', label: 'Account', icon: <IdCardIcon aria-hidden /> },
-  { id: 'teams', label: 'Teams', icon: <AvatarIcon aria-hidden /> },
+  { id: 'teams', label: 'Spaces', icon: <AvatarIcon aria-hidden /> },
   { id: 'models', label: 'Models', icon: <MagicWandIcon aria-hidden /> },
   { id: 'data', label: 'Privacy & data', icon: <LockClosedIcon aria-hidden /> },
 ];

@@ -967,7 +967,7 @@ function connectionOf(database: ReturnType<typeof controlPlaneDatabase>['databas
   );
   return {
     id: row.id,
-    userId: null,
+    personalUserId: null,
     orgId: 'org',
     accountId: row.account_id,
     accountName: 'Acme',

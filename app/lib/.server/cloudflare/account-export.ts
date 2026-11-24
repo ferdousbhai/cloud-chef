@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AccountExportSectionName } from '~/lib/account-data';
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
 import { exportShowcase } from '~/lib/cloudflare/data/posts.server';
-import { findCloudflareConnectionForUser } from './cloudflare-connection-repository';
+import { findCloudflareConnectionForPerson } from './cloudflare-connection-repository';
 import {
   draftsAllowed,
   storedProjectIds,
@@ -365,7 +365,7 @@ async function readCloudflareConnection(
   db: D1Database,
   userId: string,
 ): Promise<{ connection: ExportedCloudflareConnection | null }> {
-  const connection = await findCloudflareConnectionForUser(db, userId);
+  const connection = await findCloudflareConnectionForPerson(db, userId);
   const models = connection ? await readBuilderModelSettings(db, connection.id) : null;
   return {
     // The credential handle resolves the stored ciphertext, so it is dropped here
@@ -400,7 +400,8 @@ async function readEncryptedCredential(
        FROM cloudflare_connections AS connections
        JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id
        JOIN cloudflare_credentials AS credentials ON credentials.handle = authorizations.credential_handle
-       WHERE connections.user_id = ?`,
+       JOIN organizations AS spaces ON spaces.id = connections.org_id
+       WHERE spaces.personal_user_id = ?`,
     )
     .bind(userId)
     .first<CredentialMetadataRow>();
@@ -735,8 +736,8 @@ async function readProjectAccess(
          SELECT projects.org_id, projects.name, projects.artifact_repo, projects.import_repo_full_name,
                 'edit', projects.created_at
          FROM org_projects AS projects
-         JOIN cloudflare_connections AS connections ON connections.id = projects.connection_id
-         WHERE connections.user_id = ?1
+         JOIN organizations AS spaces ON spaces.id = projects.org_id
+         WHERE spaces.personal_user_id = ?1
        )
        ORDER BY granted_at DESC LIMIT ?2`,
     (row: {

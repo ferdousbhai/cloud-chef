@@ -4,6 +4,7 @@ import { canUseConnection } from '~/lib/cloudflare/data/organization-access.serv
 import { constantTimeEqual } from '~/lib/constant-time-equal';
 import {
   findActiveCloudflareConnection,
+  workspaceBindingConnectionId,
   type CloudflareConnection,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
@@ -102,7 +103,7 @@ async function authenticateRuntime(
       userId: identity.userId,
       accountId: connection.accountId,
       connectionGeneration: identity.connectionGeneration,
-      organizationConnectionId: connection.orgId ? connection.id : null,
+      organizationConnectionId: workspaceBindingConnectionId(connection, identity.userId),
     });
   } catch {
     console.error('Unable to derive the user workspace runtime credential');

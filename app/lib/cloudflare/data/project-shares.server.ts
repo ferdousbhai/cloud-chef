@@ -44,12 +44,10 @@ export type SharingInvitation = { id: string; email: string; role: ProjectRole; 
  * for a team's.
  */
 function runsProjectSql(user: string): string {
-  return `((projects.org_id IS NULL AND EXISTS (
-      SELECT 1 FROM cloudflare_connections AS owner WHERE owner.id = projects.connection_id AND owner.user_id = ${user}))
-    OR EXISTS (
+  return `EXISTS (
       SELECT 1 FROM organization_members AS admins
       WHERE admins.org_id = projects.org_id AND admins.user_id = ${user} AND admins.role = 'admin'
-        AND admins.paused_at IS NULL))`;
+        AND admins.paused_at IS NULL)`;
 }
 
 /** Who may use `project` and who is invited to: what its Share dialog shows. */
@@ -62,10 +60,7 @@ export async function projectSharing(
     db
       .prepare(
         `SELECT person.id, person.name, person.username, person.image, chosen.role, chosen.kind FROM (
-           SELECT user_id, 'owner' AS role, 'owner' AS kind, 0 AS sort, 0 AS since
-             FROM cloudflare_connections WHERE id = ?2 AND ?3 IS NULL AND user_id IS NOT NULL
-           UNION ALL
-           SELECT user_id, 'owner', 'owner', 0, joined_at FROM organization_members
+           SELECT user_id, 'owner' AS role, 'owner' AS kind, 0 AS sort, joined_at AS since FROM organization_members
              WHERE org_id = ?3 AND role = 'admin' AND paused_at IS NULL
            UNION ALL
            SELECT access.user_id, access.role, 'team', 1, access.granted_at FROM org_project_access AS access

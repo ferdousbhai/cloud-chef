@@ -43,9 +43,8 @@ export function Header() {
   const session = authClient.useSession().data;
   const user = session?.user ?? null;
   const teamAdmin =
-    session?.contexts.some(
-      (context) => context.kind === 'organization' && context.role === 'admin' && !context.managed,
-    ) ?? false;
+    session?.contexts.some((context) => context.role === 'admin' && context.hosting === 'own' && !context.solo) ??
+    false;
   // Approvals are in the sidebar; while some wait, its button says so.
   const waitingApprovals = useWaitingApprovals(teamAdmin);
   // An agent in the browser gets a few of CloudChef's actions as tools, while someone is signed in to build.
@@ -54,7 +53,7 @@ export function Header() {
     context
       ? {
           account: workspaceName(context, session?.contexts ?? []),
-          mayStartProjects: context.kind !== 'organization' || context.draftsAllowed,
+          mayStartProjects: context.draftsAllowed,
         }
       : null,
   );

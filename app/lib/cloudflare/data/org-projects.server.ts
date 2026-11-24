@@ -1,6 +1,6 @@
 import {
   findCloudflareConnectionForOrganization,
-  findCloudflareConnectionForUser,
+  findCloudflareConnectionForPerson,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { shownName } from '~/lib/shown-name';
 import { OrganizationError, requireAdmin } from './organizations.server';
@@ -66,8 +66,8 @@ export type ProjectVisibility = 'private' | 'public';
 type ManagedProject = Project & { access: { userId: string; role: ProjectRole }[] };
 
 /**
- * The scope `userId` manages: the team `orgId` when they are one of its active admins, else their own
- * account. Either needs its Cloudflare connection, where the projects live. Throws otherwise.
+ * The scope `userId` manages: the space `orgId` when they are one of its active admins, or, when none is named,
+ * the space made for them. Either needs its Cloudflare connection, where the projects live. Throws otherwise.
  */
 export async function requireProjectScope(
   db: D1Database,
@@ -79,14 +79,17 @@ export async function requireProjectScope(
   }
   const connection = orgId
     ? await findCloudflareConnectionForOrganization(db, orgId)
-    : await findCloudflareConnectionForUser(db, userId);
+    : await findCloudflareConnectionForPerson(db, userId);
   if (connection?.status !== 'active') {
     throw new OrganizationError(
-      orgId ? "Connect the team's Cloudflare account first." : 'Connect your Cloudflare account first.',
+      orgId ? "Connect the space's Cloudflare account first." : 'Connect your Cloudflare account first.',
       409,
     );
   }
-  return { connectionId: connection.id, orgId: orgId ?? null };
+  if (!orgId) {
+    await requireAdmin(db, connection.orgId, userId);
+  }
+  return { connectionId: connection.id, orgId: connection.orgId };
 }
 
 /** The GitHub accounts a connection's GitHub App is installed on, by account name. */
@@ -236,12 +239,6 @@ export async function listScopeProjects(db: D1Database, scope: ProjectScope): Pr
  * role the project was shared with them with (`project_shares`). `?2` is the user.
  */
 const ROLE = `CASE
-  WHEN projects.org_id IS NULL THEN
-    CASE WHEN EXISTS (
-      SELECT 1 FROM cloudflare_connections AS owner WHERE owner.id = projects.connection_id AND owner.user_id = ?2
-    ) THEN 'edit' ELSE (
-      SELECT shares.role FROM project_shares AS shares WHERE shares.project_id = projects.id AND shares.user_id = ?2
-    ) END
   WHEN EXISTS (
     SELECT 1 FROM organization_members AS members WHERE members.org_id = projects.org_id AND members.user_id = ?2
   ) THEN (
@@ -258,14 +255,22 @@ const ROLE = `CASE
 END`;
 
 /**
+ * Whose the project in `projects` is, as people outside its space are told: the person its space was made for, or
+ * the space by its name.
+ */
+export const PROJECT_OWNER_NAME = `(
+    SELECT COALESCE(people.name, spaces.name) FROM organizations AS spaces
+    LEFT JOIN "user" AS people ON people.id = spaces.personal_user_id
+    WHERE spaces.id = projects.org_id
+  )`;
+
+/**
  * Whether the role `ROLE` gives comes from the project's being shared with `?2` (1), not from its account being
  * theirs or their team's (0): they work on it from an account of their own, not the project's.
  */
-const SHARED = `CASE WHEN projects.org_id IS NULL THEN NOT EXISTS (
-    SELECT 1 FROM cloudflare_connections AS owner WHERE owner.id = projects.connection_id AND owner.user_id = ?2
-  ) ELSE NOT EXISTS (
+const SHARED = `NOT EXISTS (
     SELECT 1 FROM organization_members AS members WHERE members.org_id = projects.org_id AND members.user_id = ?2
-  ) END`;
+  )`;
 
 /**
  * A project with someone's role on it, and whether it was shared with them: then its account isn't one they work in,
@@ -299,7 +304,7 @@ export async function listAccessibleProjects(
 
 /**
  * The projects shared with `userId` that they may view or edit now, in every account but their own: what "Shared with
- * you" lists, newest share first, with who runs each (its author, or its team's name).
+ * you" lists, newest share first, with whose each is.
  */
 export async function listSharedProjects(
   db: D1Database,
@@ -309,10 +314,7 @@ export async function listSharedProjects(
     .prepare(
       `SELECT * FROM (
          SELECT ${PROJECT_COLUMNS}, ${ROLE.replaceAll('?2', '?1')} AS role, ${SHARED.replaceAll('?2', '?1')} AS shared,
-           COALESCE(
-             (SELECT name FROM organizations WHERE organizations.id = projects.org_id),
-             (SELECT name FROM "user" WHERE "user".id = projects.created_by)
-           ) AS owner_name,
+           ${PROJECT_OWNER_NAME} AS owner_name,
            shares.shared_at
          FROM project_shares AS shares JOIN org_projects AS projects ON projects.id = shares.project_id
          WHERE shares.user_id = ?1
@@ -664,13 +666,10 @@ export async function requireManagedProject(db: D1Database, userId: string, proj
   const row = await db
     .prepare(
       `SELECT ${PROJECT_COLUMNS} FROM org_projects AS projects
-       WHERE projects.id = ?1 AND (
-         (projects.org_id IS NULL AND EXISTS (
-           SELECT 1 FROM cloudflare_connections AS owner WHERE owner.id = projects.connection_id AND owner.user_id = ?2))
-         OR EXISTS (
+       WHERE projects.id = ?1 AND EXISTS (
            SELECT 1 FROM organization_members AS members
            WHERE members.org_id = projects.org_id AND members.user_id = ?2 AND members.role = 'admin'
-             AND members.paused_at IS NULL))`,
+             AND members.paused_at IS NULL)`,
     )
     .bind(projectId, userId)
     .first<ProjectRow>();

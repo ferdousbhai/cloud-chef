@@ -18,15 +18,16 @@ import {
 } from '~/lib/.server/request-guards';
 import { WORKSPACE_HEADER } from '~/lib/cloudflare/workspace-header';
 import { canUseConnection, findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
+import { ensurePersonalSpace, findPersonalSpace } from '~/lib/cloudflare/data/organizations.server';
 import {
   activateCloudflareConnection,
   CloudflareConnectionChangedError,
   deleteUnusedCloudflareAuthorization,
   findActiveCloudflareConnection,
   findCloudflareAuthorization,
-  findCloudflareConnectionForOwner,
+  findCloudflareConnectionForOrganization,
+  workspaceBindingConnectionId,
   runsEveryOtherSpaceInAccount,
-  type CloudflareConnectionOwner,
   type CloudflareConnection,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -246,7 +247,7 @@ export async function cloudflareRuntimeSessionAction({
     userId: session.user.id,
     accountId: connection.accountId,
     connectionGeneration: connection.generation,
-    organizationConnectionId: connection.orgId ? connection.id : null,
+    organizationConnectionId: workspaceBindingConnectionId(connection, session.user.id),
   });
   // The control plane owns the browser/server join key. Minting it here and
   // logging it beside this grant lets an incident responder line up opted-in
@@ -460,27 +461,23 @@ export async function completeCloudflareConnectionAction(args: {
     // A signed-in person who came back from Cloudflare with the login already on their account proved
     // who they are again, like a fresh sign-in: their session is replaced with a new one.
     const reproved = oauthState.linking_user_id !== null && holder?.id === oauthState.linking_user_id;
-    // Who is connecting, and which space: a team's, connected by one of its admins with their own Cloudflare
-    // login, or the person's own. Signing in with a Cloudflare login CloudChef doesn't know yet is no one so
-    // far: their user is created only once nothing refuses the connection.
-    const teamAdmin = orgId ? await requireTeamAdmin(args.env.DB, orgId, oauthState.linking_user_id) : null;
-    const connectingUserId = teamAdmin ?? oauthState.linking_user_id ?? holder?.id ?? null;
-    let owner: CloudflareConnectionOwner | null = orgId
-      ? { kind: 'organization', orgId }
-      : connectingUserId
-        ? { kind: 'user', userId: connectingUserId }
-        : null;
-    const previous = owner ? await findCloudflareConnectionForOwner(args.env.DB, owner) : null;
+    // Who is connecting, and which space: the one named, connected by one of its admins with their own
+    // Cloudflare login, or the space made for the person. Signing in with a Cloudflare login CloudChef doesn't
+    // know yet is no one so far: their user, and their space, are made only once nothing refuses the connection.
+    const spaceAdmin = orgId ? await requireTeamAdmin(args.env.DB, orgId, oauthState.linking_user_id) : null;
+    const connectingUserId = spaceAdmin ?? oauthState.linking_user_id ?? holder?.id ?? null;
+    let spaceId = orgId ?? (connectingUserId ? await findPersonalSpace(args.env.DB, connectingUserId) : null);
+    const previous = spaceId ? await findCloudflareConnectionForOrganization(args.env.DB, spaceId) : null;
     const vault = D1CloudflareCredentialVault.fromEnv(args.env);
     const replaced = await authorizationToReplace(args.env.DB, vault, {
       userId: connectingUserId,
-      owner,
+      orgId: spaceId,
       previous,
       accountId: result.accountId,
     });
     let userId: string;
-    if (teamAdmin && owner) {
-      userId = teamAdmin;
+    if (spaceAdmin) {
+      userId = spaceAdmin;
     } else {
       const linkingUserId = oauthState.linking_user_id;
       const user = await (
@@ -493,8 +490,9 @@ export async function completeCloudflareConnectionAction(args: {
           : error;
       });
       userId = user.id;
-      owner = { kind: 'user', userId };
     }
+    spaceId ??= await ensurePersonalSpace(args.env.DB, userId);
+    const connectedSpaceId = spaceId;
     const credentialHandle = await vault.storeOAuthCredential({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -503,7 +501,7 @@ export async function completeCloudflareConnectionAction(args: {
     try {
       await activateCloudflareConnection({
         db: args.env.DB,
-        owner,
+        orgId: connectedSpaceId,
         accountId: result.accountId,
         accountName: result.accountName,
         credentialHandle,
@@ -514,13 +512,13 @@ export async function completeCloudflareConnectionAction(args: {
     } catch (error) {
       const racedConnection =
         error instanceof CloudflareConnectionChangedError
-          ? await findCloudflareConnectionForOwner(args.env.DB, owner).catch((readError) => {
+          ? await findCloudflareConnectionForOrganization(args.env.DB, connectedSpaceId).catch((readError: Error) => {
               console.warn('Unable to read raced Cloudflare connection', readError);
               return null;
             })
           : null;
       const canAdoptRace =
-        racedConnection && isEquivalentRacedConnection(racedConnection, owner, result, previous?.generation ?? null);
+        racedConnection && isEquivalentRacedConnection(racedConnection, result, previous?.generation ?? null);
       await vault.deleteIfUnreferenced(credentialHandle).catch((cleanupError) => {
         console.warn('Unable to clean up orphaned Cloudflare credential', cleanupError);
       });
@@ -548,8 +546,8 @@ export async function completeCloudflareConnectionAction(args: {
         });
       }
     }
-    // Signing in with Cloudflare starts a session. Connecting while already signed in (your own account,
-    // or an organization's) doesn't: the session that asked keeps going, now in the account just
+    // Signing in with Cloudflare starts a session. Connecting while already signed in (any space of
+    // yours) doesn't: the session that asked keeps going, now in the account just
     // connected. A new one would count as a fresh sign-in, which export and erasure rely on.
     let sessionId: string;
     let sessionCookie: string | null = null;
@@ -573,13 +571,17 @@ export async function completeCloudflareConnectionAction(args: {
     }
     await args.env.DB.prepare(
       `UPDATE cloudflare_auth_sessions SET context_connection_id = (
-         SELECT id FROM cloudflare_connections WHERE ${owner.kind === 'user' ? 'user_id' : 'org_id'} = ?
+         SELECT id FROM cloudflare_connections WHERE org_id = ?
        ) WHERE id = ?`,
     )
-      .bind(owner.kind === 'user' ? owner.userId : owner.orgId, sessionId)
+      .bind(connectedSpaceId, sessionId)
       .run();
     await settleOAuthState(args.env.DB, state, 'completed', userId);
-    await prepareWorkspacesAfterConnecting(args.env, owner, args.provision ?? startUserWorkspaceRuntimeProvisioning);
+    await prepareWorkspacesAfterConnecting(
+      args.env,
+      connectedSpaceId,
+      args.provision ?? startUserWorkspaceRuntimeProvisioning,
+    );
     const headers = new Headers({
       Location: new URL(
         safeReturnTo(oauthState.return_to, new URL(args.request.url).origin),
@@ -612,20 +614,19 @@ export async function completeCloudflareConnectionAction(args: {
 /**
  * Starts preparing workspaces in a space as soon as its connection is saved, in the background, so each one's
  * first start (installing the container's tools and saving them as its snapshot, a few minutes) is done before
- * anyone opens a project: the person's own, or, for a team's account, every member's who may use it.
+ * anyone opens a project: every member's who may use it.
  */
 async function prepareWorkspacesAfterConnecting(
   env: Env,
-  owner: CloudflareConnectionOwner,
+  orgId: string,
   provision: typeof startUserWorkspaceRuntimeProvisioning,
 ): Promise<void> {
   try {
-    const connection = await findCloudflareConnectionForOwner(env.DB, owner);
+    const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
     if (!connection) {
       return;
     }
-    const userIds = owner.kind === 'user' ? [owner.userId] : await listOrganizationMemberIds(env.DB, owner.orgId);
-    for (const userId of userIds) {
+    for (const userId of await listOrganizationMemberIds(env.DB, orgId)) {
       await prepareWorkspaceInBackground(env, userId, connection, provision);
     }
   } catch (error) {
@@ -706,7 +707,7 @@ async function authorizationToReplace(
   vault: D1CloudflareCredentialVault,
   args: {
     userId: string | null;
-    owner: CloudflareConnectionOwner | null;
+    orgId: string | null;
     previous: CloudflareConnection | null;
     accountId: string;
   },
@@ -774,13 +775,11 @@ async function hasCloudflareLogin(db: D1Database, userId: string): Promise<boole
 
 function isEquivalentRacedConnection(
   connection: CloudflareConnection,
-  owner: CloudflareConnectionOwner,
   result: CloudflareConnectionResult,
   expectedGeneration: number | null,
 ): boolean {
   return (
     connection.status === 'active' &&
-    (owner.kind === 'user' ? connection.userId === owner.userId : connection.orgId === owner.orgId) &&
     connection.credentialHandle !== null &&
     connection.accountId === result.accountId &&
     connection.accountName === result.accountName &&

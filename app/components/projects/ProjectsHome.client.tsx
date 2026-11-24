@@ -80,15 +80,16 @@ type OpenDialog =
     };
 
 /**
- * The signed-in home's projects, below the prompt that starts a new one: the projects of the account the person is
- * working in, their own outside a team, and in a team the team projects they may view or edit.
+ * The signed-in home's projects, below the prompt that starts a new one: the projects of the space the person is
+ * working in. Alone in it they are theirs; with other people in it, the ones they may view or edit.
  */
 export function ProjectsHome() {
   const { data: session } = authClient.useSession();
   const context = session?.context ?? null;
-  const team = context?.kind === 'organization' ? context : null;
-  // In a team only its admins import, since a team's projects are theirs to add.
-  const canImport = team === null || team.role === 'admin';
+  // A space with other people in it; alone in theirs, its projects are simply the person's own.
+  const team = context && !context.solo ? context : null;
+  // Only whoever runs a space imports, since its projects are theirs to add.
+  const canImport = context === null || context.role === 'admin';
   // Back from installing the GitHub App: the import dialog opens again, and the address forgets the visit.
   // Back from buying a domain: the project's Domains dialog opens, where the purchase shows.
   const [dialog, setDialog] = useState<OpenDialog | null>(() =>
@@ -117,7 +118,7 @@ export function ProjectsHome() {
         <TeamProjects
           orgId={team.orgId}
           admin={team.role === 'admin'}
-          heading={team.managed ? 'Projects' : 'Team projects'}
+          heading="Projects"
           action={addProject}
           reauthorization={reauthorize ? 'prompt' : null}
           onDialog={setDialog}
@@ -148,7 +149,7 @@ export function ProjectsHome() {
       {dialog?.kind === 'domains' ? <DomainsDialog project={dialog.project} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === 'import' ? (
         <ImportFromGitHubDialog
-          orgId={team?.orgId ?? null}
+          orgId={context?.orgId ?? null}
           onOpenProject={openProjectWorkspace}
           onClose={() => setDialog(null)}
         />
@@ -577,7 +578,7 @@ function ConnectionProjectCard({
 }) {
   const ref = { orgProjectId: project.id };
   const context = authClient.useSession().data?.context ?? null;
-  const managedSpace = context?.kind === 'organization' && context.managed;
+  const managedSpace = context?.hosting === 'cloudchef';
   const deployment = project.deployment ?? null;
   const wantedWorker = deployment?.state === 'succeeded' ? deployment.wantedWorkerName : null;
   const deploy: CardDeploy | undefined = !isCloudChef(project)

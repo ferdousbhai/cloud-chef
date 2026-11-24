@@ -5,7 +5,7 @@ import {
   activateCloudflareConnection,
   CloudflareConnectionChangedError,
   findCloudflareConnectionForOrganization,
-  findCloudflareConnectionForUser,
+  findCloudflareConnectionForPerson,
   runsEveryOtherSpaceInAccount,
 } from './cloudflare-connection-repository';
 
@@ -51,7 +51,7 @@ function authorization(database: DatabaseSync) {
 }
 
 const reconnectOwn = {
-  owner: { kind: 'user', userId: 'owner' },
+  orgId: 'own',
   accountId: 'account-1',
   accountName: 'Account',
   credentialHandle: 'credential-new',
@@ -70,7 +70,7 @@ describe('activateCloudflareConnection', () => {
       grantedOAuthScopes: [...reconnectOwn.grantedOAuthScopes],
     });
 
-    const own = await findCloudflareConnectionForUser(db, 'owner');
+    const own = await findCloudflareConnectionForPerson(db, 'owner');
     const team = await findCloudflareConnectionForOrganization(db, 'sites');
     expect(own).toMatchObject({ id: 'own', credentialHandle: 'credential-new', generation: 6 });
     expect(own?.grantedOAuthScopes).toEqual(['workers-scripts.write', 'ai.read']);
@@ -100,7 +100,7 @@ describe('activateCloudflareConnection', () => {
         granted_oauth_scopes_json: '["workers-scripts.write"]',
       },
     ]);
-    expect((await findCloudflareConnectionForUser(db, 'owner'))?.generation).toBe(5);
+    expect((await findCloudflareConnectionForPerson(db, 'owner'))?.generation).toBe(5);
   });
 
   it('moves a space to another account without touching the authorization the others there use', async () => {
@@ -115,7 +115,7 @@ describe('activateCloudflareConnection', () => {
       replacedCredentialHandle: null,
     });
 
-    expect(await findCloudflareConnectionForUser(db, 'owner')).toMatchObject({
+    expect(await findCloudflareConnectionForPerson(db, 'owner')).toMatchObject({
       accountId: 'account-2',
       accountName: 'Other',
       credentialHandle: 'credential-new',
@@ -139,7 +139,7 @@ describe('activateCloudflareConnection', () => {
     ).rejects.toBeInstanceOf(CloudflareConnectionChangedError);
 
     expect(authorization(database)[0]).toMatchObject({ credential_handle: 'credential-loser' });
-    expect(await findCloudflareConnectionForUser(db, 'owner')).toMatchObject({
+    expect(await findCloudflareConnectionForPerson(db, 'owner')).toMatchObject({
       generation: 5,
       credentialHandle: 'credential-loser',
     });
@@ -153,7 +153,7 @@ describe('activateCloudflareConnection', () => {
       activateCloudflareConnection({
         db,
         ...reconnectOwn,
-        owner: { kind: 'organization', orgId: 'sites' },
+        orgId: 'sites',
         grantedOAuthScopes: ['workers-scripts.write'],
         expectedGeneration: null,
         replacedCredentialHandle: null,
@@ -175,7 +175,7 @@ describe('activateCloudflareConnection', () => {
     await expect(
       activateCloudflareConnection({ db: lossy, ...reconnectOwn, grantedOAuthScopes: ['workers-scripts.write'] }),
     ).resolves.toBeUndefined();
-    expect((await findCloudflareConnectionForUser(db, 'owner'))?.credentialHandle).toBe('credential-new');
+    expect((await findCloudflareConnectionForPerson(db, 'owner'))?.credentialHandle).toBe('credential-new');
   });
 
   it('preserves the D1 error when nothing was written', async () => {
@@ -194,11 +194,12 @@ describe('activateCloudflareConnection', () => {
     database.exec(`
       INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('new', 'New', 'new@example.com', 1, 1, 1);
       INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, created_at) VALUES ('credential-new', 'x', 'y', 1);
+      INSERT INTO organizations (id, name, created_at, updated_at, personal_user_id) VALUES ('new-space', 'New’s space', 1, 1, 'new');
     `);
 
     await activateCloudflareConnection({
       db,
-      owner: { kind: 'user', userId: 'new' },
+      orgId: 'new-space',
       accountId: 'account-new',
       accountName: null,
       credentialHandle: 'credential-new',
@@ -207,7 +208,7 @@ describe('activateCloudflareConnection', () => {
       replacedCredentialHandle: null,
     });
 
-    expect(await findCloudflareConnectionForUser(db, 'new')).toMatchObject({
+    expect(await findCloudflareConnectionForPerson(db, 'new')).toMatchObject({
       accountId: 'account-new',
       credentialHandle: 'credential-new',
       generation: 1,
@@ -234,7 +235,7 @@ describe('activateCloudflareConnection', () => {
       `UPDATE cloudflare_authorizations SET granted_oauth_scopes_json = '{invalid' WHERE account_id = 'account-1'`,
     );
 
-    await expect(findCloudflareConnectionForUser(db, 'owner')).rejects.toThrow(
+    await expect(findCloudflareConnectionForPerson(db, 'owner')).rejects.toThrow(
       'Stored Cloudflare connection scopes are invalid',
     );
   });
@@ -253,11 +254,8 @@ describe('activateCloudflareConnection', () => {
 describe('runsEveryOtherSpaceInAccount', () => {
   it('lets the person who runs every space in the account reconnect it from any of them', async () => {
     const { db } = sharedAccount();
-    for (const owner of [
-      { kind: 'user', userId: 'owner' },
-      { kind: 'organization', orgId: 'sites' },
-    ] as const) {
-      expect(await runsEveryOtherSpaceInAccount(db, { userId: 'owner', owner, accountId: 'account-1' })).toBe(true);
+    for (const orgId of ['own', 'sites']) {
+      expect(await runsEveryOtherSpaceInAccount(db, { userId: 'owner', orgId, accountId: 'account-1' })).toBe(true);
     }
   });
 
@@ -267,7 +265,7 @@ describe('runsEveryOtherSpaceInAccount', () => {
     expect(
       await runsEveryOtherSpaceInAccount(db, {
         userId: 'sara',
-        owner: { kind: 'user', userId: 'sara' },
+        orgId: 'saras',
         accountId: 'account-1',
       }),
     ).toBe(false);
@@ -279,7 +277,7 @@ describe('runsEveryOtherSpaceInAccount', () => {
     expect(
       await runsEveryOtherSpaceInAccount(db, {
         userId: 'sara',
-        owner: { kind: 'organization', orgId: 'other' },
+        orgId: 'other',
         accountId: 'account-1',
       }),
     ).toBe(false);
@@ -288,7 +286,7 @@ describe('runsEveryOtherSpaceInAccount', () => {
     expect(
       await runsEveryOtherSpaceInAccount(db, {
         userId: 'owner',
-        owner: { kind: 'user', userId: 'owner' },
+        orgId: 'own',
         accountId: 'account-1',
       }),
     ).toBe(false);
@@ -296,15 +294,15 @@ describe('runsEveryOtherSpaceInAccount', () => {
 
   it('keeps someone signing in for the first time, who runs no space yet, out of an account others build in', async () => {
     const { db } = sharedAccount();
-    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-1' })).toBe(false);
-    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-2' })).toBe(true);
+    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, orgId: null, accountId: 'account-1' })).toBe(false);
+    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, orgId: null, accountId: 'account-2' })).toBe(true);
   });
 
   it('keeps someone signing in for the first time out of an account only a team builds in', async () => {
     const { database, db } = sharedAccount();
     // No one's own space is in the account: only the team's.
     database.exec(`UPDATE cloudflare_connections SET status = 'revoked' WHERE id = 'own'`);
-    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, owner: null, accountId: 'account-1' })).toBe(false);
+    expect(await runsEveryOtherSpaceInAccount(db, { userId: null, orgId: null, accountId: 'account-1' })).toBe(false);
   });
 
   it('lets anyone connect an account no other space builds in', async () => {
@@ -312,7 +310,7 @@ describe('runsEveryOtherSpaceInAccount', () => {
     expect(
       await runsEveryOtherSpaceInAccount(db, {
         userId: 'sara',
-        owner: { kind: 'user', userId: 'sara' },
+        orgId: 'saras',
         accountId: 'account-2',
       }),
     ).toBe(true);

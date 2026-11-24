@@ -10,14 +10,8 @@ import { findMembership, isActiveAdmin } from './organization-access.server';
 export async function canManageModels(
   db: D1Database,
   userId: string,
-  connection: Pick<CloudflareConnection, 'userId' | 'orgId'>,
+  connection: Pick<CloudflareConnection, 'orgId'>,
 ): Promise<boolean> {
-  if (connection.userId !== null) {
-    return connection.userId === userId;
-  }
-  if (connection.orgId === null) {
-    return false;
-  }
   return isActiveAdmin(await findMembership(db, connection.orgId, userId));
 }
 

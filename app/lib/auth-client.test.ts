@@ -175,7 +175,17 @@ describe('a session that could not be checked', () => {
 
 describe('the user a session builds as', () => {
   test('is loading until the session is known, then the user of a session with an account to build in', async () => {
-    const personal = { kind: 'personal', connectionId: 'c', accountName: null };
+    const personal = {
+      connectionId: 'c',
+      accountName: null,
+      orgId: 'space',
+      orgName: 'Sam’s space',
+      role: 'admin',
+      draftsAllowed: true,
+      hosting: 'own',
+      solo: true,
+      personal: true,
+    };
     let answer: (response: Response) => void = () => undefined;
     vi.stubGlobal(
       'fetch',

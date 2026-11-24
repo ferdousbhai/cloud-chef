@@ -148,9 +148,9 @@ export function WorkspaceRuntimeConnectionError({
   onRetry: () => void;
 }) {
   const planRequired = code === 'workspace_plan_required';
-  // An organization's connection is managed by its admins, from its settings.
+  // A space's connection is managed by its admins, from its settings.
   const { data: session } = authClient.useSession();
-  const organization = session?.context?.kind === 'organization' ? session.context : null;
+  const organization = session?.context ?? null;
   // Preparation that outran the readiness deadline is still preparation, not a refusal.
   if (code === 'workspace_preparing') {
     return (
@@ -199,7 +199,7 @@ export function WorkspaceRuntimeConnectionError({
           {organization ? (
             organization.role === 'admin' ? (
               <LinkButton to="/settings" hash="organizations" variant="neutral">
-                Team settings
+                Space settings
               </LinkButton>
             ) : null
           ) : (

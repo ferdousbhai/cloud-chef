@@ -65,7 +65,7 @@ export function CloudflareReauthorizePrompt({
   className?: string;
 }) {
   const { data: session } = authClient.useSession();
-  const team = session?.context?.kind === 'organization' ? session.context : null;
+  const space = session?.context ?? null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signInAgain, setSignInAgain] = useState<string | null>(null);
@@ -77,7 +77,8 @@ export function CloudflareReauthorizePrompt({
       if (
         !(await signInWithCloudflare(
           createCloudflareReturnURL(window.location.href),
-          team ? { organizationId: team.orgId } : {},
+          // The space made for the person is the one a Cloudflare sign-in connects; any other is named.
+          space && !space.personal ? { organizationId: space.orgId } : {},
         ))
       ) {
         setBusy(false);
@@ -92,7 +93,7 @@ export function CloudflareReauthorizePrompt({
     }
   };
 
-  const canGrant = team === null || (team.role === 'admin' && !team.managed);
+  const canGrant = space === null || (space.role === 'admin' && space.hosting === 'own');
   return (
     <div
       role="status"
@@ -105,7 +106,7 @@ export function CloudflareReauthorizePrompt({
       <p className="text-content-primary">
         {canGrant
           ? reauthorizeCloudflareMessage(blocked)
-          : team?.managed
+          : space?.hosting === 'cloudchef'
             ? cloudChefReauthorizesMessage(blocked)
             : askAdminToReauthorizeMessage(blocked)}
       </p>

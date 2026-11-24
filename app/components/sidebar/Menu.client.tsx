@@ -53,13 +53,12 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
   const workspaceUpgrading = useStore(userWorkspaceUpgradingStore);
   const { data: session } = authClient.useSession();
   // A member limited to the organization's GitHub projects can't start apps of their own here.
-  const draftsAllowed = session?.context?.kind !== 'organization' || session.context.draftsAllowed;
+  const draftsAllowed = session?.context?.draftsAllowed ?? true;
   const username = session?.user.username ?? null;
   // Approvals gather every team's this person is an admin of.
   const teamAdmin =
-    session?.contexts.some(
-      (context) => context.kind === 'organization' && context.role === 'admin' && !context.managed,
-    ) ?? false;
+    session?.contexts.some((context) => context.role === 'admin' && context.hosting === 'own' && !context.solo) ??
+    false;
   const added = useEditableProjects(accountUserId);
   const { opening, open } = useOpenProject(onClose);
   // Every project in one list, however it began: made here, imported from GitHub, uploaded, or the team's.

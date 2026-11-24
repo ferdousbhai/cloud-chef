@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   createAuthSession: vi.fn(),
   upsertCloudflareUser: vi.fn(),
   findConnection: vi.fn(),
+  // The space made for the person connecting, as the database holds it: none until a test or a connection makes one.
+  space: { personal: null as string | null },
   requireActiveConnection: vi.fn(),
   activateConnection: vi.fn(),
   vault: {
@@ -29,8 +31,9 @@ vi.mock('~/lib/.server/auth', () => ({
   upsertCloudflareUser: mocks.upsertCloudflareUser,
 }));
 vi.mock('~/lib/.server/cloudflare/cloudflare-connection-repository', () => ({
-  findCloudflareConnectionForUser: mocks.findConnection,
-  findCloudflareConnectionForOwner: mocks.findConnection,
+  findCloudflareConnectionForOrganization: mocks.findConnection,
+  // The person's own workspace in the space made for them: bound to no connection, as it always was.
+  workspaceBindingConnectionId: () => null,
   findActiveCloudflareConnection: mocks.findConnection,
   requireActiveCloudflareConnection: mocks.requireActiveConnection,
   activateCloudflareConnection: mocks.activateConnection,
@@ -82,6 +85,8 @@ describe('Cloudflare-only authentication', () => {
       image: null,
     });
     mocks.findConnection.mockResolvedValue(null);
+    // Nobody has a space yet unless a test says otherwise.
+    mocks.space.personal = null;
     // Signed out unless a test says otherwise.
     mocks.getAuthSession.mockResolvedValue(null);
     mocks.requireActiveConnection.mockResolvedValue(activeConnection());
@@ -126,7 +131,7 @@ describe('Cloudflare-only authentication', () => {
 
     const response = await cloudflareConnectionStatusAction({
       request: new Request('https://cloudchef.build/api/cloudflare/connection'),
-      env: { DB: {} } as Env,
+      env: runtimeEnv([]),
     });
 
     expect(response.status).toBe(200);
@@ -577,7 +582,7 @@ describe('Cloudflare-only authentication', () => {
     );
     expect(mocks.activateConnection).toHaveBeenCalledWith(
       expect.objectContaining({
-        owner: { kind: 'user', userId: 'user-1' },
+        orgId: 'space-1',
         accountId: ACCOUNT_ID,
         credentialHandle: 'credential-1',
         expectedGeneration: null,
@@ -753,6 +758,7 @@ describe('Cloudflare-only authentication', () => {
     });
     const state = database.state!.id;
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
+    mocks.space.personal = 'space-1';
     mocks.findConnection
       .mockResolvedValueOnce({ credentialHandle: 'credential-old', generation: 4, status: 'active' })
       .mockResolvedValueOnce({
@@ -845,6 +851,7 @@ describe('Cloudflare-only authentication', () => {
       orchestrator: fakeOrchestrator(),
     });
     const stateCookie = start.headers.get('set-cookie')!.split(';', 1)[0];
+    mocks.space.personal = 'space-1';
     mocks.findConnection.mockResolvedValueOnce({ credentialHandle: 'credential-old', generation: 4, status: 'active' });
     mocks.activateConnection.mockResolvedValueOnce({
       id: 'connection-1',
@@ -876,18 +883,38 @@ describe('Cloudflare-only authentication', () => {
   });
 });
 
+/** The person's membership of the space made for them, as the database answers it. */
+const MEMBERSHIP = {
+  org_id: 'space-1',
+  org_name: 'Person’s space',
+  role: 'admin',
+  paused_at: null,
+  drafts_allowed: 1,
+  managed: 0,
+};
+
 /** Signed in, building in their own Cloudflare account. */
 const signedInSession = {
   session: { id: 'session-1', userId: 'user-1', expiresAt: Date.now() + 60_000, createdAt: Date.now() },
   user: { id: 'user-1' },
-  context: { kind: 'personal', connectionId: 'connection-1', accountName: 'User Cloudflare' },
+  context: {
+    connectionId: 'connection-1',
+    accountName: 'User Cloudflare',
+    orgId: 'space-1',
+    orgName: 'Person’s space',
+    role: 'admin',
+    draftsAllowed: true,
+    hosting: 'own',
+    solo: true,
+    personal: true,
+  },
 };
 
 function activeConnection(generation = 1, grantedOAuthScopes: string[] = [...CORE_CLOUDFLARE_OAUTH_SCOPES]) {
   return {
     id: 'connection-1',
-    userId: 'user-1',
-    orgId: null,
+    orgId: 'space-1',
+    personalUserId: 'user-1',
     accountId: ACCOUNT_ID,
     accountName: 'User Cloudflare',
     status: 'active' as const,
@@ -946,6 +973,10 @@ function runtimeEnv(rows: Array<ReturnType<typeof runtimeRow> | null>, canary = 
             },
           }),
         };
+      }
+      // Who is in which space is the organization tests' question: here the person runs the space made for them.
+      if (sql.includes('FROM organization_members AS members')) {
+        return { bind: () => ({ first: async () => MEMBERSHIP }) };
       }
       if (!sql.includes('FROM user_computer_runtimes')) {
         throw new Error(`Unexpected SQL: ${sql}`);
@@ -1011,6 +1042,12 @@ function oauthDatabase(options: { rateLimitSuccess?: boolean; knownCloudflareUse
         bind(...values: unknown[]) {
           return {
             first: async () => {
+              if (sql.includes('FROM organization_members AS members')) {
+                return MEMBERSHIP;
+              }
+              if (sql.includes('FROM organizations WHERE personal_user_id')) {
+                return mocks.space.personal ? { id: mocks.space.personal } : null;
+              }
               if (sql.includes('FROM "user" WHERE cloudflare_subject')) {
                 return options.knownCloudflareUser ? { id: options.knownCloudflareUser } : null;
               }
@@ -1026,6 +1063,8 @@ function oauthDatabase(options: { rateLimitSuccess?: boolean; knownCloudflareUse
                 expires_at: state.expiresAt,
               };
             },
+            // The person connecting is the only one in their space.
+            all: async () => ({ results: sql.includes('FROM organization_members') ? [{ user_id: 'user-1' }] : [] }),
             run: async () => {
               if (sql.includes('INSERT INTO cloudflare_oauth_states')) {
                 state = {
@@ -1057,6 +1096,11 @@ function oauthDatabase(options: { rateLimitSuccess?: boolean; knownCloudflareUse
           };
         },
       };
+    },
+    // The only batch here makes the space of someone who had none.
+    batch: async (statements: readonly object[]) => {
+      mocks.space.personal = 'space-1';
+      return statements.map(() => ({ success: true, meta: { changes: 1 } }));
     },
   } as unknown as D1Database;
   return {

@@ -8,6 +8,7 @@ import { Modal } from '@ui/Modal';
 import { TextInput } from '@ui/TextInput';
 import { authClient, createCloudflareReturnURL, refreshSession, signInWithCloudflare } from '~/lib/auth-client';
 import { switchAccount } from '~/lib/account-actions.client';
+import { workspaceName } from '~/lib/workspace-name';
 import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
 import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
 import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
@@ -23,8 +24,10 @@ const organizationsSchema = z.object({
       orgName: z.string(),
       role: roleSchema,
       pausedAt: z.number().nullable(),
-      // A space CloudChef runs: its subscriber runs the team, and nobody in it the Cloudflare account.
-      managed: z.boolean(),
+      // Who runs the Cloudflare account it builds in: the space, with one of its own, or CloudChef.
+      hosting: z.enum(['own', 'cloudchef']),
+      // The person it was made for (their own Cloudflare account, or their subscription), who stays its admin.
+      ownerUserId: z.string().nullable(),
       connection: z.object({ accountName: z.string().nullable(), active: z.boolean() }).nullable(),
       members: z
         .array(
@@ -77,8 +80,8 @@ type OrgProject = Organization['projects'][number];
 const MEMBER_PROJECTS_SHOWN = 3;
 
 /**
- * Teams: people sharing one Cloudflare account to build in. An admin connects the account and invites
- * people by email; they sign in with Google or an emailed link, without Cloudflare logins.
+ * Spaces: every place this person builds, each with who hosts it, the people in it and its projects. Whoever
+ * runs one invites people by email; they sign in with Google or an emailed link, without Cloudflare logins.
  */
 export function OrganizationsCard() {
   const { data: session } = authClient.useSession();
@@ -116,12 +119,12 @@ export function OrganizationsCard() {
   /** Loads the teams, and again after a change; a failure says so instead of leaving stale controls unexplained. */
   const reload = useCallback(
     () =>
-      getJson('/api/organizations', organizationsSchema, 'Unable to load your teams.').then(
+      getJson('/api/organizations', organizationsSchema, 'Unable to load your spaces.').then(
         ({ organizations }) => {
           setOrganizations(organizations);
           setError(null);
         },
-        (loadError) => setError(messageOf(loadError, 'Unable to load your teams.')),
+        (loadError) => setError(messageOf(loadError, 'Unable to load your spaces.')),
       ),
     [],
   );
@@ -141,23 +144,14 @@ export function OrganizationsCard() {
     }
   }, [organizations]);
 
-  const personal = session?.contexts.find((option) => option.kind === 'personal') ?? null;
-  // A space of the person's own that CloudChef runs is theirs, not a team they are in: it is under Your space.
-  const teams = organizations?.filter((organization) => !isOwnSpace(organization)) ?? null;
-
   return (
     <SettingsCard
       id="organizations"
-      title="Teams"
-      description="Share a Cloudflare account with the people you work with."
+      title="Spaces"
+      description="Where you build, and who builds there with you."
       action={
-        <Button
-          size="sm"
-          variant={teams?.length === 0 ? 'primary' : 'neutral'}
-          icon={<PlusIcon aria-hidden />}
-          onClick={() => setCreating(true)}
-        >
-          New team
+        <Button size="sm" variant="neutral" icon={<PlusIcon aria-hidden />} onClick={() => setCreating(true)}>
+          New space
         </Button>
       }
     >
@@ -172,34 +166,20 @@ export function OrganizationsCard() {
           Loading…
         </p>
       ) : null}
-      {teams?.length === 0 ? (
-        <p className="mt-4 text-sm text-content-secondary">You&apos;re not in a team yet.</p>
+      {organizations?.length === 0 ? (
+        <p className="mt-4 text-sm text-content-secondary">
+          You have no space to build in yet. Choose one on the home page, or make one here.
+        </p>
       ) : null}
       <div className="mt-4 grid min-w-0 gap-3">
-        {/* Someone working in a team can always go back to their own account. */}
-        {personal && teams?.length ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-bolt-elements-borderColor px-3 py-2.5">
-            <span className="min-w-0 flex-1 truncate text-sm" title={personal.accountName ?? undefined}>
-              Personal
-              {personal.accountName ? <span className="text-content-tertiary"> · {personal.accountName}</span> : null}
-            </span>
-            {session?.context?.kind === 'personal' ? (
-              <StatusBadge tone="success">Open now</StatusBadge>
-            ) : (
-              <OpenButton connectionId={personal.connectionId} />
-            )}
-          </div>
-        ) : null}
-        {teams?.map((organization) => (
+        {organizations?.map((organization) => (
           <OrganizationRow
             key={organization.orgId}
             organization={organization}
-            // The account to open: the session lists the teams this person may build in now.
-            connectionId={
-              session?.contexts.find((option) => option.kind === 'organization' && option.orgId === organization.orgId)
-                ?.connectionId ?? null
-            }
-            current={session?.context?.kind === 'organization' && session.context.orgId === organization.orgId}
+            // What they call it and the connection to open: the session lists the spaces they may build in now.
+            name={nameAmong(session?.contexts ?? [], organization)}
+            connectionId={session?.contexts.find((option) => option.orgId === organization.orgId)?.connectionId ?? null}
+            current={session?.context?.orgId === organization.orgId}
             myUserId={session?.user.id ?? null}
             onChanged={reload}
           />
@@ -210,7 +190,16 @@ export function OrganizationsCard() {
   );
 }
 
-/** Naming a new team, then straight on to connecting the Cloudflare account it builds in. */
+/** What the person calls a space, as the switcher does: Personal while it is theirs alone, else its name. */
+function nameAmong(
+  contexts: readonly { orgId: string; orgName: string; solo: boolean }[],
+  space: Organization,
+): string {
+  const context = contexts.find((option) => option.orgId === space.orgId);
+  return context ? workspaceName(context, contexts) : space.orgName;
+}
+
+/** Naming a new space, then straight on to connecting the Cloudflare account it builds in. */
 function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> }) {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
@@ -232,8 +221,8 @@ function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChang
       const reason = messageOf(createError, 'That did not work.');
       setError(
         created
-          ? `Created ${orgName}, but connecting its Cloudflare account didn't start: ${reason} Use Connect Cloudflare on the team.`
-          : messageOf(createError, 'Unable to create the team.'),
+          ? `Created ${orgName}, but connecting its Cloudflare account didn't start: ${reason} Use Connect Cloudflare on the space.`
+          : messageOf(createError, 'Unable to create the space.'),
       );
       setBusy(false);
       void onChanged();
@@ -241,8 +230,8 @@ function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChang
   };
   return (
     <Modal
-      title="New team"
-      description="You become its admin, then connect the Cloudflare account it builds in. Yours works."
+      title="New space"
+      description="Another place to build, apart from the one you have: you become its admin, then connect the Cloudflare account it builds in. Nothing to pay CloudChef for it."
       onClose={onClose}
     >
       <form className="grid gap-3" onSubmit={(event) => void create(event)}>
@@ -250,8 +239,8 @@ function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChang
           required
           autoFocus
           maxLength={80}
-          placeholder="Team name"
-          aria-label="Team name"
+          placeholder="Space name"
+          aria-label="Space name"
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
@@ -266,55 +255,6 @@ function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChang
         </div>
       </form>
     </Modal>
-  );
-}
-
-/** A space CloudChef runs that is this person's own: the one their subscription made, which they run. */
-function isOwnSpace(organization: Organization): boolean {
-  return organization.managed && organization.role === 'admin';
-}
-
-/**
- * The people in the space a person's subscription gave them, inside Your space: alone, an offer to invite
- * someone and what that adds; with others, who they are, the name they see the space by, and its projects.
- * Nothing until it loads, or for a space that is paused.
- */
-export function OwnSpacePeople() {
-  const { data: session } = authClient.useSession();
-  const [space, setSpace] = useState<Organization | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const reload = useCallback(
-    () =>
-      getJson('/api/organizations', organizationsSchema, 'Unable to load the people in your space.').then(
-        ({ organizations }) => {
-          setSpace(organizations.find(isOwnSpace) ?? null);
-          setError(null);
-        },
-        (loadError) => setError(messageOf(loadError, 'Unable to load the people in your space.')),
-      ),
-    [],
-  );
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-  if (error) {
-    return <FeedbackLine feedback={errorFeedback(error)} className="mt-4" />;
-  }
-  if (!space || space.pausedAt !== null) {
-    return null;
-  }
-  return (
-    <OrganizationRow
-      own
-      organization={space}
-      connectionId={null}
-      current={session?.context?.kind === 'organization' && session.context.orgId === space.orgId}
-      myUserId={session?.user.id ?? null}
-      // The switcher calls the space Personal until someone else is in it.
-      onChanged={async () => {
-        await Promise.all([reload(), refreshSession()]);
-      }}
-    />
   );
 }
 
@@ -336,15 +276,15 @@ function OpenButton({ connectionId }: { connectionId: string }) {
 
 function OrganizationRow({
   organization,
+  name,
   connectionId,
   current,
   myUserId,
   onChanged,
-  own = false,
 }: {
-  /** The person's own space, shown inside Your space: no team heading, and alone in it no list of people. */
-  own?: boolean;
   organization: Organization;
+  /** What this person calls it: Personal while it is theirs alone. */
+  name: string;
   connectionId: string | null;
   current: boolean;
   myUserId: string | null;
@@ -358,8 +298,12 @@ function OrganizationRow({
   const connection = organization.connection;
   const projects = organization.projects;
   const people = (organization.members?.length ?? 0) + (organization.invites?.length ?? 0);
-  // Alone in their own space, with nobody invited: there is no team to show yet.
-  const alone = own && people <= 1;
+  // CloudChef runs its Cloudflare account: nobody in the space connects it, and it ends with its subscription.
+  const hosted = organization.hosting === 'cloudchef';
+  // Made for this person: it is theirs, whoever else is in it.
+  const mine = myUserId !== null && organization.ownerUserId === myUserId;
+  // Alone in it, with nobody invited: there are no people to list yet.
+  const alone = admin && people <= 1;
 
   const connectCloudflare = () =>
     void runRequest(
@@ -381,8 +325,8 @@ function OrganizationRow({
     );
 
   return (
-    <div className={own ? 'min-w-0' : 'min-w-0 rounded-md border border-bolt-elements-borderColor p-3 sm:p-4'}>
-      {own && !renaming ? null : renaming ? (
+    <div className="min-w-0 rounded-md border border-bolt-elements-borderColor p-3 sm:p-4">
+      {renaming ? (
         <RenameTeam
           orgId={organization.orgId}
           orgName={organization.orgName}
@@ -397,18 +341,12 @@ function OrganizationRow({
       ) : (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <h3 className="min-w-0 truncate font-medium" title={organization.orgName}>
-            {organization.orgName}
+            {name}
           </h3>
           <StatusBadge tone={organization.pausedAt ? 'warning' : 'neutral'}>
-            {organization.pausedAt
-              ? 'Paused'
-              : organization.role !== 'admin'
-                ? 'Member'
-                : organization.managed
-                  ? 'Yours'
-                  : 'Admin'}
+            {organization.pausedAt ? 'Paused' : organization.role !== 'admin' ? 'Member' : mine ? 'Yours' : 'Admin'}
           </StatusBadge>
-          {organization.managed ? (
+          {hosted ? (
             <StatusBadge tone="success">Run by CloudChef</StatusBadge>
           ) : connection === null ? (
             <StatusBadge tone="warning">No Cloudflare account</StatusBadge>
@@ -423,18 +361,16 @@ function OrganizationRow({
             ) : connectionId ? (
               <OpenButton connectionId={connectionId} />
             ) : null}
-            {admin && !organization.managed && !connection?.active ? (
+            {admin && !hosted && !connection?.active ? (
               <Button size="xs" variant="primary" onClick={connectCloudflare}>
                 Connect Cloudflare
               </Button>
             ) : null}
             {admin ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
-                <MenuItem action={() => setRenaming(true)}>
-                  {organization.managed ? 'Rename space' : 'Rename team'}
-                </MenuItem>
+                <MenuItem action={() => setRenaming(true)}>Rename space</MenuItem>
                 {/* A space CloudChef runs has no account of its own to reconnect, and ends with its subscription. */}
-                {organization.managed ? null : (
+                {hosted ? null : (
                   <>
                     {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
                     {connection?.active ? (
@@ -442,7 +378,7 @@ function OrganizationRow({
                     ) : null}
                     <MenuSeparator />
                     <MenuItem danger action={() => setDialog('delete')}>
-                      Delete team
+                      Delete space
                     </MenuItem>
                   </>
                 )}
@@ -450,7 +386,7 @@ function OrganizationRow({
             ) : myUserId ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
                 <MenuItem danger action={() => setDialog('leave')}>
-                  Leave team
+                  Leave space
                 </MenuItem>
               </MoreMenu>
             ) : null}
@@ -471,16 +407,9 @@ function OrganizationRow({
             </div>
             {alone ? (
               <p className="text-xs text-content-tertiary">
-                Only you so far. Invite someone to build here with you: each person adds{' '}
-                {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month to your subscription once they join, and{' '}
-                {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the building you share.
-              </p>
-            ) : own && !renaming ? (
-              <p className="flex min-w-0 flex-wrap items-center gap-2 text-xs text-content-tertiary">
-                <span className="min-w-0 wrap-break-word">They see your space as {organization.orgName}.</span>
-                <Button size="xs" variant="neutral" onClick={() => setRenaming(true)}>
-                  Rename
-                </Button>
+                {hosted
+                  ? `Only you so far. Invite someone to build here with you: each person adds ${usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month to your subscription once they join, and ${usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the building you share.`
+                  : 'Only you so far. Invite someone to build here with you, in this Cloudflare account. Nothing to pay CloudChef for them.'}
               </p>
             ) : null}
             <ul
@@ -495,7 +424,8 @@ function OrganizationRow({
                   member={member}
                   projects={projects}
                   self={member.userId === myUserId}
-                  managed={organization.managed}
+                  hosted={hosted}
+                  owner={member.userId === organization.ownerUserId}
                   onChanged={onChanged}
                   onFeedback={setPeopleFeedback}
                 />
@@ -528,23 +458,19 @@ function OrganizationRow({
             </ul>
             <FeedbackLine feedback={peopleFeedback} className="" />
           </div>
-          {/* Alone, their projects are on the home page; here only once GitHub is connected, to manage that. */}
-          {alone && organization.github.length === 0 ? null : (
-            <OrgProjectsSection
-              orgId={organization.orgId}
-              github={organization.github}
-              projects={projects}
-              members={organization.members ?? []}
-              onChanged={onChanged}
-              space={organization.managed}
-            />
-          )}
+          <OrgProjectsSection
+            orgId={organization.orgId}
+            github={organization.github}
+            projects={projects}
+            members={organization.members ?? []}
+            onChanged={onChanged}
+          />
         </>
-      ) : own ? null : (
+      ) : (
         <MyOrgProjects projects={projects} />
       )}
       {dialog === 'invite' ? (
-        <InviteDialog organization={organization} alone={alone} onChanged={onChanged} onClose={() => setDialog(null)} />
+        <InviteDialog organization={organization} onChanged={onChanged} onClose={() => setDialog(null)} />
       ) : dialog === 'delete' ? (
         <DeleteTeam orgId={organization.orgId} orgName={organization.orgName} onCancel={() => setDialog(null)} />
       ) : dialog === 'leave' && myUserId ? (
@@ -562,17 +488,15 @@ function OrganizationRow({
 /** Inviting someone by email: their role, whether they may start apps of their own, and their projects. */
 function InviteDialog({
   organization,
-  alone = false,
   onChanged,
   onClose,
 }: {
-  /** The first invitation to a person's own space, which until now was theirs alone. */
-  alone?: boolean;
   organization: Organization;
   onChanged: () => Promise<void>;
   onClose: () => void;
 }) {
   const projects = organization.projects;
+  const hosted = organization.hosting === 'cloudchef';
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'member' | 'admin'>('member');
   // The projects a new member gets: every project until the admin unticks some.
@@ -629,12 +553,8 @@ function InviteDialog({
 
   return (
     <Modal
-      title={alone ? 'Invite someone to your space' : `Invite to ${organization.orgName}`}
-      description={
-        alone
-          ? `They sign in with Google or an emailed link, and see your space as ${organization.orgName}.`
-          : 'They sign in with Google or an emailed link.'
-      }
+      title={`Invite to ${organization.orgName}`}
+      description="They sign in with Google or an emailed link, and see this space by that name."
       onClose={onClose}
     >
       {inviteUrl ? (
@@ -670,7 +590,7 @@ function InviteDialog({
               className="min-w-0 flex-1 basis-48"
             />
             {/* A space CloudChef runs has one person running it: everyone invited is a member. */}
-            {organization.managed ? null : (
+            {hosted ? null : (
               <select
                 aria-label="Role"
                 value={role}
@@ -682,14 +602,11 @@ function InviteDialog({
               </select>
             )}
           </div>
-          {organization.managed ? (
-            <p className="text-xs text-content-secondary">
-              When they join, {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month is added to your subscription for them,
-              charged for the rest of this month first, and {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the
-              building you all share. Removing them takes it off again. A team that builds in a Cloudflare account of
-              your own costs nothing here for its people.
-            </p>
-          ) : null}
+          <p className="text-xs text-content-secondary">
+            {hosted
+              ? `When they join, ${usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month is added to your subscription for them, charged for the rest of this month first, and ${usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the building you all share. Removing them takes it off again. A space on a Cloudflare account of your own costs nothing here for its people.`
+              : 'They build in this space’s Cloudflare account, which Cloudflare bills. Nothing to pay CloudChef for them.'}
+          </p>
           {role === 'member' ? (
             <>
               {projects.length > 0 ? (
@@ -717,7 +634,7 @@ function InviteDialog({
               </label>
             </>
           ) : (
-            <p className="text-xs text-content-tertiary">Admins work on every project and manage the team.</p>
+            <p className="text-xs text-content-tertiary">Admins work on every project and run the space.</p>
           )}
           <FeedbackLine feedback={feedback} className="" />
           <div className="flex flex-wrap justify-end gap-2">
@@ -774,7 +691,7 @@ function LeaveOrganization({
       <DeleteTeam
         orgId={orgId}
         orgName={orgName}
-        intro={`You're the only one in ${orgName}, so leaving deletes the team.`}
+        intro={`You're the only one in ${orgName}, so leaving deletes the space.`}
         onCancel={onCancel}
       />
     );
@@ -890,7 +807,7 @@ function DeleteTeam({
           : []),
         ...(outcome.cloudflareAuthorizationKept
           ? [
-              'CloudChef kept its access to the Cloudflare account, because someone still builds in it outside this team.',
+              'CloudChef kept its access to the Cloudflare account, because someone still builds in it outside this space.',
             ]
           : []),
       ].join(' ');
@@ -904,7 +821,7 @@ function DeleteTeam({
       if (deleteError instanceof RequestError && deleteError.code === 'reauthentication_required') {
         setReauthenticate(true);
       } else {
-        setFeedback(errorFeedback(messageOf(deleteError, 'Unable to delete the team.')));
+        setFeedback(errorFeedback(messageOf(deleteError, 'Unable to delete the space.')));
       }
       setDeleting(false);
     }
@@ -916,7 +833,7 @@ function DeleteTeam({
         <p>
           Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there, is deleted. Its
           members, invites, projects and usage are removed from CloudChef, and CloudChef&apos;s access to the Cloudflare
-          account is revoked, unless someone still builds in it outside this team. This can&apos;t be undone.
+          account is revoked, unless someone still builds in it outside this space. This can&apos;t be undone.
         </p>
         <p>
           What stays: each project&apos;s code and history, deployed apps with their databases and storage, and AI
@@ -957,7 +874,8 @@ function MemberRow({
   member,
   projects,
   self,
-  managed,
+  hosted,
+  owner,
   onChanged,
   onFeedback,
 }: {
@@ -967,8 +885,10 @@ function MemberRow({
   projects: OrgProject[];
   /** The admin's own row: no pausing themselves, a confirmed step down, and removal is leaving. */
   self: boolean;
-  /** In a space CloudChef runs: its subscriber stays the one who runs it, so no roles change and they don't leave. */
-  managed: boolean;
+  /** In a space CloudChef runs: its subscriber is the one who runs it, so no roles change. */
+  hosted: boolean;
+  /** The person the space was made for: they stay its admin, so nothing about them changes here. */
+  owner: boolean;
   onChanged: () => Promise<void>;
   onFeedback: (feedback: Feedback) => void;
 }) {
@@ -1037,7 +957,7 @@ function MemberRow({
             {self ? <span className="text-content-tertiary"> (you)</span> : null}
           </span>
           {member.pausedAt ? <StatusBadge tone="warning">Paused</StatusBadge> : null}
-          {member.role === 'admin' ? <StatusBadge>{managed ? 'Runs this space' : 'Admin'}</StatusBadge> : null}
+          {member.role === 'admin' ? <StatusBadge>{owner ? 'Owner' : 'Admin'}</StatusBadge> : null}
           {member.role === 'member' && !member.draftsAllowed ? <StatusBadge>Given projects only</StatusBadge> : null}
         </div>
         <p
@@ -1049,7 +969,7 @@ function MemberRow({
           {member.usage.turns} {member.usage.turns === 1 ? 'turn' : 'turns'}, {compactCount(tokens)} tokens this month
         </p>
       </div>
-      {managed && self ? null : (
+      {owner ? null : (
         <MoreMenu title={`Manage ${who}`}>
           {self ? null : (
             <MenuItem action={() => void act(member.pausedAt ? 'resume' : 'pause')}>
@@ -1063,7 +983,7 @@ function MemberRow({
               {member.draftsAllowed ? 'Stop new apps of their own' : 'Allow new apps of their own'}
             </MenuItem>
           ) : null}
-          {managed ? null : (
+          {hosted ? null : (
             <MenuItem
               action={() =>
                 member.role === 'admin' && self
@@ -1076,7 +996,7 @@ function MemberRow({
           )}
           <MenuSeparator />
           <MenuItem danger action={() => setConfirming('remove')}>
-            {self ? 'Leave team' : managed ? 'Remove from space' : 'Remove from team'}
+            {self ? 'Leave space' : 'Remove from space'}
           </MenuItem>
         </MoreMenu>
       )}
@@ -1091,7 +1011,7 @@ function MemberRow({
             <p>
               {confirming === 'remove'
                 ? `Their workspace in ${orgName}'s Cloudflare account, with their chats and project files there, is deleted.`
-                : 'You lose admin access to this team until another admin gives it back.'}
+                : 'You lose admin access to this space until another admin gives it back.'}
             </p>
             {reauthenticate ? (
               <ReauthenticatePrompt

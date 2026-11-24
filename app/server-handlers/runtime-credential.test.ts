@@ -22,16 +22,23 @@ vi.mock('~/lib/.server/cloudflare/cloudflare-credential-vault', () => ({
 
 import { runtimeAccessAction, runtimeCredentialAction, runtimeUsageAction } from './runtime-credential';
 
+/** The connection lookup and the credential resolver are mocked; the database holds who is in the space. */
 function testEnv(encryptionKey: string = encryptionKeyBase64): Env {
-  // SAFETY: `requireActiveCloudflareConnection` and the credential resolver are both mocked here,
-  // so `DB` is only ever compared by identity and no other binding is read.
-  return { DB: {} as D1Database, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKey } as Env;
+  const { database, db } = controlPlaneDatabase();
+  database.exec(`
+    INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('user-1', 'Sam', 'sam@example.com', 1, 1, 1);
+    INSERT INTO organizations (id, name, created_at, updated_at, personal_user_id) VALUES ('space-1', 'Sam’s space', 1, 1, 'user-1');
+    INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('space-1', 'user-1', 'admin', 1);
+  `);
+  return envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKey });
 }
 
 const encryptionKeyBase64 = btoa('a'.repeat(32));
 const connection = {
   id: 'connection-1',
-  userId: 'user-1',
+  // The space made for user-1, on their own Cloudflare account.
+  orgId: 'space-1',
+  personalUserId: 'user-1',
   accountId: '0123456789abcdef0123456789abcdef',
   accountName: 'Account',
   status: 'active',
@@ -114,7 +121,7 @@ describe('runtimeCredentialAction', () => {
         ('org-1', 'member-1', 'member', 1),
         ('org-2', 'outsider', 'admin', 1);
     `);
-    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, orgId: 'org-1', personalUserId: null });
     const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
     const ask = async (userId: string) =>
       (
@@ -159,7 +166,7 @@ describe('runtimeCredentialAction', () => {
 });
 
 describe('runtimeUsageAction', () => {
-  it("adds each member's model use to their organization's daily totals, and records nothing for personal accounts", async () => {
+  it("adds each person's model use to their space's daily totals, in the space made for them as in any other", async () => {
     const { database, db } = controlPlaneDatabase();
     database.exec(`
       INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('member-1', 'Sam', 'sam@acme.com', 1, 1, 1);
@@ -178,7 +185,7 @@ describe('runtimeUsageAction', () => {
       });
     vi.useFakeTimers({ toFake: ['Date'], now: Date.UTC(2026, 9, 18) });
 
-    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, orgId: 'org-1', personalUserId: null });
     expect((await report(await runtimeSecret('member-1', 'connection-1'))).status).toBe(204);
     expect((await report(await runtimeSecret('member-1', 'connection-1'))).status).toBe(204);
     // A person's own-account secret is no good for their organization's connection.
@@ -214,11 +221,15 @@ describe('runtimeUsageAction', () => {
       { turns: 2, container_seconds: 345 },
     ]);
 
-    // Someone's own account: authenticated, but nothing to record.
-    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: 'member-1', orgId: null });
+    // The space made for them: their workspace there proves itself as it always did, and its use is counted too.
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({
+      ...connection,
+      orgId: 'org-1',
+      personalUserId: 'member-1',
+    });
     database.exec('DELETE FROM organization_usage_daily');
     expect((await report(await runtimeSecret('member-1'))).status).toBe(204);
-    expect(database.prepare('SELECT COUNT(*) AS rows FROM organization_usage_daily').get()).toEqual({ rows: 0 });
+    expect(database.prepare('SELECT COUNT(*) AS rows FROM organization_usage_daily').get()).toEqual({ rows: 1 });
   });
 });
 
@@ -230,7 +241,7 @@ describe('runtimeAccessAction', () => {
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Spaces', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('org-1', 'member-1', 'member', 1);
     `);
-    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, orgId: 'org-1', personalUserId: null });
     const managed = { STRIPE_SECRET_KEY: 'sk_test', STRIPE_PRICE_ID: 'price_1', MANAGED_SPACE_ORG_ID: 'org-1' };
     const ask = async (bindings: Record<string, string>) => {
       const response = await runtimeAccessAction({
@@ -324,7 +335,7 @@ describe('runtimeAccessAction', () => {
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('org-1', 'member-1', 'member', 1);
     `);
-    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, userId: null, orgId: 'org-1' });
+    mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, orgId: 'org-1', personalUserId: null });
     const env = envWith({ DB: db, CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY: encryptionKeyBase64 });
     const ask = async () => {
       const response = await runtimeAccessAction({
@@ -393,7 +404,7 @@ function request(
 }
 
 /** A runtime's secret: a person's own (the default), or, given its connection, an organization's. */
-function runtimeSecret(userId = connection.userId, organizationConnectionId: string | null = null): Promise<string> {
+function runtimeSecret(userId = 'user-1', organizationConnectionId: string | null = null): Promise<string> {
   return deriveUserWorkspaceRuntimeSecret({
     encryptionKeyBase64,
     userId,

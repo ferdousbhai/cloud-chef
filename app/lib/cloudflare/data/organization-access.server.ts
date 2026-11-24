@@ -2,57 +2,52 @@ import { z } from 'zod';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 
 /**
- * Who may build with a Cloudflare connection: its owner for a person's own connection, and an
- * organization's active, unpaused members for the organization's. Every control-plane path that hands
- * out a workspace or a Cloudflare token asks this one question, so pausing or removing a member takes
- * effect at their very next request.
+ * Who may build with a space's Cloudflare connection: the space's members who aren't paused. Every control-plane
+ * path that hands out a workspace or a Cloudflare token asks this one question, so pausing or removing a member
+ * takes effect at their very next request.
  */
 export type OrganizationRole = 'admin' | 'member';
+
+/** Who runs the Cloudflare account a space builds in: the space itself, with an account of its own, or CloudChef. */
+export type SpaceHosting = 'own' | 'cloudchef';
 
 export type Membership = {
   orgId: string;
   orgName: string;
   role: OrganizationRole;
   pausedAt: number | null;
-  /** Whether they may build new apps of their own here, or only work on the team projects they're given. */
+  /** Whether they may build new apps of their own here, or only work on the projects they're given. */
   draftsAllowed: boolean;
   /**
-   * A space CloudChef runs: the team builds in the operator's Cloudflare account, so its admin (its subscriber)
-   * runs the team and nobody in it runs the account.
+   * A space CloudChef runs (`hosting` 'cloudchef'): it builds in the operator's Cloudflare account, so its admin
+   * (its subscriber) runs the space and nobody in it runs the account.
    */
   managed: boolean;
 };
 
-/** A Cloudflare account a person can build in, as the workspace switcher lists them. */
-export type WorkspaceContextOption =
-  | { kind: 'personal'; connectionId: string; accountName: string | null }
-  | {
-      kind: 'organization';
-      connectionId: string;
-      accountName: string | null;
-      orgId: string;
-      orgName: string;
-      role: OrganizationRole;
-      draftsAllowed: boolean;
-      managed: boolean;
-      /**
-       * A space CloudChef runs with only its subscriber in it: to them it is their own account, not a team, until
-       * someone else joins.
-       */
-      solo: boolean;
-    };
+/**
+ * A space a person can build in, as the workspace switcher lists them: the one made for them, one they made, or
+ * one they were invited into. Every one has the same shape, whoever hosts it and however many people are in it.
+ */
+export type WorkspaceContextOption = {
+  connectionId: string;
+  accountName: string | null;
+  orgId: string;
+  orgName: string;
+  role: OrganizationRole;
+  draftsAllowed: boolean;
+  hosting: SpaceHosting;
+  /** Only this person is in it: to them it is their own account, not a team, until someone else joins. */
+  solo: boolean;
+  /** The space made for this person, on a Cloudflare account of their own: the one signing in with it connects. */
+  personal: boolean;
+};
 
 export async function canUseConnection(
   db: D1Database,
   userId: string,
-  connection: Pick<CloudflareConnection, 'userId' | 'orgId'>,
+  connection: Pick<CloudflareConnection, 'orgId'>,
 ): Promise<boolean> {
-  if (connection.userId !== null) {
-    return connection.userId === userId;
-  }
-  if (connection.orgId === null) {
-    return false;
-  }
   return (await findMembership(db, connection.orgId, userId))?.pausedAt === null;
 }
 
@@ -70,46 +65,37 @@ export async function findMembership(db: D1Database, orgId: string, userId: stri
   return row ? membershipFromRow(row) : null;
 }
 /**
- * Every Cloudflare account this person can build in right now: their own active connection first,
- * then each organization they are an unpaused member of whose connection is active.
+ * Every space this person can build in right now, whose connection is active and where they aren't paused: the
+ * one made for them first, then the rest by name.
  */
 export async function listWorkspaceContexts(db: D1Database, userId: string): Promise<WorkspaceContextOption[]> {
   const { results } = await db
     .prepare(
-      `SELECT connections.id AS connection_id, connections.account_name, NULL AS org_id, NULL AS org_name,
-              NULL AS role, 1 AS drafts_allowed, 0 AS managed, 0 AS solo, 0 AS sort_group
-       FROM cloudflare_connections AS connections
-       WHERE connections.user_id = ?1 AND connections.status = 'active'
-       UNION ALL
-       SELECT connections.id, connections.account_name, organizations.id, organizations.name, members.role,
-              members.drafts_allowed, organizations.managed_host_org_id IS NOT NULL,
-              organizations.managed_host_org_id IS NOT NULL
-                AND (SELECT COUNT(*) FROM organization_members AS people WHERE people.org_id = organizations.id) = 1,
-              1
+      `SELECT connections.id AS connection_id, connections.account_name, organizations.id AS org_id,
+              organizations.name AS org_name, members.role, members.drafts_allowed,
+              organizations.managed_host_org_id IS NOT NULL AS managed,
+              (SELECT COUNT(*) FROM organization_members AS people WHERE people.org_id = organizations.id) = 1 AS solo,
+              organizations.personal_user_id IS ?1 AS personal
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        JOIN cloudflare_connections AS connections
          ON connections.org_id = members.org_id AND connections.status = 'active'
        WHERE members.user_id = ?1 AND members.paused_at IS NULL
-       ORDER BY sort_group, org_name, org_id`,
+       ORDER BY organizations.personal_user_id IS ?1 DESC, org_name, org_id`,
     )
     .bind(userId)
     .all<ContextRow>();
-  return results.map((row) =>
-    row.org_id === null
-      ? { kind: 'personal', connectionId: row.connection_id, accountName: row.account_name }
-      : {
-          kind: 'organization',
-          connectionId: row.connection_id,
-          accountName: row.account_name,
-          orgId: row.org_id,
-          orgName: row.org_name,
-          role: row.role,
-          draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
-          managed: row.managed === 1,
-          solo: row.solo === 1,
-        },
-  );
+  return results.map((row) => ({
+    connectionId: row.connection_id,
+    accountName: row.account_name,
+    orgId: row.org_id,
+    orgName: row.org_name,
+    role: row.role,
+    draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
+    hosting: row.managed === 1 ? 'cloudchef' : 'own',
+    solo: row.solo === 1,
+    personal: row.personal === 1,
+  }));
 }
 
 /** An admin who isn't paused: who may run the team (its people, invites and projects). */
@@ -158,10 +144,14 @@ type MembershipRow = {
 type ContextRow = {
   connection_id: string;
   account_name: string | null;
+  org_id: string;
+  org_name: string;
+  role: OrganizationRole;
   drafts_allowed: number;
   managed: number;
   solo: number;
-} & ({ org_id: null; org_name: null; role: null } | { org_id: string; org_name: string; role: OrganizationRole });
+  personal: number;
+};
 
 function membershipFromRow(row: MembershipRow): Membership {
   return {

@@ -433,19 +433,16 @@ function ProviderKeyRow({
   );
 }
 
-/** The account Settings is showing, as its switcher names it: a team, or the person's own account. */
+/** The space Settings is showing: the person's own while they are alone in it, else by its name, and who hosts it. */
 function workspaceLabel(context: CloudflareAuthSession['context']): string | null {
   if (!context) {
     return null;
   }
-  if (context.kind === 'organization' && context.managed) {
-    // Alone in it, it is the person's own space; with others, it goes by its name.
-    return context.solo ? 'your space, which CloudChef runs' : `${context.orgName}, which CloudChef runs`;
+  const name = context.solo ? 'your space' : context.orgName;
+  if (context.hosting === 'cloudchef') {
+    return `${name}, which CloudChef runs`;
   }
-  if (context.kind === 'organization') {
-    return `the ${context.orgName} team${context.accountName ? ` (Cloudflare account ${context.accountName})` : ''}`;
-  }
-  return context.accountName ? `Personal (Cloudflare account ${context.accountName})` : 'Personal';
+  return context.accountName ? `${name} (Cloudflare account ${context.accountName})` : name;
 }
 
 /**
@@ -454,7 +451,7 @@ function workspaceLabel(context: CloudflareAuthSession['context']): string | nul
  */
 function ReauthorizeForKeys() {
   const { data: session } = authClient.useSession();
-  const team = session?.context?.kind === 'organization' ? session.context : null;
+  const space = session?.context ?? null;
   const [reauthorizing, setReauthorizing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reauthorize = async () => {
@@ -463,7 +460,8 @@ function ReauthorizeForKeys() {
     try {
       await signInWithCloudflare(
         createCloudflareReturnURL(window.location.href),
-        team ? { organizationId: team.orgId } : {},
+        // The space made for the person is the one a Cloudflare sign-in connects; any other is named.
+        space && !space.personal ? { organizationId: space.orgId } : {},
       );
     } catch {
       setError('Cloudflare couldn’t be reached. Try again.');
@@ -474,7 +472,8 @@ function ReauthorizeForKeys() {
     <div className="mt-3 grid justify-items-start gap-2 text-sm text-content-secondary">
       <p className="flex flex-wrap items-center gap-2">
         <StatusBadge tone="warning">Needs permission</StatusBadge>
-        Reauthorize {team ? `${team.orgName}'s Cloudflare account` : 'Cloudflare'} once to manage AI Gateway keys.
+        Reauthorize {space && !space.solo ? `${space.orgName}'s Cloudflare account` : 'Cloudflare'} once to manage AI
+        Gateway keys.
       </p>
       <Button size="sm" variant="primary" loading={reauthorizing} onClick={() => void reauthorize()}>
         Reauthorize Cloudflare

@@ -144,7 +144,7 @@ describe('organizations', () => {
     // Sam now works in Acme's account, as a member who may build new apps of their own (the invite's default).
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
     expect(session?.context).toMatchObject({
-      kind: 'organization',
+      orgId,
       connectionId: 'acme-connection',
       role: 'member',
       draftsAllowed: true,
@@ -190,7 +190,7 @@ describe('organizations', () => {
       env,
     });
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
-    expect(session?.context).toMatchObject({ kind: 'organization', role: 'member', draftsAllowed: false });
+    expect(session?.context).toMatchObject({ role: 'member', draftsAllowed: false, solo: false });
   });
 
   it("joins an organization whose Cloudflare connection isn't active without switching into it", async () => {
@@ -209,7 +209,7 @@ describe('organizations', () => {
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toEqual({ orgId, switched: false });
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
-    expect(session?.context?.kind).not.toBe('organization');
+    expect(session?.context?.orgId).not.toBe(orgId);
   });
 
   it('tells the link holder what an invite is for, before they sign in, until it is used', async () => {

@@ -60,9 +60,9 @@ describe('Cloudflare auth sessions', () => {
     // A chosen organization sticks, until the person is paused there.
     await expect(setSessionContext(env, request(), 'acme')).resolves.toBe(true);
     await expect(getAuthSession(env, request())).resolves.toMatchObject({
-      context: { kind: 'organization', orgName: 'Acme', role: 'member' },
+      context: { orgName: 'Acme', role: 'member', hosting: 'own', solo: true, personal: false },
     });
-    database.exec(`UPDATE organization_members SET paused_at = 2`);
+    database.exec(`UPDATE organization_members SET paused_at = 2 WHERE org_id = 'org-1'`);
     const paused = await getAuthSession(env, request());
     expect(paused?.context?.connectionId).toBe('personal');
     await expect(setSessionContext(env, request(), 'acme')).resolves.toBe(false);

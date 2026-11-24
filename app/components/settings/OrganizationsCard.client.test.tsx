@@ -6,7 +6,7 @@ import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } fr
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CloudflareAuthSession, WorkspaceContext } from '~/lib/.server/auth';
 import { refreshSession } from '~/lib/auth-client';
-import { OrganizationsCard, OwnSpacePeople } from './OrganizationsCard.client';
+import { OrganizationsCard } from './OrganizationsCard.client';
 
 const usage = { turns: 0, inputTokens: 0, outputTokens: 0 };
 const sam = { userId: 'user-1', name: 'Sam', email: 'sam@example.com', pausedAt: null, draftsAllowed: true, usage };
@@ -19,7 +19,8 @@ function ownSpace(others: (typeof gia)[]) {
     orgName: 'Sam’s space',
     role: 'admin',
     pausedAt: null,
-    managed: true,
+    hosting: 'cloudchef',
+    ownerUserId: 'user-1',
     connection: { accountName: 'CloudChef', active: true },
     members: [{ ...sam, role: 'admin' }, ...others],
     invites: [],
@@ -33,27 +34,31 @@ const studio = {
   orgId: 'org-2',
   orgName: 'Studio',
   role: 'member',
-  managed: false,
+  hosting: 'own',
+  ownerUserId: null,
+  connection: { accountName: 'Studio account', active: true },
   members: null,
   invites: null,
 };
 
 let organizations: (ReturnType<typeof ownSpace> | typeof studio)[] = [];
+/** Whether the session says Sam is alone in their space. */
+let solo = true;
 let root: Root | undefined;
 
 async function server(input: RequestInfo | URL): Promise<Response> {
   const url = String(input);
   if (url === '/api/auth/session') {
     const context: WorkspaceContext = {
-      kind: 'organization',
       connectionId: 'connection-1',
       accountName: 'CloudChef',
       orgId: 'space-1',
       orgName: 'Sam’s space',
       role: 'admin',
       draftsAllowed: true,
-      managed: true,
-      solo: true,
+      hosting: 'cloudchef',
+      solo,
+      personal: false,
     };
     const session: CloudflareAuthSession = {
       session: { id: 'session-1', userId: 'user-1', expiresAt: Date.now() + 86_400_000, createdAt: Date.now() },
@@ -96,40 +101,47 @@ async function render(element: ReactElement) {
 
 const text = () => document.body.textContent ?? '';
 
-describe('a space of the person’s own that CloudChef runs, in Settings', () => {
-  it('is not listed among their teams, which are the teams they are in', async () => {
+describe('the spaces a person builds in, in Settings', () => {
+  it('lists the one made for them as Personal while they are alone in it, beside the ones they were invited into', async () => {
+    solo = true;
     organizations = [ownSpace([]), studio];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Studio'));
-    expect(text()).not.toContain('Sam’s space');
+    const headings = Array.from(document.querySelectorAll('h3'), (heading) => heading.textContent);
+    expect(headings).toEqual(['Personal', 'Studio']);
+    expect(text()).toContain('Run by CloudChef');
+    expect(text()).not.toContain('team');
   });
 
-  it('says they are in no team when their own space is all they have', async () => {
+  it('offers, alone in it, to invite someone and says what that adds, with no list of people', async () => {
+    solo = true;
     organizations = [ownSpace([])];
     await render(<OrganizationsCard />);
 
-    await vi.waitFor(() => expect(text()).toContain("You're not in a team yet."));
-    expect(text()).not.toContain('Sam’s space');
-  });
-
-  it('offers, alone in it, to invite someone and says what that adds, with no list of people or team name', async () => {
-    organizations = [ownSpace([])];
-    await render(<OwnSpacePeople />);
-
     await vi.waitFor(() => expect(text()).toContain('Only you so far.'));
     expect(text()).toContain('$30 a month to your subscription');
-    expect(text()).not.toContain('Sam’s space');
-    expect(text()).not.toContain('team');
     expect(document.querySelector('ul')?.hidden).toBe(true);
   });
 
-  it('lists the people in it once someone has joined, and the name they see it by', async () => {
+  it('says a space on a Cloudflare account of its own costs nothing here for its people', async () => {
+    solo = true;
+    organizations = [{ ...ownSpace([]), hosting: 'own', connection: { accountName: 'Sam’s account', active: true } }];
+    await render(<OrganizationsCard />);
+
+    await vi.waitFor(() => expect(text()).toContain('Only you so far.'));
+    expect(text()).toContain('Nothing to pay CloudChef for them.');
+    expect(text()).not.toContain('$30');
+  });
+
+  it('goes by its name once someone has joined, and lists them, its owner unchanged', async () => {
+    solo = false;
     organizations = [ownSpace([gia])];
-    await render(<OwnSpacePeople />);
+    await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Gia'));
-    expect(text()).toContain('They see your space as Sam’s space.');
+    expect(document.querySelector('h3')?.textContent).toBe('Sam’s space');
+    expect(text()).toContain('Owner');
     expect(text()).not.toContain('Only you so far.');
     expect(document.querySelector('ul')?.hidden).toBe(false);
   });

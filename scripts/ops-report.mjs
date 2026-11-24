@@ -333,14 +333,13 @@ export function coreStatements(now) {
       LEFT JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id
       GROUP BY connections.status`,
     `SELECT COUNT(*) AS unexpired FROM cloudflare_auth_sessions WHERE expires_at > ${now}`,
-    // A runtime is one person's in one connection: their own, or that of each organization they belong to.
+    // A runtime is one person's in one space's connection, for each space they belong to.
     `SELECT users.email AS email, organizations.name AS organization, runtimes.status AS status,
         runtimes.runtime_version AS runtime_version, runtimes.updated_at AS updated_at
       FROM cloudflare_connections AS connections
       LEFT JOIN organizations ON organizations.id = connections.org_id
       JOIN "user" AS users
-        ON users.id = connections.user_id
-        OR users.id IN (SELECT user_id FROM organization_members WHERE org_id = connections.org_id)
+        ON users.id IN (SELECT user_id FROM organization_members WHERE org_id = connections.org_id)
       LEFT JOIN user_computer_runtimes AS runtimes
         ON runtimes.user_id = users.id AND runtimes.connection_id = connections.id
       WHERE connections.status = 'active'
@@ -389,8 +388,7 @@ export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.n
     projects.workers_builds_script_tag AS workers_builds_script_tag
   FROM org_projects AS projects
   LEFT JOIN organizations ON organizations.id = projects.org_id
-  LEFT JOIN cloudflare_connections AS connections ON connections.id = projects.connection_id
-  LEFT JOIN "user" AS owners ON owners.id = connections.user_id
+  LEFT JOIN "user" AS owners ON owners.id = organizations.personal_user_id
   ORDER BY organizations.name, projects.name
   LIMIT ${RUNTIME_ROW_LIMIT}`;
 

@@ -23,7 +23,7 @@ export function CopyProjectDialog({
   onClose: () => void;
 }) {
   const session = authClient.useSession().data;
-  const account = workspaceName(session?.context ?? { kind: 'personal' }, session?.contexts ?? []);
+  const account = session?.context ? workspaceName(session.context, session.contexts) : 'your space';
   const [name, setName] = useState(project.name);
   const [copying, setCopying] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -153,10 +153,14 @@ describe('control-plane account erasure', () => {
     await eraseControlPlaneAccount({ env, userId: 'user-1' });
 
     expect(cloudflare.revoked).toHaveLength(1);
-    expect(database.prepare('SELECT id, status FROM cloudflare_connections WHERE org_id IS NOT NULL').all()).toEqual([
-      { id: 'shared-connection', status: 'active' },
+    expect(
+      database.prepare("SELECT id, status FROM cloudflare_connections WHERE org_id IN ('shared', 'solo')").all(),
+    ).toEqual([{ id: 'shared-connection', status: 'active' }]);
+    // The space made for them went too; user-2's own is untouched.
+    expect(database.prepare('SELECT id FROM organizations ORDER BY id').all()).toEqual([
+      { id: 'connection-user-2' },
+      { id: 'shared' },
     ]);
-    expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'shared' }]);
   });
 
   it("keeps an account's shared authorization while a team or a person's own space still builds there with it", async () => {
@@ -168,7 +172,7 @@ describe('control-plane account erasure', () => {
     seedAccount(database, null, 'sara');
     // user-1's own space and their teams Sites (with Sara) and Side (only them) all build in account-1.
     database.exec(`
-      DELETE FROM cloudflare_connections WHERE user_id = 'user-1';
+      DELETE FROM organizations WHERE personal_user_id = 'user-1';
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('sites', 'Sites', 1, 1), ('side', 'Side', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
         ('sites', 'user-1', 'admin', 1), ('sites', 'sara', 'admin', 1), ('side', 'user-1', 'admin', 1);
@@ -214,7 +218,7 @@ describe('control-plane account erasure', () => {
     seedAccount(database, shared, 'user-1');
     seedAccount(database, null, 'sara');
     // Sara's own space builds in user-1's account too, and no team does.
-    database.exec(`UPDATE cloudflare_connections SET account_id = 'account-user-1' WHERE user_id = 'sara'`);
+    database.exec(`UPDATE cloudflare_connections SET account_id = 'account-user-1' WHERE id = 'connection-sara'`);
 
     await expect(eraseControlPlaneAccount({ env, userId: 'user-1' })).resolves.toEqual({
       cloudflareAuthorizationRevoked: null,
@@ -270,12 +274,14 @@ describe('control-plane account erasure', () => {
     await expect(eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'admin-b' })).rejects.toBeInstanceOf(
       OrganizationAdminRequiredError,
     );
-    expect(database.prepare("SELECT user_id FROM organization_members WHERE role = 'admin'").all()).toEqual([
-      { user_id: 'admin-b' },
-    ]);
-    expect(database.prepare("SELECT status FROM cloudflare_connections WHERE user_id = 'admin-b'").get()).toEqual({
-      status: 'active',
-    });
+    expect(
+      database.prepare("SELECT user_id FROM organization_members WHERE org_id = 'org' AND role = 'admin'").all(),
+    ).toEqual([{ user_id: 'admin-b' }]);
+    expect(database.prepare("SELECT status FROM cloudflare_connections WHERE id = 'connection-admin-b'").get()).toEqual(
+      {
+        status: 'active',
+      },
+    );
   });
 
   it('leaves no team at all when one of them would be left without an active admin', async () => {
@@ -293,10 +299,11 @@ describe('control-plane account erasure', () => {
       OrganizationAdminRequiredError,
     );
 
-    expect(database.prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin'").all()).toEqual([
-      { org_id: 'alpha' },
-      { org_id: 'beta' },
-    ]);
+    expect(
+      database
+        .prepare("SELECT org_id FROM organization_members WHERE user_id = 'admin' AND org_id IN ('alpha', 'beta')")
+        .all(),
+    ).toEqual([{ org_id: 'alpha' }, { org_id: 'beta' }]);
   });
 
   it('asks for another admin only where the person is the sole active one, as leaving decides it', async () => {
@@ -358,7 +365,11 @@ describe('control-plane account erasure', () => {
       onDelete: (accountId) => {
         // Still in the team, with the team's connection in place, when it's asked: leaving comes last.
         expect(
-          database.prepare("SELECT COUNT(*) AS count FROM organization_members WHERE user_id = 'user-1'").get(),
+          database
+            .prepare(
+              "SELECT COUNT(*) AS count FROM organization_members WHERE user_id = 'user-1' AND org_id IN ('acme', 'side', 'idle')",
+            )
+            .get(),
         ).toEqual({ count: 3 });
         expect(
           database.prepare('SELECT status FROM cloudflare_connections WHERE account_id = ?').get(accountId),
@@ -406,7 +417,9 @@ describe('control-plane account erasure', () => {
     );
 
     expect(cloudflare.request).not.toHaveBeenCalled();
-    expect(rowCount(database, 'organization_members')).toBe(2);
+    expect(database.prepare("SELECT COUNT(*) AS count FROM organization_members WHERE org_id = 'acme'").get()).toEqual({
+      count: 2,
+    });
   });
 
   it('names a team whose connection is no longer active as left behind, but not a team going with them', async () => {
@@ -447,14 +460,18 @@ describe('control-plane account erasure', () => {
     `);
 
     await expect(eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' })).rejects.toThrow('refused');
-    expect(rowCount(database, 'organization_members')).toBe(2);
-    expect(database.prepare("SELECT status FROM cloudflare_connections WHERE user_id = 'user-1'").get()).toEqual({
+    expect(database.prepare("SELECT COUNT(*) AS count FROM organization_members WHERE org_id = 'acme'").get()).toEqual({
+      count: 2,
+    });
+    expect(database.prepare("SELECT status FROM cloudflare_connections WHERE id = 'connection-user-1'").get()).toEqual({
       status: 'active',
     });
 
     database.exec('DROP TRIGGER refuse_leaving');
     await eraseControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
-    expect(database.prepare('SELECT user_id FROM organization_members').all()).toEqual([{ user_id: 'admin' }]);
+    expect(database.prepare("SELECT user_id FROM organization_members WHERE org_id = 'acme'").all()).toEqual([
+      { user_id: 'admin' },
+    ]);
   });
 
   describe.each([
@@ -464,7 +481,7 @@ describe('control-plane account erasure', () => {
       ['acme', 'solo'],
     ],
     ['before leaving their teams', /DELETE FROM organization_members/, ['acme']],
-    ['before revoking their own connection', /WHERE user_id = \? AND status = 'active'/, ['acme']],
+    ['before revoking their own space', /WHERE org_id = \? AND status = 'active'/, ['acme']],
     ['before the last write', /DELETE FROM "user"/, ['acme']],
   ])('an erasure interrupted %s', (_stage, interruptedStatement, retriedWorkspaces) => {
     it('is finished by a retry, which reports truthfully', async () => {
@@ -507,10 +524,14 @@ describe('control-plane account erasure', () => {
       });
       expect(cloudflare.deletedIn).toEqual(retriedWorkspaces.map((orgId) => `${orgId}-account`));
       expect(database.prepare('SELECT id FROM "user"').all()).toEqual([{ id: 'admin' }]);
-      expect(database.prepare('SELECT id FROM organizations').all()).toEqual([{ id: 'acme' }]);
-      expect(database.prepare('SELECT org_id, user_id FROM organization_members').all()).toEqual([
-        { org_id: 'acme', user_id: 'admin' },
+      // The space made for them is gone with the one only they were in; the admin's own is untouched.
+      expect(database.prepare('SELECT id FROM organizations ORDER BY id').all()).toEqual([
+        { id: 'acme' },
+        { id: 'connection-admin' },
       ]);
+      expect(
+        database.prepare("SELECT org_id, user_id FROM organization_members WHERE user_id = 'user-1'").all(),
+      ).toEqual([]);
       expect(database.prepare('SELECT handle FROM cloudflare_credentials').all()).toEqual([{ handle: acme }]);
       expect(rowCount(database, 'user_computer_runtimes')).toBe(1);
       const revokedTokens = cloudflare.revoked.join(' ');

@@ -16,17 +16,27 @@ import { toast } from 'sonner';
 import { ProjectsHome, PUBLISHING_REFRESH_MS } from './ProjectsHome.client';
 
 const RUNTIME = 'https://runtime.example.workers.dev';
-const personal: WorkspaceContext = { kind: 'personal', connectionId: 'connection-1', accountName: null };
+const personal: WorkspaceContext = {
+  connectionId: 'connection-1',
+  accountName: null,
+  orgId: 'space-1',
+  orgName: 'Ada’s space',
+  role: 'admin',
+  draftsAllowed: true,
+  hosting: 'own',
+  solo: true,
+  personal: true,
+};
 const teamMember: WorkspaceContext = {
-  kind: 'organization',
   connectionId: 'connection-2',
   accountName: null,
   orgId: 'org-1',
   orgName: 'Acme',
   role: 'member',
   draftsAllowed: false,
-  managed: false,
+  hosting: 'own',
   solo: false,
+  personal: false,
 };
 const teamAdmin: WorkspaceContext = { ...teamMember, connectionId: 'connection-3', role: 'admin', draftsAllowed: true };
 
@@ -259,7 +269,7 @@ describe('ProjectsHome', () => {
     await render('user-admin');
     await vi.waitFor(() => card('Storefront'));
 
-    expect(document.querySelector('#team-projects')?.textContent).toBe('Team projects');
+    expect(document.querySelector('#team-projects')?.textContent).toBe('Projects');
     expect(document.querySelector('#my-projects')).toBeNull();
     expect(document.querySelector('#team-projects')?.parentElement?.querySelector(ADD)).not.toBeNull();
     expect(card('Storefront').textContent).toContain('Owner');
@@ -275,7 +285,7 @@ describe('ProjectsHome', () => {
     await render('user-member');
     await vi.waitFor(() => card('Docs'));
 
-    expect(document.querySelector('#team-projects')?.textContent).toBe('Team projects');
+    expect(document.querySelector('#team-projects')?.textContent).toBe('Projects');
     // In a team, a member sees only its projects, and imports none.
     expect(document.querySelector('#my-projects')).toBeNull();
     expect(document.querySelector(ADD)).toBeNull();
@@ -408,7 +418,7 @@ describe('ProjectsHome', () => {
   it('leaves Explore to the header: the projects home has no link of its own', async () => {
     context = teamMember;
     await render('user-explore-link');
-    await vi.waitFor(() => expect(document.body.textContent).toContain('Team projects'));
+    await vi.waitFor(() => expect(document.body.textContent).toContain('No projects are shared with you yet.'));
     expect(document.querySelector('a[href="/explore"]')).toBeNull();
   });
 

@@ -268,11 +268,14 @@ async function sharingAnswer(
   done?: { invited: string } | { shared: string },
 ): Promise<Response> {
   const sharing = await projectSharing(env.DB, project);
-  // A person's own project, or a team's: a team's admins all run it.
+  // Whether its space has other people in it: then its admins all run it, and it is theirs, not one person's.
+  const people = await env.DB.prepare('SELECT COUNT(*) AS count FROM organization_members WHERE org_id = ?')
+    .bind(project.orgId)
+    .first<{ count: number }>();
   const answer: Awaited<ReturnType<typeof projectSharing>> & {
     team: boolean;
     done?: { invited: string } | { shared: string };
-  } = { ...sharing, team: project.orgId !== null };
+  } = { ...sharing, team: (people?.count ?? 0) > 1 };
   if (done) {
     answer.done = done;
   }

@@ -25,6 +25,7 @@ import {
   recordMainPush,
   removeProject,
   nameChatProject,
+  PROJECT_OWNER_NAME,
   recordProductionPublish,
   requireProjectScope,
   type ProjectScope,
@@ -240,7 +241,7 @@ export async function runtimeRegisterImportAction(args: {
   }
   const { body, identity, connection } = authenticated;
   return answeringOrganizationErrors(async () => {
-    const scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
+    const scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId);
     if (scope.connectionId !== connection.id) {
       return json({ error: "This workspace can't open projects in that account." }, 403);
     }
@@ -340,14 +341,14 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
     // Anyone in a team who may make projects of their own there makes a chat's project as one of the team's, which
     // they may edit; adding any other project in a team takes one of its admins.
     let scope: ProjectScope;
-    if (body.chat && connection.orgId) {
+    if (body.chat) {
       const membership = await findMembership(args.env.DB, connection.orgId, identity.userId);
       if (!membership?.draftsAllowed) {
         return json({ code: 'drafts_not_allowed', error: 'Your team lets you work on its team projects only.' }, 403);
       }
       scope = { connectionId: connection.id, orgId: connection.orgId };
     } else {
-      scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId ?? undefined);
+      scope = await requireProjectScope(args.env.DB, identity.userId, connection.orgId);
     }
     if (scope.connectionId !== connection.id) {
       return json({ error: "This workspace can't add projects in that account." }, 403);
@@ -731,17 +732,11 @@ export async function openProject<T extends z.infer<typeof projectSchema>>(
 
 const INVALID_REQUEST = 'Invalid workspace runtime project request.';
 
-/** Whose a shared project is, as its workspace names them: its team, or the person whose account it is in. */
+/** Whose a shared project is, as its workspace names them: the person its space was made for, or the space. */
 async function projectOwnerName(db: D1Database, project: Project): Promise<string | null> {
   const row = await db
-    .prepare(
-      `SELECT COALESCE(
-         (SELECT name FROM organizations WHERE id = ?1),
-         (SELECT "user".name FROM cloudflare_connections JOIN "user" ON "user".id = cloudflare_connections.user_id
-          WHERE cloudflare_connections.id = ?2)
-       ) AS name`,
-    )
-    .bind(project.orgId, project.connectionId)
+    .prepare(`SELECT ${PROJECT_OWNER_NAME} AS name FROM org_projects AS projects WHERE projects.id = ?`)
+    .bind(project.id)
     .first<{ name: string | null }>();
   return row?.name ? shownName(row.name) : null;
 }

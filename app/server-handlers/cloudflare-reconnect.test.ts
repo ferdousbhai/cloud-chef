@@ -11,7 +11,7 @@ import type { CloudflareOAuthOrchestrator } from '~/lib/.server/cloudflare/cloud
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import {
   findCloudflareConnectionForOrganization,
-  findCloudflareConnectionForUser,
+  findCloudflareConnectionForPerson,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
   CORE_CLOUDFLARE_OAUTH_SCOPES,
@@ -167,9 +167,15 @@ describe('connecting Cloudflare while signed in', () => {
     expect(location.searchParams.get('continue')).toBe('/chat/project-1');
     expect(location.searchParams.get('cloudflare_message')).toBe('session_ended');
     expect(response.headers.get('set-cookie')).not.toContain('cloudchef_session=');
-    expect(database.prepare('SELECT status FROM cloudflare_connections WHERE user_id = ?').get(user.id)).toEqual({
-      status: 'active',
-    });
+    // Their own space was made and connected all the same.
+    expect(
+      database
+        .prepare(
+          `SELECT connections.status FROM cloudflare_connections AS connections
+           JOIN organizations ON organizations.id = connections.org_id WHERE organizations.personal_user_id = ?`,
+        )
+        .get(user.id),
+    ).toEqual({ status: 'active' });
   });
 
   it('asks for a recent sign-in before attaching a new Cloudflare login, and never issues a session for one', async () => {
@@ -250,7 +256,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
 
   it('is reauthorized once, from the team, for both spaces, and only the team space prepares its workspaces again', async () => {
     const { database, db, env, user, cookie, kim } = await sharedAccount();
-    const before = await findCloudflareConnectionForUser(db, user.id);
+    const before = await findCloudflareConnectionForPerson(db, user.id);
     expect(missingCoreOAuthScopes(before?.grantedOAuthScopes ?? [])).not.toEqual([]);
 
     const provision = vi.fn().mockResolvedValue({ status: 'preparing' });
@@ -263,7 +269,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
       [`${user.id}@${teamConnection?.id}`, `${kim.id}@${teamConnection?.id}`].sort(),
     );
 
-    const own = await findCloudflareConnectionForUser(db, user.id);
+    const own = await findCloudflareConnectionForPerson(db, user.id);
     const team = await findCloudflareConnectionForOrganization(db, ORG);
     // One authorization, now holding every scope, which both spaces read.
     expect(database.prepare('SELECT account_id FROM cloudflare_authorizations').all()).toEqual([
@@ -295,7 +301,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
     const team = await findCloudflareConnectionForOrganization(db, ORG);
     expect(missingCoreOAuthScopes(team?.grantedOAuthScopes ?? [])).toEqual([]);
     expect(team?.generation).toBe(4);
-    expect((await findCloudflareConnectionForUser(db, user.id))?.generation).toBe(6);
+    expect((await findCloudflareConnectionForPerson(db, user.id))?.generation).toBe(6);
   });
 
   /**
@@ -343,7 +349,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
 
     const response = await connect(env, kimCookie, reauthorizedAs('cf-kim'));
     expect(connectMessage(response)).toBe('account_in_use');
-    expect(await findCloudflareConnectionForUser(db, kim.id)).toBeNull();
+    expect(await findCloudflareConnectionForPerson(db, kim.id)).toBeNull();
     expect(accountAuthorization(database)).toEqual([{ credential_handle: working }]);
     // Asked of Cloudflare with the token as it is: the grant every space there uses was never refreshed.
     expect(requests.mock.calls.map(([url]) => String(url))).toEqual(['https://api.cloudflare.com/client/v4/user']);
@@ -359,7 +365,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
     expect(connectMessage(response)).toBeNull();
     expect(response.headers.get('set-cookie')).toContain('cloudchef_session=');
     // Sam's own space reconnected the account it builds in, for the team there too.
-    const own = await findCloudflareConnectionForUser(db, user.id);
+    const own = await findCloudflareConnectionForPerson(db, user.id);
     expect(own?.generation).toBe(6);
     expect(own?.credentialHandle).not.toBe(working);
     expect((await findCloudflareConnectionForOrganization(db, ORG))?.credentialHandle).toBe(own?.credentialHandle);
@@ -374,7 +380,7 @@ describe("one Cloudflare account shared by a person's own space and their team",
 
     const response = await connect(env, cookie, reauthorizedAs('cf-sam'));
     expect(connectMessage(response)).toBeNull();
-    expect((await findCloudflareConnectionForUser(db, user.id))?.generation).toBe(6);
+    expect((await findCloudflareConnectionForPerson(db, user.id))?.generation).toBe(6);
   });
 
   it('refuses a first sign-in with Cloudflare into it before creating anyone', async () => {
@@ -439,8 +445,8 @@ describe("one Cloudflare account shared by a person's own space and their team",
     // The refused refresh waited its settle for a concurrent refresh, on the fake clock.
     expect(waitedMs).toBeGreaterThanOrEqual(2_000);
 
-    const own = await findCloudflareConnectionForUser(db, user.id);
-    const kims = await findCloudflareConnectionForUser(db, kim.id);
+    const own = await findCloudflareConnectionForPerson(db, user.id);
+    const kims = await findCloudflareConnectionForPerson(db, kim.id);
     expect(own?.credentialHandle).toBe(kims?.credentialHandle);
     expect(kims?.credentialHandle).not.toBe(broken);
     // The ended credential is gone.

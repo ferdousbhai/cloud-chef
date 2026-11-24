@@ -3,6 +3,7 @@ import { piGatewayModel, piWorkersAiModel } from '~/lib/.server/llm/pi-model-cat
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
 import { MANAGED_SPACE_CREDIT_PRICE_RATIO, MANAGED_SPACE_MONTHLY_ALLOWANCE_USD } from '~/lib/managed-space';
 import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
+import { spaceNameFor } from '~/lib/workspace-name';
 
 /**
  * Subscriptions to a space CloudChef runs (`migrations/0068_managed_subscriptions.sql`, `0070_managed_spaces.sql`).
@@ -194,7 +195,6 @@ const NO_SPACE = `(space_org_id IS NULL
  */
 async function makeSpace(db: D1Database, hostOrgId: string, userId: string, now: number): Promise<void> {
   const person = await db.prepare('SELECT name FROM "user" WHERE id = ?').bind(userId).first<{ name: string }>();
-  const firstName = person?.name.trim().split(/\s+/)[0]?.slice(0, 40);
   const orgId = crypto.randomUUID();
   const made = 'EXISTS (SELECT 1 FROM organizations WHERE id = ?1)';
   await db.batch([
@@ -205,7 +205,7 @@ async function makeSpace(db: D1Database, hostOrgId: string, userId: string, now:
          WHERE host.org_id = ?5 AND host.status = 'active'
            AND EXISTS (SELECT 1 FROM managed_subscriptions WHERE user_id = ?3 AND ${NO_SPACE})`,
       )
-      .bind(orgId, firstName ? `${firstName}’s space` : 'My space', userId, now, hostOrgId),
+      .bind(orgId, spaceNameFor(person?.name ?? ''), userId, now, hostOrgId),
     db
       .prepare(
         `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)

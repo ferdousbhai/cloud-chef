@@ -1,3 +1,4 @@
+import { spaceNameFor } from '~/lib/workspace-name';
 import { sha256Hex, bytesToBase64Url } from '~/lib/hex-digest';
 import {
   draftsAllowed,
@@ -6,6 +7,7 @@ import {
   storedProjectIds,
   type Membership,
   type OrganizationRole,
+  type SpaceHosting,
 } from './organization-access.server';
 
 /** An invite works once, for a week: long enough to pass on, short enough not to linger. */
@@ -48,7 +50,11 @@ type PendingInvite = {
 };
 
 type OrganizationSummary = Membership & {
-  /** The organization's Cloudflare account, once an admin has connected it. */
+  /** Who runs the Cloudflare account it builds in: the space, with one of its own, or CloudChef. */
+  hosting: SpaceHosting;
+  /** The person it was made for (their own Cloudflare account, or their subscription), who stays its admin. */
+  ownerUserId: string | null;
+  /** The space's Cloudflare account, once an admin has connected it. */
   connection: { accountName: string | null; active: boolean } | null;
   /** Only an admin sees who else is in the organization and who is invited. */
   members: OrganizationMember[] | null;
@@ -64,7 +70,49 @@ const MAX_ORGANIZATIONS_PER_CREATOR = 10;
  */
 export const ORGANIZATION_QUOTA_WINDOW_MS = 30 * 24 * 60 * 60_000;
 
-/** A new organization with its creator as admin; its Cloudflare account is connected next. */
+/** The space made for `userId`: the one their own Cloudflare sign-in connects. Null when they have none. */
+export async function findPersonalSpace(db: D1Database, userId: string): Promise<string | null> {
+  const row = await db
+    .prepare('SELECT id FROM organizations WHERE personal_user_id = ?')
+    .bind(userId)
+    .first<{ id: string }>();
+  return row?.id ?? null;
+}
+
+/**
+ * The space made for `userId`, made now when they have none: named for them, with them as its admin and nobody
+ * else in it, and no Cloudflare connection yet. Two requests at once make one (`personal_user_id` is unique).
+ */
+export async function ensurePersonalSpace(db: D1Database, userId: string): Promise<string> {
+  const existing = await findPersonalSpace(db, userId);
+  if (existing) {
+    return existing;
+  }
+  const orgId = crypto.randomUUID();
+  const now = Date.now();
+  const person = await db.prepare('SELECT name FROM "user" WHERE id = ?').bind(userId).first<{ name: string }>();
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at, updated_at, personal_user_id)
+         VALUES (?1, ?2, ?3, ?4, ?4, ?3) ON CONFLICT(personal_user_id) WHERE personal_user_id IS NOT NULL DO NOTHING`,
+      )
+      .bind(orgId, spaceNameFor(person?.name ?? ''), userId, now),
+    db
+      .prepare(
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
+         SELECT ?1, ?2, 'admin', ?3, 1 WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?1)`,
+      )
+      .bind(orgId, userId, now),
+  ]);
+  const made = await findPersonalSpace(db, userId);
+  if (!made) {
+    throw new Error('The space could not be made.');
+  }
+  return made;
+}
+
+/** A new space with its creator as admin; its Cloudflare account is connected next. */
 export async function createOrganization(db: D1Database, userId: string, name: string) {
   const orgId = crypto.randomUUID();
   const now = Date.now();
@@ -75,7 +123,9 @@ export async function createOrganization(db: D1Database, userId: string, name: s
       .prepare(
         `INSERT INTO organizations (id, name, created_by, created_at, updated_at)
          SELECT ?1, ?2, ?3, ?4, ?4
-         WHERE (SELECT COUNT(*) FROM organizations WHERE created_by = ?3) < ?5
+         -- The space made for them, and one CloudChef runs for them, are not among the spaces they made.
+         WHERE (SELECT COUNT(*) FROM organizations
+                WHERE created_by = ?3 AND personal_user_id IS NULL AND managed_host_org_id IS NULL) < ?5
            AND (SELECT COUNT(*) FROM organization_quota_events
                 WHERE user_id = ?3 AND kind = 'team' AND created_at > ?6) < ?5`,
       )
@@ -481,12 +531,17 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
     .prepare(
       `SELECT members.org_id, organizations.name AS org_name, members.role, members.paused_at,
               members.drafts_allowed, connections.account_name, connections.status AS connection_status,
-              organizations.managed_host_org_id IS NOT NULL AS managed
+              organizations.managed_host_org_id IS NOT NULL AS managed,
+              COALESCE(organizations.personal_user_id, (
+                SELECT subscriptions.user_id FROM managed_subscriptions AS subscriptions
+                WHERE subscriptions.space_org_id = organizations.id
+              )) AS owner_user_id
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        LEFT JOIN cloudflare_connections AS connections ON connections.org_id = members.org_id
-       WHERE members.user_id = ?
-       ORDER BY organizations.name, organizations.id`,
+       WHERE members.user_id = ?1
+       -- The space made for them first, then the rest by name.
+       ORDER BY owner_user_id IS ?1 DESC, organizations.name, organizations.id`,
     )
     .bind(userId)
     .all<{
@@ -498,6 +553,7 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
       account_name: string | null;
       connection_status: string | null;
       managed: number;
+      owner_user_id: string | null;
     }>();
   const now = Date.now();
   return Promise.all(
@@ -510,6 +566,8 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
         pausedAt: row.paused_at,
         draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
         managed: row.managed === 1,
+        hosting: row.managed === 1 ? 'cloudchef' : 'own',
+        ownerUserId: row.owner_user_id,
         connection:
           row.connection_status === null
             ? null
@@ -616,6 +674,21 @@ export async function updateMember(
       throw new OrganizationError(MANAGED_SPACE_ENDS_WITH_SUBSCRIPTION, 409);
     }
   }
+  // A space made for one person builds in their own Cloudflare account, whose owner their workspace answers as:
+  // they stay its admin for as long as it lasts, and end it by deleting it.
+  const madeForThem = await db
+    .prepare('SELECT 1 AS theirs FROM organizations WHERE id = ? AND personal_user_id = ?')
+    .bind(args.orgId, args.userId)
+    .first<{ theirs: number }>();
+  if (
+    madeForThem &&
+    (args.action === 'make_member' || args.action === 'pause' || (args.action === 'remove' && !leaving))
+  ) {
+    throw new OrganizationError(
+      `${target.orgName} builds in their own Cloudflare account, so they stay its admin.`,
+      409,
+    );
+  }
   if (leaving) {
     const others = await db
       .prepare('SELECT COUNT(*) AS count FROM organization_members WHERE org_id = ? AND user_id <> ?')
@@ -626,6 +699,12 @@ export async function updateMember(
         `You're the only one in ${target.orgName}, so leaving deletes the team.`,
         409,
         'sole_member',
+      );
+    }
+    if (madeForThem) {
+      throw new OrganizationError(
+        'This space builds in your own Cloudflare account, so you stay in it. To end it, delete it.',
+        409,
       );
     }
   }

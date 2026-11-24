@@ -22,7 +22,19 @@ vi.mock('~/lib/auth-client', () => ({
     useSession: () => ({
       data: {
         user: { id: 'user-1', email: 'user@example.com' },
-        contexts: [{ kind: 'personal', connectionId: 'connection-1', accountName: null }],
+        contexts: [
+          {
+            connectionId: 'connection-1',
+            accountName: null,
+            orgId: 'space-1',
+            orgName: 'Ada’s space',
+            role: 'admin',
+            draftsAllowed: true,
+            hosting: 'own',
+            solo: true,
+            personal: true,
+          },
+        ],
       },
       isPending: false,
     }),

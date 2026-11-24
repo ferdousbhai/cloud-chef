@@ -121,12 +121,10 @@ export async function runtimeDeploymentRetryAction(args: { request: Request; env
     return opened;
   }
   const { body, project, identity, connection } = opened;
-  // Publishing over a Worker already in the account is for whoever owns the account (the person, or the team's
-  // admins), since that Worker may be any of its projects' or apps'.
+  // Publishing over a Worker already in the account is for whoever runs the account (the admins of a space with
+  // an account of its own), since that Worker may be any of its projects' or apps'.
   if (body.toWantedWorker) {
-    const owner = connection.orgId
-      ? isActiveAdmin(await findMembership(args.env.DB, connection.orgId, identity.userId))
-      : connection.userId === identity.userId;
+    const owner = isActiveAdmin(await findMembership(args.env.DB, connection.orgId, identity.userId));
     if (!owner) {
       return json({ error: 'Only the team’s admins can publish over a Worker already in the account.' }, 403);
     }

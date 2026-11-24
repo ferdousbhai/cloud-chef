@@ -1,4 +1,7 @@
-import { findCloudflareConnectionForOrganization } from './cloudflare-connection-repository';
+import {
+  findCloudflareConnectionForOrganization,
+  workspaceBindingConnectionId,
+} from './cloudflare-connection-repository';
 import { openConnectionAccountApi } from './connection-account-api';
 import { findUserWorkspaceRuntime } from './user-workspace-runtime-repository';
 import { deriveUserWorkspaceRuntimeSecret } from './user-workspace-runtime-secret';
@@ -30,7 +33,7 @@ export async function deleteTeamWorkspace(env: Env, orgId: string, userId: strin
  */
 async function forgetSavedBranches(
   env: Env,
-  connection: { id: string; accountId: string; generation: number },
+  connection: { id: string; accountId: string; generation: number; personalUserId: string | null },
   userId: string,
 ): Promise<void> {
   const runtime = await findUserWorkspaceRuntime(env.DB, userId, connection.id);
@@ -42,7 +45,7 @@ async function forgetSavedBranches(
     userId,
     accountId: connection.accountId,
     connectionGeneration: connection.generation,
-    organizationConnectionId: connection.id,
+    organizationConnectionId: workspaceBindingConnectionId(connection, userId),
   });
   const { token } = await mintRuntimeCapability({ secret, subject: userId, origin: CANONICAL_ORIGIN });
   const answer = await fetch(new URL('/v1/workspaces/forget-saved-branches', runtime.endpoint), {

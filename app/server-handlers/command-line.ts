@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import {
+  findActiveCloudflareConnection,
+  workspaceBindingConnectionId,
+} from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { findUserWorkspaceRuntime } from '~/lib/.server/cloudflare/user-workspace-runtime-repository';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
 import { publicOrigin } from '~/lib/.server/public-origin';
@@ -149,7 +152,7 @@ export async function runtimeFor(
     userId,
     accountId: connection.accountId,
     connectionGeneration: connection.generation,
-    organizationConnectionId: connection.orgId ? connection.id : null,
+    organizationConnectionId: workspaceBindingConnectionId(connection, userId),
   });
   const capability = await mintRuntimeCapability({ secret, subject, origin: publicOrigin(request) });
   return { endpoint: usable.runtime.endpoint, token: capability.token };
@@ -764,8 +767,6 @@ async function projectReaders(db: D1Database, target: Pick<Readable, 'id' | 'con
            AND (members.role = 'admin' OR EXISTS (
              SELECT 1 FROM org_project_access AS access
              WHERE access.project_id = ?2 AND access.user_id = members.user_id))
-         UNION ALL
-         SELECT user_id, 1, 0 FROM cloudflare_connections WHERE id = ?1 AND org_id IS NULL AND user_id IS NOT NULL
        ) ORDER BY admin DESC, joined_at`,
     )
     .bind(target.connectionId, target.id)

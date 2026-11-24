@@ -75,7 +75,7 @@ function ReauthenticateButtons({
   return (
     <>
       {/* Only for someone who signs in with Cloudflare: for anyone else it would attach a Cloudflare login. */}
-      {session?.contexts.some((option) => option.kind === 'personal') ? (
+      {session?.contexts.some((option) => option.personal) ? (
         <Button size="sm" variant="neutral" onClick={() => void reconnectCloudflare()}>
           Reconnect Cloudflare
         </Button>

@@ -330,11 +330,10 @@ export async function findPostByAddress(
 /** A post anyone may see, by id. */
 /** May `userId` manage the post: its author, a personal project's owner, or an active admin of a team project's team. */
 const MANAGES = `(posts.author_id = ?2
-  OR (projects.org_id IS NULL AND projects.created_by = ?2)
-  OR (projects.org_id IS NOT NULL AND EXISTS (
+  OR EXISTS (
     SELECT 1 FROM organization_members AS members
     WHERE members.org_id = projects.org_id AND members.user_id = ?2 AND members.role = 'admin'
-      AND members.paused_at IS NULL)))`;
+      AND members.paused_at IS NULL))`;
 
 /** A post as one of the people who manage it sees it: whatever its status, and why it is hidden. */
 export type ManagedPost = PostView & {

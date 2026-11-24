@@ -75,11 +75,12 @@ describe('control-plane account export', () => {
       total: 1,
       computerRuntimes: [{ workerName: 'worker', endpoint: 'https://runtime.example', status: 'ready' }],
     });
-    expect(exported.sections.organizations).toEqual({
+    // The space made for them, which they run, is the one they are in.
+    expect(exported.sections.organizations).toMatchObject({
       status: 'exported',
-      total: 0,
+      total: 1,
       truncated: false,
-      memberships: [],
+      memberships: [{ organizationId: 'connection-user-1', role: 'admin' }],
     });
     expect(exported.sections.organizationInvites).toEqual({
       status: 'exported',
@@ -284,7 +285,9 @@ describe('control-plane account export', () => {
       computerRuntimes: [{ imageDigest: 'sha256:abc', protocolVersion: 7, lastSessionAt: '1970-01-01T00:00:00.009Z' }],
     });
     expect(exported.sections.organizations).toMatchObject({
-      memberships: [{ organizationId: 'acme', role: 'member', draftsAllowed: false }],
+      memberships: expect.arrayContaining([
+        expect.objectContaining({ organizationId: 'acme', role: 'member', draftsAllowed: false }),
+      ]),
     });
     expect(exported.sections.organizationInvites).toMatchObject({
       invites: [{ organizationName: 'Acme', projectIds: ['project-1'], draftsAllowed: false }],
@@ -306,7 +309,8 @@ describe('control-plane account export', () => {
       truncated: false,
       projects: [
         {
-          organizationId: null,
+          // The space made for them, where the projects are theirs.
+          organizationId: 'connection-user-1',
           projectName: 'Mine',
           repository: null,
           importRepoFullName: 'me/mine',

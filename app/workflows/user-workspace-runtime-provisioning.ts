@@ -9,6 +9,7 @@ import {
 import { openConnectionAccountApi } from '~/lib/.server/cloudflare/connection-account-api';
 import {
   requireActiveCloudflareConnection,
+  workspaceBindingConnectionId,
   type CloudflareConnection,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import type { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
@@ -125,6 +126,8 @@ type ProvisioningAccountApi = Pick<
 
 export type UserWorkspaceRuntimeProvisioningDependencies = {
   requireConnection: typeof requireActiveCloudflareConnection;
+  /** Whether the person may still build with the connection: a member of its space who isn't paused. */
+  canUse: typeof canUseConnection;
   openAccountApi(env: Env, connection: CloudflareConnection): Promise<ProvisioningAccountApi>;
   deriveSecret: typeof deriveUserWorkspaceRuntimeSecret;
   waitForReadiness: typeof waitForUserWorkspaceRuntimeReadiness;
@@ -136,6 +139,7 @@ export type UserWorkspaceRuntimeProvisioningDependencies = {
 
 const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
   requireConnection: requireActiveCloudflareConnection,
+  canUse: canUseConnection,
   openAccountApi: openConnectionAccountApi,
   deriveSecret: deriveUserWorkspaceRuntimeSecret,
   waitForReadiness: waitForUserWorkspaceRuntimeReadiness,
@@ -151,14 +155,13 @@ const provisioningDependencies: UserWorkspaceRuntimeProvisioningDependencies = {
  * member can find theirs again.
  */
 export async function workspaceRuntimeNames(
-  connection: { accountId: string; id: string; orgId: string | null },
+  connection: { accountId: string; id: string; personalUserId: string | null },
   userId: string,
 ): Promise<{ workerName: string; databaseName: string }> {
-  // A person's own workspace keeps the name it always had; an organization's also names the
-  // connection, so it never collides with their own in the same Cloudflare account.
-  const seed = connection.orgId
-    ? `${connection.accountId}:${userId}:${connection.id}`
-    : `${connection.accountId}:${userId}`;
+  // A workspace also names its space's connection, so the ones a person has in two spaces of the same Cloudflare
+  // account never collide; the one they had when the account was theirs alone keeps the name it always had.
+  const bound = workspaceBindingConnectionId(connection, userId);
+  const seed = bound ? `${connection.accountId}:${userId}:${bound}` : `${connection.accountId}:${userId}`;
   const suffix = (await sha256Hex(seed)).slice(0, 16);
   return { workerName: `cloudchef-workspace-${suffix}`, databaseName: `cloudchef-data-${suffix}` };
 }
@@ -322,7 +325,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
   try {
     const dependencies = args.dependencies ?? provisioningDependencies;
     const params = args.event.payload;
-    const connection = await expectedConnection(args.env, params, dependencies.requireConnection);
+    const connection = await expectedConnection(args.env, params, dependencies);
     const accountApi = await dependencies.openAccountApi(args.env, connection);
     const { workerName, databaseName } = await workspaceRuntimeNames(connection, params.userId);
 
@@ -347,7 +350,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         userId: params.userId,
         accountId: connection.accountId,
         connectionGeneration,
-        organizationConnectionId: connection.orgId ? connection.id : null,
+        organizationConnectionId: workspaceBindingConnectionId(connection, params.userId),
       });
     const controlPlaneSecret = await secretForGeneration(params.connectionGeneration);
     const databaseId = await args.step.do('prepare workspace database', STEP_CONFIG, async () => {
@@ -373,7 +376,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
         async () => {
           // Asked again here and before the locator is written: a member removed from their organization
           // while this ran must not get their workspace back.
-          await expectedConnection(args.env, params, dependencies.requireConnection);
+          await expectedConnection(args.env, params, dependencies);
           let windowedAttempt = upgradeStartedAt !== null;
           if (upgradeStartedAt !== null) {
             const waitMs = await waitBeforeUpgrade({
@@ -407,7 +410,8 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             connectionId: connection.id,
             connectionGeneration: connection.generation,
             endpoint,
-            sharedAccount: connection.orgId !== null,
+            // Every space's account may have other people in it: each workspace asks who its person is there.
+            sharedAccount: true,
           });
           const ids = { namespaceId: deployed.namespaceId, builderNamespaceId: deployed.builderNamespaceId };
           return windowedAttempt ? { status: 'deployed', ...ids } : { status: 'deployed', ...ids, windowed: false };
@@ -522,7 +526,7 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
       });
     }
     await args.step.do('mark workspace ready', STEP_CONFIG, async () => {
-      await expectedConnection(args.env, params, dependencies.requireConnection);
+      await expectedConnection(args.env, params, dependencies);
       await dependencies.upsertRuntime({
         db: args.env.DB,
         userId: params.userId,
@@ -652,14 +656,14 @@ async function whileHoldingUpgradeWindow<T>(
 async function expectedConnection(
   env: Env,
   params: ProvisioningParams,
-  requireConnection: typeof requireActiveCloudflareConnection,
+  dependencies: Pick<UserWorkspaceRuntimeProvisioningDependencies, 'requireConnection' | 'canUse'>,
 ): Promise<CloudflareConnection & { credentialHandle: string }> {
   if (!env.CLOUDFLARE_CREDENTIAL_ENCRYPTION_KEY) {
     throw new Error('Cloudflare credential encryption is not configured.');
   }
-  const connection = await requireConnection(env.DB, params.connectionId);
+  const connection = await dependencies.requireConnection(env.DB, params.connectionId);
   if (
-    !(await canUseConnection(env.DB, params.userId, connection)) ||
+    !(await dependencies.canUse(env.DB, params.userId, connection)) ||
     !connectionProvisionsWorkspace(connection, params.connectionGeneration)
   ) {
     throw new Error('The Cloudflare connection cannot provision this workspace.');

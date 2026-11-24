@@ -59,26 +59,35 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
     return vault ? vault.revokeOAuthCredential(handle) : Promise.resolve(false);
   };
   const revocations: boolean[] = [];
-  // Each team only they belong to goes with them, as deleting it would; a retry finds any left from
-  // their membership, which goes with the team.
+  // Each space only they belong to goes with them, as deleting it would; a retry finds any left from their
+  // membership, which goes with the space.
   const accountsBuiltIn = new Set<string>();
-  for (const orgId of await soleMemberOrganizations(db, args.userId)) {
-    const teamAccount = await db
+  const deleteSpace = async (orgId: string) => {
+    const spaceAccount = await db
       .prepare('SELECT account_id FROM cloudflare_connections WHERE org_id = ?')
       .bind(orgId)
       .first<{ account_id: string }>();
-    if (teamAccount) {
-      accountsBuiltIn.add(teamAccount.account_id);
+    if (spaceAccount) {
+      accountsBuiltIn.add(spaceAccount.account_id);
     }
     const revoked = await deleteOrganization(db, orgId, revokeGrant);
     if (revoked !== null && revoked !== 'kept') {
       revocations.push(revoked);
     }
+  };
+  const ownSpace = await ownSpaceWithNobodyElse(db, args.userId);
+  for (const orgId of await soleMemberOrganizations(db, args.userId)) {
+    if (orgId !== ownSpace) {
+      await deleteSpace(orgId);
+    }
   }
   await leaveOrganizations(db, args.userId);
-  // Their own connection stays in place until the last write, so a retry finds its grant again. The grant is
-  // the account's, shared with any team still building there: it is revoked only once none is.
-  const { accountId, credentialHandle } = await revokeConnection(db, args.userId);
+  // The space made for them stays in place until they have left every other, so an erasure refused there leaves
+  // them where they build, and its records until the last write, so a retry finds its grant again. The grant is
+  // the account's, shared with any space still building there: it is revoked only once none is.
+  const { accountId, credentialHandle } = ownSpace
+    ? await revokeConnection(db, ownSpace)
+    : { accountId: null, credentialHandle: null };
   if (credentialHandle) {
     revocations.push(await revokeOrWarn(revokeGrant, credentialHandle));
   }
@@ -87,7 +96,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   }
   const cloudflareAuthorizationsKept: KeptCloudflareAuthorization[] = [];
   for (const account of accountsBuiltIn) {
-    const kept = await keptCloudflareAuthorization(db, account, args.userId);
+    const kept = await keptCloudflareAuthorization(db, account);
     if (kept) {
       cloudflareAuthorizationsKept.push(kept);
     }
@@ -110,7 +119,9 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
       .bind(args.userId),
     db.prepare('DELETE FROM user_computer_runtimes WHERE user_id = ?').bind(args.userId),
     db.prepare('DELETE FROM cloudflare_auth_sessions WHERE user_id = ?').bind(args.userId),
-    db.prepare('DELETE FROM cloudflare_connections WHERE user_id = ?').bind(args.userId),
+    // The space made for them goes, with its connection; one others still build in carries on without being theirs.
+    ...(ownSpace ? [db.prepare('DELETE FROM organizations WHERE id = ?').bind(ownSpace)] : []),
+    db.prepare('UPDATE organizations SET personal_user_id = NULL WHERE personal_user_id = ?').bind(args.userId),
     ...(accountId ? [deleteUnusedCloudflareAuthorization(db, accountId)] : []),
     ...(credentialHandle ? [deleteUnusedCredential(db, credentialHandle)] : []),
     db.prepare('DELETE FROM "user" WHERE id = ?').bind(args.userId),
@@ -195,7 +206,8 @@ async function teamsWithWorkspaces(
        FROM user_computer_runtimes AS runtimes
        JOIN cloudflare_connections AS connections ON connections.id = runtimes.connection_id
        JOIN organizations ON organizations.id = connections.org_id
-       WHERE runtimes.user_id = ?1
+       -- The space made for them builds in their own Cloudflare account, where what they built stays theirs.
+       WHERE runtimes.user_id = ?1 AND organizations.personal_user_id IS NOT ?1
        ORDER BY organizations.name`,
     )
     .bind(userId)
@@ -287,6 +299,45 @@ async function leaveOrganizations(db: D1Database, userId: string): Promise<void>
   }
 }
 
+/**
+ * Revokes the connection of the space `orgId`: the account it builds in, and the credential of that account's
+ * authorization when no other space still builds there with it, for its grant to be revoked with Cloudflare.
+ */
+async function revokeConnection(
+  db: D1Database,
+  orgId: string,
+): Promise<{ accountId: string | null; credentialHandle: string | null }> {
+  const revoked = await db
+    .prepare(
+      `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ?
+       WHERE org_id = ? AND status = 'active'
+       RETURNING account_id`,
+    )
+    .bind(Date.now(), orgId)
+    .first<{ account_id: string }>();
+  const connection =
+    revoked ??
+    (await db
+      .prepare('SELECT account_id FROM cloudflare_connections WHERE org_id = ?')
+      .bind(orgId)
+      .first<{ account_id: string }>());
+  const accountId = connection?.account_id ?? null;
+  return { accountId, credentialHandle: accountId ? await unusedCloudflareAuthorization(db, accountId) : null };
+}
+
+/** The space made for this person, while nobody else is in it (they may already have left it themselves). */
+async function ownSpaceWithNobodyElse(db: D1Database, userId: string): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT id FROM organizations
+       WHERE personal_user_id = ?1 AND NOT EXISTS (
+         SELECT 1 FROM organization_members AS other WHERE other.org_id = organizations.id AND other.user_id <> ?1)`,
+    )
+    .bind(userId)
+    .first<{ id: string }>();
+  return row?.id ?? null;
+}
+
 /** The organizations this person is the only member of, which go with them. */
 async function soleMemberOrganizations(db: D1Database, userId: string): Promise<string[]> {
   const { results } = await db
@@ -301,52 +352,29 @@ async function soleMemberOrganizations(db: D1Database, userId: string): Promise<
 }
 
 /**
- * Revokes their own connection: the account it builds in, and the credential of that account's
- * authorization when no other space still builds there with it, for its grant to be revoked with Cloudflare.
- */
-async function revokeConnection(
-  db: D1Database,
-  userId: string,
-): Promise<{ accountId: string | null; credentialHandle: string | null }> {
-  const revoked = await db
-    .prepare(
-      `UPDATE cloudflare_connections SET status = 'revoked', updated_at = ?
-       WHERE user_id = ? AND status = 'active'
-       RETURNING account_id`,
-    )
-    .bind(Date.now(), userId)
-    .first<{ account_id: string }>();
-  const connection =
-    revoked ??
-    (await db
-      .prepare('SELECT account_id FROM cloudflare_connections WHERE user_id = ?')
-      .bind(userId)
-      .first<{ account_id: string }>());
-  const accountId = connection?.account_id ?? null;
-  return { accountId, credentialHandle: accountId ? await unusedCloudflareAuthorization(db, accountId) : null };
-}
-
-/**
  * Who still builds in a Cloudflare account with its authorization, which was therefore kept: the teams by
  * name, and whether someone else's own space does, never saying whose.
  */
 type KeptCloudflareAuthorization = { teams: string[]; someoneElsesOwnSpace: boolean };
 
-/** Who still builds in `accountId` with its authorization other than `userId`; null when no one does. */
+/**
+ * Who still builds in `accountId` with its authorization; null when no one does. A space made for one person is
+ * someone's own, and is not named.
+ */
 async function keptCloudflareAuthorization(
   db: D1Database,
   accountId: string,
-  userId: string,
 ): Promise<KeptCloudflareAuthorization | null> {
   const { results } = await db
     .prepare(
-      `SELECT organizations.name AS team FROM cloudflare_connections AS connections
+      `SELECT CASE WHEN organizations.personal_user_id IS NULL THEN organizations.name END AS team
+       FROM cloudflare_connections AS connections
        JOIN cloudflare_authorizations AS authorizations ON authorizations.account_id = connections.account_id
-       LEFT JOIN organizations ON organizations.id = connections.org_id
-       WHERE connections.account_id = ?1 AND connections.status = 'active' AND connections.user_id IS NOT ?2
+       JOIN organizations ON organizations.id = connections.org_id
+       WHERE connections.account_id = ?1 AND connections.status = 'active'
        ORDER BY organizations.name`,
     )
-    .bind(accountId, userId)
+    .bind(accountId)
     .all<{ team: string | null }>();
   if (results.length === 0) {
     return null;

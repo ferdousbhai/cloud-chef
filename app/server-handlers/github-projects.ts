@@ -293,17 +293,11 @@ function authorizeUrl(app: GitHubApp, state: string, request: Request): string {
   return app.authorizeUrl(state, new URL(GITHUB_RETURN_PATH, new URL(request.url).origin).toString());
 }
 
-/**
- * The scope of the connection `connectionId`, while `userId` still manages it: its owner for a person's
- * own, an active admin for a team's. Null otherwise.
- */
+/** The scope of the connection `connectionId`, while `userId` still runs its space. Null otherwise. */
 async function managedScope(db: D1Database, connectionId: string, userId: string): Promise<ProjectScope | null> {
   const connection = await findActiveCloudflareConnection(db, connectionId);
   if (!connection) {
     return null;
-  }
-  if (connection.orgId === null) {
-    return connection.userId === userId ? { connectionId, orgId: null } : null;
   }
   return runsTeam(await findMembership(db, connection.orgId, userId))
     ? { connectionId, orgId: connection.orgId }

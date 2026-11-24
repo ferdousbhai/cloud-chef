@@ -17,17 +17,27 @@ import {
   REAUTHORIZE_CLOUDFLARE_MESSAGE,
 } from './CloudflareReauthorizePrompt';
 
-const personal: WorkspaceContext = { kind: 'personal', connectionId: 'connection-1', accountName: null };
+const personal: WorkspaceContext = {
+  connectionId: 'connection-1',
+  accountName: null,
+  orgId: 'space-1',
+  orgName: 'Ada’s space',
+  role: 'admin',
+  draftsAllowed: true,
+  hosting: 'own',
+  solo: true,
+  personal: true,
+};
 const teamMember: WorkspaceContext = {
-  kind: 'organization',
   connectionId: 'connection-2',
   accountName: null,
   orgId: 'org-1',
   orgName: 'Acme',
   role: 'member',
   draftsAllowed: true,
-  managed: false,
+  hosting: 'own',
   solo: false,
+  personal: false,
 };
 const teamAdmin: WorkspaceContext = { ...teamMember, role: 'admin' };
 
@@ -132,7 +142,7 @@ describe('the Cloudflare reauthorization prompt', () => {
   });
 
   it('tells someone in a space CloudChef runs that the permissions are CloudChef’s to approve, with no button', async () => {
-    context = { ...teamAdmin, managed: true, solo: true };
+    context = { ...teamAdmin, hosting: 'cloudchef', solo: true };
     await render(<CloudflareReauthorizePrompt />);
 
     expect(document.body.textContent).toContain(

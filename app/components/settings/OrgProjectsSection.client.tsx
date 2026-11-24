@@ -49,10 +49,7 @@ export function OrgProjectsSection({
   projects,
   members,
   onChanged,
-  space = false,
 }: {
-  /** A space CloudChef runs, which isn't called a team. */
-  space?: boolean;
   orgId: string;
   github: z.infer<typeof orgGitHubSchema>;
   projects: OrgProject[];
@@ -65,7 +62,7 @@ export function OrgProjectsSection({
   const onError = (message: string | null) => setFeedback(errorFeedback(message));
   // Importing acts in the account the person is working in now, so it's offered for that team only.
   const { data: session } = authClient.useSession();
-  const workingHere = session?.context?.kind === 'organization' && session.context.orgId === orgId;
+  const workingHere = session?.context?.orgId === orgId;
 
   // Back from GitHub to the import dialog started here: it opens again, listing what was just connected, once the
   // session says this is the team being worked in.
@@ -113,7 +110,7 @@ export function OrgProjectsSection({
               Import from GitHub
             </Button>
           ) : null}
-          <MoreMenu title={space ? 'GitHub for this space' : 'GitHub for this team'}>
+          <MoreMenu title="GitHub for this space">
             {github.length === 0 ? (
               <MenuItem action={connect}>Connect GitHub</MenuItem>
             ) : (
@@ -130,9 +127,7 @@ export function OrgProjectsSection({
         </span>
       </div>
       {workingHere ? null : (
-        <p className="text-xs text-content-tertiary">
-          To import a project from GitHub, switch to this {space ? 'space' : 'team'} first.
-        </p>
+        <p className="text-xs text-content-tertiary">To import a project from GitHub, switch to this space first.</p>
       )}
       {projects.length > 0 ? (
         <ul className="grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">

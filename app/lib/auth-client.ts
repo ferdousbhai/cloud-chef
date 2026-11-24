@@ -27,20 +27,17 @@ type AuthState = {
   error: string | null;
 };
 
-const workspaceContextSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('personal'), connectionId: z.string(), accountName: z.string().nullable() }),
-  z.object({
-    kind: z.literal('organization'),
-    connectionId: z.string(),
-    accountName: z.string().nullable(),
-    orgId: z.string(),
-    orgName: z.string(),
-    role: z.enum(['admin', 'member']),
-    draftsAllowed: z.boolean(),
-    managed: z.boolean(),
-    solo: z.boolean(),
-  }),
-]);
+const workspaceContextSchema = z.object({
+  connectionId: z.string(),
+  accountName: z.string().nullable(),
+  orgId: z.string(),
+  orgName: z.string(),
+  role: z.enum(['admin', 'member']),
+  draftsAllowed: z.boolean(),
+  hosting: z.enum(['own', 'cloudchef']),
+  solo: z.boolean(),
+  personal: z.boolean(),
+});
 
 /** Typed against the server contract, so a drift in `CloudflareAuthSession` fails to compile here. */
 const cloudflareAuthSessionSchema: z.ZodType<CloudflareAuthSession> = z.object({

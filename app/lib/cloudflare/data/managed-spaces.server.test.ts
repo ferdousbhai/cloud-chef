@@ -53,7 +53,7 @@ async function setup() {
     domainId: null,
   });
   const [context] = await listWorkspaceContexts(db, sam.id);
-  if (context?.kind !== 'organization') {
+  if (!context) {
     throw new Error('The subscription made no space.');
   }
   return { database, db, operator, sam, space: context };
@@ -62,13 +62,19 @@ async function setup() {
 describe('a space CloudChef runs, for the person who subscribes to it', () => {
   it('is theirs to build in, name and invite people into', async () => {
     const { db, sam, space } = await setup();
-    expect(space).toMatchObject({ role: 'admin', managed: true, accountName: 'CloudChef', draftsAllowed: true });
+    expect(space).toMatchObject({
+      role: 'admin',
+      hosting: 'cloudchef',
+      personal: false,
+      accountName: 'CloudChef',
+      draftsAllowed: true,
+    });
     await renameOrganization(db, { orgId: space.orgId, actorId: sam.id, name: 'Studio' });
     await expect(
       createInvite(db, { orgId: space.orgId, email: 'gia@example.com', role: 'member', invitedBy: sam.id }),
     ).resolves.toMatchObject({ token: expect.any(String) });
     const [listed] = await listOrganizations(db, sam.id);
-    expect(listed).toMatchObject({ orgName: 'Studio', managed: true });
+    expect(listed).toMatchObject({ orgName: 'Studio', hosting: 'cloudchef', ownerUserId: sam.id });
     expect(listed?.members).toHaveLength(1);
     expect(listed?.invites).toHaveLength(1);
   });
@@ -116,10 +122,10 @@ describe('a space CloudChef runs, for the person who subscribes to it', () => {
       defaultModelId: 'model-a',
       allowedModelIds: ['model-a'],
     });
-    await expect(canManageModels(db, sam.id, { userId: null, orgId: space.orgId })).resolves.toBe(false);
+    await expect(canManageModels(db, sam.id, { orgId: space.orgId })).resolves.toBe(false);
     // The operator still runs every space in their account, so they can reconnect it; the subscriber does not.
     const others = (userId: string) =>
-      runsEveryOtherSpaceInAccount(db, { userId, owner: null, accountId: 'account-1' });
+      runsEveryOtherSpaceInAccount(db, { userId, orgId: null, accountId: 'account-1' });
     await expect(others(operator.id)).resolves.toBe(true);
     await expect(others(sam.id)).resolves.toBe(false);
   });
