@@ -68,6 +68,7 @@ describe('whether subscriptions are available', () => {
       portalConfigurationId: null,
       managedOrgId: 'org-1',
       creditPriceIds: {},
+      domainProductId: null,
     });
     // The credit prices are read from their text; text that can't be read sells none.
     expect(billingConfig(env({ ...all, STRIPE_CREDIT_PRICE_IDS: '{"20":"price_c20"}' }))?.creditPriceIds).toEqual({

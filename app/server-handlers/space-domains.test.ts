@@ -18,6 +18,7 @@ const billing: BillingConfig = {
   portalConfigurationId: null,
   managedOrgId: HOST,
   creditPriceIds: {},
+  domainProductId: null,
 };
 
 /** Cloudflare, as far as domains use it: the zone's custom hostnames and Worker routes, and the account's zones. */
@@ -94,6 +95,7 @@ async function setup(configured = true) {
     currentPeriodEndsAt: 2_000,
     cancelsAtPeriodEnd: false,
     userId: sam.id,
+    domainId: null,
   });
   const spaceId = (await findManagedSubscription(db, sam.id))?.spaceOrgId ?? '';
   const connection = z
@@ -147,7 +149,7 @@ describe('a domain of your own for a project in a space CloudChef runs', () => {
       });
       return spaceDomainsSchema.parse(await response.json());
     };
-    await expect(list()).resolves.toEqual({ available: true, cnameTarget: TARGET, domains: [] });
+    await expect(list()).resolves.toEqual({ available: true, cnameTarget: TARGET, buying: false, domains: [] });
 
     const connected = await connectDomainAction({
       request: post('/api/domains/connect', sam, { projectId: published, hostname: 'https://WWW.Example.com/' }),
@@ -213,7 +215,7 @@ describe('a domain of your own for a project in a space CloudChef runs', () => {
       request: new Request(`${ORIGIN}/api/domains?projectId=${unset.published}`, { headers: { cookie: unset.sam } }),
       env: unset.env,
     });
-    await expect(none.json()).resolves.toEqual({ available: false, cnameTarget: null, domains: [] });
+    await expect(none.json()).resolves.toEqual({ available: false, cnameTarget: null, buying: false, domains: [] });
 
     const { database, env, published, sam } = await setup();
     vi.stubGlobal(

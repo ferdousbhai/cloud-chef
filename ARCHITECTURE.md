@@ -186,7 +186,17 @@ zone (`MANAGED_DOMAINS_ZONE_ID`, Cloudflare for SaaS) and a Worker route there f
 Worker, and serves once the person's CNAME record points at `MANAGED_DOMAINS_CNAME_TARGET` and Cloudflare has issued
 its certificate; that record is the only proof the domain is theirs. A hostname in or under a zone of the operator's
 account is refused, a hostname serves one project, a space has at most `MAX_SPACE_DOMAINS`, and deleting the project
-removes them. The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` are not
+removes them. A domain can also be bought (`buyDomainAction`): the name and its price are asked of Cloudflare's
+registrar again at purchase, the buyer pays what it costs the operator plus `DOMAIN_YEARLY_MARGIN_CENTS` a year
+through a Stripe subscription of its own (a price of `STRIPE_DOMAIN_PRODUCT_ID`, marked by metadata so it is never
+taken for a subscription to a space), and Stripe's page collects the name, address and phone it is registered in.
+The subscription starts with a day before its first charge: the finished checkout, reported by the return and by
+the webhook and acted on once (`claimDomainPurchase`), registers the domain in the operator's account
+(`MANAGED_DOMAINS_ACCOUNT_ID`) with the buyer as registrant, attaches it and its `www` to the project's Worker as
+Worker custom domains, and only then ends that day so the charge is made; a registration that fails cancels the
+subscription with nothing charged. While the subscription is paid and not set to end, Cloudflare renews the
+registration each year; once it is cancelled or unpaid, renewal is turned off and it runs out
+(`applyDomainSubscription`). The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` are not
 available: Cloudflare's partner program that gives the Tenant API is closed to new participants (2026-11-23). It's asked when they
 try to build, and the account menu offers it until they have a space.
 

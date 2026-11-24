@@ -90,12 +90,14 @@ export function ProjectsHome() {
   // In a team only its admins import, since a team's projects are theirs to add.
   const canImport = team === null || team.role === 'admin';
   // Back from installing the GitHub App: the import dialog opens again, and the address forgets the visit.
+  // Back from buying a domain: the project's Domains dialog opens, where the purchase shows.
   const [dialog, setDialog] = useState<OpenDialog | null>(() =>
-    isImportReturn(window.location.search) ? { kind: 'import' } : null,
+    isImportReturn(window.location.search) ? { kind: 'import' } : domainsDialogAsked(window.location.search),
   );
   useEffect(() => {
-    if (isImportReturn(window.location.search)) {
+    if (isImportReturn(window.location.search) || domainsDialogAsked(window.location.search)) {
       const url = new URL(window.location.href);
+      url.searchParams.delete(DOMAINS_RETURN_PARAM);
       url.searchParams.delete(IMPORT_RETURN_PARAM);
       // A connection made: the dialog shows it in its list, so the return's note isn't kept in the address.
       url.searchParams.delete('github_message');
@@ -224,6 +226,14 @@ export function ProjectsHome() {
 type Reauthorization = 'prompt' | null;
 
 /** One quiet control for bringing in code made elsewhere: from GitHub, or a ZIP. */
+const DOMAINS_RETURN_PARAM = 'domains';
+
+/** The Domains dialog of the project the address asks for (`?domains=<project id>`), or null. */
+function domainsDialogAsked(search: string): OpenDialog | null {
+  const id = new URLSearchParams(search).get(DOMAINS_RETURN_PARAM);
+  return id && /^[0-9a-f-]{36}$/i.test(id) ? { kind: 'domains', project: { id, name: 'Your project' } } : null;
+}
+
 function AddProjectMenu({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
   return (
     <Menu

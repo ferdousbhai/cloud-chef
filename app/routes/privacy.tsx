@@ -169,7 +169,9 @@ function PrivacyPage() {
           to hold each space to its monthly building allowance. Stripe, Inc. processes the payment as its own page
           collects it: your card, billing address, and email address go to Stripe under Stripe&apos;s privacy policy,
           and Stripe tells CloudChef only whether the subscription is in a free period, paid, or ended, and when
-          building credit was paid for and how much.
+          building credit was paid for and how much. When you buy a domain through CloudChef, the name, address, email
+          address and phone number you give on Stripe&apos;s page are sent to Cloudflare Registrar and the domain&apos;s
+          registry as the domain&apos;s registrant; CloudChef passes them on and does not keep them.
         </p>
       </TrustSection>
 

@@ -82,6 +82,17 @@ function TermsPage() {
           operator may stop serving a domain that is used for abuse or that someone else shows to be theirs.
         </p>
         <p>
+          You can also buy a domain through CloudChef. It is registered with Cloudflare Registrar in your name, with the
+          name, address, email address and phone number you give on Stripe&apos;s page, which must be accurate, and it
+          is held in the operator&apos;s Cloudflare account so that CloudChef can serve it. You pay for it by the year,
+          at the price shown when you buy, through a subscription of its own that Stripe charges once the domain is
+          registered and again each year until you cancel. A registered or renewed year is not refunded, except where
+          the law gives you that right. If you cancel, or a yearly payment fails, the domain is not renewed and is lost
+          when its registration runs out. The registry&apos;s and Cloudflare&apos;s terms for domain registration apply
+          to it. You can ask the operator to transfer the domain to a registrar of your choice, once the registry allows
+          a transfer.
+        </p>
+        <p>
           You can buy building credit for your space in Settings, in single payments of{' '}
           {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD[0])} to {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD.at(-1) ?? 0)} that Stripe
           charges when you buy. Credit is used only after a month&apos;s allowance, for everyone building in the space,

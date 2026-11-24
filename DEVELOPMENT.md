@@ -95,7 +95,10 @@ SaaS enabled on CloudChef's zone with a fallback origin (an originless proxied r
 CNAME to it that people point their domains at; that zone's id and that name in `MANAGED_DOMAINS_ZONE_ID` and
 `MANAGED_DOMAINS_CNAME_TARGET` (`cloudflare.config.ts`); and the secret `MANAGED_DOMAINS_API_TOKEN`, an API token
 of that account with Workers Scripts, Registrar, DNS, SSL and Certificates and Workers Routes edit and Zone read.
-Without any of them the Domains dialog says they are not available.
+Without any of them the Domains dialog says they are not available. Buying a domain also needs
+`MANAGED_DOMAINS_ACCOUNT_ID` (that account), `STRIPE_DOMAIN_PRODUCT_ID` (a Stripe product for domains, in the same
+Stripe mode as the plan's price), and, in the Cloudflare dashboard, the Domain Registration Agreement accepted and
+a default registrant contact and payment method set: the registrar's API registers nothing without them.
 
 The Stripe account is shared with other products, so CloudChef has its own product (one recurring monthly price equal
 to `MANAGED_SPACE_MONTHLY_PRICE_USD`, `app/lib/managed-space.ts`), its own customer-portal configuration, and its own

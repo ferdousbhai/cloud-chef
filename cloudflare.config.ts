@@ -110,6 +110,10 @@ export default defineConfig({
       // declared here until it is set, as with the URL Scanner's.
       MANAGED_DOMAINS_ZONE_ID: bindings.text(''),
       MANAGED_DOMAINS_CNAME_TARGET: bindings.text(''),
+      // Buying a domain through CloudChef: the account it is registered in (the operator's, where that zone is),
+      // and the Stripe product its yearly subscriptions are prices of. Either one empty, buying is not offered.
+      MANAGED_DOMAINS_ACCOUNT_ID: bindings.text(''),
+      STRIPE_DOMAIN_PRODUCT_ID: bindings.text(''),
     },
     exports: {
       UserWorkspaceRuntimeProvisioningWorkflow: exports.workflow({

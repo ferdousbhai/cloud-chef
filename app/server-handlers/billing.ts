@@ -35,6 +35,7 @@ import {
 } from '~/lib/managed-space';
 import { prepareWorkspaceInBackground } from './cloudflare-integration';
 import { signedIn } from './signed-in';
+import { applyDomainSubscription, completeDomainPurchase } from './space-domains';
 
 /**
  * Subscribing to a space CloudChef runs (`app/lib/cloudflare/data/managed-subscriptions.server.ts`):
@@ -209,6 +210,24 @@ export async function completeCheckoutAction({
         headers: { Location: `${publicOrigin(request)}/settings#subscription`, 'Cache-Control': 'no-store' },
       });
     }
+    const domainCheckoutId = query.get('domain');
+    if (config && domainCheckoutId && domainCheckoutId.length <= 200) {
+      let projectId: string | null = null;
+      try {
+        projectId = (await completeDomainPurchase(env, domainCheckoutId, session.user.id))?.projectId ?? null;
+      } catch (error) {
+        if (!(error instanceof StripeError)) {
+          throw error;
+        }
+        // The webhook still registers it; the project's Domains dialog shows where it stands.
+      }
+      // Back to the builder with the project's domains open, where the purchase shows.
+      const back = new URL('/', publicOrigin(request));
+      if (projectId) {
+        back.searchParams.set('domains', projectId);
+      }
+      return new Response(null, { status: 303, headers: { Location: back.toString(), 'Cache-Control': 'no-store' } });
+    }
     const checkoutId = query.get('checkout');
     if (!config || !checkoutId || checkoutId.length > 200) {
       return home;
@@ -284,7 +303,16 @@ export async function stripeWebhookAction({ request, env }: { request: Request; 
   }
   try {
     if (event.subscriptionId) {
-      await applySubscription(env.DB, config, await readSubscription(config, event.subscriptionId));
+      const subscription = await readSubscription(config, event.subscriptionId);
+      if (subscription.domainId === null) {
+        await applySubscription(env.DB, config, subscription);
+      } else {
+        // A bought domain's own yearly subscription: never a subscription to a space.
+        if (event.type === 'checkout.session.completed' && event.checkoutSessionId) {
+          await completeDomainPurchase(env, event.checkoutSessionId, null);
+        }
+        await applyDomainSubscription(env, subscription);
+      }
     } else if (creditCheckoutId) {
       const credit = await readCreditCheckout(config, creditCheckoutId);
       if (credit) {
@@ -300,12 +328,22 @@ export async function stripeWebhookAction({ request, env }: { request: Request; 
 }
 
 /**
- * Ends a person's subscription at Stripe before their account is erased, so nothing is charged for an
- * account that no longer exists. False when Stripe could not be told: the erasure then waits.
+ * Ends a person's subscription at Stripe, and those of the domains bought for their space, before their account
+ * is erased, so nothing is charged for an account that no longer exists. False when Stripe could not be told: the erasure then waits.
  */
 export async function cancelSubscriptionForErasure(env: Env, userId: string): Promise<boolean> {
   const subscription = await findManagedSubscription(env.DB, userId);
-  if (!subscription?.subscriptionId || subscription.status === 'canceled') {
+  // The yearly subscriptions of the domains bought for their space end with it: they are charged to the same person.
+  const domains = subscription?.spaceOrgId
+    ? await env.DB.prepare(
+        'SELECT stripe_subscription_id AS id FROM space_domains WHERE org_id = ? AND stripe_subscription_id IS NOT NULL',
+      )
+        .bind(subscription.spaceOrgId)
+        .all<{ id: string }>()
+    : { results: [] };
+  const space = subscription?.subscriptionId && subscription.status !== 'canceled' ? [subscription.subscriptionId] : [];
+  const ending = [...space, ...domains.results.map((domain) => domain.id)];
+  if (ending.length === 0) {
     return true;
   }
   const config = billingConfig(env);
@@ -313,7 +351,9 @@ export async function cancelSubscriptionForErasure(env: Env, userId: string): Pr
     return false;
   }
   try {
-    await cancelSubscription(config, subscription.subscriptionId);
+    for (const subscriptionId of ending) {
+      await cancelSubscription(config, subscriptionId);
+    }
     return true;
   } catch {
     return false;

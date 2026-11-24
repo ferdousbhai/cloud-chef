@@ -11,6 +11,8 @@ export const spaceDomainSchema = z.object({
   status: z.enum(['pending', 'active', 'failed']),
   /** What is still waited for, in the person's words; null once the domain serves the project. */
   waitingFor: z.string().nullable(),
+  /** What a bought domain costs each year, in dollars. */
+  yearlyPriceUsd: z.number().nullable(),
 });
 export type SpaceDomain = z.infer<typeof spaceDomainSchema>;
 
@@ -19,8 +21,18 @@ export const spaceDomainsSchema = z.object({
   available: z.boolean(),
   /** Where a connected domain's CNAME record points. */
   cnameTarget: z.string().nullable(),
+  /** Whether a domain can be bought here. */
+  buying: z.boolean(),
   domains: z.array(spaceDomainSchema),
 });
+
+/** A domain that can be bought now, and what it costs each year, in dollars. */
+const domainOfferSchema = z.object({ hostname: z.string(), yearlyPriceUsd: z.number() });
+export type DomainOffer = z.infer<typeof domainOfferSchema>;
+export const domainOffersSchema = z.object({ offers: z.array(domainOfferSchema) });
+
+/** What CloudChef adds each year to what a bought domain costs it at Cloudflare, in cents. */
+export const DOMAIN_YEARLY_MARGIN_CENTS = 1_000;
 export type SpaceDomains = z.infer<typeof spaceDomainsSchema>;
 
 /** Domains a space may have at once: each costs CloudChef a little every month. */

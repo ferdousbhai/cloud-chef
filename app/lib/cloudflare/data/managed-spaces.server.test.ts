@@ -20,6 +20,7 @@ const config: BillingConfig = {
   priceId: 'price_1',
   portalConfigurationId: null,
   creditPriceIds: {},
+  domainProductId: null,
   managedOrgId: HOST,
 };
 
@@ -49,6 +50,7 @@ async function setup() {
     currentPeriodEndsAt: 2_000,
     cancelsAtPeriodEnd: false,
     userId: sam.id,
+    domainId: null,
   });
   const [context] = await listWorkspaceContexts(db, sam.id);
   if (context?.kind !== 'organization') {

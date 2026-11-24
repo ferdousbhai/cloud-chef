@@ -23,6 +23,8 @@ export type BillingConfig = {
   managedOrgId: string;
   /** The one-time Stripe price of each amount of building credit, by its dollars. */
   creditPriceIds: Readonly<Record<string, string>>;
+  /** The Stripe product a bought domain's yearly subscription is a price of; null where buying is not set up. */
+  domainProductId: string | null;
 };
 
 const creditPriceIdsSchema = z.record(z.string(), z.string().min(1));
@@ -51,6 +53,7 @@ export function billingConfig(env: Env): BillingConfig | null {
     portalConfigurationId: env.STRIPE_PORTAL_CONFIGURATION_ID?.trim() || null,
     managedOrgId,
     creditPriceIds: creditPriceIds(env.STRIPE_CREDIT_PRICE_IDS),
+    domainProductId: env.STRIPE_DOMAIN_PRODUCT_ID?.trim() || null,
   };
 }
 
@@ -101,6 +104,11 @@ export type StripeSubscription = {
   cancelsAtPeriodEnd: boolean;
   /** The CloudChef user the subscription was started for, as its metadata says. */
   userId: string | null;
+  /**
+   * The bought domain (`space_domains.id`) this subscription pays for each year, as its metadata says; null for a
+   * subscription to a space. The two are never mistaken for each other.
+   */
+  domainId: string | null;
 };
 
 function subscriptionFrom(raw: z.infer<typeof subscriptionSchema>): StripeSubscription {
@@ -113,10 +121,12 @@ function subscriptionFrom(raw: z.infer<typeof subscriptionSchema>): StripeSubscr
     currentPeriodEndsAt: periodEnd ? periodEnd * 1_000 : null,
     cancelsAtPeriodEnd: raw.cancel_at_period_end === true,
     userId: raw.metadata?.[USER_ID_METADATA] ?? null,
+    domainId: raw.metadata?.[DOMAIN_ID_METADATA] ?? null,
   };
 }
 
 const USER_ID_METADATA = 'cloudchef_user_id';
+const DOMAIN_ID_METADATA = 'cloudchef_domain_id';
 
 export async function createCustomer(config: BillingConfig, user: { id: string; email: string }): Promise<string> {
   const customer = await stripe(config, 'POST', '/customers', z.looseObject({ id: z.string().min(1) }), {
@@ -215,6 +225,144 @@ export async function readCreditCheckout(
     return null;
   }
   return { id: session.id, userId: session.client_reference_id ?? null, orgId, amountUsd };
+}
+
+/**
+ * Stripe's hosted page that takes the card for a bought domain's yearly subscription, with the buyer's name,
+ * address and phone, which the registration is made in. It starts with a day before the first charge: the
+ * domain is registered in that day and the charge then made at once (`chargeSubscriptionNow`), or, if it can't
+ * be registered, the subscription is cancelled with nothing charged.
+ */
+export async function createDomainCheckout(
+  config: BillingConfig,
+  args: {
+    customerId: string;
+    userId: string;
+    domainId: string;
+    hostname: string;
+    yearlyPriceCents: number;
+    productId: string;
+    successUrl: string;
+    cancelUrl: string;
+  },
+): Promise<string> {
+  const session = await stripe(config, 'POST', '/checkout/sessions', z.looseObject({ url: z.url() }), {
+    mode: 'subscription',
+    customer: args.customerId,
+    client_reference_id: args.userId,
+    'line_items[0][price_data][currency]': 'usd',
+    'line_items[0][price_data][product]': args.productId,
+    'line_items[0][price_data][unit_amount]': String(args.yearlyPriceCents),
+    'line_items[0][price_data][recurring][interval]': 'year',
+    'line_items[0][quantity]': '1',
+    payment_method_collection: 'always',
+    billing_address_collection: 'required',
+    'phone_number_collection[enabled]': 'true',
+    // An existing customer's details are kept as they give them here.
+    'customer_update[address]': 'auto',
+    'customer_update[name]': 'auto',
+    'subscription_data[trial_period_days]': '1',
+    'subscription_data[description]': args.hostname,
+    [`subscription_data[metadata][${DOMAIN_ID_METADATA}]`]: args.domainId,
+    [`metadata[${DOMAIN_ID_METADATA}]`]: args.domainId,
+    success_url: args.successUrl,
+    cancel_url: args.cancelUrl,
+  });
+  return session.url;
+}
+
+/** Who paid, as they told Stripe's page: the details a bought domain is registered in. */
+export type CheckoutContact = {
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  address: {
+    line1: string | null;
+    line2: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+    country: string | null;
+  } | null;
+};
+
+export type DomainCheckout = {
+  userId: string | null;
+  domainId: string;
+  subscriptionId: string;
+  contact: CheckoutContact;
+};
+
+const optionalText = z.string().nullable().optional();
+
+/** A finished checkout as the purchase of a domain; null unless it completed and started that subscription. */
+export async function readDomainCheckout(
+  config: BillingConfig,
+  checkoutSessionId: string,
+): Promise<DomainCheckout | null> {
+  const session = await stripe(
+    config,
+    'GET',
+    `/checkout/sessions/${encodeURIComponent(checkoutSessionId)}`,
+    z.looseObject({
+      status: optionalText,
+      subscription: optionalText,
+      client_reference_id: optionalText,
+      metadata: z.record(z.string(), z.string()).nullable().optional(),
+      customer_details: z
+        .looseObject({
+          name: optionalText,
+          email: optionalText,
+          phone: optionalText,
+          address: z
+            .looseObject({
+              line1: optionalText,
+              line2: optionalText,
+              city: optionalText,
+              state: optionalText,
+              postal_code: optionalText,
+              country: optionalText,
+            })
+            .nullable()
+            .optional(),
+        })
+        .nullable()
+        .optional(),
+    }),
+  );
+  const domainId = session.metadata?.[DOMAIN_ID_METADATA];
+  if (session.status !== 'complete' || !session.subscription || !domainId) {
+    return null;
+  }
+  const details = session.customer_details;
+  const address = details?.address;
+  return {
+    userId: session.client_reference_id ?? null,
+    domainId,
+    subscriptionId: session.subscription,
+    contact: {
+      name: details?.name ?? null,
+      email: details?.email ?? null,
+      phone: details?.phone ?? null,
+      address: address
+        ? {
+            line1: address.line1 ?? null,
+            line2: address.line2 ?? null,
+            city: address.city ?? null,
+            state: address.state ?? null,
+            postalCode: address.postal_code ?? null,
+            country: address.country ?? null,
+          }
+        : null,
+    },
+  };
+}
+
+/** Ends a subscription's days before its first charge, so the charge is made now. */
+export async function chargeSubscriptionNow(config: BillingConfig, subscriptionId: string): Promise<void> {
+  await stripe(config, 'POST', `/subscriptions/${encodeURIComponent(subscriptionId)}`, z.looseObject({}), {
+    trial_end: 'now',
+  });
 }
 
 export async function readSubscription(config: BillingConfig, subscriptionId: string): Promise<StripeSubscription> {

@@ -24,6 +24,7 @@ const config: BillingConfig = {
   priceId: 'price_1',
   portalConfigurationId: null,
   creditPriceIds: {},
+  domainProductId: null,
   managedOrgId: ORG,
 };
 
@@ -77,6 +78,7 @@ function subscription(userId: string, patch: Partial<StripeSubscription> = {}): 
     currentPeriodEndsAt: 2_000,
     cancelsAtPeriodEnd: false,
     userId,
+    domainId: null,
     ...patch,
   };
 }
