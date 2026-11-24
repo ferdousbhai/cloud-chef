@@ -522,7 +522,7 @@ export async function forgetMediaOfPrivateProject(db: D1Database, projectId: str
 async function requireManagedPost(db: D1Database, postId: string, userId: string): Promise<ManagedPost> {
   const post = await findManagedPost(db, postId, userId);
   if (!post) {
-    throw new ShowcaseError('Only the person whose post it is, or their team’s admin, can do that.', 403);
+    throw new ShowcaseError('Only the person whose post it is, or their space’s admin, can do that.', 403);
   }
   return post;
 }

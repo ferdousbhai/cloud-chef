@@ -22,7 +22,7 @@ const acceptedSchema = z.object({ switched: z.boolean() }).catch({ switched: fal
  */
 export const Route = createFileRoute('/join')({
   validateSearch: joinSearchSchema,
-  head: () => createPrivatePageHead('Join a team | CloudChef', 'Accept an invite to build with your team.'),
+  head: () => createPrivatePageHead('Join a space | CloudChef', 'Accept an invite to build in someone’s space.'),
   component: Join,
 });
 
@@ -106,7 +106,7 @@ function Join() {
 
   if (!isPending && !session && sessionError) {
     return (
-      <JoinCard title="Join a team on CloudChef">
+      <JoinCard title="Join a space on CloudChef">
         <SessionCheckError className="mt-4" />
       </JoinCard>
     );
@@ -158,10 +158,10 @@ function Join() {
   };
 
   return (
-    <JoinCard title="Join your team on CloudChef">
+    <JoinCard title="Join the space on CloudChef">
       <p className="app-page-lede wrap-break-word">
         {invite.inviterName} invited you to {invite.orgName}. You&apos;re signed in as{' '}
-        <span className="break-all">{session.user.email}</span>. What you build is stored in the team&apos;s Cloudflare
+        <span className="break-all">{session.user.email}</span>. What you build is stored in the space&apos;s Cloudflare
         account, where its administrators can see it.
       </p>
       {signedInAsInvited ? null : (
@@ -257,7 +257,7 @@ function SignInToJoin({
   return (
     <JoinCard title={`Join ${invite.orgName} on CloudChef`}>
       <p className="app-page-lede wrap-break-word">
-        {invite.inviterName} invited <span className="break-all">{invite.email}</span> to the team. Sign in as that
+        {invite.inviterName} invited <span className="break-all">{invite.email}</span> to the space. Sign in as that
         address to join. You&apos;ll come straight back here.
       </p>
       {error ? (

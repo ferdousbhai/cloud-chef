@@ -15,10 +15,10 @@ const CLOUDFLARE_CONNECT_MESSAGES = {
   already_finished:
     'That Cloudflare authorization was already finished, or is no longer known. Connect Cloudflare again if you need to.',
   expired: 'That Cloudflare authorization expired. Connect Cloudflare again.',
-  admin_only: "Only a team's admin can connect its Cloudflare account.",
+  admin_only: "Only a space's admin can connect its Cloudflare account.",
   account_in_use:
-    'Someone else already builds in this Cloudflare account with CloudChef, on their own or in a team you ' +
-    "don't run, and connecting it here would replace the access they use. If it's a team, ask whoever runs " +
+    'Someone else already builds in this Cloudflare account with CloudChef, in a space you ' +
+    "don't run, and connecting it here would replace the access they use. Ask whoever runs " +
     'it to make you one of its admins, then connect again. Otherwise, connect a different Cloudflare account.',
   changed_meanwhile:
     'Cloudflare was connected from somewhere else at the same moment, so CloudChef left everything as it was. ' +

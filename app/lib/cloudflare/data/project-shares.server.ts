@@ -268,7 +268,7 @@ export async function setPersonRole(
       .first<{ role: string }>();
     if (member) {
       if (member.role === 'admin') {
-        throw new ProjectShareError('The team’s admins run every team project.', 409);
+        throw new ProjectShareError('The space’s admins run every project in it.', 409);
       }
       await setProjectAccess(db, { orgId: args.project.orgId, ...args, projectId: args.project.id });
       return;

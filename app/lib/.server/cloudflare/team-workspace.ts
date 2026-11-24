@@ -18,7 +18,7 @@ import { workspaceRuntimeNames } from '~/workflows/user-workspace-runtime-provis
 export async function deleteTeamWorkspace(env: Env, orgId: string, userId: string): Promise<void> {
   const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
   if (connection?.status !== 'active' || !connection.credentialHandle) {
-    throw new Error('The team has no active Cloudflare connection.');
+    throw new Error('The space has no active Cloudflare connection.');
   }
   await forgetSavedBranches(env, connection, userId).catch(() =>
     console.warn({ event: 'saved_branches_not_forgotten', orgId }),

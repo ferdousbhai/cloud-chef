@@ -287,7 +287,7 @@ describe('BuilderModelSelector', () => {
       document.querySelector('button')?.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 })),
     );
     const pins = [...document.querySelectorAll('[aria-label="Quick switch"] [role="menuitemradio"]')];
-    expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual(['DeepSeek V4.1 Flash, team default']);
+    expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual(['DeepSeek V4.1 Flash, default']);
   });
 
   it('pins the default and recent models and restores the last provider tab', async () => {
@@ -304,7 +304,7 @@ describe('BuilderModelSelector', () => {
     expect(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Anthropic');
     const pins = [...document.querySelectorAll('[aria-label="Quick switch"] [role="menuitemradio"]')];
     expect(pins.map((pin) => pin.getAttribute('aria-label'))).toEqual([
-      'DeepSeek V4.1 Flash, team default',
+      'DeepSeek V4.1 Flash, default',
       'GLM 5.3 Flash, recent',
     ]);
     // The provider list stays whole: the restored Anthropic tab lists its own models.

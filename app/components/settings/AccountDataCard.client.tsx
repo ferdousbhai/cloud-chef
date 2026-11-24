@@ -390,7 +390,7 @@ export function AccountDataCard() {
 /** Who an authorization was kept for, in words: teams by name, and someone else's own space without saying whose. */
 function keptForText(account: KeptAuthorization): string {
   const who = [
-    ...account.teams.map((team) => `the team ${team}`),
+    ...account.teams.map((team) => `the space ${team}`),
     ...(account.someoneElsesOwnSpace ? ['another person working on their own'] : []),
   ];
   return who.length <= 1 ? (who[0] ?? 'someone else') : `${who.slice(0, -1).join(', ')} and ${who.at(-1)}`;

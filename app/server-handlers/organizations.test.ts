@@ -367,7 +367,7 @@ describe('organizations', () => {
 
     const again = await create('Team 10');
     expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ error: 'You can have up to 10 teams, and create up to 10 in 30 days.' });
+    expect(await again.json()).toEqual({ error: 'You can have up to 10 spaces, and create up to 10 in 30 days.' });
     expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()?.count).toBe(9);
 
     database.prepare('UPDATE organization_quota_events SET created_at = ?').run(Date.now() - 31 * 24 * 60 * 60_000);
@@ -684,7 +684,7 @@ describe('organizations', () => {
     expect(again.status).toBe(409);
     expect(await again.json()).toEqual({
       error:
-        'sam@acme.com is already in the team. To change what they can do, use Make admin or the other buttons by their name.',
+        'sam@acme.com is already in the space. To change what they can do, use Make admin or the other buttons by their name.',
     });
     expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(201);
   });
@@ -756,7 +756,7 @@ describe('organizations', () => {
     expect(grants()).toEqual(before);
 
     // The only admin leaving is refused, and keeps their workspace.
-    await expect(remove(env.DB, admin.userId, admin.userId)).rejects.toThrow('a team always needs one');
+    await expect(remove(env.DB, admin.userId, admin.userId)).rejects.toThrow('a space always needs one');
     expect(grants()).toEqual(before);
 
     await remove(env.DB, admin.userId, sam.userId);
@@ -841,7 +841,7 @@ describe('organizations', () => {
     // One that slipped in while Sam was a member goes when Sam does; a refused removal keeps Ada's.
     const slippedIn = await leftover('slipped-in', 'sam@acme.com');
     const remove = (userId: string) => updateMember(env.DB, { orgId, actorId: admin.userId, userId, action: 'remove' });
-    await expect(remove(admin.userId)).rejects.toThrow('a team always needs one');
+    await expect(remove(admin.userId)).rejects.toThrow('a space always needs one');
     expect(pending()).toEqual([{ id: 'for-ada' }, { id: 'slipped-in' }]);
     await remove(sam.userId);
     expect(pending()).toEqual([{ id: 'for-ada' }]);
@@ -916,7 +916,7 @@ describe('a team’s name and deletion', () => {
     expect(refused.status).toBe(401);
     await expect(refused.json()).resolves.toEqual({
       code: 'reauthentication_required',
-      error: 'Sign in again to confirm it is you, then delete the team.',
+      error: 'Sign in again to confirm it is you, then delete the space.',
     });
     expect({ deleted, revoked }).toEqual({ deleted: [], revoked: [] });
     expect(database.prepare('SELECT COUNT(*) AS n FROM organizations').get()).toEqual({ n: 1 });
@@ -1026,7 +1026,7 @@ describe('a team’s name and deletion', () => {
     });
     expect(left.status).toBe(409);
     expect(await left.json()).toEqual({
-      error: "You're the only one in Acme, so leaving deletes the team.",
+      error: "You're the only one in Acme, so leaving deletes the space.",
       code: 'sole_member',
     });
     expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()).toEqual({ count: 1 });

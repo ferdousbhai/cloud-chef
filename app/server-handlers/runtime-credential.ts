@@ -34,7 +34,7 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
           code: 'cloudflare_token_withheld',
           error: membership?.managed
             ? 'Here you can work on the projects you were given only.'
-            : 'Your team lets you work on its team projects only.',
+            : 'This space lets you work on the projects you were given only.',
         },
         403,
       );

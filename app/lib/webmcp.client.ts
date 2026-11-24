@@ -184,13 +184,13 @@ function cloudchefTools(person: WebMcpPerson): WebMcpTool[] {
       name: 'list_approvals',
       title: 'List approvals',
       description:
-        'Lists what waits for the signed-in person as an admin of their teams: Cloudflare changes members asked for. Approving or declining is done by the person on the Approvals page.',
+        'Lists what waits for the signed-in person as an admin of their spaces: Cloudflare changes members asked for. Approving or declining is done by the person on the Approvals page.',
       input: z.object({}),
       readOnly: true,
       run: async () => {
         const approvals = await loadApprovals();
         if (!approvals.admin) {
-          return json({ admin: false, note: 'The person is not an admin of any team, so nothing waits for them.' });
+          return json({ admin: false, note: 'The person is not an admin of any space, so nothing waits for them.' });
         }
         return json({
           waiting: approvals.waiting.map((approval) => ({

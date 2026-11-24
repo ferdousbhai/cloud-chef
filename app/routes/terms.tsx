@@ -39,12 +39,12 @@ function TermsPage() {
         <ul>
           <li>at least 18</li>
           <li>able to form a binding agreement</li>
-          <li>authorized to act for any team or Cloudflare account you use</li>
+          <li>authorized to act for any space or Cloudflare account you use</li>
         </ul>
       </TrustSection>
       <TrustSection title="Public-beta service, availability, and costs">
         <p>
-          CloudChef charges no fee for building in your own Cloudflare account or in a team&apos;s. That requires a
+          CloudChef charges no fee for building in your own Cloudflare account or in a space&apos;s. That requires a
           compatible Cloudflare account, Workers Paid, and Containers, and the account&apos;s holder is responsible for
           charges from Cloudflare, including:
         </p>
@@ -73,7 +73,7 @@ function TermsPage() {
           prices, and shared by everyone in the space. You may invite people to build in your space. Each person who
           joins is added to your subscription at the same monthly price from the day they join, and each who leaves or
           is removed is taken off it, with the charge and the allowance for that month reduced to the part of the month
-          they were there for; you pay for them, and you answer for what they do there. A team that builds in a
+          they were there for; you pay for them, and you answer for what they do there. A space that builds in a
           Cloudflare account of its own pays CloudChef nothing for its people. When a month&apos;s allowance is used up,
           building stops until the next calendar month unless the space has credit; applications you published keep
           running. If a payment fails or the subscription ends, the space is paused: you can no longer build in it, your
@@ -121,8 +121,8 @@ function TermsPage() {
           access secure.
         </p>
         <p>
-          A team&apos;s admin who connects its Cloudflare account authorizes CloudChef to act in that account for every
-          member they invite, and the team is responsible for the charges its members incur there. Members build and
+          A space&apos;s admin who connects its Cloudflare account authorizes CloudChef to act in that account for every
+          member they invite, and the space is responsible for the charges its members incur there. Members build and
           deploy in that account under its administrators&apos; control. Projects are kept in that account&apos;s
           Cloudflare Artifacts. Whoever installs CloudChef&apos;s GitHub App authorizes CloudChef to read the
           repositories they choose, only to import them as projects; CloudChef never writes to GitHub.

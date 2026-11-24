@@ -257,7 +257,7 @@ export function BuilderModelSelector({ disabled = false }: { disabled?: boolean 
                   <PinnedItem
                     key={entry.id}
                     model={entry}
-                    label={entry.id === defaultModel.id ? 'Team default' : 'Recent'}
+                    label={entry.id === defaultModel.id ? 'Default' : 'Recent'}
                     disabled={disabled}
                   />
                 ))}
@@ -461,7 +461,7 @@ function PinnedItem({ model, label, disabled }: { model: BuilderModel; label: st
     >
       <ProviderMark provider={builderProviderFor(model)} />
       <span className="truncate font-medium text-content-primary">{model.label}</span>
-      {label === 'Team default' && <span className="shrink-0 text-content-tertiary">default</span>}
+      {label === 'Default' && <span className="shrink-0 text-content-tertiary">default</span>}
     </DropdownMenu.RadioItem>
   );
 }

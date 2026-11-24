@@ -883,7 +883,7 @@ export async function setProjectAccess(
     .bind(args.projectId, args.orgId)
     .first<{ id: string }>();
   if (!project) {
-    throw new OrganizationError('That project is not in this team.', 404);
+    throw new OrganizationError('That project is not in this space.', 404);
   }
   if (args.role === null) {
     await db
@@ -904,7 +904,7 @@ export async function setProjectAccess(
     .bind(args.projectId, args.userId, args.role, args.actorId, Date.now(), args.orgId)
     .run();
   if (granted.meta.changes === 0) {
-    throw new OrganizationError('That person is not in this team.', 404);
+    throw new OrganizationError('That person is not in this space.', 404);
   }
 }
 

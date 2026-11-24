@@ -25,7 +25,7 @@ export function WorkspaceSwitcher({ className, align }: { className?: string; al
         size: 'xs',
         className,
         // The button names the workspace briefly; its Cloudflare account is in the tooltip and the menu.
-        title: current ? `${fullLabel(current, session.contexts)}. Switch account or manage teams` : 'Manage teams',
+        title: current ? `${fullLabel(current, session.contexts)}. Switch space or manage spaces` : 'Manage spaces',
         children: (
           <>
             <span className="min-w-0 truncate">

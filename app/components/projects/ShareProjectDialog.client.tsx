@@ -261,7 +261,7 @@ export function ShareProjectDialog({
       </div>
       <p className="mt-4 text-xs text-content-tertiary">
         {sharing?.team
-          ? 'People outside the team work on it from their own Cloudflare account. The site stays in the team’s.'
+          ? 'People outside the space work on it from their own Cloudflare account. The site stays in the space’s.'
           : 'People you share with work on it from their own Cloudflare account. The site stays in yours.'}
       </p>
     </Modal>

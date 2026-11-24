@@ -112,7 +112,7 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
 
 export function createOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, createSchema, 'Give the team a name.');
+    const body = await readJsonRequest(request, createSchema, 'Give the space a name.');
     if ('response' in body) {
       return body.response;
     }
@@ -272,7 +272,7 @@ export function revokeInviteAction({ request, env }: { request: Request; env: En
 
 export function renameOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, renameSchema, 'Give the team a name.');
+    const body = await readJsonRequest(request, renameSchema, 'Give the space a name.');
     if ('response' in body) {
       return body.response;
     }
@@ -309,9 +309,9 @@ export function deleteOrganizationAction({
   return signedIn(request, env, async ({ session }) => {
     // Irreversible for everyone in it, so only from a fresh sign-in, as erasing an account is.
     if (!isRecentSignIn(session)) {
-      return reauthenticationRequired('Sign in again to confirm it is you, then delete the team.');
+      return reauthenticationRequired('Sign in again to confirm it is you, then delete the space.');
     }
-    const body = await readJsonRequest(request, deleteSchema, 'Choose a team.');
+    const body = await readJsonRequest(request, deleteSchema, 'Choose a space.');
     if ('response' in body) {
       return body.response;
     }
@@ -381,8 +381,8 @@ async function sendInvite(
 ): Promise<boolean> {
   const invite = {
     ...details,
-    orgName: nameForEmail(details.orgName, 'A team'),
-    inviter: nameForEmail(details.inviter, 'A team admin'),
+    orgName: nameForEmail(details.orgName, 'A space'),
+    inviter: nameForEmail(details.inviter, 'An admin of the space'),
   };
   const text = [
     `${invite.inviter} invited you to build apps with ${invite.orgName} on CloudChef.`,

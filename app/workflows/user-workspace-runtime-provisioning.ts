@@ -410,8 +410,9 @@ export async function runUserWorkspaceRuntimeProvisioningWorkflow(args: {
             connectionId: connection.id,
             connectionGeneration: connection.generation,
             endpoint,
-            // Every space's account may have other people in it: each workspace asks who its person is there.
-            sharedAccount: true,
+            // A space's account may have other people in it, so a workspace asks who its person is there; the one
+            // a person had when the account was theirs alone answers as its owner, which they remain.
+            sharedAccount: workspaceBindingConnectionId(connection, params.userId) !== null,
           });
           const ids = { namespaceId: deployed.namespaceId, builderNamespaceId: deployed.builderNamespaceId };
           return windowedAttempt ? { status: 'deployed', ...ids } : { status: 'deployed', ...ids, windowed: false };

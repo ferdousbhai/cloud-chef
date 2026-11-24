@@ -8,7 +8,7 @@ const GITHUB_RETURN_MESSAGES = {
   install_expired: 'That GitHub connection expired or was already finished. Try again.',
   install_cancelled: 'GitHub was not connected: the installation was cancelled. Try again.',
   install_other_admin:
-    'Connecting GitHub has to be finished by the person who started it, while they still manage this account (Personal, or as a team admin). Sign in as them, then connect it again.',
+    'Connecting GitHub has to be finished by the person who started it, while they still manage this account (as an admin of its space). Sign in as them, then connect it again.',
   install_not_owner: 'Only the owner of that GitHub account or organization can connect it.',
   install_failed: "GitHub couldn't be connected just now. Try again.",
   connected: 'Connected GitHub.',
@@ -26,7 +26,7 @@ export function gitHubReturnMessageText(code: string): string | null {
 
 /** Where a person gives CloudChef's GitHub App another account or repository, said in errors that need it. */
 export const GITHUB_ACCESS_FIX =
-  "give CloudChef's GitHub App access from Import from GitHub on the home page (in a team, only an admin can do this)";
+  "give CloudChef's GitHub App access from Import from GitHub on the home page (only an admin of the space can do this)";
 
 /** The same, said inside the import dialog, whose button just below gives the App access. */
 export const IMPORT_DIALOG_ACCESS_FIX = "use the GitHub button below to give CloudChef's GitHub App access to it";

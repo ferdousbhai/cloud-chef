@@ -145,7 +145,7 @@ export async function createOrganization(db: D1Database, userId: string, name: s
   ]);
   if (created?.meta.changes !== 1) {
     throw new OrganizationError(
-      `You can have up to ${MAX_ORGANIZATIONS_PER_CREATOR} teams, and create up to ${MAX_ORGANIZATIONS_PER_CREATOR} in 30 days.`,
+      `You can have up to ${MAX_ORGANIZATIONS_PER_CREATOR} spaces, and create up to ${MAX_ORGANIZATIONS_PER_CREATOR} in 30 days.`,
       409,
     );
   }
@@ -174,7 +174,7 @@ export async function prepareOrganizationDeletion(
 ): Promise<void> {
   const membership = await findMembership(db, args.orgId, args.actorId);
   if (!membership) {
-    throw new OrganizationError('That team no longer exists, or you are not in it.', 404);
+    throw new OrganizationError('That space no longer exists, or you are not in it.', 404);
   }
   const { results } = await db
     .prepare('SELECT user_id FROM organization_members WHERE org_id = ? ORDER BY joined_at')
@@ -186,7 +186,7 @@ export async function prepareOrganizationDeletion(
   }
   const soleMember = memberIds.length === 1 && memberIds[0] === args.actorId;
   if (!soleMember && !runsTeam(membership)) {
-    throw new OrganizationError("Only a team's admin can delete it.", 403);
+    throw new OrganizationError("Only a space's admin can delete it.", 403);
   }
 }
 
@@ -220,7 +220,7 @@ const MANAGED_SPACE_ENDS_WITH_SUBSCRIPTION =
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
   if (!membership || !runsTeam(membership)) {
-    throw new OrganizationError("Only a team's admin can do that.", 403);
+    throw new OrganizationError("Only a space's admin can do that.", 403);
   }
   return membership;
 }
@@ -334,18 +334,18 @@ type InviteLimits = { connected: number; pending: number; today: number; already
 /** Throws the reason an invite to `email` is refused under `limits`, if it is. */
 function refuseInviteOverLimits(email: string, limits: InviteLimits | null): void {
   if (!limits?.connected) {
-    throw new OrganizationError("Connect the team's Cloudflare account before inviting people.", 409);
+    throw new OrganizationError("Connect the space's Cloudflare account before inviting people.", 409);
   }
   // Accepting never changes a member's role, so an invite to someone already in would do nothing.
   if (limits.already_member > 0) {
     throw new OrganizationError(
-      `${email} is already in the team. To change what they can do, use Make admin or the other buttons by their name.`,
+      `${email} is already in the space. To change what they can do, use Make admin or the other buttons by their name.`,
       409,
     );
   }
   if (limits.by_inviter >= MAX_INVITES_PER_INVITER_PER_DAY) {
     throw new OrganizationError(
-      `${MAX_INVITES_PER_INVITER_PER_DAY} invites a day, across your teams, is the limit. Try again tomorrow.`,
+      `${MAX_INVITES_PER_INVITER_PER_DAY} invites a day, across your spaces, is the limit. Try again tomorrow.`,
       409,
     );
   }
@@ -663,7 +663,7 @@ export async function updateMember(
   }
   const target = await findMembership(db, args.orgId, args.userId);
   if (!target) {
-    throw new OrganizationError('That person is not in this team.', 404);
+    throw new OrganizationError('That person is not in this space.', 404);
   }
   if (target.managed) {
     // The space has one person running it, its subscriber, for as long as they subscribe.
@@ -696,7 +696,7 @@ export async function updateMember(
       .first<{ count: number }>();
     if ((others?.count ?? 0) === 0) {
       throw new OrganizationError(
-        `You're the only one in ${target.orgName}, so leaving deletes the team.`,
+        `You're the only one in ${target.orgName}, so leaving deletes the space.`,
         409,
         'sole_member',
       );
@@ -777,7 +777,7 @@ export async function updateMember(
       : [membershipWrite],
   );
   if (losesAdmin && (result?.meta.changes ?? 0) === 0) {
-    throw new OrganizationError('Make someone else an admin first: a team always needs one.', 409);
+    throw new OrganizationError('Make someone else an admin first: a space always needs one.', 409);
   }
 }
 

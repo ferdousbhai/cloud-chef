@@ -50,7 +50,7 @@ export function startGitHubInstallAction({ request, env }: { request: Request; e
     if (!app) {
       return Response.json({ error: UNAVAILABLE }, { status: 503 });
     }
-    const body = await readJsonRequest(request, startSchema, 'Choose a team.');
+    const body = await readJsonRequest(request, startSchema, 'Choose a space.');
     if ('response' in body) {
       return body.response;
     }
@@ -317,7 +317,7 @@ export function listGitHubRepositoriesAction({
   return signedIn(request, env, async ({ session }) => {
     const parsed = scopeSchema.safeParse({ orgId: new URL(request.url).searchParams.get('orgId') ?? undefined });
     if (!parsed.success) {
-      return Response.json({ error: 'Choose a team.' }, { status: 400 });
+      return Response.json({ error: 'Choose a space.' }, { status: 400 });
     }
     const scope = await requireProjectScope(env.DB, session.user.id, parsed.data.orgId);
     // The person's own GitHub account, when they connected it elsewhere and not here: the dialog offers it, so the

@@ -265,7 +265,10 @@ export async function rejectApproval(
   actorId: string,
 ): Promise<{ requestedBy: string; connectionId: string; agentName: string | null } | null> {
   const now = Date.now();
-  const denied: CloudflareExecutionSafeOutcome = { status: 'denied', summary: 'A team admin rejected this change.' };
+  const denied: CloudflareExecutionSafeOutcome = {
+    status: 'denied',
+    summary: 'An admin of the space rejected this change.',
+  };
   const row = await db
     .prepare(
       `UPDATE approval_requests SET status = 'rejected', decided_by = ?2, decided_at = ?3, outcome_json = ?4

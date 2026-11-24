@@ -20,7 +20,7 @@ function PrivacyPage() {
   return (
     <TrustPage
       title={TRUST_PAGE_HEADINGS.privacy}
-      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you build in: your own, or your team’s; the browser keeps only rebuildable in-memory views."
+      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you build in: your own, or your space’s; the browser keeps only rebuildable in-memory views."
     >
       <TrustSection title="What CloudChef stores in its own account">
         <p>The operator control plane stores:</p>
@@ -38,25 +38,29 @@ function PrivacyPage() {
             chose, your note if you left one, and when you asked, until you withdraw the request or erase your account
           </li>
           <li>
-            teams you belong to: their names, your role, whether you may build new apps of your own there, and invites
+            spaces you belong to: their names, your role, whether you may build new apps of your own there, and invites
             sent to your address (with the role and projects they give)
           </li>
-          <li>per-day counts of model turns and tokens used in a team&apos;s account</li>
+          <li>
+            per-day counts of the model turns and tokens each person uses in a space, except yours in the space made for
+            your own Cloudflare account
+          </li>
           <li>
             projects: each one&apos;s name, which Artifacts repository in the Cloudflare account holds it, the GitHub
             repository it was imported from (if it was), its live address, and who may view or edit it
           </li>
           <li>
-            GitHub connections, yours or a team&apos;s: which GitHub accounts CloudChef&apos;s GitHub App is installed
+            GitHub connections, yours or a space&apos;s: which GitHub accounts CloudChef&apos;s GitHub App is installed
             on, used only to import repositories
           </li>
           <li>
-            team project requests (asking for a draft to become a team project): its title, note, preview URL, and which
-            saved version of it was sent; once an admin decides, only its title, that version and the decision are kept
+            project requests in a space (asking for a draft to become one of its projects): its title, note, preview
+            URL, and which saved version of it was sent; once an admin decides, only its title, that version and the
+            decision are kept
           </li>
           <li>
-            when you sent each team invite and created each team, kept for 30 days because they count toward the limits
-            on invites and teams, even after the invite is revoked or the team deleted
+            when you sent each space invite and created each space, kept for 30 days because they count toward the
+            limits on invites and spaces, even after the invite is revoked or the space deleted
           </li>
           <li>
             each account&apos;s model settings (the model new chats start on, and which models the picker offers) and
@@ -116,25 +120,28 @@ function PrivacyPage() {
         </p>
       </TrustSection>
 
-      <TrustSection title="Teams">
+      <TrustSection title="Spaces">
         <p>
-          A team shares one Cloudflare account among the people its admins invite. Members sign in with Google or an
-          emailed link and do not need Cloudflare logins of their own. Each member builds in a separate workspace in the
-          team&apos;s account, so their chats, transcripts, project files, and deployed applications are stored there,
-          under that account&apos;s controls. Its administrators, and anyone with access to that Cloudflare account, can
-          read them, including the AI Gateway logs of each member&apos;s model requests, unless that member turned that
-          logging off in Settings. Each member decides that for themselves; an admin cannot turn it back on. The team,
-          not CloudChef&apos;s operator, decides how that account is used.
+          Every place you build is a space: the people in it and the one Cloudflare account it builds in. A Cloudflare
+          account of your own is a space with only you in it, until you invite someone, and what this section says about
+          members and admins is then about you. A space shares its Cloudflare account among the people its admins
+          invite. Members sign in with Google or an emailed link and do not need Cloudflare logins of their own. Each
+          member builds in a separate workspace in the space&apos;s account, so their chats, transcripts, project files,
+          and deployed applications are stored there, under that account&apos;s controls. Its administrators, and anyone
+          with access to that Cloudflare account, can read them, including the AI Gateway logs of each member&apos;s
+          model requests, unless that member turned that logging off in Settings. Each member decides that for
+          themselves; an admin cannot turn it back on. The space, not CloudChef&apos;s operator, decides how that
+          account is used.
         </p>
         <p>
           Admins see each member&apos;s name, email, role, and this month&apos;s count of model turns and tokens in the
-          team&apos;s account. Those counts contain no prompt, response, or project content. An admin can pause a
-          member, who then cannot open their workspace or use the team&apos;s Cloudflare authorization, or remove them,
-          which also deletes their workspace from the team&apos;s account and declines their open team project requests;
-          applications they deployed stay there. An admin can rename the team or delete it. Deleting a team deletes
+          space&apos;s account. Those counts contain no prompt, response, or project content. An admin can pause a
+          member, who then cannot open their workspace or use the space&apos;s Cloudflare authorization, or remove them,
+          which also deletes their workspace from the space&apos;s account and declines their open project requests;
+          applications they deployed stay there. An admin can rename the space or delete it. Deleting a space deletes
           every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
-          anyone, you included, still builds in that account on their own or in another team, and removes the
-          team&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and team
+          anyone, you included, still builds in that account on their own or in another space, and removes the
+          space&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and
           project requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
           deployed from it with their databases and storage, stay in the Cloudflare account; repositories imported from
           GitHub and CloudChef&apos;s GitHub App stay on GitHub until removed there.
@@ -142,27 +149,27 @@ function PrivacyPage() {
         <p>
           Every project&apos;s code and history is a git repository in Cloudflare Artifacts, in the Cloudflare account
           it belongs to. An existing project can be imported from GitHub once: a public repository by its address, a
-          private one through CloudChef&apos;s GitHub App, which you or a team admin install on the GitHub accounts that
-          hold them, choosing which repositories it may read. CloudChef stores those installations and where each
+          private one through CloudChef&apos;s GitHub App, which you or a space admin install on the GitHub accounts
+          that hold them, choosing which repositories it may read. CloudChef stores those installations and where each
           project was imported from, not the repositories&apos; contents or any GitHub token: an import copies the
           repository&apos;s history into Artifacts with a short-lived, read-only token limited to that repository, and
-          nothing is sent back to GitHub. When a member asks for a draft to become a team project, the draft&apos;s own
-          repository, already in the team&apos;s account, becomes the project if an admin approves it. GitHub&apos;s own
-          terms and privacy statement govern repositories on GitHub.
+          nothing is sent back to GitHub. When a member asks for a draft to become one of the space’s projects, the
+          draft&apos;s own repository, already in the space&apos;s account, becomes the project if an admin approves it.
+          GitHub&apos;s own terms and privacy statement govern repositories on GitHub.
         </p>
       </TrustSection>
 
       <TrustSection title="A space CloudChef runs">
         <p>
-          A space CloudChef runs is a team of your own that builds in a Cloudflare account belonging to CloudChef&apos;s
-          operator, so what the Teams section says holds with you running the team and the operator administering the
-          account. Your chats, transcripts, project files, and deployed applications are stored in the operator&apos;s
-          Cloudflare account, and the operator can read them, including the AI Gateway logs of your model requests
-          unless you turned that logging off in Settings. People with other spaces there cannot open your projects or
-          your workspace. People you invite into your space build in it too: you can see and change the projects they
-          make there, as a team&apos;s admin can, and they see the projects you give them. The operator looks at a
-          space&apos;s contents only to keep the service running, to help when you ask, to stop abuse, or where law
-          requires it.
+          A space CloudChef runs is a space of your own that builds in a Cloudflare account belonging to
+          CloudChef&apos;s operator, so what the Spaces section says holds with you running the space and the operator
+          administering the account. Your chats, transcripts, project files, and deployed applications are stored in the
+          operator&apos;s Cloudflare account, and the operator can read them, including the AI Gateway logs of your
+          model requests unless you turned that logging off in Settings. People with other spaces there cannot open your
+          projects or your workspace. People you invite into your space build in it too: you can see and change the
+          projects they make there, as a space&apos;s admin can, and they see the projects you give them. The operator
+          looks at a space&apos;s contents only to keep the service running, to help when you ask, to stop abuse, or
+          where law requires it.
         </p>
         <p>
           The operator counts the tokens of builder turns and the time workspaces run in a space, never their content,
@@ -179,7 +186,7 @@ function PrivacyPage() {
         <ul>
           <li>
             <strong>Account and authentication:</strong> your Cloudflare or Google identity or verified email, name,
-            email, avatar, session records, sign-in links and OAuth state, connection status, and team memberships.
+            email, avatar, session records, sign-in links and OAuth state, connection status, and space memberships.
             These are used to authenticate you and provide the service you request, including steps taken before and
             during the service agreement. The identity and authorization fields are required to use signed-in features;
             without them, CloudChef cannot provide those features.
@@ -246,17 +253,18 @@ function PrivacyPage() {
           Gateway to that provider, which bills that key and handles the content under the account’s agreement with it.
           The key is kept in the account’s Cloudflare Secrets Store and attached to its AI Gateway; CloudChef passes a
           pasted key to Cloudflare once and never stores, logs, or reads it, and removing a key CloudChef added deletes
-          it from the Secrets Store. A team’s admins, or you in Personal, also choose the model new chats start on and
-          which models the picker offers. Every request goes through the account’s default AI Gateway. Unless you turn
-          it off, the gateway logs each request in that account: what was sent (the prompt, conversation context, and
-          project files) and the model’s reply, labelled with the conversation and the person who sent it, so the
-          account can review what a conversation did. The logs follow AI Gateway’s retention settings in that account,
-          and anyone with access to the account can read them, which for a team includes its admins; CloudChef’s
-          operator receives no copy. You can turn this logging off under AI request logs in Settings. It is your own
-          choice, wherever you build, and it applies to your later requests: they still go through the gateway but are
-          not logged and carry no conversation or person label. Logs already recorded stay in the account until its AI
-          Gateway retention removes them or someone with access deletes them in the Cloudflare dashboard. AI Gateway
-          caching is skipped for every request. Cloudflare describes its handling of Workers AI content in its{' '}
+          it from the Secrets Store. A space’s admins, which in a space of your own is you, also choose the model new
+          chats start on and which models the picker offers. Every request goes through the account’s default AI
+          Gateway. Unless you turn it off, the gateway logs each request in that account: what was sent (the prompt,
+          conversation context, and project files) and the model’s reply, labelled with the conversation and the person
+          who sent it, so the account can review what a conversation did. The logs follow AI Gateway’s retention
+          settings in that account, and anyone with access to the account can read them, which for a space includes its
+          admins; CloudChef’s operator receives no copy. You can turn this logging off under AI request logs in
+          Settings. It is your own choice, wherever you build, and it applies to your later requests: they still go
+          through the gateway but are not logged and carry no conversation or person label. Logs already recorded stay
+          in the account until its AI Gateway retention removes them or someone with access deletes them in the
+          Cloudflare dashboard. AI Gateway caching is skipped for every request. Cloudflare describes its handling of
+          Workers AI content in its{' '}
           <a href="https://developers.cloudflare.com/workers-ai/platform/data-usage/">Workers AI data-usage notice</a>.
           CloudChef does not use AI to make decisions that produce legal or similarly significant effects about you.
         </p>
@@ -316,9 +324,9 @@ function PrivacyPage() {
           <li>
             OAuth authorization and Google sign-in state expires after 10 minutes, GitHub installation state after 15
           </li>
-          <li>emailed sign-in links after 15 minutes, and team invites after 7 days</li>
+          <li>emailed sign-in links after 15 minutes, and space invites after 7 days</li>
           <li>authentication sessions after 30 days</li>
-          <li>the records of when you sent each team invite and created each team after 30 days</li>
+          <li>the records of when you sent each space invite and created each space after 30 days</li>
           <li>unreferenced encrypted credential records become eligible for removal after 24 hours</li>
         </ul>
         <p>
@@ -347,31 +355,31 @@ function PrivacyPage() {
           <li>authentication sessions and emailed sign-in links</li>
           <li>encrypted Cloudflare credentials</li>
           <li>connection metadata, granted scopes, and model settings</li>
-          <li>your runtime locators and team memberships</li>
-          <li>your team project requests, and GitHub connections you started</li>
+          <li>your runtime locators and space memberships</li>
+          <li>your project requests in a space, and GitHub connections you started</li>
           <li>the sites you asked to have moved</li>
           <li>
             your subscription record, after the subscription itself is cancelled at Stripe so that nothing more is
             charged; Stripe keeps its own record of past payments under its policy
           </li>
           <li>
-            the records of when you sent team invites and created teams, so a team&apos;s daily invite limit stops
+            the records of when you sent space invites and created spaces, so a space&apos;s daily invite limit stops
             counting the invites you sent
           </li>
         </ul>
         <p>
-          It also deletes your workspace in each team&apos;s Cloudflare account, as leaving the team would, and says
-          which it could not reach. If you connected a Cloudflare account of your own, it asks Cloudflare to revoke
-          CloudChef’s authorization unless someone else still builds in that account with it, in a team or on their own
-          (it then names the teams that still use it, or says that another person working on their own does), and tells
-          you when Cloudflare did not confirm a revocation so you can remove it yourself. Because erasure is
-          irreversible it requires a sign-in completed in the last ten minutes, an exact typed confirmation, and an
-          explicit acknowledgement of what is retained. Erasure leaves a team&apos;s Cloudflare authorization alone
-          while others still build in it; if you are its only remaining member, the team is removed, and its
-          authorization is revoked unless someone else still builds in that account. If you are the only admin of a team
-          others belong to, make someone else an admin first. Repeating it is harmless. If you sign in with Cloudflare
-          and have already revoked CloudChef’s authorization, you can no longer sign in that way, so use the request
-          path below instead.
+          It also deletes your workspace in the Cloudflare account of each space other people run, as leaving the space
+          would, and says which it could not reach. If you connected a Cloudflare account of your own, it asks
+          Cloudflare to revoke CloudChef’s authorization unless someone else still builds in that account with it, in a
+          space or on their own (it then names the spaces that still use it, or says that another person working on
+          their own does), and tells you when Cloudflare did not confirm a revocation so you can remove it yourself.
+          Because erasure is irreversible it requires a sign-in completed in the last ten minutes, an exact typed
+          confirmation, and an explicit acknowledgement of what is retained. Erasure leaves a space&apos;s Cloudflare
+          authorization alone while others still build in it; if you are its only remaining member, the space is
+          removed, and its authorization is revoked unless someone else still builds in that account. If you are the
+          only admin of a space others belong to, make someone else an admin first. Repeating it is harmless. If you
+          sign in with Cloudflare and have already revoked CloudChef’s authorization, you can no longer sign in that
+          way, so use the request path below instead.
         </p>
         <p>
           Settings also contains a self-service export of those same operator-held records. It saves a JSON file,
@@ -384,9 +392,9 @@ function PrivacyPage() {
           </li>
           <li>the existence, storage time, and key version of your encrypted credential record</li>
           <li>your runtime locators</li>
-          <li>your team memberships, invites addressed to you, and your daily usage counts</li>
-          <li>when you sent each team invite and created each team, while those records are kept</li>
-          <li>your own projects and the team projects you were given, and the team project requests you sent</li>
+          <li>your space memberships, invites addressed to you, and your daily usage counts</li>
+          <li>when you sent each space invite and created each space, while those records are kept</li>
+          <li>your own projects and the projects you were given in other spaces, and the project requests you sent</li>
           <li>GitHub connections you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
           <li>the sites you asked to have moved</li>
@@ -404,8 +412,8 @@ function PrivacyPage() {
 
       <TrustSection title="What removal does not delete">
         <p>
-          That control deliberately deletes nothing inside your own Cloudflare account, and nothing in a team&apos;s but
-          your workspace there.{' '}
+          That control deliberately deletes nothing inside your own Cloudflare account, and nothing in the account of a
+          space other people run but your workspace there.{' '}
           <strong>
             Workers, D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef
             deployed are retained, keep running, keep billing to your account, and are yours to remove.

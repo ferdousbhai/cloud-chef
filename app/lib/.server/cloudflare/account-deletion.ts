@@ -44,7 +44,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   // workspaces and the teams only they belonged to are gone, and a retry then picks up from there.
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
     throw new OrganizationAdminRequiredError(
-      'Make someone else an admin of your team first, or remove the people you invited into your space.',
+      'Make someone else an admin of your space first, or remove the people you invited into it.',
     );
   }
   // While each team's authorization still works: nothing reaches those workspaces once it's revoked.
@@ -295,7 +295,7 @@ async function leaveOrganizations(db: D1Database, userId: string): Promise<void>
     .first<{ remaining: number }>();
   if ((remaining?.remaining ?? 0) > 0) {
     // The write above deleted all of them or none: here, none.
-    throw new OrganizationAdminRequiredError('Make someone else an admin of your team first.');
+    throw new OrganizationAdminRequiredError('Make someone else an admin of your space first.');
   }
 }
 

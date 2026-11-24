@@ -1000,7 +1000,10 @@ export function setVisibilityAction({ request, env }: { request: Request; env: E
     }
     return (await setVisibility(env, session.user.id, body.data.projectId, body.data.visibility))
       ? Response.json({ visibility: body.data.visibility })
-      : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
+      : Response.json(
+          { error: 'Only its owner, or an admin of the space, can change who can see it.' },
+          { status: 403 },
+        );
   });
 }
 
@@ -1021,7 +1024,7 @@ export async function commandLineVisibilityAction({ request, env }: { request: R
   }
   return (await setVisibility(env, userId, body.data.project, body.data.visibility))
     ? Response.json({ visibility: body.data.visibility })
-    : Response.json({ error: 'Only its owner, or a team admin, can change who can see it.' }, { status: 403 });
+    : Response.json({ error: 'Only its owner, or an admin of the space, can change who can see it.' }, { status: 403 });
 }
 
 const commandLineRenameSchema = z.strictObject({ project: z.string().uuid(), name: z.string().min(1).max(100) });
@@ -1041,7 +1044,7 @@ export async function commandLineRenameAction({ request, env }: { request: Reque
     return Response.json({ error: 'A name is lowercase letters, digits and single dashes.' }, { status: 400 });
   }
   if (renamed === 'forbidden') {
-    return Response.json({ error: 'Only its owner, or a team admin, can rename it.' }, { status: 403 });
+    return Response.json({ error: 'Only its owner, or an admin of the space, can rename it.' }, { status: 403 });
   }
   if (renamed === 'taken') {
     return Response.json({ error: `You already have a project called ${body.data.name}.` }, { status: 409 });
