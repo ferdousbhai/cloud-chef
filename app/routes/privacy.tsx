@@ -168,7 +168,8 @@ function PrivacyPage() {
           The operator counts the tokens of builder turns and the time workspaces run in a space, never their content,
           to hold each space to its monthly building allowance. Stripe, Inc. processes the payment as its own page
           collects it: your card, billing address, and email address go to Stripe under Stripe&apos;s privacy policy,
-          and Stripe tells CloudChef only whether the subscription is in a free period, paid, or ended.
+          and Stripe tells CloudChef only whether the subscription is in a free period, paid, or ended, and when
+          building credit was paid for and how much.
         </p>
       </TrustSection>
 

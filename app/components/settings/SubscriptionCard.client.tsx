@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Button } from '~/components/ui/primitives/Button';
 import { messageOf } from '~/lib/json-request';
-import { usd, type BillingStatus } from '~/lib/managed-space';
-import { openBillingPortal, readBillingStatus } from '~/lib/managed-space-requests';
+import { MANAGED_SPACE_CREDIT_AMOUNTS_USD, usd, type BillingStatus } from '~/lib/managed-space';
+import { buyCredit, openBillingPortal, readBillingStatus } from '~/lib/managed-space-requests';
 import { errorFeedback, FeedbackLine } from './Feedback';
 import { SettingsCard, StatusBadge } from './SettingsLayout';
+
+/** Credit left, to the cent below: never shown as more than there is. */
+function roundedDown(amountUsd: number): number {
+  return Math.floor(amountUsd * 100) / 100;
+}
 
 function day(time: number): string {
   return new Date(time).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
@@ -12,12 +17,15 @@ function day(time: number): string {
 
 /**
  * A person's subscription to a space CloudChef runs: where it stands, what the space has used of this
- * month's building allowance, and the way to Stripe's page for the card, invoices and cancelling. Shown only
+ * month's building allowance, credit to buy for more, and the way to Stripe's page for the card, invoices and
+ * cancelling. Shown only
  * to someone who has subscribed.
  */
 export function SubscriptionCard() {
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [opening, setOpening] = useState(false);
+  // The amount of credit whose checkout is opening; Stripe's page replaces this one.
+  const [buying, setBuying] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -46,6 +54,16 @@ export function SubscriptionCard() {
     } catch (failure) {
       setError(messageOf(failure, 'Unable to open your subscription.'));
       setOpening(false);
+    }
+  };
+  const addCredit = async (amountUsd: number) => {
+    setBuying(amountUsd);
+    setError(null);
+    try {
+      await buyCredit(amountUsd);
+    } catch (failure) {
+      setError(messageOf(failure, 'Unable to add credit.'));
+      setBuying(null);
     }
   };
   const trialing = subscription.status === 'trialing';
@@ -80,10 +98,38 @@ export function SubscriptionCard() {
         )}
       </div>
       {billing.usage ? (
-        <p className="mt-2 text-xs text-content-tertiary">
-          Building this month: {usd(Math.min(billing.usage.usedUsd, billing.usage.allowanceUsd))} of{' '}
-          {usd(billing.usage.allowanceUsd)} used. It starts again on {day(billing.usage.resetsAt)}.
-        </p>
+        <>
+          <p className="mt-2 text-xs text-content-tertiary">
+            Building this month: {usd(Math.min(billing.usage.usedUsd, billing.usage.allowanceUsd))} of{' '}
+            {usd(billing.usage.allowanceUsd)} used. It starts again on {day(billing.usage.resetsAt)}.
+            {billing.usage.creditUsd > 0 ? ` Credit left: ${usd(roundedDown(billing.usage.creditUsd))}.` : ''}
+          </p>
+          <div className="mt-4 grid gap-2">
+            <h3 className="text-sm font-medium text-content-primary">
+              {billing.usage.usedUsd >= billing.usage.allowanceUsd && billing.usage.creditUsd <= 0
+                ? 'This month’s building is used up. Add credit to keep building now.'
+                : 'Add credit'}
+            </h3>
+            <p className="text-xs text-content-tertiary">
+              One payment, used after the month’s {usd(billing.usage.allowanceUsd)} for everyone building in your space,
+              and kept until it is used.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {MANAGED_SPACE_CREDIT_AMOUNTS_USD.map((amountUsd) => (
+                <Button
+                  key={amountUsd}
+                  size="sm"
+                  variant="neutral"
+                  loading={buying === amountUsd}
+                  disabled={buying !== null}
+                  onClick={() => void addCredit(amountUsd)}
+                >
+                  {usd(amountUsd)}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </>
       ) : null}
       <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
     </SettingsCard>

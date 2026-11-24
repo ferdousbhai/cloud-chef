@@ -113,6 +113,7 @@ import { deleteAccountAction } from './server-handlers/account-deletion';
 import {
   BILLING_RETURN_PATH,
   billingPortalAction,
+  buyCreditAction,
   billingStatusAction,
   completeCheckoutAction,
   startCheckoutAction,
@@ -312,6 +313,7 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/managed-spaces/waitlist/update': ['POST', updateManagedSpaceWaitlistAction],
     '/api/billing': ['GET', billingStatusAction],
     '/api/billing/checkout': ['POST', startCheckoutAction],
+    '/api/billing/credit': ['POST', buyCreditAction],
     [BILLING_RETURN_PATH]: ['GET', completeCheckoutAction],
     '/api/billing/portal': ['POST', billingPortalAction],
     '/api/billing/webhook': ['POST', stripeWebhookAction],

@@ -1,6 +1,7 @@
 import { findMembership, isActiveAdmin, type Membership } from '~/lib/cloudflare/data/organization-access.server';
 import { billingConfig } from '~/lib/.server/billing/stripe';
-import { spaceUsage } from '~/lib/cloudflare/data/managed-subscriptions.server';
+import { allowanceUsed, spaceUsage } from '~/lib/cloudflare/data/managed-subscriptions.server';
+import { ALLOWANCE_USED_MESSAGE } from '~/lib/managed-space';
 import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-logging.server';
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -139,7 +140,7 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
 }
 
 /**
- * Why someone can't make another model request this month: the allowance is used up. A space CloudChef runs
+ * Why someone can't make another model request this month: the allowance is used up, and any credit bought. A space CloudChef runs
  * has one allowance for everyone in it; in the host team, where spaces were first given as memberships, each
  * member has their own. Null for any other team, and while there is allowance left.
  */
@@ -153,7 +154,7 @@ async function allowanceRefusal(
     return null;
   }
   const usage = await spaceUsage(env.DB, connectionId, membership.orgId, membership.managed ? null : userId);
-  if (usage.usedUsd < usage.allowanceUsd) {
+  if (!allowanceUsed(usage)) {
     return null;
   }
   const resets = new Date(usage.resetsAt).toLocaleDateString('en-US', {
@@ -161,7 +162,13 @@ async function allowanceRefusal(
     day: 'numeric',
     timeZone: 'UTC',
   });
-  return `This space has used this month's building allowance. It starts again on ${resets}; what you published keeps running.`;
+  // Credit is bought by whoever subscribes to the space: its admin.
+  const next = !membership.managed
+    ? `It starts again on ${resets}.`
+    : membership.role === 'admin'
+      ? `Add credit in Settings to keep building now, or wait until it starts again on ${resets}.`
+      : `Whoever runs the space can add credit in Settings, or it starts again on ${resets}.`;
+  return `${ALLOWANCE_USED_MESSAGE}. ${next} What you published keeps running.`;
 }
 
 /**

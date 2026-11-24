@@ -4,8 +4,10 @@ import {
   cancelSubscription,
   checkoutSubscription,
   createCheckout,
+  createCreditCheckout,
   createCustomer,
   createPortalSession,
+  readCreditCheckout,
   readSubscription,
   StripeError,
   verifiedEvent,
@@ -19,11 +21,18 @@ import {
   claimStripeEvent,
   findManagedSubscription,
   givesSpace,
+  recordCreditPurchase,
   recordCustomer,
   releaseStripeEvent,
   spaceUsage,
 } from '~/lib/cloudflare/data/managed-subscriptions.server';
-import { MANAGED_SPACE_MONTHLY_PRICE_USD, MANAGED_SPACE_TRIAL_DAYS } from '~/lib/managed-space';
+import { z } from 'zod';
+import { readJsonRequest } from '~/lib/.server/request-guards';
+import {
+  MANAGED_SPACE_CREDIT_AMOUNTS_USD,
+  MANAGED_SPACE_MONTHLY_PRICE_USD,
+  MANAGED_SPACE_TRIAL_DAYS,
+} from '~/lib/managed-space';
 import { prepareWorkspaceInBackground } from './cloudflare-integration';
 import { signedIn } from './signed-in';
 
@@ -117,10 +126,54 @@ export function startCheckoutAction({ request, env }: { request: Request; env: E
   });
 }
 
+const creditSchema = z.strictObject({ amountUsd: z.literal(MANAGED_SPACE_CREDIT_AMOUNTS_USD) });
+
+/**
+ * `POST /api/billing/credit`: Stripe's page for one payment of building credit, for the space this person
+ * subscribes to. It returns to `BILLING_RETURN_PATH`, which records the credit.
+ */
+export function buyCreditAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
+  return signedIn(request, env, async ({ session }) => {
+    const body = await readJsonRequest(request, creditSchema, 'Choose an amount of credit.');
+    if ('response' in body) {
+      return body.response;
+    }
+    const config = billingConfig(env);
+    const subscription = await findManagedSubscription(env.DB, session.user.id);
+    const space = subscription && givesSpace(subscription.status) ? await spaceConnection(env, subscription) : null;
+    if (!config || !subscription || !space?.orgId) {
+      return Response.json({ error: 'Credit is for a space you subscribe to.' }, { status: 409 });
+    }
+    const priceId = config.creditPriceIds[String(body.data.amountUsd)];
+    if (!priceId) {
+      return Response.json({ error: 'That amount of credit is not on sale right now.' }, { status: 503 });
+    }
+    try {
+      const origin = publicOrigin(request);
+      const url = await createCreditCheckout(config, {
+        customerId: subscription.customerId,
+        userId: session.user.id,
+        orgId: space.orgId,
+        priceId,
+        // Stripe writes the checkout's own id over the placeholder.
+        successUrl: `${origin}${BILLING_RETURN_PATH}?credit={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${origin}/settings#subscription`,
+      });
+      return Response.json({ url }, { status: 201 });
+    } catch (error) {
+      if (error instanceof StripeError) {
+        return paymentsUnavailable();
+      }
+      throw error;
+    }
+  });
+}
+
 /**
  * `GET /api/billing/return`: back from Stripe's checkout. Reads the subscription it started for this
- * person, gives them their space, and opens the builder in it. Anything else returns to the builder,
- * where the page says where they stand.
+ * person, gives them their space, and opens the builder in it; or, back from buying credit, records the
+ * credit and returns to Settings, which shows it. Anything else returns to the builder, where the page says
+ * where they stand.
  */
 export async function completeCheckoutAction({
   request,
@@ -137,7 +190,26 @@ export async function completeCheckoutAction({
   });
   return signedIn(request, env, async ({ session }) => {
     const config = billingConfig(env);
-    const checkoutId = new URL(request.url).searchParams.get('checkout');
+    const query = new URL(request.url).searchParams;
+    const creditId = query.get('credit');
+    if (config && creditId && creditId.length <= 200) {
+      try {
+        const credit = await readCreditCheckout(config, creditId);
+        // Only the purchase Stripe says this person paid for is recorded; the webhook records it too, once.
+        if (credit && credit.userId === session.user.id) {
+          await recordCreditPurchase(env.DB, credit);
+        }
+      } catch (error) {
+        if (!(error instanceof StripeError)) {
+          throw error;
+        }
+      }
+      return new Response(null, {
+        status: 303,
+        headers: { Location: `${publicOrigin(request)}/settings#subscription`, 'Cache-Control': 'no-store' },
+      });
+    }
+    const checkoutId = query.get('checkout');
     if (!config || !checkoutId || checkoutId.length > 200) {
       return home;
     }
@@ -184,8 +256,8 @@ export function billingPortalAction({ request, env }: { request: Request; env: E
 
 /**
  * `POST /api/billing/webhook`: Stripe reporting a change. Only a delivery Stripe signed is read, each
- * is applied once, and what is applied is the subscription as Stripe has it now, not as the event
- * described it, so deliveries arriving out of order end in the same place. A failure answers 500 and
+ * is applied once, and what is applied is the subscription, or the paid checkout of credit, as Stripe has it
+ * now, not as the event described it, so deliveries arriving out of order end in the same place. A failure answers 500 and
  * forgets the delivery, so Stripe's retry applies it.
  */
 export async function stripeWebhookAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
@@ -204,11 +276,21 @@ export async function stripeWebhookAction({ request, env }: { request: Request; 
   if (!event) {
     return Response.json({ error: 'Invalid signature.' }, { status: 400 });
   }
-  if (!event.subscriptionId || !(await claimStripeEvent(env.DB, event))) {
+  // A finished checkout with no subscription may be a purchase of credit; anything else is not CloudChef's.
+  const creditCheckoutId =
+    event.type === 'checkout.session.completed' && !event.subscriptionId ? event.checkoutSessionId : null;
+  if ((!event.subscriptionId && !creditCheckoutId) || !(await claimStripeEvent(env.DB, event))) {
     return new Response(null, { status: 204 });
   }
   try {
-    await applySubscription(env.DB, config, await readSubscription(config, event.subscriptionId));
+    if (event.subscriptionId) {
+      await applySubscription(env.DB, config, await readSubscription(config, event.subscriptionId));
+    } else if (creditCheckoutId) {
+      const credit = await readCreditCheckout(config, creditCheckoutId);
+      if (credit) {
+        await recordCreditPurchase(env.DB, credit);
+      }
+    }
   } catch {
     await releaseStripeEvent(env.DB, event.id);
     console.error({ event: 'stripe_webhook_failed', type: event.type });

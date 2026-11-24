@@ -91,6 +91,11 @@ export default defineConfig({
       MANAGED_SPACE_ORG_ID: bindings.text('f2ab805b-1a7b-4459-b6fa-48556c4b5888'),
       STRIPE_PRICE_ID: bindings.text('price_1UfAxzCz3TLXJEZ4hV6Iz8Zg'),
       STRIPE_PORTAL_CONFIGURATION_ID: bindings.text('bpc_1Uero5Cz3TLXJEZ4ubVS9KlG'),
+      // The one-time Stripe prices of building credit, by dollar amount (`MANAGED_SPACE_CREDIT_AMOUNTS_USD`), in the
+      // same Stripe mode as the price above. An amount without a price can't be bought.
+      STRIPE_CREDIT_PRICE_IDS: bindings.text(
+        '{"20":"price_1UfBYSCz3TLXJEZ4CrnjLtVe","50":"price_1UfBYTCz3TLXJEZ4KmDYKGMP","100":"price_1UfBYUCz3TLXJEZ4zsoY0eoH","200":"price_1UfBYUCz3TLXJEZ4jqgP1BAD","300":"price_1UfBYVCz3TLXJEZ4rzQlXlq8","500":"price_1UfBYWCz3TLXJEZ42YEgXlKl"}',
+      ),
       STRIPE_SECRET_KEY: bindings.secret(),
       STRIPE_WEBHOOK_SECRET: bindings.secret(),
       // Cloudflare's URL Scanner in CloudChef's own account, checking each posted site for phishing. Unset, sites are

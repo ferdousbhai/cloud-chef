@@ -2,8 +2,8 @@ import { z } from 'zod';
 import { constantTimeEqual } from '~/lib/constant-time-equal';
 
 /**
- * Stripe, for subscriptions to a space CloudChef runs: its REST API called directly, and its webhook
- * signatures checked here. CloudChef never sees a card: Checkout and the customer portal are Stripe's
+ * Stripe, for subscriptions to a space CloudChef runs and the building credit bought for one: its REST API
+ * called directly, and its webhook signatures checked here. CloudChef never sees a card: Checkout and the customer portal are Stripe's
  * own pages.
  *
  * Without the secret key, the price or the managed team's id, subscriptions report themselves unavailable.
@@ -19,9 +19,22 @@ export type BillingConfig = {
   priceId: string;
   /** CloudChef's own customer-portal configuration; null opens the Stripe account's default one. */
   portalConfigurationId: string | null;
-  /** The team, in CloudChef's own Cloudflare account, whose members are the people who subscribed. */
+  /** The host team, connected to CloudChef's own Cloudflare account, where every space is made. */
   managedOrgId: string;
+  /** The one-time Stripe price of each amount of building credit, by its dollars. */
+  creditPriceIds: Readonly<Record<string, string>>;
 };
+
+const creditPriceIdsSchema = z.record(z.string(), z.string().min(1));
+
+/** The configured credit prices; none when the text is empty or unreadable, and credit then can't be bought. */
+function creditPriceIds(stored: string | undefined): Record<string, string> {
+  try {
+    return creditPriceIdsSchema.safeParse(JSON.parse(stored?.trim() || '{}')).data ?? {};
+  } catch {
+    return {};
+  }
+}
 
 /** What subscriptions need, or null when any of it is unset: they are then unavailable. */
 export function billingConfig(env: Env): BillingConfig | null {
@@ -37,6 +50,7 @@ export function billingConfig(env: Env): BillingConfig | null {
     priceId,
     portalConfigurationId: env.STRIPE_PORTAL_CONFIGURATION_ID?.trim() || null,
     managedOrgId,
+    creditPriceIds: creditPriceIds(env.STRIPE_CREDIT_PRICE_IDS),
   };
 }
 
@@ -152,6 +166,57 @@ export async function checkoutSubscription(
   return { userId: session.client_reference_id ?? null, subscriptionId: session.subscription ?? null };
 }
 
+const CREDIT_ORG_METADATA = 'cloudchef_credit_org_id';
+
+/** Stripe's hosted page that takes one payment for building credit in the space `orgId`. */
+export async function createCreditCheckout(
+  config: BillingConfig,
+  args: { customerId: string; userId: string; orgId: string; priceId: string; successUrl: string; cancelUrl: string },
+): Promise<string> {
+  const session = await stripe(config, 'POST', '/checkout/sessions', z.looseObject({ url: z.url() }), {
+    mode: 'payment',
+    customer: args.customerId,
+    client_reference_id: args.userId,
+    'line_items[0][price]': args.priceId,
+    'line_items[0][quantity]': '1',
+    [`metadata[${CREDIT_ORG_METADATA}]`]: args.orgId,
+    success_url: args.successUrl,
+    cancel_url: args.cancelUrl,
+  });
+  return session.url;
+}
+
+export type CreditCheckout = { id: string; userId: string | null; orgId: string; amountUsd: number };
+
+/**
+ * A finished checkout as a purchase of building credit: who bought it, for which space, and the whole dollars
+ * Stripe says were paid before tax. Null unless it is a paid one-time payment made for a space.
+ */
+export async function readCreditCheckout(
+  config: BillingConfig,
+  checkoutSessionId: string,
+): Promise<CreditCheckout | null> {
+  const session = await stripe(
+    config,
+    'GET',
+    `/checkout/sessions/${encodeURIComponent(checkoutSessionId)}`,
+    z.looseObject({
+      id: z.string().min(1),
+      mode: z.string().optional(),
+      payment_status: z.string().optional(),
+      amount_subtotal: z.number().nullable().optional(),
+      client_reference_id: z.string().nullable().optional(),
+      metadata: z.record(z.string(), z.string()).nullable().optional(),
+    }),
+  );
+  const orgId = session.metadata?.[CREDIT_ORG_METADATA];
+  const amountUsd = Math.floor((session.amount_subtotal ?? 0) / 100);
+  if (session.mode !== 'payment' || session.payment_status !== 'paid' || !orgId || amountUsd <= 0) {
+    return null;
+  }
+  return { id: session.id, userId: session.client_reference_id ?? null, orgId, amountUsd };
+}
+
 export async function readSubscription(config: BillingConfig, subscriptionId: string): Promise<StripeSubscription> {
   return subscriptionFrom(
     await stripe(config, 'GET', `/subscriptions/${encodeURIComponent(subscriptionId)}`, subscriptionSchema),
@@ -188,7 +253,13 @@ const eventSchema = z.looseObject({
   }),
 });
 
-export type StripeEvent = { id: string; type: string; subscriptionId: string | null };
+export type StripeEvent = {
+  id: string;
+  type: string;
+  subscriptionId: string | null;
+  /** The checkout a `checkout.session.*` event is about. */
+  checkoutSessionId: string | null;
+};
 
 /**
  * The event a webhook delivery carries, or null when its signature is not Stripe's for this body, or
@@ -242,5 +313,6 @@ export async function verifiedEvent(
   const subscriptionId = event.data.type.startsWith('customer.subscription.')
     ? (object.id ?? null)
     : (object.subscription ?? null);
-  return { id: event.data.id, type: event.data.type, subscriptionId };
+  const checkoutSessionId = event.data.type.startsWith('checkout.session.') ? (object.id ?? null) : null;
+  return { id: event.data.id, type: event.data.type, subscriptionId, checkoutSessionId };
 }

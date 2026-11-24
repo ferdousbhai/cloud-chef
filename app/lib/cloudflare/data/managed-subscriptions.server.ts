@@ -252,7 +252,20 @@ export const MONTHLY_USAGE_ALLOWANCE_USD = MANAGED_SPACE_MONTHLY_ALLOWANCE_USD;
  */
 export const CONTAINER_USD_PER_SECOND = 12 * 0.0000025 + 20 * 0.00000007 + 0.00002;
 
-export type SpaceUsage = { usedUsd: number; allowanceUsd: number; resetsAt: number };
+export type SpaceUsage = {
+  usedUsd: number;
+  allowanceUsd: number;
+  /** Bought credit not yet used: building draws on it once the month's allowance is used. */
+  creditUsd: number;
+  resetsAt: number;
+};
+
+/** Whether the allowance and any bought credit are both used: nothing more may be built this month. */
+export function allowanceUsed(usage: SpaceUsage): boolean {
+  return usage.usedUsd >= usage.allowanceUsd && usage.creditUsd <= 0;
+}
+
+type MonthUse = { month: string; input: number; output: number; cached: number; containerSeconds: number };
 
 /**
  * What building in the team `orgId` cost so far this month, against the month's allowance: everyone's in it, or
@@ -260,6 +273,9 @@ export type SpaceUsage = { usedUsd: number; allowanceUsd: number; resetsAt: numb
  * `connectionId` (the host team's for a space; its admins should allow no dearer one), and the workspace
  * containers' running time at Cloudflare's. Both come from `organization_usage_daily`, which every finished turn
  * and every stretch of container time adds to.
+ *
+ * A space's bought credit is what was bought less what every month, this one included, used beyond its
+ * allowance, at today's prices: nothing is written as credit is used, so there is no balance to drift.
  */
 export async function spaceUsage(
   db: D1Database,
@@ -269,27 +285,70 @@ export async function spaceUsage(
   now = Date.now(),
 ): Promise<SpaceUsage> {
   const today = new Date(now);
-  const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1));
+  const thisMonth = today.toISOString().slice(0, 7);
   const nextMonth = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
-  const [counts, { defaultModelId }] = await Promise.all([
+  const [months, bought, { defaultModelId }] = await Promise.all([
     db
       .prepare(
-        `SELECT COALESCE(SUM(input_tokens), 0) AS input, COALESCE(SUM(output_tokens), 0) AS output,
-                COALESCE(SUM(cached_tokens), 0) AS cached, COALESCE(SUM(container_seconds), 0) AS containerSeconds
-         FROM organization_usage_daily WHERE org_id = ?1 AND (?2 IS NULL OR user_id = ?2) AND day >= ?3`,
+        `SELECT substr(day, 1, 7) AS month, COALESCE(SUM(input_tokens), 0) AS input,
+                COALESCE(SUM(output_tokens), 0) AS output, COALESCE(SUM(cached_tokens), 0) AS cached,
+                COALESCE(SUM(container_seconds), 0) AS containerSeconds
+         FROM organization_usage_daily WHERE org_id = ?1 AND (?2 IS NULL OR user_id = ?2)
+         GROUP BY month`,
       )
-      .bind(orgId, userId, monthStart.toISOString().slice(0, 10))
-      .first<{ input: number; output: number; cached: number; containerSeconds: number }>(),
+      .bind(orgId, userId)
+      .all<MonthUse>(),
+    // Credit is the whole space's, never one member's.
+    userId === null
+      ? db
+          .prepare('SELECT COALESCE(SUM(amount_usd), 0) AS usd FROM space_credit_purchases WHERE org_id = ?')
+          .bind(orgId)
+          .first<{ usd: number }>()
+      : null,
     readBuilderModelSettings(db, connectionId),
   ]);
   const modelId = effectiveDefaultModelId(defaultModelId);
   const price = piWorkersAiModel(modelId)?.cost ?? piGatewayModel(modelId)?.model.cost;
-  const used = counts ?? { input: 0, output: 0, cached: 0, containerSeconds: 0 };
   // Dollars per million tokens. Cached tokens are counted among the input ones.
-  const modelUsd = price
-    ? ((used.input - used.cached) * price.input + used.cached * price.cacheRead + used.output * price.output) /
-      1_000_000
-    : 0;
-  const usedUsd = modelUsd + used.containerSeconds * CONTAINER_USD_PER_SECOND;
-  return { usedUsd, allowanceUsd: MONTHLY_USAGE_ALLOWANCE_USD, resetsAt: nextMonth };
+  const cost = (used: MonthUse) =>
+    (price
+      ? ((used.input - used.cached) * price.input + used.cached * price.cacheRead + used.output * price.output) /
+        1_000_000
+      : 0) +
+    used.containerSeconds * CONTAINER_USD_PER_SECOND;
+  let usedUsd = 0;
+  let overAllowanceUsd = 0;
+  for (const month of months.results) {
+    const monthUsd = cost(month);
+    overAllowanceUsd += Math.max(0, monthUsd - MONTHLY_USAGE_ALLOWANCE_USD);
+    if (month.month === thisMonth) {
+      usedUsd = monthUsd;
+    }
+  }
+  return {
+    usedUsd,
+    allowanceUsd: MONTHLY_USAGE_ALLOWANCE_USD,
+    creditUsd: Math.max(0, (bought?.usd ?? 0) - overAllowanceUsd),
+    resetsAt: nextMonth,
+  };
+}
+
+/**
+ * Records a paid purchase of building credit for a space CloudChef runs, once however often it is reported.
+ * False when it was already recorded, or the space is gone.
+ */
+export async function recordCreditPurchase(
+  db: D1Database,
+  purchase: { id: string; orgId: string; userId: string | null; amountUsd: number },
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `INSERT INTO space_credit_purchases (checkout_session_id, org_id, user_id, amount_usd, created_at)
+       SELECT ?1, organizations.id, (SELECT id FROM "user" WHERE id = ?3), ?4, ?5 FROM organizations
+       WHERE organizations.id = ?2 AND organizations.managed_host_org_id IS NOT NULL
+       ON CONFLICT(checkout_session_id) DO NOTHING`,
+    )
+    .bind(purchase.id, purchase.orgId, purchase.userId, purchase.amountUsd, Date.now())
+    .run();
+  return result.meta.changes === 1;
 }

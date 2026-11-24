@@ -172,7 +172,10 @@ with the subscription. Everyone's finished turns' tokens, priced at the host tea
 their workspace containers run, which the runtime reports as it goes (`countContainerTime` in
 `user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
 smaller than the plan's price (`MANAGED_SPACE_MONTHLY_ALLOWANCE_USD`), and `runtime-access` refuses the next model request and the next start of the container
-once it is used
+once it is used and the space has no credit left: its subscriber buys credit in Settings in fixed amounts
+(`MANAGED_SPACE_CREDIT_AMOUNTS_USD`, one-time Stripe prices in `STRIPE_CREDIT_PRICE_IDS`), each paid checkout is
+recorded once in `space_credit_purchases` from the return and from the webhook, and what is left is what was bought
+less every month's use beyond its allowance, computed when asked (`spaceUsage`)
 (`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
 choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);
 `pnpm run ops` counts both. The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` are not

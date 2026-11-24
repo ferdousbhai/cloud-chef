@@ -85,7 +85,8 @@ It declares these secrets, which are configured in Cloudflare and never stored i
   GitHub App, for importing private repositories as projects; unset, importing those reports itself unavailable
   (public repositories import without it).
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — subscriptions to a space CloudChef runs, with `STRIPE_PRICE_ID`,
-  `STRIPE_PORTAL_CONFIGURATION_ID` and `MANAGED_SPACE_ORG_ID` in `cloudflare.config.ts`. All five belong to one
+  `STRIPE_CREDIT_PRICE_IDS` (the one-time prices of building credit, by dollar amount),
+  `STRIPE_PORTAL_CONFIGURATION_ID` and `MANAGED_SPACE_ORG_ID` in `cloudflare.config.ts`. All of them belong to one
   Stripe mode (a sandbox or live) and are changed together; with the price or the team's id empty the plan is not
   offered and the waitlist is.
 

@@ -19,3 +19,9 @@ export async function openBillingPortal(): Promise<void> {
   const { url } = await postJson('/api/billing/portal', {}, stripePageSchema, 'Unable to open your subscription.');
   window.location.assign(url);
 }
+
+/** Leaves for Stripe's page to pay for building credit, which returns to Settings with the credit added. */
+export async function buyCredit(amountUsd: number): Promise<void> {
+  const { url } = await postJson('/api/billing/credit', { amountUsd }, stripePageSchema, 'Unable to add credit.');
+  window.location.assign(url);
+}

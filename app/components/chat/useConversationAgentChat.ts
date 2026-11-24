@@ -17,6 +17,8 @@ import { subchatIndexStore } from '~/lib/stores/subchats';
 import { waitForAgentSocketOpen } from './agent-connection';
 import { WORKERS_PAID_REQUIRED_MARKER } from '~/lib/workers-paid';
 import { showWorkersPaidRequiredToast } from '~/lib/workers-paid.client';
+import { ALLOWANCE_USED_MESSAGE } from '~/lib/managed-space';
+import { showAllowanceUsedToast } from '~/lib/managed-space.client';
 import { executeDataOperation } from '~/lib/cloudflare/client';
 import { api } from '~/lib/cloudflare/data-api';
 import { description as descriptionStore } from '~/lib/stores/description';
@@ -265,6 +267,9 @@ export function useConversationAgentChat(args: {
     if (turnError.includes(WORKERS_PAID_REQUIRED_MARKER)) {
       showWorkersPaidRequiredToast();
     }
+    if (turnError.includes(ALLOWANCE_USED_MESSAGE)) {
+      showAllowanceUsedToast();
+    }
   }, [turnError, args.presentationId]);
   const status: 'submitted' | 'streaming' | 'ready' | 'error' = sending
     ? 'submitted'
@@ -465,6 +470,9 @@ export function useConversationAgentChat(args: {
         recordChatFailure(failure.message.trim().length === 0);
         if (failure.message.includes(WORKERS_PAID_REQUIRED_MARKER)) {
           showWorkersPaidRequiredToast();
+        }
+        if (failure.message.includes(ALLOWANCE_USED_MESSAGE)) {
+          showAllowanceUsedToast();
         }
         throw failure;
       } finally {

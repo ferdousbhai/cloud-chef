@@ -41,6 +41,7 @@ const controlPlaneTables = [
   'project_shares',
   'project_slug_redirects',
   'project_visits',
+  'space_credit_purchases',
   'stripe_events',
   'thread_followers',
   'thread_runs',

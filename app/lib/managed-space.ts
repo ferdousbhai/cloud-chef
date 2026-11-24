@@ -12,6 +12,13 @@ export const MANAGED_SPACE_MONTHLY_PRICE_USD = 30;
  */
 export const MANAGED_SPACE_MONTHLY_ALLOWANCE_USD = 20;
 /**
+ * The amounts of building credit a space's subscriber can buy, in dollars: one payment each, used after a month's
+ * allowance and carried over until used. Each has a Stripe price in `STRIPE_CREDIT_PRICE_IDS`.
+ */
+export const MANAGED_SPACE_CREDIT_AMOUNTS_USD = [20, 50, 100, 200, 300, 500] as const;
+/** How a refusal for a used-up allowance starts, which the chat recognises to offer credit. */
+export const ALLOWANCE_USED_MESSAGE = "This space has used this month's building allowance";
+/**
  * Free days a person's first subscription starts with. None: the card is charged when they subscribe. Above 0,
  * checkout starts a trial of that length and the pages say so.
  */
@@ -31,7 +38,15 @@ export const billingStatusSchema = z.object({
       cancelsAtPeriodEnd: z.boolean(),
     })
     .nullable(),
-  usage: z.object({ usedUsd: z.number(), allowanceUsd: z.number(), resetsAt: z.number() }).nullable(),
+  usage: z
+    .object({
+      usedUsd: z.number(),
+      allowanceUsd: z.number(),
+      /** Bought credit not yet used, which building draws on once the month's allowance is used. */
+      creditUsd: z.number(),
+      resetsAt: z.number(),
+    })
+    .nullable(),
 });
 
 export type BillingStatus = z.infer<typeof billingStatusSchema>;

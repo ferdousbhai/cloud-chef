@@ -30,6 +30,7 @@ describe("Stripe's webhook deliveries", () => {
       id: 'evt_1',
       type: 'customer.subscription.updated',
       subscriptionId: 'sub_1',
+      checkoutSessionId: null,
     });
   });
 
@@ -41,6 +42,7 @@ describe("Stripe's webhook deliveries", () => {
     });
     await expect(verifiedEvent(SECRET, checkout, await signed(checkout, NOW / 1_000), NOW)).resolves.toMatchObject({
       subscriptionId: 'sub_9',
+      checkoutSessionId: 'cs_1',
     });
   });
 
@@ -65,7 +67,13 @@ describe('whether subscriptions are available', () => {
       priceId: 'price_1',
       portalConfigurationId: null,
       managedOrgId: 'org-1',
+      creditPriceIds: {},
     });
+    // The credit prices are read from their text; text that can't be read sells none.
+    expect(billingConfig(env({ ...all, STRIPE_CREDIT_PRICE_IDS: '{"20":"price_c20"}' }))?.creditPriceIds).toEqual({
+      '20': 'price_c20',
+    });
+    expect(billingConfig(env({ ...all, STRIPE_CREDIT_PRICE_IDS: 'not json' }))?.creditPriceIds).toEqual({});
     expect(billingConfig(env({ ...all, STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_1' }))?.portalConfigurationId).toBe(
       'bpc_1',
     );

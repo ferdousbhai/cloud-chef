@@ -7,6 +7,7 @@ import type { prepareWorkspaceInBackground } from './cloudflare-integration';
 import {
   billingPortalAction,
   billingStatusAction,
+  buyCreditAction,
   cancelSubscriptionForErasure,
   completeCheckoutAction,
   startCheckoutAction,
@@ -38,6 +39,7 @@ async function setup(configured = true) {
         STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
         STRIPE_PRICE_ID: 'price_1',
         STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_1',
+        STRIPE_CREDIT_PRICE_IDS: '{"50":"price_credit_50"}',
         MANAGED_SPACE_ORG_ID: ORG,
       }
     : { STRIPE_PRICE_ID: '', MANAGED_SPACE_ORG_ID: '' };
@@ -222,6 +224,92 @@ describe('subscribing to a space CloudChef runs', () => {
       customer: 'cus_1',
       return_url: `${ORIGIN}/settings`,
       configuration: 'bpc_1',
+    });
+  });
+});
+
+describe('building credit for a space', () => {
+  it('sells it to the subscriber of a space only, and adds what Stripe says was paid, once', async () => {
+    const { database, env, sam, cookie } = await setup();
+    const buy = (amountUsd: number) =>
+      buyCreditAction({
+        request: new Request(`${ORIGIN}/api/billing/credit`, {
+          method: 'POST',
+          headers: { Origin: ORIGIN, cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amountUsd }),
+        }),
+        env,
+      });
+    stripe({});
+    // No subscription, no space to add credit to.
+    expect((await buy(50)).status).toBe(409);
+
+    stripe({ '/subscriptions/sub_1': { ...trialing, status: 'active', metadata: { cloudchef_user_id: sam.id } } });
+    const subscribed = JSON.stringify({
+      id: 'evt_sub',
+      type: 'customer.subscription.created',
+      data: { object: { id: 'sub_1' } },
+    });
+    await stripeWebhookAction({ request: webhook(subscribed, await signature(subscribed)), env });
+    const spaceId = (await findManagedSubscription(env.DB, sam.id))?.spaceOrgId ?? '';
+    expect(spaceId).not.toBe('');
+
+    const calls = stripe({
+      '/checkout/sessions/cs_credit': {
+        id: 'cs_credit',
+        mode: 'payment',
+        payment_status: 'paid',
+        amount_subtotal: 5_000,
+        client_reference_id: sam.id,
+        metadata: { cloudchef_credit_org_id: spaceId },
+      },
+      '/checkout/sessions/cs_unpaid': {
+        id: 'cs_unpaid',
+        mode: 'payment',
+        payment_status: 'unpaid',
+        amount_subtotal: 5_000,
+        client_reference_id: sam.id,
+        metadata: { cloudchef_credit_org_id: spaceId },
+      },
+      '/checkout/sessions': { url: 'https://checkout.stripe.com/c/2' },
+    });
+    // Only the amounts on sale, and only one that has a price.
+    expect((await buy(25)).status).toBe(400);
+    expect((await buy(100)).status).toBe(503);
+    const checkout = await buy(50);
+    await expect(checkout.json()).resolves.toEqual({ url: 'https://checkout.stripe.com/c/2' });
+    expect(calls.at(-1)?.form).toMatchObject({
+      mode: 'payment',
+      customer: 'cus_1',
+      client_reference_id: sam.id,
+      'line_items[0][price]': 'price_credit_50',
+      'metadata[cloudchef_credit_org_id]': spaceId,
+      success_url: `${ORIGIN}/api/billing/return?credit={CHECKOUT_SESSION_ID}`,
+    });
+
+    const credit = async () => {
+      const status = await billingStatusAction({ request: request('/api/billing', cookie, 'GET'), env });
+      return billingStatusSchema.parse(await status.json()).usage?.creditUsd;
+    };
+    const back = (id: string) =>
+      completeCheckoutAction({ request: request(`/api/billing/return?credit=${id}`, cookie, 'GET'), env });
+    // A checkout that was not paid adds nothing.
+    await back('cs_unpaid');
+    expect(await credit()).toBe(0);
+    const returned = await back('cs_credit');
+    expect(returned.headers.get('location')).toBe(`${ORIGIN}/settings#subscription`);
+    expect(await credit()).toBe(50);
+    // Stripe's webhook reports the same checkout: still $50.
+    const paid = JSON.stringify({
+      id: 'evt_credit',
+      type: 'checkout.session.completed',
+      data: { object: { id: 'cs_credit', subscription: null } },
+    });
+    const delivered = await stripeWebhookAction({ request: webhook(paid, await signature(paid)), env });
+    expect(delivered.status).toBe(204);
+    expect(await credit()).toBe(50);
+    expect(database.prepare('SELECT COUNT(*) AS purchases FROM space_credit_purchases').get()).toEqual({
+      purchases: 1,
     });
   });
 });

@@ -19,6 +19,7 @@ const config: BillingConfig = {
   webhookSecret: 'whsec',
   priceId: 'price_1',
   portalConfigurationId: null,
+  creditPriceIds: {},
   managedOrgId: HOST,
 };
 

@@ -306,7 +306,15 @@ describe('runtimeAccessAction', () => {
          VALUES ('space-1', 'guest-1', ?, 1, 0, 1000000000, 0)`,
       )
       .run(new Date().toISOString().slice(0, 10));
-    expect((await ask()).modelRefusal).toMatch(/^This space has used this month's building allowance/);
+    expect((await ask()).modelRefusal).toMatch(
+      /^This space has used this month's building allowance\. Add credit in Settings to keep building now/,
+    );
+    // Credit bought for the space, more than the month has gone over by, lets everyone in it build again.
+    database.exec(
+      `INSERT INTO space_credit_purchases (checkout_session_id, org_id, user_id, amount_usd, created_at)
+       VALUES ('cs_1', 'space-1', 'owner-1', 100000, 1)`,
+    );
+    expect((await ask()).modelRefusal).toBeNull();
   });
 
   it("says a member may build until they're paused", async () => {

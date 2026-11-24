@@ -5,11 +5,13 @@ import { piWorkersAiModel } from '~/lib/.server/llm/pi-model-catalog';
 import { controlPlaneDatabase, createProvenEmailUser } from '~/test/control-plane-d1';
 import { findMembership, isActiveAdmin, runsTeam } from './organization-access.server';
 import {
+  allowanceUsed,
   applySubscription,
   CONTAINER_USD_PER_SECOND,
   claimStripeEvent,
   findManagedSubscription,
   MONTHLY_USAGE_ALLOWANCE_USD,
+  recordCreditPurchase,
   recordCustomer,
   spaceUsage,
 } from './managed-subscriptions.server';
@@ -21,6 +23,7 @@ const config: BillingConfig = {
   webhookSecret: 'whsec',
   priceId: 'price_1',
   portalConfigurationId: null,
+  creditPriceIds: {},
   managedOrgId: ORG,
 };
 
@@ -211,5 +214,39 @@ describe("a space's monthly building allowance", () => {
     expect(CONTAINER_USD_PER_SECOND * 3_600).toBeCloseTo(0.185, 3);
     expect(usage.allowanceUsd).toBe(MONTHLY_USAGE_ALLOWANCE_USD);
     expect(usage.resetsAt).toBe(Date.UTC(2026, 11, 1));
+  });
+
+  it('draws on bought credit once a month is past its allowance, and keeps what is left for later months', async () => {
+    const { database, db, sam, space } = await setup();
+    await applySubscription(db, config, subscription(sam.id, { status: 'active' }));
+    const spaceId = String(space()?.id);
+    const connectionId = String(space()?.connection);
+    const hours = (dollars: number) => Math.round(dollars / CONTAINER_USD_PER_SECOND);
+    const ran = database.prepare(
+      'INSERT INTO organization_usage_daily (org_id, user_id, day, container_seconds) VALUES (?, ?, ?, ?)',
+    );
+    const usage = (now: number) => spaceUsage(db, connectionId, spaceId, null, now);
+    const october = Date.UTC(2026, 9, 20);
+    const november = Date.UTC(2026, 10, 20);
+    // October used $25 of building: $5 beyond the allowance, with no credit to draw on.
+    ran.run(spaceId, sam.id, '2026-10-10', hours(25));
+    const before = await usage(october);
+    expect(before.creditUsd).toBe(0);
+    expect(allowanceUsed(before)).toBe(true);
+    // $50 of credit, reported twice (the return from checkout and the webhook), counts once.
+    const purchase = { id: 'cs_1', orgId: spaceId, userId: sam.id, amountUsd: 50 };
+    await expect(recordCreditPurchase(db, purchase)).resolves.toBe(true);
+    await expect(recordCreditPurchase(db, purchase)).resolves.toBe(false);
+    const topped = await usage(october);
+    expect(topped.creditUsd).toBeCloseTo(45, 1);
+    expect(allowanceUsed(topped)).toBe(false);
+    // November starts with its own allowance and the credit left; $30 of building takes $10 more of it.
+    ran.run(spaceId, sam.id, '2026-11-05', hours(30));
+    const later = await usage(november);
+    expect(later.usedUsd).toBeCloseTo(30, 1);
+    expect(later.creditUsd).toBeCloseTo(35, 1);
+    expect(allowanceUsed(later)).toBe(false);
+    // Credit is only ever a space's: none is recorded for a team that is not one.
+    await expect(recordCreditPurchase(db, { ...purchase, id: 'cs_2', orgId: ORG })).resolves.toBe(false);
   });
 });

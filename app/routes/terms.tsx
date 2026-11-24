@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
 import {
+  MANAGED_SPACE_CREDIT_AMOUNTS_USD,
   MANAGED_SPACE_MONTHLY_ALLOWANCE_USD,
   MANAGED_SPACE_MONTHLY_PRICE_USD,
   MANAGED_SPACE_TRIAL_DAYS,
@@ -69,10 +70,19 @@ function TermsPage() {
           The price covers a monthly allowance of {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} of building: the default
           model&apos;s work and the time workspaces run, counted together at Cloudflare&apos;s prices. You may invite
           people to build in your space; their building counts against the same allowance, and you answer for what they
-          do there. When a month&apos;s allowance is used up, building stops until the next calendar month; applications
-          you published keep running. If a payment fails or the subscription ends, the space is paused: you can no
-          longer build in it, your published applications keep running for the time being, and the operator may remove
-          them and the space&apos;s contents 30 days later. Download your code first.
+          do there. When a month&apos;s allowance is used up, building stops until the next calendar month unless the
+          space has credit; applications you published keep running. If a payment fails or the subscription ends, the
+          space is paused: you can no longer build in it, your published applications keep running for the time being,
+          and the operator may remove them and the space&apos;s contents 30 days later. Download your code first.
+        </p>
+        <p>
+          You can buy building credit for your space in Settings, in single payments of{' '}
+          {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD[0])} to {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD.at(-1) ?? 0)} that Stripe
+          charges when you buy. Credit is used only after a month&apos;s allowance, counted the same way and for
+          everyone building in the space, and what is left carries over from month to month. It buys building in your
+          space and nothing else: it has no cash value, cannot be moved to another space or account, and is not
+          refunded, except where the law gives you that right. It can be used only while the subscription is active, and
+          is lost when the space&apos;s contents are removed.
         </p>
         <p>
           A space CloudChef runs is in the operator&apos;s Cloudflare account, on addresses the operator controls. The
