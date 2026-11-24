@@ -103,6 +103,13 @@ export default defineConfig({
       // a declared secret must exist before every deploy. To turn scanning on, set `URL_SCANNER_API_TOKEN` with
       // `cf workers secrets`, then declare it here as `bindings.secret()` in the same release as this account id.
       URL_SCANNER_ACCOUNT_ID: bindings.text(''),
+      // Domains of their own for projects in spaces CloudChef runs (app/server-handlers/space-domains.ts): the
+      // zone in CloudChef's own account whose custom hostnames they are, and the name in it their CNAME records
+      // point to. Either one empty, domains are not offered. The token that makes them (`MANAGED_DOMAINS_API_TOKEN`:
+      // Workers Scripts, Registrar, DNS, SSL and Certificates, and Workers Routes edit on that account) is not
+      // declared here until it is set, as with the URL Scanner's.
+      MANAGED_DOMAINS_ZONE_ID: bindings.text(''),
+      MANAGED_DOMAINS_CNAME_TARGET: bindings.text(''),
     },
     exports: {
       UserWorkspaceRuntimeProvisioningWorkflow: exports.workflow({

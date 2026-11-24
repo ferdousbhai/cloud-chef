@@ -119,6 +119,7 @@ import {
   startCheckoutAction,
   stripeWebhookAction,
 } from './server-handlers/billing';
+import { connectDomainAction, listDomainsAction, removeDomainAction } from './server-handlers/space-domains';
 import { exportAccountAction } from './server-handlers/account-export';
 import {
   deleteProjectAction,
@@ -311,6 +312,9 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/profile/username': ['POST', setUsernameAction],
     '/api/managed-spaces/waitlist': ['GET', managedSpaceWaitlistAction],
     '/api/managed-spaces/waitlist/update': ['POST', updateManagedSpaceWaitlistAction],
+    '/api/domains': ['GET', listDomainsAction],
+    '/api/domains/connect': ['POST', connectDomainAction],
+    '/api/domains/remove': ['POST', removeDomainAction],
     '/api/billing': ['GET', billingStatusAction],
     '/api/billing/checkout': ['POST', startCheckoutAction],
     '/api/billing/credit': ['POST', buyCreditAction],

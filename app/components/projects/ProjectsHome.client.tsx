@@ -9,6 +9,7 @@ import {
   DownloadIcon,
   EyeOpenIcon,
   GitHubLogoIcon,
+  GlobeIcon,
   ImageIcon,
   LockClosedIcon,
   LockOpen1Icon,
@@ -55,6 +56,7 @@ import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } 
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 import { loadSharedWithMe, type SharedProject, type SharedWithMe } from '~/lib/cloudflare/project-sharing.client';
 import { ConnectCloudflareButton } from '~/components/showcase/ConnectCloudflareButton';
+import { DomainsDialog } from './DomainsDialog.client';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
 
@@ -62,6 +64,7 @@ type OpenDialog =
   | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean }
   | { kind: 'clone'; project: ProjectRef; name: string; fullName: string | null }
   | { kind: 'share'; project: { id: string; name: string } }
+  | { kind: 'domains'; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
   | { kind: 'copy'; project: { id: string; name: string } }
@@ -140,6 +143,7 @@ export function ProjectsHome() {
       {dialog?.kind === 'share' ? (
         <ShareProjectDialog project={dialog.project} onClose={() => setDialog(null)} />
       ) : null}
+      {dialog?.kind === 'domains' ? <DomainsDialog project={dialog.project} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === 'import' ? (
         <ImportFromGitHubDialog
           orgId={team?.orgId ?? null}
@@ -562,6 +566,8 @@ function ConnectionProjectCard({
   onDialog: (dialog: OpenDialog) => void;
 }) {
   const ref = { orgProjectId: project.id };
+  const context = authClient.useSession().data?.context ?? null;
+  const managedSpace = context?.kind === 'organization' && context.managed;
   const deployment = project.deployment ?? null;
   const wantedWorker = deployment?.state === 'succeeded' ? deployment.wantedWorkerName : null;
   const deploy: CardDeploy | undefined = !isCloudChef(project)
@@ -571,16 +577,17 @@ function ConnectionProjectCard({
           state: deployment.state,
           reason: deployment.reason ?? null,
           retrying: connection.retrying === project.id,
-          onUseWantedWorker: ownsAccount
-            ? () =>
-                onDialog({
-                  kind: 'use-wanted-worker',
-                  project,
-                  deploymentId: deployment.id,
-                  workerName: wantedWorker,
-                  connection,
-                })
-            : undefined,
+          onUseWantedWorker:
+            ownsAccount && !managedSpace
+              ? () =>
+                  onDialog({
+                    kind: 'use-wanted-worker',
+                    project,
+                    deploymentId: deployment.id,
+                    workerName: wantedWorker,
+                    connection,
+                  })
+              : undefined,
         }
       : deployment?.state !== 'failed'
         ? {
@@ -664,6 +671,13 @@ function ConnectionProjectCard({
             <MenuItem action={() => onDialog({ kind: 'share', project: { id: project.id, name: project.name } })}>
               <PersonIcon />
               Share
+            </MenuItem>
+          ) : null}
+          {/* A space CloudChef runs can't change its Cloudflare account, so its domains are asked for here. */}
+          {project.canManage && managedSpace ? (
+            <MenuItem action={() => onDialog({ kind: 'domains', project: { id: project.id, name: project.name } })}>
+              <GlobeIcon />
+              Domains
             </MenuItem>
           ) : null}
           <PublicAndCopyItems

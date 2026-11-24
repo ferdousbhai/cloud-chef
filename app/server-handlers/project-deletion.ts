@@ -19,6 +19,7 @@ import { runtimeFor } from './command-line';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { json } from './runtime-projects';
 import { signedIn } from './signed-in';
+import { disconnectProjectDomains } from './space-domains';
 
 type OpenDeletionAccountApi = (
   env: Env,
@@ -141,6 +142,15 @@ export function deleteProjectAction({
         return Response.json(
           {
             error: `${result.failed.step} couldn’t be deleted: ${result.failed.reason}`,
+            deleted: result.deleted,
+          },
+          { status: 502, headers: NO_STORE },
+        );
+      }
+      if (!(await disconnectProjectDomains(env, project.id))) {
+        return Response.json(
+          {
+            error: 'Its domains couldn’t be disconnected just now. Delete it again to finish.',
             deleted: result.deleted,
           },
           { status: 502, headers: NO_STORE },

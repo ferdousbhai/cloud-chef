@@ -77,6 +77,11 @@ function TermsPage() {
           and the operator may remove them and the space&apos;s contents 30 days later. Download your code first.
         </p>
         <p>
+          You can serve a project in your space from a domain you own by pointing a DNS record of it at CloudChef. You
+          confirm that the domain is yours to use, you remain responsible for it and for its registration, and the
+          operator may stop serving a domain that is used for abuse or that someone else shows to be theirs.
+        </p>
+        <p>
           You can buy building credit for your space in Settings, in single payments of{' '}
           {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD[0])} to {usd(MANAGED_SPACE_CREDIT_AMOUNTS_USD.at(-1) ?? 0)} that Stripe
           charges when you buy. Credit is used only after a month&apos;s allowance, for everyone building in the space,

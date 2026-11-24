@@ -90,6 +90,13 @@ It declares these secrets, which are configured in Cloudflare and never stored i
   Stripe mode (a sandbox or live) and are changed together; with the price or the team's id empty the plan is not
   offered and the waitlist is.
 
+Domains for projects in spaces CloudChef runs need three things in the operator's Cloudflare account: Cloudflare for
+SaaS enabled on CloudChef's zone with a fallback origin (an originless proxied record, `AAAA 100::`) and a proxied
+CNAME to it that people point their domains at; that zone's id and that name in `MANAGED_DOMAINS_ZONE_ID` and
+`MANAGED_DOMAINS_CNAME_TARGET` (`cloudflare.config.ts`); and the secret `MANAGED_DOMAINS_API_TOKEN`, an API token
+of that account with Workers Scripts, Registrar, DNS, SSL and Certificates and Workers Routes edit and Zone read.
+Without any of them the Domains dialog says they are not available.
+
 The Stripe account is shared with other products, so CloudChef has its own product (one recurring monthly price equal
 to `MANAGED_SPACE_MONTHLY_PRICE_USD`, `app/lib/managed-space.ts`), its own customer-portal configuration, and its own
 webhook endpoint at `https://cloudchef.build/api/billing/webhook` for `checkout.session.completed` and the
