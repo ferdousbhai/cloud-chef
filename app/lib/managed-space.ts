@@ -33,7 +33,10 @@ export const MANAGED_SPACE_TRIAL_DAYS: number = 0;
 /** What `GET /api/billing` answers: the plan, whether it can be bought here, and where this person stands. */
 export const billingStatusSchema = z.object({
   available: z.boolean(),
+  /** For each person in the space, its subscriber included. */
   monthlyPriceUsd: z.number(),
+  /** How many people the subscription pays for; null without a space. */
+  seats: z.number().nullable(),
   trialDays: z.number(),
   subscription: z
     .object({

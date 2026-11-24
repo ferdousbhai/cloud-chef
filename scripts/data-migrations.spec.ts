@@ -43,6 +43,7 @@ const controlPlaneTables = [
   'project_visits',
   'space_credit_purchases',
   'space_domains',
+  'space_month_allowances',
   'stripe_events',
   'thread_followers',
   'thread_runs',

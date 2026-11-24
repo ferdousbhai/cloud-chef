@@ -488,7 +488,7 @@ function ManagedSpace({ email }: { email: string }) {
       )}
       {billing.trialDays > 0
         ? `Your first month is free, then ${price} a month. A card is asked for now and charged after the free month; cancel any time in Settings.`
-        : `${price} a month, charged now. Cancel any time in Settings.`}
+        : `${price} a month, charged now, and the same for each person you invite. Cancel any time in Settings.`}
     </SpaceChoice>
   );
 }

@@ -178,7 +178,15 @@ recorded once in `space_credit_purchases` from the return and from the webhook, 
 less every month's use beyond its allowance at `MANAGED_SPACE_CREDIT_PRICE_RATIO` times its cost (the plan's own margin), computed when asked (`spaceUsage`)
 (`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
 choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);
-`pnpm run ops` counts both. A project in a space can be served from a domain of its subscriber's own (`app/server-handlers/space-domains.ts`,
+`pnpm run ops` counts both. The plan is priced by the person, as Google Workspace is: the subscriber pays its price for everyone in the space,
+themselves included. `syncSpaceSeats` (`app/server-handlers/space-seats.ts`) counts the people again when someone
+joins, leaves or is removed, and whenever Stripe reports on the subscription, and sets the subscription's quantity
+to that number with Stripe's proration; the month's allowance, which everyone shares, moves by a person's
+allowance for the part of the month that is left, up for each who joined and back for each who left
+(`countSpaceSeats`, `space_month_allowances`), so it follows what is charged. A team connected to a Cloudflare
+account of its own pays CloudChef nothing for its people.
+
+A project in a space can be served from a domain of its subscriber's own (`app/server-handlers/space-domains.ts`,
 `space_domains`). Nobody in a space can change the Cloudflare account, and CloudChef's own deploys refuse domains
 and routes, so the control plane does it with a token of the operator's own account that is no connection's
 authorization (`MANAGED_DOMAINS_API_TOKEN`): a domain bought elsewhere becomes a custom hostname on CloudChef's own

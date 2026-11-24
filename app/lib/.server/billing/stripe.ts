@@ -371,6 +371,36 @@ export async function readSubscription(config: BillingConfig, subscriptionId: st
   );
 }
 
+/**
+ * Makes the subscription pay for `seats` people, charging or crediting the subscriber for the part of the
+ * period that is left, as Stripe prorates it. Does nothing when it already pays for that many.
+ */
+export async function setSubscriptionSeats(
+  config: BillingConfig,
+  subscriptionId: string,
+  seats: number,
+): Promise<void> {
+  const subscription = await stripe(
+    config,
+    'GET',
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    z.looseObject({
+      items: z.looseObject({
+        data: z.array(z.looseObject({ id: z.string().min(1), quantity: z.number().optional() })),
+      }),
+    }),
+  );
+  const item = subscription.items.data.at(0);
+  if (!item || item.quantity === seats) {
+    return;
+  }
+  await stripe(config, 'POST', `/subscriptions/${encodeURIComponent(subscriptionId)}`, z.looseObject({}), {
+    'items[0][id]': item.id,
+    'items[0][quantity]': String(seats),
+    proration_behavior: 'create_prorations',
+  });
+}
+
 /** Ends the subscription now, with no further charge. */
 export async function cancelSubscription(config: BillingConfig, subscriptionId: string): Promise<void> {
   await stripe(config, 'DELETE', `/subscriptions/${encodeURIComponent(subscriptionId)}`, z.looseObject({}));

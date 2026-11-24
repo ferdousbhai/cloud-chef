@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { MANAGED_SPACE_MONTHLY_ALLOWANCE_USD, MANAGED_SPACE_MONTHLY_PRICE_USD, usd } from '~/lib/managed-space';
 import { PlusIcon } from '@radix-ui/react-icons';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
@@ -597,6 +598,14 @@ function InviteDialog({
               </select>
             )}
           </div>
+          {organization.managed ? (
+            <p className="text-xs text-content-secondary">
+              When they join, {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month is added to your subscription for them,
+              charged for the rest of this month first, and {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the
+              building you all share. Removing them takes it off again. A team that builds in a Cloudflare account of
+              your own costs nothing here for its people.
+            </p>
+          ) : null}
           {role === 'member' ? (
             <>
               {projects.length > 0 ? (

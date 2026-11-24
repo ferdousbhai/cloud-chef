@@ -9,6 +9,7 @@ import {
   applySubscription,
   CONTAINER_USD_PER_SECOND,
   claimStripeEvent,
+  countSpaceSeats,
   findManagedSubscription,
   MONTHLY_USAGE_ALLOWANCE_USD,
   recordCreditPurchase,
@@ -251,5 +252,44 @@ describe("a space's monthly building allowance", () => {
     expect(allowanceUsed(later)).toBe(false);
     // Credit is only ever a space's: none is recorded for a team that is not one.
     await expect(recordCreditPurchase(db, { ...purchase, id: 'cs_2', orgId: ORG })).resolves.toBe(false);
+  });
+
+  it('is the plan’s allowance for each person in the space, for the part of the month they are there', async () => {
+    const { database, db, operator, sam, space } = await setup();
+    await applySubscription(db, config, subscription(sam.id, { status: 'active' }));
+    const spaceId = String(space()?.id);
+    const connectionId = String(space()?.connection);
+    const allowance = async (now: number) => (await spaceUsage(db, connectionId, spaceId, null, now)).allowanceUsd;
+    const join = database.prepare(
+      "INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'member', 5)",
+    );
+    const gia = await createProvenEmailUser(db, 'gia@example.com');
+    // November has 30 days. Alone, the subscriber has one person's allowance.
+    expect(await allowance(Date.UTC(2026, 10, 1))).toBe(MONTHLY_USAGE_ALLOWANCE_USD);
+    await expect(countSpaceSeats(db, spaceId, Date.UTC(2026, 10, 1))).resolves.toMatchObject({ seats: 1 });
+    // Someone joins with half the month left: half a person's allowance more, as half a month is charged for them.
+    const midMonth = Date.UTC(2026, 10, 16);
+    join.run(spaceId, gia.id);
+    await expect(countSpaceSeats(db, spaceId, midMonth)).resolves.toEqual({
+      subscriptionId: 'sub_1',
+      status: 'active',
+      seats: 2,
+    });
+    expect(await allowance(midMonth)).toBe(30);
+    // Counted again with nobody new, nothing moves.
+    await countSpaceSeats(db, spaceId, midMonth);
+    expect(await allowance(midMonth)).toBe(30);
+    // A second person joins and leaves the same day: charged and credited the same, so the allowance is as it was.
+    const later = Date.UTC(2026, 10, 22);
+    join.run(spaceId, operator.id);
+    await expect(countSpaceSeats(db, spaceId, later)).resolves.toMatchObject({ seats: 3 });
+    expect(await allowance(later)).toBe(36);
+    database.prepare('DELETE FROM organization_members WHERE org_id = ? AND user_id = ?').run(spaceId, operator.id);
+    await expect(countSpaceSeats(db, spaceId, later)).resolves.toMatchObject({ seats: 2 });
+    expect(await allowance(later)).toBe(30);
+    // The next month starts with a whole allowance for each of the two.
+    expect(await allowance(Date.UTC(2026, 11, 3))).toBe(2 * MONTHLY_USAGE_ALLOWANCE_USD);
+    // A team that is not a space has no seats to count.
+    await expect(countSpaceSeats(db, ORG, later)).resolves.toBeNull();
   });
 });

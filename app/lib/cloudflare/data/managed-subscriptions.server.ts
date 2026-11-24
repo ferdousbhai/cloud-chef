@@ -23,6 +23,8 @@ export type ManagedSubscription = {
   cancelsAtPeriodEnd: boolean;
   /** The space this subscription gave them; null before the first one in good standing. */
   spaceOrgId: string | null;
+  /** How many people the subscription pays for: everyone in the space, as last counted. */
+  seats: number;
 };
 
 type SubscriptionRow = {
@@ -34,10 +36,11 @@ type SubscriptionRow = {
   current_period_ends_at: number | null;
   cancels_at_period_end: number;
   space_org_id: string | null;
+  seats: number;
 };
 
 const COLUMNS = `user_id, stripe_customer_id, stripe_subscription_id, status, trial_ends_at, current_period_ends_at,
-  cancels_at_period_end, space_org_id`;
+  cancels_at_period_end, space_org_id, seats`;
 
 function fromRow(row: SubscriptionRow): ManagedSubscription {
   return {
@@ -49,6 +52,7 @@ function fromRow(row: SubscriptionRow): ManagedSubscription {
     currentPeriodEndsAt: row.current_period_ends_at,
     cancelsAtPeriodEnd: row.cancels_at_period_end === 1,
     spaceOrgId: row.space_org_id,
+    seats: row.seats,
   };
 }
 
@@ -287,7 +291,7 @@ export async function spaceUsage(
   const today = new Date(now);
   const thisMonth = today.toISOString().slice(0, 7);
   const nextMonth = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
-  const [months, bought, { defaultModelId }] = await Promise.all([
+  const [months, bought, pooled, { defaultModelId }] = await Promise.all([
     db
       .prepare(
         `SELECT substr(day, 1, 7) AS month, COALESCE(SUM(input_tokens), 0) AS input,
@@ -305,8 +309,14 @@ export async function spaceUsage(
           .bind(orgId)
           .first<{ usd: number }>()
       : null,
+    userId === null ? spaceAllowances(db, orgId) : null,
     readBuilderModelSettings(db, connectionId),
   ]);
+  // A space's allowance is everyone's in it together; anywhere else it is one person's.
+  const allowanceOf = (month: string): number =>
+    pooled
+      ? (pooled.months.get(month) ?? (month === thisMonth ? pooled.seats : 1) * MONTHLY_USAGE_ALLOWANCE_USD * 100) / 100
+      : MONTHLY_USAGE_ALLOWANCE_USD;
   const modelId = effectiveDefaultModelId(defaultModelId);
   const price = piWorkersAiModel(modelId)?.cost ?? piGatewayModel(modelId)?.model.cost;
   // Dollars per million tokens. Cached tokens are counted among the input ones.
@@ -320,17 +330,77 @@ export async function spaceUsage(
   let overAllowanceUsd = 0;
   for (const month of months.results) {
     const monthUsd = cost(month);
-    overAllowanceUsd += Math.max(0, monthUsd - MONTHLY_USAGE_ALLOWANCE_USD);
+    overAllowanceUsd += Math.max(0, monthUsd - allowanceOf(month.month));
     if (month.month === thisMonth) {
       usedUsd = monthUsd;
     }
   }
   return {
     usedUsd,
-    allowanceUsd: MONTHLY_USAGE_ALLOWANCE_USD,
+    allowanceUsd: allowanceOf(thisMonth),
     creditUsd: Math.max(0, (bought?.usd ?? 0) - overAllowanceUsd * MANAGED_SPACE_CREDIT_PRICE_RATIO),
     resetsAt: nextMonth,
   };
+}
+
+/** A space's people now, and the allowance of each month in which their number changed, in cents. */
+async function spaceAllowances(db: D1Database, orgId: string): Promise<{ seats: number; months: Map<string, number> }> {
+  const [subscription, { results }] = await Promise.all([
+    db.prepare('SELECT seats FROM managed_subscriptions WHERE space_org_id = ?').bind(orgId).first<{ seats: number }>(),
+    db
+      .prepare('SELECT month, allowance_cents FROM space_month_allowances WHERE org_id = ?')
+      .bind(orgId)
+      .all<{ month: string; allowance_cents: number }>(),
+  ]);
+  return {
+    seats: subscription?.seats ?? 1,
+    months: new Map(results.map((row) => [row.month, row.allowance_cents])),
+  };
+}
+
+/**
+ * Counts the people in a space again and makes its subscription's seats that number, with this month's
+ * allowance moved by the plan's allowance for the part of the month that is left, once for each person who
+ * joined and back for each who left: the same share of the month Stripe charges or credits the subscriber for
+ * them. One write, so two people joining at once are both counted. Returns the subscription to set to that many
+ * seats at Stripe, or null when the team is not a space with a subscription.
+ */
+export async function countSpaceSeats(
+  db: D1Database,
+  orgId: string,
+  now = Date.now(),
+): Promise<{ subscriptionId: string | null; status: string; seats: number } | null> {
+  const today = new Date(now);
+  const monthStart = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1);
+  const nextMonth = Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1);
+  const perSeatCents = MONTHLY_USAGE_ALLOWANCE_USD * 100;
+  const restOfMonthCents = Math.round((perSeatCents * (nextMonth - now)) / (nextMonth - monthStart));
+  const people = '(SELECT MAX(1, COUNT(*)) FROM organization_members WHERE org_id = ?1)';
+  const seats = '(SELECT seats FROM managed_subscriptions WHERE space_org_id = ?1)';
+  await db.batch([
+    // The month starts with the allowance of the people there were before any change in it.
+    db
+      .prepare(
+        `INSERT INTO space_month_allowances (org_id, month, allowance_cents)
+         SELECT ?1, ?2, seats * ?3 FROM managed_subscriptions WHERE space_org_id = ?1
+         ON CONFLICT(org_id, month) DO NOTHING`,
+      )
+      .bind(orgId, today.toISOString().slice(0, 7), perSeatCents),
+    db
+      .prepare(
+        `UPDATE space_month_allowances SET allowance_cents = MAX(0, allowance_cents + (${people} - ${seats}) * ?3)
+         WHERE org_id = ?1 AND month = ?2 AND ${seats} IS NOT NULL`,
+      )
+      .bind(orgId, today.toISOString().slice(0, 7), restOfMonthCents),
+    db
+      .prepare(`UPDATE managed_subscriptions SET seats = ${people} WHERE space_org_id = ?1 AND seats <> ${people}`)
+      .bind(orgId),
+  ]);
+  const row = await db
+    .prepare('SELECT seats, stripe_subscription_id, status FROM managed_subscriptions WHERE space_org_id = ?')
+    .bind(orgId)
+    .first<{ seats: number; stripe_subscription_id: string | null; status: string }>();
+  return row ? { subscriptionId: row.stripe_subscription_id, status: row.status, seats: row.seats } : null;
 }
 
 /**

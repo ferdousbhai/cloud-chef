@@ -59,8 +59,8 @@ function TermsPage() {
         <p>CloudChef does not purchase credits or automatically change your Cloudflare plan.</p>
         <p>
           A space CloudChef runs is the paid alternative, for people without a Cloudflare account. It costs{' '}
-          {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month, charged by Stripe to the card you give on Stripe&apos;s page,
-          in advance and until you cancel.{' '}
+          {usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month for each person in it, you included, charged by Stripe to the
+          card you give on Stripe&apos;s page, in advance and until you cancel.{' '}
           {MANAGED_SPACE_TRIAL_DAYS > 0
             ? `A first subscription starts with ${MANAGED_SPACE_TRIAL_DAYS} free days; the card is charged when they end unless you cancel before.`
             : 'The first month is charged when you subscribe.'}{' '}
@@ -68,13 +68,17 @@ function TermsPage() {
           Payments already made are not refunded, except where the law gives you that right.
         </p>
         <p>
-          The price covers a monthly allowance of {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} of building: the default
-          model&apos;s work and the time workspaces run, counted together at Cloudflare&apos;s prices. You may invite
-          people to build in your space; their building counts against the same allowance, and you answer for what they
-          do there. When a month&apos;s allowance is used up, building stops until the next calendar month unless the
-          space has credit; applications you published keep running. If a payment fails or the subscription ends, the
-          space is paused: you can no longer build in it, your published applications keep running for the time being,
-          and the operator may remove them and the space&apos;s contents 30 days later. Download your code first.
+          The price covers a monthly allowance of {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} of building for each
+          person: the default model&apos;s work and the time workspaces run, counted together at Cloudflare&apos;s
+          prices, and shared by everyone in the space. You may invite people to build in your space. Each person who
+          joins is added to your subscription at the same monthly price from the day they join, and each who leaves or
+          is removed is taken off it, with the charge and the allowance for that month reduced to the part of the month
+          they were there for; you pay for them, and you answer for what they do there. A team that builds in a
+          Cloudflare account of its own pays CloudChef nothing for its people. When a month&apos;s allowance is used up,
+          building stops until the next calendar month unless the space has credit; applications you published keep
+          running. If a payment fails or the subscription ends, the space is paused: you can no longer build in it, your
+          published applications keep running for the time being, and the operator may remove them and the space&apos;s
+          contents 30 days later. Download your code first.
         </p>
         <p>
           You can serve a project in your space from a domain you own by pointing a DNS record of it at CloudChef. You

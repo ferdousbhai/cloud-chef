@@ -72,12 +72,18 @@ export function SubscriptionCard() {
     }
   };
   const trialing = subscription.status === 'trialing';
+  // The plan is priced by the person: the subscriber pays for everyone in their space.
+  const people = billing.seats ?? 1;
+  const price =
+    people > 1
+      ? `${usd(billing.monthlyPriceUsd * people)} a month for ${people} people (${usd(billing.monthlyPriceUsd)} each)`
+      : `${usd(billing.monthlyPriceUsd)} a month`;
   const ends = subscription.currentPeriodEndsAt ?? subscription.trialEndsAt;
   return (
     <SettingsCard
       id="subscription"
       title="Your space"
-      description="A space CloudChef runs for you. Stripe takes the payment; CloudChef never sees your card."
+      description="A space CloudChef runs for you, paid for by the person: you, and each person you invite. Stripe takes the payment; CloudChef never sees your card."
       action={
         <Button size="sm" variant="neutral" loading={opening} onClick={() => void manage()}>
           Card, invoices, cancel
@@ -91,10 +97,10 @@ export function SubscriptionCard() {
             : subscription.cancelsAtPeriodEnd && ends
               ? `Ends on ${day(ends)}.`
               : trialing && subscription.trialEndsAt
-                ? `Free until ${day(subscription.trialEndsAt)}, then ${usd(billing.monthlyPriceUsd)} a month.`
+                ? `Free until ${day(subscription.trialEndsAt)}, then ${price}.`
                 : ends
-                  ? `${usd(billing.monthlyPriceUsd)} a month. Next payment on ${day(ends)}.`
-                  : `${usd(billing.monthlyPriceUsd)} a month.`}
+                  ? `${price}. Next payment on ${day(ends)}.`
+                  : `${price}.`}
         </span>
         {subscription.hasSpace ? (
           <StatusBadge tone="success">{trialing ? 'Free month' : 'Active'}</StatusBadge>

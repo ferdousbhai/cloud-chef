@@ -28,6 +28,7 @@ import {
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
 import { deleteOrganization } from '~/lib/.server/cloudflare/account-deletion';
+import { syncSpaceSeats } from './space-seats';
 
 /**
  * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
@@ -197,6 +198,8 @@ export function acceptInviteAction({
       return body.response;
     }
     const { orgId } = await acceptInvite(env.DB, { token: body.data.token, userId: session.user.id });
+    // In a space CloudChef runs, its subscriber now pays for one person more.
+    await syncSpaceSeats(env, orgId);
     // Straight into the organization's account, once its admin has connected one; `switched` tells the
     // invite page whether the builder is ready to open there.
     const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
@@ -236,6 +239,10 @@ export function updateMemberAction({
       return reauthenticationRequired('Sign in again to confirm it is you, then remove them.');
     }
     await updateMember(env.DB, { orgId, actorId: session.user.id, userId, action });
+    if (action === 'remove') {
+      // In a space CloudChef runs, its subscriber now pays for one person fewer.
+      await syncSpaceSeats(env, orgId);
+    }
     if (action !== 'remove' || !body.data.deleteWorkspace) {
       return Response.json({ ok: true });
     }

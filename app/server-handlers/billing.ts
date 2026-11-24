@@ -36,6 +36,7 @@ import {
 import { prepareWorkspaceInBackground } from './cloudflare-integration';
 import { signedIn } from './signed-in';
 import { applyDomainSubscription, completeDomainPurchase } from './space-domains';
+import { syncSpaceSeats } from './space-seats';
 
 /**
  * Subscribing to a space CloudChef runs (`app/lib/cloudflare/data/managed-subscriptions.server.ts`):
@@ -69,10 +70,14 @@ export function billingStatusAction({ request, env }: { request: Request; env: E
     const subscription = await findManagedSubscription(env.DB, session.user.id);
     const hasSpace = subscription !== null && givesSpace(subscription.status);
     const space = hasSpace ? await spaceConnection(env, subscription) : null;
+    // Counted again here too, so someone who left by erasing their account stops being paid for.
+    const seats = space?.orgId ? await syncSpaceSeats(env, space.orgId) : null;
     return Response.json(
       {
         available: host !== null,
         monthlyPriceUsd: MANAGED_SPACE_MONTHLY_PRICE_USD,
+        // The price is for each person in the space; null without one.
+        seats,
         // A first subscription starts with the plan's free days, when it has any; a later one doesn't.
         trialDays: subscription?.subscriptionId ? 0 : MANAGED_SPACE_TRIAL_DAYS,
         subscription:
@@ -305,7 +310,11 @@ export async function stripeWebhookAction({ request, env }: { request: Request; 
     if (event.subscriptionId) {
       const subscription = await readSubscription(config, event.subscriptionId);
       if (subscription.domainId === null) {
-        await applySubscription(env.DB, config, subscription);
+        const userId = await applySubscription(env.DB, config, subscription);
+        const spaceOrgId = userId ? (await findManagedSubscription(env.DB, userId))?.spaceOrgId : null;
+        if (spaceOrgId) {
+          await syncSpaceSeats(env, spaceOrgId);
+        }
       } else {
         // A bought domain's own yearly subscription: never a subscription to a space.
         if (event.type === 'checkout.session.completed' && event.checkoutSessionId) {
