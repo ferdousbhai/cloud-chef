@@ -166,7 +166,7 @@ a free period or paid, pauses them there when it lapses, and resumes only a paus
 team member is kept from holds for them. Each finished turn's tokens, priced at the team's default model, and the time
 their workspace container runs, which the runtime reports as it goes (`countContainerTime` in
 `user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
-equal to the plan's price, and `runtime-access` refuses the next model request and the next start of the container
+smaller than the plan's price (`MANAGED_SPACE_MONTHLY_ALLOWANCE_USD`), and `runtime-access` refuses the next model request and the next start of the container
 once it is used
 (`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
 choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);

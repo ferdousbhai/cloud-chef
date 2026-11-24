@@ -1,5 +1,10 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { MANAGED_SPACE_MONTHLY_PRICE_USD, MANAGED_SPACE_TRIAL_DAYS, usd } from '~/lib/managed-space';
+import {
+  MANAGED_SPACE_MONTHLY_ALLOWANCE_USD,
+  MANAGED_SPACE_MONTHLY_PRICE_USD,
+  MANAGED_SPACE_TRIAL_DAYS,
+  usd,
+} from '~/lib/managed-space';
 import { TrustPage, TrustSection } from '~/components/trust/TrustPage';
 import { CLOUDCHEF_OPERATOR, TRUST_PAGE_HEADINGS, createPublicBetaTrustPageHead } from '~/lib/trust';
 
@@ -61,12 +66,12 @@ function TermsPage() {
           Payments already made are not refunded, except where the law gives you that right.
         </p>
         <p>
-          The price covers a monthly allowance of building: the default model&apos;s work and the time your workspace
-          runs, counted together at Cloudflare&apos;s prices. When a month&apos;s allowance is used up, building stops
-          until the next calendar month; applications you published keep running. If a payment fails or the subscription
-          ends, the space is paused: you can no longer build in it, your published applications keep running for the
-          time being, and the operator may remove them and the space&apos;s contents 30 days later. Download your code
-          first.
+          The price covers a monthly allowance of {usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} of building: the default
+          model&apos;s work and the time your workspace runs, counted together at Cloudflare&apos;s prices. When a
+          month&apos;s allowance is used up, building stops until the next calendar month; applications you published
+          keep running. If a payment fails or the subscription ends, the space is paused: you can no longer build in it,
+          your published applications keep running for the time being, and the operator may remove them and the
+          space&apos;s contents 30 days later. Download your code first.
         </p>
         <p>
           A space CloudChef runs is in the operator&apos;s Cloudflare account, on addresses the operator controls. The

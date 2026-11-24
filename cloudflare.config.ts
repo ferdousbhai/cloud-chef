@@ -89,7 +89,7 @@ export default defineConfig({
       // rather than the account's default. The price, the portal configuration, the secret key and the webhook
       // signing secret all belong to one Stripe mode: change them together.
       MANAGED_SPACE_ORG_ID: bindings.text('f2ab805b-1a7b-4459-b6fa-48556c4b5888'),
-      STRIPE_PRICE_ID: bindings.text('price_1Uero4Cz3TLXJEZ4wOEpTwHz'),
+      STRIPE_PRICE_ID: bindings.text('price_1UfAxzCz3TLXJEZ4hV6Iz8Zg'),
       STRIPE_PORTAL_CONFIGURATION_ID: bindings.text('bpc_1Uero5Cz3TLXJEZ4ubVS9KlG'),
       STRIPE_SECRET_KEY: bindings.secret(),
       STRIPE_WEBHOOK_SECRET: bindings.secret(),

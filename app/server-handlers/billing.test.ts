@@ -135,7 +135,7 @@ describe('subscribing to a space CloudChef runs', () => {
     const status = await billingStatusAction({ request: request('/api/billing', cookie, 'GET'), env });
     expect(billingStatusSchema.parse(await status.json())).toMatchObject({
       available: true,
-      monthlyPriceUsd: 20,
+      monthlyPriceUsd: 30,
       trialDays: 0,
     });
 

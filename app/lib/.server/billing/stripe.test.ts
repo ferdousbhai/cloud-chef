@@ -66,7 +66,9 @@ describe('whether subscriptions are available', () => {
       portalConfigurationId: null,
       managedOrgId: 'org-1',
     });
-    expect(billingConfig(env({ ...all, STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_1' }))?.portalConfigurationId).toBe('bpc_1');
+    expect(billingConfig(env({ ...all, STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_1' }))?.portalConfigurationId).toBe(
+      'bpc_1',
+    );
     for (const missing of Object.keys(all)) {
       expect(billingConfig(env({ ...all, [missing]: '' }))).toBeNull();
     }

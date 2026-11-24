@@ -1,7 +1,7 @@
 import type { BillingConfig, StripeSubscription } from '~/lib/.server/billing/stripe';
 import { piGatewayModel, piWorkersAiModel } from '~/lib/.server/llm/pi-model-catalog';
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
-import { MANAGED_SPACE_MONTHLY_PRICE_USD } from '~/lib/managed-space';
+import { MANAGED_SPACE_MONTHLY_ALLOWANCE_USD } from '~/lib/managed-space';
 import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
 
 /**
@@ -191,10 +191,10 @@ export async function releaseStripeEvent(db: D1Database, eventId: string): Promi
 
 /**
  * What a space may use in a calendar month (UTC): the builder's model at its list price and the workspace
- * container's running time at Cloudflare's, together. It is the plan's price, so a space's building costs no more
- * than its person pays; Stripe's fee and what their published applications use are not counted in it.
+ * container's running time at Cloudflare's, together. It is less than the plan's price; Stripe's fee and what their
+ * published applications use are not counted in it and are paid from the difference.
  */
-export const MONTHLY_USAGE_ALLOWANCE_USD = MANAGED_SPACE_MONTHLY_PRICE_USD;
+export const MONTHLY_USAGE_ALLOWANCE_USD = MANAGED_SPACE_MONTHLY_ALLOWANCE_USD;
 
 /**
  * What a second of the workspace container costs: `standard-4`'s 12 GiB of memory ($0.0000025 a GiB-second) and

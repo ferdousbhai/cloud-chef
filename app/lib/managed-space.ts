@@ -4,7 +4,13 @@ import { z } from 'zod';
  * The plan for a space CloudChef runs, as the pages say it. The price itself is the Stripe price
  * `STRIPE_PRICE_ID` names, and Stripe is what charges it: these are kept equal to it by hand.
  */
-export const MANAGED_SPACE_MONTHLY_PRICE_USD = 20;
+export const MANAGED_SPACE_MONTHLY_PRICE_USD = 30;
+/**
+ * What a space may use of building in a calendar month, at Cloudflare's prices. Less than the price: the rest pays
+ * Stripe's fee and what the allowance does not count (publish builds, published applications, a container already
+ * running when the allowance runs out).
+ */
+export const MANAGED_SPACE_MONTHLY_ALLOWANCE_USD = 20;
 /**
  * Free days a person's first subscription starts with. None: the card is charged when they subscribe. Above 0,
  * checkout starts a trial of that length and the pages say so.
