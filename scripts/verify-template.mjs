@@ -203,14 +203,11 @@ async function convertToWorkerProfile(tempDir) {
   const retainedDevDependencies = [
     '@cloudflare/vite-plugin',
     '@cloudflare/workers-types',
-    '@eslint/js',
     '@types/node',
     'cf',
-    'eslint',
-    'globals',
     'jsonc-parser',
+    'oxlint',
     'typescript',
-    'typescript-eslint',
     'vite',
     'yaml',
   ];
@@ -223,7 +220,7 @@ async function convertToWorkerProfile(tempDir) {
     'cf-typegen': 'node scripts/render-cloudflare-config.mjs && cf workers types --include-runtime false',
     typecheck: 'pnpm run cf-typegen && tsc -p . --noEmit --pretty false',
     'verify:stack': 'node scripts/verify-stack-alignment.mjs',
-    lint: 'eslint src --max-warnings=0',
+    lint: 'oxlint src --max-warnings=0',
   };
   pkg.dependencies = {};
   pkg.devDependencies = Object.fromEntries(retainedDevDependencies.map((name) => [name, pkg.devDependencies[name]]));
@@ -257,8 +254,16 @@ async function convertToWorkerProfile(tempDir) {
     )}\n`,
   );
   await writeFile(
-    join(tempDir, 'eslint.config.js'),
-    `import js from "@eslint/js";\nimport globals from "globals";\nimport tseslint from "typescript-eslint";\n\nexport default tseslint.config(\n  { ignores: ["dist", "node_modules", ".cloudflare"] },\n  js.configs.recommended,\n  ...tseslint.configs.recommended,\n  { files: ["src/**/*.ts"], languageOptions: { globals: globals.serviceworker } },\n);\n`,
+    join(tempDir, '.oxlintrc.json'),
+    `${JSON.stringify(
+      {
+        plugins: ['typescript'],
+        categories: { correctness: 'error' },
+        ignorePatterns: ['dist', 'node_modules', '.cloudflare'],
+      },
+      null,
+      2,
+    )}\n`,
   );
   await rm(join(tempDir, 'src'), { recursive: true, force: true });
   await mkdir(join(tempDir, 'src'), { recursive: true });

@@ -26,7 +26,7 @@ gap and an isolated, revision-aware design outperforms that baseline.
 
 Workspace containers run on `standard-4` (`app/lib/.server/cloudflare/project-workspace-container-policy.ts`), asked
 for at each start under the `durable_object` scheduling policy, which takes no instance limit. The tier is chosen because the slow steps a user
-waits on (`pnpm install`, `tsc`, `eslint`, Vite) are CPU-bound and container CPU is billed on active use, so more cores
+waits on (`pnpm install`, `tsc`, Vite) are CPU-bound and container CPU is billed on active use, so more cores
 finish the same work for the same CPU cost; the cost is a larger warm container while idle. No measurements compare
 tiers, so capacity is not a benchmark conclusion.
 

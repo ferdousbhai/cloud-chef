@@ -1,6 +1,6 @@
 /**
  * `standard-4` rather than `standard-1`, because every slow step a user waits on inside this
- * container is CPU-bound: `pnpm install`, `tsc`, `eslint`, and Vite/Rollup. `standard-1` gives
+ * container is CPU-bound: `pnpm install`, `tsc`, and Vite/Rollup. `standard-1` gives
  * the workspace half a core, so a typecheck that takes seconds on a laptop takes minutes here,
  * and Rollup and tsc cannot use the parallelism they are built around.
  *

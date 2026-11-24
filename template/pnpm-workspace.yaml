@@ -6,9 +6,6 @@ minimumReleaseAge: 0
 strictDepBuilds: true
 auditConfig:
   ignoreGhsas:
-    # braces <=3.0.3 has no patched release; it reaches only build-time file watching and
-    # globbing (eslint plugins, tailwind's chokidar), never a deployed Worker. Drop on release.
-    - "GHSA-vfj7-8cjw-p6xm"
     # picomatch <=4.0.7 has no patched release; it matches only globs written in build tools'
     # configuration (vite, tinyglobby, babel and knip), never input to a deployed Worker. Drop on release.
     - "GHSA-fc5q-39xc-vjpf"
@@ -18,7 +15,7 @@ overrides:
   "brace-expansion@<1.1.21": "1.1.21"
   "brace-expansion@>=2.0.0 <2.1.7": "2.1.7"
   "brace-expansion@>=4.0.0 <5.0.12": "5.0.12"
-  # minimatch fixed GHSA-g3hv-75wg-m249 only in 11; its API is unchanged for eslint's use.
+  # minimatch fixed GHSA-g3hv-75wg-m249 only in 11; its API is unchanged between them.
   "minimatch@>=10.0.0 <11.0.1": "11.0.3"
   # Reviewed security releases accepted by the existing transitive ranges.
   "@hono/node-server@<2.1.8": "2.1.8"

@@ -29,7 +29,7 @@ import {
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const baseRequiredPaths = [
-  "eslint.config.js",
+  ".oxlintrc.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   "public/THIRD_PARTY_LICENSES.txt",
