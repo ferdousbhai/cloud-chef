@@ -23,7 +23,6 @@ const personal: WorkspaceContext = {
   orgName: 'Ada’s space',
   role: 'admin',
   draftsAllowed: true,
-  hosting: 'own',
   solo: true,
   personal: true,
 };
@@ -34,7 +33,6 @@ const teamMember: WorkspaceContext = {
   orgName: 'Acme',
   role: 'member',
   draftsAllowed: false,
-  hosting: 'own',
   solo: false,
   personal: false,
 };

@@ -1,5 +1,5 @@
 {
-  "total": 700,
+  "total": 677,
   "counts": {
     "app/agents/builder-request-policy.test.ts": {
       "anti-slop/no-chained-type-assertions": 1,
@@ -384,40 +384,8 @@
     "scripts/workers-builds-config.mjs": {
       "anti-slop/no-runtime-typeof": 2
     },
-    "template/scripts/lib/production-license-artifact.mjs": {
-      "anti-slop/no-runtime-typeof": 2
-    },
-    "template/scripts/lib/project-policy/dependency-policy.mjs": {
-      "anti-slop/no-runtime-typeof": 2
-    },
-    "template/scripts/lib/project-policy/workflow-policy.mjs": {
-      "anti-slop/no-runtime-typeof": 1
-    },
     "template/scripts/lib/project-policy/workspace-policy.mjs": {
-      "anti-slop/no-runtime-typeof": 5,
       "eslint/no-control-regex": 1
-    },
-    "template/scripts/verify-production-config.mjs": {
-      "anti-slop/no-runtime-typeof": 2
-    },
-    "template/src/agent-routing.ts": {
-      "anti-slop/no-unknown-parameters": 1
-    },
-    "template/src/agents/anonymous-retention.ts": {
-      "anti-slop/no-runtime-typeof": 1,
-      "anti-slop/no-unknown-parameters": 1,
-      "anti-slop/no-unknown-returns": 1
-    },
-    "template/src/agents/app-agent.ts": {
-      "anti-slop/no-unknown-parameters": 1
-    },
-    "template/src/agents/chat-policy.ts": {
-      "anti-slop/no-runtime-typeof": 2,
-      "anti-slop/no-unknown-parameters": 1
-    },
-    "template/src/server.ts": {
-      "anti-slop/no-chained-type-assertions": 1,
-      "anti-slop/require-safety-comment-for-type-assertion": 2
     },
     "tests/workerd/server.integration.ts": {
       "anti-slop/no-chained-type-assertions": 2,

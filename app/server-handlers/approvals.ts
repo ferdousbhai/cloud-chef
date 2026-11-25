@@ -46,7 +46,7 @@ export function listApprovalsAction({ request, env }: { request: Request; env: E
   return signedIn(request, env, async ({ session }) => {
     const { results: teams } = await env.DB.prepare(
       `SELECT organizations.id, organizations.name FROM organization_members AS members
-       JOIN organizations ON organizations.id = members.org_id AND organizations.managed_host_org_id IS NULL
+       JOIN organizations ON organizations.id = members.org_id
        WHERE members.user_id = ? AND members.role = 'admin' AND members.paused_at IS NULL
        ORDER BY organizations.name`,
     )
@@ -199,17 +199,6 @@ export async function runtimeFileApprovalAction(args: { request: Request; env: E
   if (isActiveAdmin(membership)) {
     // Whoever runs the space's account changes it themselves: there is nobody for them to ask.
     return json({ error: 'You run this space, so your changes go to its Cloudflare account directly.' }, 403);
-  }
-  if (membership.managed) {
-    // The account is the operator's: nobody in the space could approve a change to it.
-    return json(
-      {
-        error:
-          'Not changed: a space CloudChef runs can’t change the Cloudflare account directly. Publishing makes ' +
-          'what an app needs; for anything else, connect a Cloudflare account of your own.',
-      },
-      403,
-    );
   }
   let parsed: unknown;
   try {

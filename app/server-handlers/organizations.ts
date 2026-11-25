@@ -28,7 +28,6 @@ import {
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
 import { deleteOrganization } from '~/lib/.server/cloudflare/account-deletion';
-import { syncSpaceSeats } from './space-seats';
 
 /**
  * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
@@ -154,7 +153,6 @@ export function inviteToOrganizationAction({ request, env }: { request: Request;
       orgName: admin.orgName,
       inviter: session.user.name,
       link,
-      managed: admin.managed,
     });
     return Response.json({ inviteUrl: link.toString(), expiresAt, emailed }, { status: 201 });
   });
@@ -198,8 +196,6 @@ export function acceptInviteAction({
       return body.response;
     }
     const { orgId } = await acceptInvite(env.DB, { token: body.data.token, userId: session.user.id });
-    // In a space CloudChef runs, its subscriber now pays for one person more.
-    await syncSpaceSeats(env, orgId);
     // Straight into the organization's account, once its admin has connected one; `switched` tells the
     // invite page whether the builder is ready to open there.
     const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
@@ -239,10 +235,6 @@ export function updateMemberAction({
       return reauthenticationRequired('Sign in again to confirm it is you, then remove them.');
     }
     await updateMember(env.DB, { orgId, actorId: session.user.id, userId, action });
-    if (action === 'remove') {
-      // In a space CloudChef runs, its subscriber now pays for one person fewer.
-      await syncSpaceSeats(env, orgId);
-    }
     if (action !== 'remove' || !body.data.deleteWorkspace) {
       return Response.json({ ok: true });
     }
@@ -377,7 +369,7 @@ export function nameForEmail(name: string, fallback: string): string {
 /** Emails an invite; false when email isn't configured or sending failed (the admin still has the link). */
 async function sendInvite(
   env: Env,
-  details: { to: string; orgName: string; inviter: string; link: URL; managed: boolean },
+  details: { to: string; orgName: string; inviter: string; link: URL },
 ): Promise<boolean> {
   const invite = {
     ...details,
@@ -390,16 +382,8 @@ async function sendInvite(
     `Accept the invite: ${invite.link.toString()}`,
     '',
     `Sign in with this address (${invite.to}), with Google or an emailed link; you don't need a Cloudflare`,
-    ...(invite.managed
-      ? [
-          `login, and it costs you nothing: ${invite.inviter} pays for the space. What you build is stored in a`,
-          `Cloudflare account CloudChef runs, where ${invite.inviter} and CloudChef's operator can see it.`,
-          'The invite works once, within 7 days.',
-        ]
-      : [
-          `login. What you build is stored in ${invite.orgName}'s Cloudflare account, where its administrators can`,
-          'see it. The invite works once, within 7 days.',
-        ]),
+    `login. What you build is stored in ${invite.orgName}'s Cloudflare account, where its administrators can`,
+    'see it. The invite works once, within 7 days.',
   ].join('\n');
   try {
     await env.SIGN_IN_EMAIL.send({

@@ -88,31 +88,12 @@ export async function reportUserWorkspaceModelUsage(
   await response.body?.cancel().catch(() => undefined);
 }
 
-/**
- * Reports how long the workspace container has run since the last report, in whole seconds, to the control
- * plane, which counts it toward a space's monthly allowance. Best-effort, like the token counts.
- */
-export async function reportUserWorkspaceContainerTime(
-  env: RuntimeCredentialEnv,
-  identity: CloudflareConnectionIdentity,
-  containerSeconds: number,
-): Promise<void> {
-  const response = await postRuntimeRoute(env, identity, 'runtime-usage', { containerSeconds });
-  await response.body?.cancel().catch(() => undefined);
-}
-
 /** What the control plane says about this runtime's person, asked before each model request. */
 export type UserWorkspaceAccess = {
   /** Whether they are an active admin of the organization whose account this is. */
   organizationAdmin: boolean;
   /** Whether their model requests may be logged with their content in the account's AI Gateway. */
   aiGatewayContentLogging: boolean;
-  /**
-   * Why their next model request, or the next start of their workspace container, is refused though they may
-   * still use the account, in words for them: a space CloudChef runs whose month's allowance is used up. Null
-   * when it may run.
-   */
-  modelRefusal?: string | null;
 };
 
 export type ConfirmUserWorkspaceAccess = (
@@ -144,12 +125,10 @@ export const confirmUserWorkspaceAccess: ConfirmUserWorkspaceAccess = async (env
 const accessResponseSchema = z.object({
   organizationAdmin: z.boolean().catch(false),
   aiGatewayContentLogging: z.boolean().catch(false),
-  modelRefusal: z.string().min(1).max(500).nullable().catch(null).optional(),
 });
 
 type ModelRequestAccess =
-  /** `reason` is the control plane's own, when it gave one; otherwise they lost the account. */
-  | { allowed: false; reason?: string }
+  | { allowed: false }
   | {
       allowed: true;
       /** Whether this request may be logged with its content in the account's AI Gateway. */
@@ -181,9 +160,6 @@ export async function modelRequestAccess(
   const access = await confirm(env, identity);
   if (!access) {
     return { allowed: false };
-  }
-  if (access.modelRefusal) {
-    return { allowed: false, reason: access.modelRefusal };
   }
   return {
     allowed: true,

@@ -13,7 +13,7 @@ import {
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
  * kept for years stays readable against the shape it was written in.
  */
-export const ACCOUNT_EXPORT_SCHEMA_VERSION = 11;
+export const ACCOUNT_EXPORT_SCHEMA_VERSION = 12;
 
 /**
  * Per-section ceiling on rows. A list section returns its most recent page and
@@ -37,7 +37,6 @@ const SECTION_NAMES = [
   'oauthStates',
   'showcase',
   'moveRequests',
-  'subscription',
 ] as const satisfies readonly AccountExportSectionName[];
 
 type SectionName = (typeof SECTION_NAMES)[number];
@@ -72,8 +71,6 @@ type ExportedAccount = {
   emailProvenAt: string | null;
   /** Whether their model requests are logged with their content in the connected account's AI Gateway. */
   aiGatewayContentLogging: boolean;
-  /** When they joined the waitlist for a space CloudChef runs, if they're on it. */
-  managedSpaceWaitlistJoinedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -206,17 +203,6 @@ type ExportedOAuthState = {
   updatedAt: string;
 };
 
-/** Their subscription to a space CloudChef runs, as Stripe last reported it. Stripe's own ids are left out. */
-type ExportedSubscription = {
-  status: string;
-  trialEndsAt: string | null;
-  currentPeriodEndsAt: string | null;
-  cancelsAtPeriodEnd: boolean;
-  spacePausedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
 /** A site they asked to have moved into their own Cloudflare account (`/move`). */
 type ExportedMoveRequest = {
   siteUrl: string;
@@ -260,7 +246,6 @@ type ControlPlaneExport = {
     oauthStates: ExportedSection<BoundedList<{ states: ExportedOAuthState[] }>>;
     showcase: ExportedSection<{ showcase: Awaited<ReturnType<typeof exportShowcase>> }>;
     moveRequests: ExportedSection<BoundedList<{ requests: ExportedMoveRequest[] }>>;
-    subscription: ExportedSection<{ subscription: ExportedSubscription | null }>;
   };
 };
 
@@ -288,7 +273,6 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     oauthStates: await exportSection('oauthStates', () => readOAuthStates(db, args.userId)),
     showcase: await exportSection('showcase', async () => ({ showcase: await exportShowcase(db, args.userId) })),
     moveRequests: await exportSection('moveRequests', () => readMoveRequests(db, args.userId)),
-    subscription: await exportSection('subscription', () => readSubscription(db, args.userId)),
   };
   const unavailableSections = SECTION_NAMES.filter((name) => sections[name].status === 'unavailable');
 
@@ -329,7 +313,6 @@ type UserRow = {
   google_subject: string | null;
   email_proven_at: number | null;
   ai_gateway_content_logging: number;
-  managed_space_waitlist_at: number | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -338,7 +321,7 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
   const row = await db
     .prepare(
       `SELECT id, name, email, emailVerified, image, cloudflare_subject, google_subject, email_proven_at,
-              ai_gateway_content_logging, managed_space_waitlist_at, createdAt, updatedAt
+              ai_gateway_content_logging, createdAt, updatedAt
        FROM "user" WHERE id = ?`,
     )
     .bind(userId)
@@ -354,7 +337,6 @@ async function readAccount(db: D1Database, userId: string): Promise<{ account: E
       googleSubject: row.google_subject,
       emailProvenAt: optionalIsoTimestamp(row.email_proven_at),
       aiGatewayContentLogging: row.ai_gateway_content_logging === 1,
-      managedSpaceWaitlistJoinedAt: optionalIsoTimestamp(row.managed_space_waitlist_at),
       createdAt: isoTimestamp(row.createdAt),
       updatedAt: isoTimestamp(row.updatedAt),
     },
@@ -604,41 +586,6 @@ async function readQuotaEvents(db: D1Database, userId: string): Promise<BoundedL
   return { events, ...bounds };
 }
 
-async function readSubscription(
-  db: D1Database,
-  userId: string,
-): Promise<{ subscription: ExportedSubscription | null }> {
-  const row = await db
-    .prepare(
-      `SELECT status, trial_ends_at, current_period_ends_at, cancels_at_period_end, space_paused_at, created_at,
-              updated_at
-       FROM managed_subscriptions WHERE user_id = ?`,
-    )
-    .bind(userId)
-    .first<{
-      status: string;
-      trial_ends_at: number | null;
-      current_period_ends_at: number | null;
-      cancels_at_period_end: number;
-      space_paused_at: number | null;
-      created_at: number;
-      updated_at: number;
-    }>();
-  return {
-    subscription: row
-      ? {
-          status: row.status,
-          trialEndsAt: optionalIsoTimestamp(row.trial_ends_at),
-          currentPeriodEndsAt: optionalIsoTimestamp(row.current_period_ends_at),
-          cancelsAtPeriodEnd: row.cancels_at_period_end === 1,
-          spacePausedAt: optionalIsoTimestamp(row.space_paused_at),
-          createdAt: isoTimestamp(row.created_at),
-          updatedAt: isoTimestamp(row.updated_at),
-        }
-      : null,
-  };
-}
-
 async function readMoveRequests(
   db: D1Database,
   userId: string,
@@ -664,8 +611,7 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
   const { items: usage, ...bounds } = await readBoundedList(
     db,
     userId,
-    `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, container_seconds,
-            COUNT(*) OVER () AS total_rows
+    `SELECT org_id, day, turns, input_tokens, output_tokens, cached_tokens, COUNT(*) OVER () AS total_rows
        FROM organization_usage_daily WHERE user_id = ?
        ORDER BY day DESC LIMIT ?`,
     (row: {
@@ -675,7 +621,6 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
       input_tokens: number;
       output_tokens: number;
       cached_tokens: number;
-      container_seconds: number;
     }) => ({
       organizationId: row.org_id,
       day: row.day,
@@ -683,7 +628,6 @@ async function readUsage(db: D1Database, userId: string): Promise<BoundedList<{ 
       inputTokens: row.input_tokens,
       outputTokens: row.output_tokens,
       cachedTokens: row.cached_tokens,
-      containerSeconds: row.container_seconds,
     }),
   );
   return { usage, ...bounds };

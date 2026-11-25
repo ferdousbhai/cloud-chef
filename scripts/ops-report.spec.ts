@@ -14,7 +14,6 @@ import {
   renderReport,
   workerInvocationsQuery,
   MOVE_REQUESTS_STATEMENT,
-  SUBSCRIPTIONS_STATEMENT,
   PROJECTS_STATEMENT,
   SHOWCASE_STATEMENT,
 } from './ops-report.mjs';
@@ -166,7 +165,7 @@ describe('production report', () => {
     expect(report).toMatchObject({
       controlPlaneReadable: true,
       status: 'ok',
-      headline: 'Everything is healthy: all 11 checks passed.',
+      headline: 'Everything is healthy: all 10 checks passed.',
     });
     expect(report.checks.map((item: { id: string }) => item.id)).toEqual([
       'control-plane-worker',
@@ -176,7 +175,6 @@ describe('production report', () => {
       'workspace-containers',
       'users',
       'sessions',
-      'subscriptions',
       'projects',
       'showcase',
       'move-requests',
@@ -189,34 +187,6 @@ describe('production report', () => {
           { name: 'mine', owner: 'ada@example.com', repository: 't-mine', importFrom: null },
         ],
       },
-    });
-  });
-
-  it('counts who pays for a managed space, who is in their free month, and who lapsed', async () => {
-    const query = fixtureQuery(healthyRows());
-    const report = await collectReport({
-      query: async (sql: string) =>
-        sql === SUBSCRIPTIONS_STATEMENT
-          ? [
-              [
-                { status: 'active', count: 3, paused: 0 },
-                { status: 'canceled', count: 1, paused: 1 },
-                { status: 'none', count: 4, paused: 0 },
-                { status: 'trialing', count: 2, paused: 0 },
-              ],
-            ]
-          : query(sql),
-      readInvocations: healthyInvocations,
-      readModelCatalog: healthyCatalog,
-      readContainers: noContainers,
-      now: NOW,
-      desiredRuntimeVersion: CURRENT_RUNTIME,
-      pinnedBuilderModel: PIN,
-    });
-    expect(SUBSCRIPTIONS_STATEMENT.trim()).toMatch(/^SELECT\b/i);
-    expect(report.checks.find((item: { id: string }) => item.id === 'subscriptions')).toMatchObject({
-      status: 'ok',
-      sentence: '3 paying, 2 in their free month, 1 lapsed (1 space paused for it).',
     });
   });
 
@@ -486,7 +456,7 @@ function fixtureQuery(rows: Rows) {
   return async (sql: string) =>
     sql === SHOWCASE_STATEMENT
       ? [[{ visible_posts: 3, open_reports: 0, held_posts: 0 }]]
-      : sql === MOVE_REQUESTS_STATEMENT || sql === SUBSCRIPTIONS_STATEMENT
+      : sql === MOVE_REQUESTS_STATEMENT
         ? [[]]
         : sql === PROJECTS_STATEMENT
           ? [

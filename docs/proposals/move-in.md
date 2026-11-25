@@ -139,9 +139,9 @@ box at the top, the measured before and after, and what stays and what moves in 
 
 ## What stands in the way
 
-- **A Cloudflare account.** A shop owner or a blogger mostly has none, and managed spaces wait on Tenant API access
-  (`managed-spaces.md`). Until that ships, this is sold as a service: the owner does the move with CloudChef, in an
-  account the client owns. Applying for Tenant API access is the step that unblocks self-serve.
+- **A Cloudflare account.** A shop owner or a blogger mostly has none, and CloudChef hosts nobody in an account of
+  its own (`docs/DECISIONS.md`). So this is sold as a service: the owner does the move with CloudChef, in an account
+  the client owns.
 - **One client.** All three proofs are Sara's. A second client, found through the page and done as a service, matters
   more than any of the build items above.
 - **The showcase image check** (issue #154) is already required before sign-up is promoted. This promotes sign-up.
@@ -152,7 +152,7 @@ box at the top, the measured before and after, and what stays and what moves in 
 2. `/move` with the three case studies and a "we'll do it with you" request form. No import step yet.
 3. The Shopify import. It is the best demo: a person sees their own products in a new storefront in a minute.
 4. The WordPress import.
-5. Self-serve, when managed spaces open.
+5. Self-serve, for people who connect a Cloudflare account of their own.
 
 ## Open questions for the owner
 

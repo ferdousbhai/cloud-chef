@@ -91,6 +91,7 @@ const migrationPolicies = [
       '0072_space_domains.sql': '17762314b4e4cbd0b8645c9a1e8c6bf810a79d52b7335ed6cbfc5e5ea2012a81',
       '0073_space_seats.sql': '1723ca2fb0f7f9412fb59270d95566df68cd8f75ab5deb8073ff8e5daef10c3b',
       '0074_personal_spaces.sql': '84cfd491698fc2bb393fdbd2029577291574b19a25ae0cc5aee05213b730f691',
+      '0075_close_managed_spaces.sql': '663432c94b1aed865f6a4fab9ac3ad1aef7a0cc96a88ee77f673a986f7ac677d',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -158,6 +159,9 @@ const migrationPolicies = [
       // thread_runs' answering_id and answering_since, unread since 0064 moved each mention to mention_requests: a
       // foreign-key column can't be dropped in place, so the table is rebuilt with every row copied. Nothing references it.
       '0065_thread_runs_without_answering.sql',
+      // CloudChef stopped running spaces in its operator's account: the subscription, credit, domain and Stripe
+      // receipt records are emptied (whole-table DELETE), since the release this ships with reads none of them.
+      '0075_close_managed_spaces.sql',
     ],
   },
   {

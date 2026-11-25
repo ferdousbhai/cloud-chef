@@ -1,5 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { z } from 'zod';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { BrandLink } from '~/components/BrandLink';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
@@ -13,9 +12,7 @@ import {
   signOutOfCloudChef,
 } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
-import { getJson, messageOf, postJson } from '~/lib/json-request';
-import { usd, type BillingStatus } from '~/lib/managed-space';
-import { openBillingPortal, readBillingStatus, startCheckout } from '~/lib/managed-space-requests';
+import { messageOf } from '~/lib/json-request';
 import {
   ACCOUNT_MADE_WITH_CLOUDFLARE,
   ACCOUNT_MADE_WITH_PARAM,
@@ -296,8 +293,7 @@ function GoogleMark() {
 
 /**
  * Signed in with nowhere to build yet: the ways a person's apps can live, simplest first. A team's space needs
- * its admin's invitation, which brings them straight in; their own Cloudflare account they connect here. When
- * CloudChef runs spaces itself (docs/proposals/managed-spaces.md), that becomes the first choice.
+ * its admin's invitation, which brings them straight in; their own Cloudflare account they connect here.
  */
 export function ChooseSpace({
   initialError = null,
@@ -357,7 +353,6 @@ export function ChooseSpace({
           onError={setError}
         />
       ) : null}
-      <ManagedSpace email={session.user.email} />
       <SpaceChoice
         title="In your own Cloudflare account"
         details={showCloudflareSteps ? <CloudflareSteps continuing={continuePrompt !== undefined} /> : null}
@@ -388,9 +383,9 @@ export function ChooseSpace({
         Your apps, their data and the AI that builds them run in your account, and Cloudflare bills you for them.
       </SpaceChoice>
       <SpaceChoice title="In someone else's space">
-        If someone you know builds with CloudChef, in a space of theirs or their own Cloudflare account, ask them to
-        invite <span className="break-all">{session.user.email}</span>. The invitation&apos;s link brings you straight
-        in, and what you build there is theirs to pay for.
+        If someone you know builds with CloudChef, ask them to invite{' '}
+        <span className="break-all">{session.user.email}</span>. The invitation&apos;s link brings you straight in, and
+        what you build there is theirs to pay for.
       </SpaceChoice>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
         <CloudflareConnectLegalNotice planNote={false} />
@@ -404,174 +399,6 @@ export function ChooseSpace({
         </button>
       </div>
     </div>
-  );
-}
-
-/**
- * A space CloudChef runs: a subscription where it is open, and its waitlist where it isn't yet. Not knowing
- * which reads as not open, so no one is offered a plan that can't be bought.
- */
-function ManagedSpace({ email }: { email: string }) {
-  const [billing, setBilling] = useState<BillingStatus | null | undefined>(undefined);
-  const [busy, setBusy] = useState<'checkout' | 'portal' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let canceled = false;
-    void readBillingStatus()
-      .catch(() => null)
-      .then((status) => {
-        if (!canceled) {
-          setBilling(status);
-        }
-      });
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  if (billing === undefined) {
-    return null;
-  }
-  if (!billing?.available) {
-    return <ManagedSpaceWaitlist email={email} />;
-  }
-  const leave = async (kind: 'checkout' | 'portal') => {
-    setBusy(kind);
-    setError(null);
-    try {
-      await (kind === 'checkout' ? startCheckout() : openBillingPortal());
-    } catch (failure) {
-      setError(messageOf(failure, 'Unable to reach payments. Try again.'));
-      // Stripe's page replaces this one on success.
-      setBusy(null);
-    }
-  };
-  const price = usd(billing.monthlyPriceUsd);
-  // Subscribed before, with no space now: the payment failed, or they cancelled.
-  const lapsed = billing.subscription !== null && !billing.subscription.hasSpace;
-  return (
-    <SpaceChoice
-      title="In a space of your own, run by CloudChef"
-      details={
-        error ? (
-          <p className="text-sm text-content-error" role="alert">
-            {error}
-          </p>
-        ) : null
-      }
-      action={
-        <div className="flex flex-wrap items-center gap-2">
-          <Button loading={busy === 'checkout'} disabled={busy !== null} onClick={() => void leave('checkout')}>
-            {billing.trialDays > 0 ? 'Start my free month' : `Subscribe for ${price} a month`}
-          </Button>
-          {lapsed ? (
-            <Button
-              variant="neutral"
-              loading={busy === 'portal'}
-              disabled={busy !== null}
-              onClick={() => void leave('portal')}
-            >
-              See my payments
-            </Button>
-          ) : null}
-        </div>
-      }
-    >
-      {lapsed ? (
-        <>Your subscription isn&apos;t active, so your space is paused. What you published keeps running. </>
-      ) : (
-        <>
-          The simplest: no Cloudflare account needed. CloudChef sets your space up and runs it, and you can invite
-          people to build in it with you.{' '}
-        </>
-      )}
-      {billing.trialDays > 0
-        ? `Your first month is free, then ${price} a month. A card is asked for now and charged after the free month; cancel any time in Settings.`
-        : `${price} a month, charged now, and the same for each person you invite. Cancel any time in Settings.`}
-    </SpaceChoice>
-  );
-}
-
-const waitlistSchema = z.looseObject({ joined: z.boolean() });
-
-/**
- * A space CloudChef runs, which isn't open yet: joining its waitlist is the whole choice for now
- * (`docs/proposals/managed-spaces.md`).
- */
-function ManagedSpaceWaitlist({ email }: { email: string }) {
-  const [joined, setJoined] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let canceled = false;
-    void getJson('/api/managed-spaces/waitlist', waitlistSchema)
-      .then((status) => {
-        if (!canceled) {
-          setJoined(status.joined);
-        }
-      })
-      .catch(() => {
-        // Not knowing only means offering to join; joining twice keeps the first time.
-        if (!canceled) {
-          setJoined(false);
-        }
-      });
-    return () => {
-      canceled = true;
-    };
-  }, []);
-
-  const update = async (join: boolean) => {
-    setSaving(true);
-    setError(null);
-    try {
-      const status = await postJson('/api/managed-spaces/waitlist/update', { joined: join }, waitlistSchema);
-      setJoined(status.joined);
-    } catch (failure) {
-      setError(messageOf(failure, 'Unable to update the waitlist. Try again.'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <SpaceChoice
-      title="In a space CloudChef runs"
-      badge="Coming soon"
-      details={
-        error ? (
-          <p className="text-sm text-content-error" role="alert">
-            {error}
-          </p>
-        ) : null
-      }
-      action={
-        joined === null ? null : joined ? (
-          <button
-            type="button"
-            className="text-sm font-medium text-content-secondary underline hover:text-content-primary disabled:opacity-50"
-            disabled={saving}
-            onClick={() => void update(false)}
-          >
-            Leave the waitlist
-          </button>
-        ) : (
-          <Button variant="neutral" loading={saving} onClick={() => void update(true)}>
-            Join the waitlist
-          </Button>
-        )
-      }
-    >
-      {joined ? (
-        <>
-          You&apos;re on the waitlist. We&apos;ll email <span className="break-all">{email}</span> when it opens.
-        </>
-      ) : (
-        <>No Cloudflare account needed: CloudChef sets it up and runs it for you. It isn&apos;t open yet.</>
-      )}
-    </SpaceChoice>
   );
 }
 
@@ -598,27 +425,18 @@ function CloudflareSteps({ continuing }: { continuing: boolean }) {
 
 function SpaceChoice({
   title,
-  badge,
   details,
   action,
   children,
 }: {
   title: string;
-  badge?: string;
   details?: ReactNode;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="grid gap-2 rounded-lg border border-bolt-elements-borderColor p-4">
-      <h2 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-content-primary">
-        {title}
-        {badge ? (
-          <span className="rounded-full border border-bolt-elements-borderColor px-2 py-0.5 text-xs font-medium text-content-tertiary">
-            {badge}
-          </span>
-        ) : null}
-      </h2>
+      <h2 className="text-sm font-semibold text-content-primary">{title}</h2>
       <p className="wrap-break-word text-sm text-content-secondary">{children}</p>
       {details}
       {action ? <div>{action}</div> : null}

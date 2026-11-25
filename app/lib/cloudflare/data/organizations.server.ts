@@ -3,11 +3,10 @@ import { sha256Hex, bytesToBase64Url } from '~/lib/hex-digest';
 import {
   draftsAllowed,
   findMembership,
-  runsTeam,
+  isActiveAdmin,
   storedProjectIds,
   type Membership,
   type OrganizationRole,
-  type SpaceHosting,
 } from './organization-access.server';
 
 /** An invite works once, for a week: long enough to pass on, short enough not to linger. */
@@ -50,9 +49,7 @@ type PendingInvite = {
 };
 
 type OrganizationSummary = Membership & {
-  /** Who runs the Cloudflare account it builds in: the space, with one of its own, or CloudChef. */
-  hosting: SpaceHosting;
-  /** The person it was made for (their own Cloudflare account, or their subscription), who stays its admin. */
+  /** The person it was made for (their own Cloudflare account), who stays its admin. */
   ownerUserId: string | null;
   /** The space's Cloudflare account, once an admin has connected it. */
   connection: { accountName: string | null; active: boolean } | null;
@@ -123,9 +120,9 @@ export async function createOrganization(db: D1Database, userId: string, name: s
       .prepare(
         `INSERT INTO organizations (id, name, created_by, created_at, updated_at)
          SELECT ?1, ?2, ?3, ?4, ?4
-         -- The space made for them, and one CloudChef runs for them, are not among the spaces they made.
+         -- The space made for them is not among the spaces they made.
          WHERE (SELECT COUNT(*) FROM organizations
-                WHERE created_by = ?3 AND personal_user_id IS NULL AND managed_host_org_id IS NULL) < ?5
+                WHERE created_by = ?3 AND personal_user_id IS NULL) < ?5
            AND (SELECT COUNT(*) FROM organization_quota_events
                 WHERE user_id = ?3 AND kind = 'team' AND created_at > ?6) < ?5`,
       )
@@ -181,11 +178,8 @@ export async function prepareOrganizationDeletion(
     .bind(args.orgId)
     .all<{ user_id: string }>();
   const memberIds = results.map((row) => row.user_id);
-  if (membership.managed) {
-    throw new OrganizationError(MANAGED_SPACE_ENDS_WITH_SUBSCRIPTION, 409);
-  }
   const soleMember = memberIds.length === 1 && memberIds[0] === args.actorId;
-  if (!soleMember && !runsTeam(membership)) {
+  if (!soleMember && !isActiveAdmin(membership)) {
     throw new OrganizationError("Only a space's admin can delete it.", 403);
   }
 }
@@ -212,14 +206,10 @@ export async function organizationWorkspaceOwners(
   return results.map((row) => ({ userId: row.user_id, reachable: row.reachable === 1 }));
 }
 
-/** A space CloudChef runs lasts as long as its subscription: its subscriber neither deletes nor leaves it. */
-const MANAGED_SPACE_ENDS_WITH_SUBSCRIPTION =
-  'This space lasts as long as your subscription. To end it, cancel the subscription in Settings.';
-
 /** Whoever runs the team `orgId`: one of its admins who isn't paused. Throws for anyone else. */
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
-  if (!membership || !runsTeam(membership)) {
+  if (!membership || !isActiveAdmin(membership)) {
     throw new OrganizationError("Only a space's admin can do that.", 403);
   }
   return membership;
@@ -255,9 +245,6 @@ export async function createInvite(
   },
 ): Promise<{ token: string; expiresAt: number }> {
   const now = Date.now();
-  if (args.role === 'admin' && (await findMembership(db, args.orgId, args.invitedBy))?.managed !== false) {
-    throw new OrganizationError('A space CloudChef runs is run by the person who subscribes to it.', 409);
-  }
   const limitValues = [args.orgId, now, now - 24 * 60 * 60_000, args.email, args.invitedBy] as const;
   const projectIds = await orgProjectIds(db, args.orgId, args.projectIds ?? []);
   const token = bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)));
@@ -531,11 +518,7 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
     .prepare(
       `SELECT members.org_id, organizations.name AS org_name, members.role, members.paused_at,
               members.drafts_allowed, connections.account_name, connections.status AS connection_status,
-              organizations.managed_host_org_id IS NOT NULL AS managed,
-              COALESCE(organizations.personal_user_id, (
-                SELECT subscriptions.user_id FROM managed_subscriptions AS subscriptions
-                WHERE subscriptions.space_org_id = organizations.id
-              )) AS owner_user_id
+              organizations.personal_user_id AS owner_user_id
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        LEFT JOIN cloudflare_connections AS connections ON connections.org_id = members.org_id
@@ -552,21 +535,18 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
       drafts_allowed: number;
       account_name: string | null;
       connection_status: string | null;
-      managed: number;
       owner_user_id: string | null;
     }>();
   const now = Date.now();
   return Promise.all(
     results.map(async (row) => {
-      const admin = runsTeam({ role: row.role, pausedAt: row.paused_at });
+      const admin = isActiveAdmin({ role: row.role, pausedAt: row.paused_at });
       return {
         orgId: row.org_id,
         orgName: row.org_name,
         role: row.role,
         pausedAt: row.paused_at,
         draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
-        managed: row.managed === 1,
-        hosting: row.managed === 1 ? 'cloudchef' : 'own',
         ownerUserId: row.owner_user_id,
         connection:
           row.connection_status === null
@@ -664,15 +644,6 @@ export async function updateMember(
   const target = await findMembership(db, args.orgId, args.userId);
   if (!target) {
     throw new OrganizationError('That person is not in this space.', 404);
-  }
-  if (target.managed) {
-    // The space has one person running it, its subscriber, for as long as they subscribe.
-    if (args.action === 'make_admin' || args.action === 'make_member') {
-      throw new OrganizationError('A space CloudChef runs is run by the person who subscribes to it.', 409);
-    }
-    if (target.role === 'admin') {
-      throw new OrganizationError(MANAGED_SPACE_ENDS_WITH_SUBSCRIPTION, 409);
-    }
   }
   // A space made for one person builds in their own Cloudflare account, whose owner their workspace answers as:
   // they stay its admin for as long as it lasts, and end it by deleting it.

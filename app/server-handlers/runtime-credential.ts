@@ -1,7 +1,4 @@
-import { findMembership, isActiveAdmin, type Membership } from '~/lib/cloudflare/data/organization-access.server';
-import { billingConfig } from '~/lib/.server/billing/stripe';
-import { allowanceUsed, spaceUsage } from '~/lib/cloudflare/data/managed-subscriptions.server';
-import { ALLOWANCE_USED_MESSAGE } from '~/lib/managed-space';
+import { findMembership, isActiveAdmin } from '~/lib/cloudflare/data/organization-access.server';
 import { readAiGatewayContentLogging } from '~/lib/cloudflare/data/ai-gateway-logging.server';
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
@@ -27,18 +24,14 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
   // A member who only works on GitHub projects reaches production through GitHub alone: their
   // workspace is never handed the space's Cloudflare authorization.
   const membership = await findMembership(args.env.DB, authenticated.connection.orgId, identity.userId);
-  {
-    if (!membership?.draftsAllowed) {
-      return credentialResponse(
-        {
-          code: 'cloudflare_token_withheld',
-          error: membership?.managed
-            ? 'Here you can work on the projects you were given only.'
-            : 'This space lets you work on the projects you were given only.',
-        },
-        403,
-      );
-    }
+  if (!membership?.draftsAllowed) {
+    return credentialResponse(
+      {
+        code: 'cloudflare_token_withheld',
+        error: 'This space lets you work on the projects you were given only.',
+      },
+      403,
+    );
   }
   try {
     const accessToken = await D1CloudflareCredentialVault.fromEnv(args.env).resolve(authenticated.credentialHandle, {
@@ -51,22 +44,17 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
   }
 }
 
-const runtimeUsageRequestSchema = z.union([
-  z
-    .object({
-      inputTokens: z.number().int().min(0).max(100_000_000),
-      outputTokens: z.number().int().min(0).max(100_000_000),
-      cachedTokens: z.number().int().min(0).max(100_000_000),
-    })
-    .strict(),
-  // A stretch of the workspace container's running time: at most a day, however late it is reported.
-  z.object({ containerSeconds: z.number().int().min(0).max(86_400) }).strict(),
-]);
+const runtimeUsageRequestSchema = z
+  .object({
+    inputTokens: z.number().int().min(0).max(100_000_000),
+    outputTokens: z.number().int().min(0).max(100_000_000),
+    cachedTokens: z.number().int().min(0).max(100_000_000),
+  })
+  .strict();
 
 /**
- * A workspace runtime reporting one finished model turn's token counts, or how long its workspace
- * container has run since it last said. Recorded only for an organization's account, where admins see
- * each member's use and a space CloudChef runs is held to its allowance; counts only, never content.
+ * A workspace runtime reporting one finished model turn's token counts. Recorded only for an
+ * organization's account, where admins see each member's use; counts only, never content.
  */
 export async function runtimeUsageAction(args: { request: Request; env: Env }): Promise<Response> {
   const authenticated = await readAuthenticatedRuntimeRequest(args.env, args.request, runtimeUsageRequestSchema, {
@@ -80,27 +68,17 @@ export async function runtimeUsageAction(args: { request: Request; env: Env }): 
   const { body, identity } = authenticated;
   const orgId = authenticated.connection.orgId;
   const day = new Date().toISOString().slice(0, 10);
-  if ('containerSeconds' in body) {
-    await args.env.DB.prepare(
-      `INSERT INTO organization_usage_daily (org_id, user_id, day, container_seconds) VALUES (?, ?, ?, ?)
-       ON CONFLICT(org_id, user_id, day) DO UPDATE SET
-         container_seconds = container_seconds + excluded.container_seconds`,
-    )
-      .bind(orgId, identity.userId, day, body.containerSeconds)
-      .run();
-  } else {
-    await args.env.DB.prepare(
-      `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
-       VALUES (?, ?, ?, 1, ?, ?, ?)
-       ON CONFLICT(org_id, user_id, day) DO UPDATE SET
-         turns = turns + 1,
-         input_tokens = input_tokens + excluded.input_tokens,
-         output_tokens = output_tokens + excluded.output_tokens,
-         cached_tokens = cached_tokens + excluded.cached_tokens`,
-    )
-      .bind(orgId, identity.userId, day, body.inputTokens, body.outputTokens, body.cachedTokens)
-      .run();
-  }
+  await args.env.DB.prepare(
+    `INSERT INTO organization_usage_daily (org_id, user_id, day, turns, input_tokens, output_tokens, cached_tokens)
+     VALUES (?, ?, ?, 1, ?, ?, ?)
+     ON CONFLICT(org_id, user_id, day) DO UPDATE SET
+       turns = turns + 1,
+       input_tokens = input_tokens + excluded.input_tokens,
+       output_tokens = output_tokens + excluded.output_tokens,
+       cached_tokens = cached_tokens + excluded.cached_tokens`,
+  )
+    .bind(orgId, identity.userId, day, body.inputTokens, body.outputTokens, body.cachedTokens)
+    .run();
   return new Response(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
 }
 
@@ -132,45 +110,9 @@ export async function runtimeAccessAction(args: { request: Request; env: Env }):
       aiGatewayContentLogging: await readAiGatewayContentLogging(args.env.DB, identity.userId),
       // Who the person is, as the commits made in their name say.
       member: await memberIdentity(args.env.DB, identity.userId),
-      modelRefusal:
-        membership && !isActiveAdmin(membership)
-          ? await allowanceRefusal(args.env, authenticated.connection.id, membership, identity.userId)
-          : null,
     },
     { headers: { 'Cache-Control': 'no-store' } },
   );
-}
-
-/**
- * Why someone can't make another model request this month: the allowance is used up, and any credit bought. A space CloudChef runs
- * has one allowance for everyone in it; in the host team, where spaces were first given as memberships, each
- * member has their own. Null for any other team, and while there is allowance left.
- */
-async function allowanceRefusal(
-  env: Env,
-  connectionId: string,
-  membership: Membership,
-  userId: string,
-): Promise<string | null> {
-  if (!membership.managed && billingConfig(env)?.managedOrgId !== membership.orgId) {
-    return null;
-  }
-  const usage = await spaceUsage(env.DB, connectionId, membership.orgId, membership.managed ? null : userId);
-  if (!allowanceUsed(usage)) {
-    return null;
-  }
-  const resets = new Date(usage.resetsAt).toLocaleDateString('en-US', {
-    month: 'long',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-  // Credit is bought by whoever subscribes to the space: its admin.
-  const next = !membership.managed
-    ? `It starts again on ${resets}.`
-    : membership.role === 'admin'
-      ? `Add credit in Settings to keep building now, or wait until it starts again on ${resets}.`
-      : `Whoever runs the space can add credit in Settings, or it starts again on ${resets}.`;
-  return `${ALLOWANCE_USED_MESSAGE}. ${next} What you published keeps running.`;
 }
 
 /**

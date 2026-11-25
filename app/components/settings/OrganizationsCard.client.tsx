@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { MANAGED_SPACE_MONTHLY_ALLOWANCE_USD, MANAGED_SPACE_MONTHLY_PRICE_USD, usd } from '~/lib/managed-space';
 import { PlusIcon } from '@radix-ui/react-icons';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
@@ -25,8 +24,7 @@ const organizationsSchema = z.object({
       role: roleSchema,
       pausedAt: z.number().nullable(),
       // Who runs the Cloudflare account it builds in: the space, with one of its own, or CloudChef.
-      hosting: z.enum(['own', 'cloudchef']),
-      // The person it was made for (their own Cloudflare account, or their subscription), who stays its admin.
+      // The person it was made for (their own Cloudflare account), who stays its admin.
       ownerUserId: z.string().nullable(),
       connection: z.object({ accountName: z.string().nullable(), active: z.boolean() }).nullable(),
       members: z
@@ -298,8 +296,6 @@ function OrganizationRow({
   const connection = organization.connection;
   const projects = organization.projects;
   const people = (organization.members?.length ?? 0) + (organization.invites?.length ?? 0);
-  // CloudChef runs its Cloudflare account: nobody in the space connects it, and it ends with its subscription.
-  const hosted = organization.hosting === 'cloudchef';
   // Made for this person: it is theirs, whoever else is in it.
   const mine = myUserId !== null && organization.ownerUserId === myUserId;
   // Alone in it, with nobody invited: there are no people to list yet.
@@ -346,9 +342,7 @@ function OrganizationRow({
           <StatusBadge tone={organization.pausedAt ? 'warning' : 'neutral'}>
             {organization.pausedAt ? 'Paused' : organization.role !== 'admin' ? 'Member' : mine ? 'Yours' : 'Admin'}
           </StatusBadge>
-          {hosted ? (
-            <StatusBadge tone="success">Run by CloudChef</StatusBadge>
-          ) : connection === null ? (
+          {connection === null ? (
             <StatusBadge tone="warning">No Cloudflare account</StatusBadge>
           ) : connection.active ? (
             <StatusBadge tone="success">{connection.accountName ?? 'Cloudflare connected'}</StatusBadge>
@@ -361,7 +355,7 @@ function OrganizationRow({
             ) : connectionId ? (
               <OpenButton connectionId={connectionId} />
             ) : null}
-            {admin && !hosted && !connection?.active ? (
+            {admin && !connection?.active ? (
               <Button size="xs" variant="primary" onClick={connectCloudflare}>
                 Connect Cloudflare
               </Button>
@@ -369,19 +363,14 @@ function OrganizationRow({
             {admin ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
                 <MenuItem action={() => setRenaming(true)}>Rename space</MenuItem>
-                {/* A space CloudChef runs has no account of its own to reconnect, and ends with its subscription. */}
-                {hosted ? null : (
-                  <>
-                    {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
-                    {connection?.active ? (
-                      <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
-                    ) : null}
-                    <MenuSeparator />
-                    <MenuItem danger action={() => setDialog('delete')}>
-                      Delete space
-                    </MenuItem>
-                  </>
-                )}
+                {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
+                {connection?.active ? (
+                  <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
+                ) : null}
+                <MenuSeparator />
+                <MenuItem danger action={() => setDialog('delete')}>
+                  Delete space
+                </MenuItem>
               </MoreMenu>
             ) : myUserId ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
@@ -407,9 +396,8 @@ function OrganizationRow({
             </div>
             {alone ? (
               <p className="text-xs text-content-tertiary">
-                {hosted
-                  ? `Only you so far. Invite someone to build here with you: each person adds ${usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month to your subscription once they join, and ${usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the building you share.`
-                  : 'Only you so far. Invite someone to build here with you, in this Cloudflare account. Nothing to pay CloudChef for them.'}
+                Only you so far. Invite someone to build here with you, in this Cloudflare account. Nothing to pay
+                CloudChef for them.
               </p>
             ) : null}
             <ul
@@ -424,7 +412,6 @@ function OrganizationRow({
                   member={member}
                   projects={projects}
                   self={member.userId === myUserId}
-                  hosted={hosted}
                   owner={member.userId === organization.ownerUserId}
                   onChanged={onChanged}
                   onFeedback={setPeopleFeedback}
@@ -496,7 +483,6 @@ function InviteDialog({
   onClose: () => void;
 }) {
   const projects = organization.projects;
-  const hosted = organization.hosting === 'cloudchef';
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'member' | 'admin'>('member');
   // The projects a new member gets: every project until the admin unticks some.
@@ -589,23 +575,18 @@ function InviteDialog({
               onChange={(event) => setEmail(event.target.value)}
               className="min-w-0 flex-1 basis-48"
             />
-            {/* A space CloudChef runs has one person running it: everyone invited is a member. */}
-            {hosted ? null : (
-              <select
-                aria-label="Role"
-                value={role}
-                onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
-                className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
-              >
-                <option value="member">Member</option>
-                <option value="admin">Admin</option>
-              </select>
-            )}
+            <select
+              aria-label="Role"
+              value={role}
+              onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
+              className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
           </div>
           <p className="text-xs text-content-secondary">
-            {hosted
-              ? `When they join, ${usd(MANAGED_SPACE_MONTHLY_PRICE_USD)} a month is added to your subscription for them, charged for the rest of this month first, and ${usd(MANAGED_SPACE_MONTHLY_ALLOWANCE_USD)} a month to the building you all share. Removing them takes it off again. A space on a Cloudflare account of your own costs nothing here for its people.`
-              : 'They build in this space’s Cloudflare account, which Cloudflare bills. Nothing to pay CloudChef for them.'}
+            They build in this space’s Cloudflare account, which Cloudflare bills. Nothing to pay CloudChef for them.
           </p>
           {role === 'member' ? (
             <>
@@ -874,7 +855,6 @@ function MemberRow({
   member,
   projects,
   self,
-  hosted,
   owner,
   onChanged,
   onFeedback,
@@ -885,8 +865,6 @@ function MemberRow({
   projects: OrgProject[];
   /** The admin's own row: no pausing themselves, a confirmed step down, and removal is leaving. */
   self: boolean;
-  /** In a space CloudChef runs: its subscriber is the one who runs it, so no roles change. */
-  hosted: boolean;
   /** The person the space was made for: they stay its admin, so nothing about them changes here. */
   owner: boolean;
   onChanged: () => Promise<void>;
@@ -983,17 +961,15 @@ function MemberRow({
               {member.draftsAllowed ? 'Stop new apps of their own' : 'Allow new apps of their own'}
             </MenuItem>
           ) : null}
-          {hosted ? null : (
-            <MenuItem
-              action={() =>
-                member.role === 'admin' && self
-                  ? setConfirming('make_member')
-                  : void act(member.role === 'admin' ? 'make_member' : 'make_admin')
-              }
-            >
-              {member.role === 'admin' ? 'Make member' : 'Make admin'}
-            </MenuItem>
-          )}
+          <MenuItem
+            action={() =>
+              member.role === 'admin' && self
+                ? setConfirming('make_member')
+                : void act(member.role === 'admin' ? 'make_member' : 'make_admin')
+            }
+          >
+            {member.role === 'admin' ? 'Make member' : 'Make admin'}
+          </MenuItem>
           <MenuSeparator />
           <MenuItem danger action={() => setConfirming('remove')}>
             {self ? 'Leave space' : 'Remove from space'}

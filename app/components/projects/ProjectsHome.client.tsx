@@ -9,7 +9,6 @@ import {
   DownloadIcon,
   EyeOpenIcon,
   GitHubLogoIcon,
-  GlobeIcon,
   ImageIcon,
   LockClosedIcon,
   LockOpen1Icon,
@@ -56,7 +55,6 @@ import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } 
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 import { loadSharedWithMe, type SharedProject, type SharedWithMe } from '~/lib/cloudflare/project-sharing.client';
 import { ConnectCloudflareButton } from '~/components/showcase/ConnectCloudflareButton';
-import { DomainsDialog } from './DomainsDialog.client';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
 
@@ -64,7 +62,6 @@ type OpenDialog =
   | { kind: 'history'; project: ProjectRef; name: string; canRevert: boolean }
   | { kind: 'clone'; project: ProjectRef; name: string; fullName: string | null }
   | { kind: 'share'; project: { id: string; name: string } }
-  | { kind: 'domains'; project: { id: string; name: string } }
   | { kind: 'import' }
   | { kind: 'upload' }
   | { kind: 'copy'; project: { id: string; name: string } }
@@ -91,14 +88,12 @@ export function ProjectsHome() {
   // Only whoever runs a space imports, since its projects are theirs to add.
   const canImport = context === null || context.role === 'admin';
   // Back from installing the GitHub App: the import dialog opens again, and the address forgets the visit.
-  // Back from buying a domain: the project's Domains dialog opens, where the purchase shows.
   const [dialog, setDialog] = useState<OpenDialog | null>(() =>
-    isImportReturn(window.location.search) ? { kind: 'import' } : domainsDialogAsked(window.location.search),
+    isImportReturn(window.location.search) ? { kind: 'import' } : null,
   );
   useEffect(() => {
-    if (isImportReturn(window.location.search) || domainsDialogAsked(window.location.search)) {
+    if (isImportReturn(window.location.search)) {
       const url = new URL(window.location.href);
-      url.searchParams.delete(DOMAINS_RETURN_PARAM);
       url.searchParams.delete(IMPORT_RETURN_PARAM);
       // A connection made: the dialog shows it in its list, so the return's note isn't kept in the address.
       url.searchParams.delete('github_message');
@@ -146,7 +141,6 @@ export function ProjectsHome() {
       {dialog?.kind === 'share' ? (
         <ShareProjectDialog project={dialog.project} onClose={() => setDialog(null)} />
       ) : null}
-      {dialog?.kind === 'domains' ? <DomainsDialog project={dialog.project} onClose={() => setDialog(null)} /> : null}
       {dialog?.kind === 'import' ? (
         <ImportFromGitHubDialog
           orgId={context?.orgId ?? null}
@@ -227,14 +221,6 @@ export function ProjectsHome() {
 type Reauthorization = 'prompt' | null;
 
 /** One quiet control for bringing in code made elsewhere: from GitHub, or a ZIP. */
-const DOMAINS_RETURN_PARAM = 'domains';
-
-/** The Domains dialog of the project the address asks for (`?domains=<project id>`), or null. */
-function domainsDialogAsked(search: string): OpenDialog | null {
-  const id = new URLSearchParams(search).get(DOMAINS_RETURN_PARAM);
-  return id && /^[0-9a-f-]{36}$/i.test(id) ? { kind: 'domains', project: { id, name: 'Your project' } } : null;
-}
-
 function AddProjectMenu({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
   return (
     <Menu
@@ -577,8 +563,6 @@ function ConnectionProjectCard({
   onDialog: (dialog: OpenDialog) => void;
 }) {
   const ref = { orgProjectId: project.id };
-  const context = authClient.useSession().data?.context ?? null;
-  const managedSpace = context?.hosting === 'cloudchef';
   const deployment = project.deployment ?? null;
   const wantedWorker = deployment?.state === 'succeeded' ? deployment.wantedWorkerName : null;
   const deploy: CardDeploy | undefined = !isCloudChef(project)
@@ -588,17 +572,16 @@ function ConnectionProjectCard({
           state: deployment.state,
           reason: deployment.reason ?? null,
           retrying: connection.retrying === project.id,
-          onUseWantedWorker:
-            ownsAccount && !managedSpace
-              ? () =>
-                  onDialog({
-                    kind: 'use-wanted-worker',
-                    project,
-                    deploymentId: deployment.id,
-                    workerName: wantedWorker,
-                    connection,
-                  })
-              : undefined,
+          onUseWantedWorker: ownsAccount
+            ? () =>
+                onDialog({
+                  kind: 'use-wanted-worker',
+                  project,
+                  deploymentId: deployment.id,
+                  workerName: wantedWorker,
+                  connection,
+                })
+            : undefined,
         }
       : deployment?.state !== 'failed'
         ? {
@@ -682,13 +665,6 @@ function ConnectionProjectCard({
             <MenuItem action={() => onDialog({ kind: 'share', project: { id: project.id, name: project.name } })}>
               <PersonIcon />
               Share
-            </MenuItem>
-          ) : null}
-          {/* A space CloudChef runs can't change its Cloudflare account, so its domains are asked for here. */}
-          {project.canManage && managedSpace ? (
-            <MenuItem action={() => onDialog({ kind: 'domains', project: { id: project.id, name: project.name } })}>
-              <GlobeIcon />
-              Domains
             </MenuItem>
           ) : null}
           <PublicAndCopyItems

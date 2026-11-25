@@ -37,7 +37,7 @@ Showcase builds after that item, so it has one kind of project and one "publish 
 
 ## The amended invariant
 
-After the managed-spaces amendment (`managed-spaces.md`), add:
+Add:
 
 > Exception, showcase media only: a screenshot or short video of a public project's live site, taken or uploaded when
 > it is posted, is stored in CloudChef's own R2 and served by CloudChef, and the screenshot is taken by Browser
@@ -199,7 +199,7 @@ maintain. Alternative: Cloudflare Stream for transcoding and adaptive playback, 
 long or many.
 
 **Storage.** CloudChef's R2, settled by the owner. Consequences: posts survive the author disconnecting their
-Cloudflare account or a managed space running out of credit (the live-site link may stop working, and the post says
+Cloudflare account (the live-site link may stop working, and the post says
 "This site is offline" after a failed check); deletion follows the post, the project going private, and account
 erasure (`app/server-handlers/account-deletion.ts`), and media is included in the account export
 (`app/server-handlers/account-export.ts`). Media is served from `media.cloudchef.build` (an R2 custom domain) with
@@ -234,8 +234,7 @@ until an admin hides them.
 
 The post's "Make a copy" opens the existing `CopyProjectDialog` (`POST /api/projects/copy`), which copies into the
 signed-in person's space. A visitor who is not signed in is asked to sign in first; a signed-in person with no space
-is offered one (their own Cloudflare account, or a managed space, `managed-spaces.md`). Until managed spaces exist,
-people without a Cloudflare account or a team can view but not copy, and the button says "Sign in with Cloudflare to
+is offered one (their own Cloudflare account). People without a Cloudflare account or a team can view but not copy, and the button says "Sign in with Cloudflare to
 make your own copy".
 
 ## Notifications
@@ -258,8 +257,7 @@ Email for anything else: none at first; a weekly email summary later, off by def
   automatically pending review.
 - **Takedown**: an operator page `/reports` (operator user ids in an environment variable, not a role in D1) lists open
   reports with the post, screenshot and site; actions: dismiss; remove post (`status = 'removed'`, media deleted,
-  author notified); pause the person's showcase (`showcase_paused_at`); for a managed space, suspend it
-  (`managed-spaces.md`). `scripts/ops-report.mjs` counts open reports.
+  author notified); pause the person's showcase (`showcase_paused_at`). `scripts/ops-report.mjs` counts open reports.
 - **Phishing sites in the feed**: on each automatic post and each screenshot refresh, the site URL is submitted to
   Cloudflare's URL Scanner from CloudChef's account; a malicious verdict holds the post. A post's site link goes
   through an interstitial only when the post has open reports.
@@ -356,7 +354,7 @@ No workspace runtime change, so no runtime upgrade.
 | Likes                                            | Yes, count public, likers visible to the author only   | Gives the post its familiar feel without a public popularity list / no likes, calmer                                     |
 | Comments                                         | Not now                                                | Moderation cost / add later with the same report path                                                                    |
 | Explore without sign-in                          | Yes, it lists the same public posts                    | Pages are public anyway / keep Explore signed-in only                                                                    |
-| Copy for people with no space                    | Offer a managed space (after managed spaces ship)      | Copies need an account to land in / view only until then                                                                 |
+| Copy for people with no space                    | None: CloudChef hosts nobody in its own account        | Copies need an account to land in / view only until then                                                                 |
 | Operator moderation                              | Operator ids in an environment variable                | No admin role in D1 to protect / a `user.is_operator` column                                                             |
 
 ## Risks

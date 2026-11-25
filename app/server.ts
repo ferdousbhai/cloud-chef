@@ -37,7 +37,6 @@ import {
   commandLineVisibilityAction,
   commandLineCopyProjectAction,
 } from './server-handlers/command-line';
-import { managedSpaceWaitlistAction, updateManagedSpaceWaitlistAction } from './server-handlers/managed-space-waitlist';
 import { moveRequestsAction, saveMoveRequestAction, withdrawMoveRequestAction } from './server-handlers/move-requests';
 import {
   commandLineRewriteMainAction,
@@ -110,22 +109,6 @@ import {
   switchProjectWorkersBuildsAction,
 } from './server-handlers/projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
-import {
-  BILLING_RETURN_PATH,
-  billingPortalAction,
-  buyCreditAction,
-  billingStatusAction,
-  completeCheckoutAction,
-  startCheckoutAction,
-  stripeWebhookAction,
-} from './server-handlers/billing';
-import {
-  buyDomainAction,
-  connectDomainAction,
-  listDomainsAction,
-  removeDomainAction,
-  searchDomainsAction,
-} from './server-handlers/space-domains';
 import { exportAccountAction } from './server-handlers/account-export';
 import {
   deleteProjectAction,
@@ -316,19 +299,6 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/command-line/runs/rerun': ['POST', commandLineRerunAction],
     '/api/command-line/user': ['GET', commandLineUserAction],
     '/api/profile/username': ['POST', setUsernameAction],
-    '/api/managed-spaces/waitlist': ['GET', managedSpaceWaitlistAction],
-    '/api/managed-spaces/waitlist/update': ['POST', updateManagedSpaceWaitlistAction],
-    '/api/domains': ['GET', listDomainsAction],
-    '/api/domains/connect': ['POST', connectDomainAction],
-    '/api/domains/remove': ['POST', removeDomainAction],
-    '/api/domains/search': ['GET', searchDomainsAction],
-    '/api/domains/buy': ['POST', buyDomainAction],
-    '/api/billing': ['GET', billingStatusAction],
-    '/api/billing/checkout': ['POST', startCheckoutAction],
-    '/api/billing/credit': ['POST', buyCreditAction],
-    [BILLING_RETURN_PATH]: ['GET', completeCheckoutAction],
-    '/api/billing/portal': ['POST', billingPortalAction],
-    '/api/billing/webhook': ['POST', stripeWebhookAction],
     '/api/move-requests': ['GET', moveRequestsAction],
     '/api/move-requests/save': ['POST', saveMoveRequestAction],
     '/api/move-requests/withdraw': ['POST', withdrawMoveRequestAction],

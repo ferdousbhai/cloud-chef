@@ -28,10 +28,8 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
   const [error, setError] = useState<string | null>(initialError);
   // Attaching a Cloudflare login to a Google or emailed-link account asks for a recent sign-in first.
   const [reauthenticateReason, setReauthenticateReason] = useState<string | null>(null);
-  // In a space CloudChef runs the account is CloudChef's: nobody in the space connects or reauthorizes it.
-  const managed = organization?.hosting === 'cloudchef';
-  // Whoever runs a space with a Cloudflare account of its own connects and reauthorizes it.
-  const admin = organization?.role === 'admin' && !managed;
+  // Whoever runs a space connects and reauthorizes its Cloudflare account.
+  const admin = organization?.role === 'admin';
   // Anyone else can't change the space's connection; they may connect a Cloudflare account of their own, which
   // becomes a space of theirs.
   const offersOwnAccount = organization !== null && !admin && !session?.contexts.some((option) => option.personal);
@@ -97,11 +95,7 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
     <SettingsCard
       id="cloudflare"
       title="Cloudflare account"
-      description={
-        managed
-          ? 'Where your projects build and run. CloudChef runs this account; your subscription covers it.'
-          : 'Where your projects build and run. Cloudflare bills this account.'
-      }
+      description="Where your projects build and run. Cloudflare bills this account."
       action={action}
     >
       <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-bolt-elements-borderColor px-3 py-2.5">
@@ -110,10 +104,10 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
         </span>
         {loading ? null : connection ? (
           <StatusBadge tone="success">
-            {managed ? 'Run by CloudChef' : organization && !admin ? `Managed by ${organization.orgName}` : 'Connected'}
+            {organization && !admin ? `Managed by ${organization.orgName}` : 'Connected'}
           </StatusBadge>
         ) : organization ? (
-          <StatusBadge>{managed ? 'Run by CloudChef' : `Managed by ${organization.orgName}`}</StatusBadge>
+          <StatusBadge>{`Managed by ${organization.orgName}`}</StatusBadge>
         ) : (
           <StatusBadge tone="warning">Not connected</StatusBadge>
         )}

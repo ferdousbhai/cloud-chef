@@ -4,7 +4,6 @@ const mocks = vi.hoisted(() => ({
   clearAuthSessionCookie: vi.fn(() => 'cloudchef_session=; Path=/; HttpOnly; Max-Age=0'),
   getAuthSession: vi.fn(),
   eraseControlPlaneAccount: vi.fn(),
-  cancelSubscriptionForErasure: vi.fn(async () => true),
 }));
 
 vi.mock('~/lib/.server/auth', () => ({
@@ -61,7 +60,6 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({
       request: deletionRequest(validBody),
       env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
     });
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({ error: 'Make someone else an admin of your team first.' });
@@ -71,7 +69,6 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({
       request: deletionRequest(validBody),
       env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
     });
 
     expect(response.status).toBe(200);
@@ -83,18 +80,6 @@ describe('deleteAccountAction', () => {
     expect(response.headers.get('set-cookie')).toContain('Max-Age=0');
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(mocks.eraseControlPlaneAccount).toHaveBeenCalledWith({ env, userId: 'user-1' });
-  });
-
-  it('erases nothing while a subscription could not be cancelled at Stripe', async () => {
-    mocks.getAuthSession.mockResolvedValue(freshSession());
-    mocks.cancelSubscriptionForErasure.mockResolvedValueOnce(false);
-    const response = await deleteAccountAction({
-      request: deletionRequest(validBody),
-      env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
-    });
-    expect(response.status).toBe(502);
-    expect(mocks.eraseControlPlaneAccount).not.toHaveBeenCalled();
   });
 
   it('rejects a cross-origin request', async () => {
@@ -113,7 +98,6 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({
       request: deletionRequest(validBody),
       env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
     });
 
     expect(response.status).toBe(401);
@@ -126,7 +110,6 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({
       request: deletionRequest(validBody),
       env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
     });
 
     expect(response.status).toBe(401);
@@ -143,7 +126,6 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({
       request: deletionRequest(body),
       env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
     });
 
     expect(response.status).toBe(400);
@@ -159,7 +141,6 @@ describe('deleteAccountAction', () => {
     const response = await deleteAccountAction({
       request: deletionRequest(validBody),
       env,
-      cancelSubscription: mocks.cancelSubscriptionForErasure,
     });
 
     await expect(response.json()).resolves.toEqual({

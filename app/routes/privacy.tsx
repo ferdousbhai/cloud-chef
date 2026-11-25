@@ -27,12 +27,6 @@ function PrivacyPage() {
         <ul>
           <li>your sign-in identity: Cloudflare, Google, or a verified email address</li>
           <li>your Cloudflare account details, if you connect one</li>
-          <li>when you joined the waitlist for a space CloudChef runs, if you did, until you leave it</li>
-          <li>
-            your subscription to a space CloudChef runs, if you have one: the customer and subscription numbers Stripe
-            gave it, whether it is in a free period, active or ended, and the dates of its current period. Your card is
-            given to Stripe on Stripe&apos;s own page; CloudChef never receives or stores it
-          </li>
           <li>
             each site you asked to have moved (on <Link to="/move">Move your site</Link>): its address, the platform you
             chose, your note if you left one, and when you asked, until you withdraw the request or erase your account
@@ -156,29 +150,6 @@ function PrivacyPage() {
           nothing is sent back to GitHub. When a member asks for a draft to become one of the space’s projects, the
           draft&apos;s own repository, already in the space&apos;s account, becomes the project if an admin approves it.
           GitHub&apos;s own terms and privacy statement govern repositories on GitHub.
-        </p>
-      </TrustSection>
-
-      <TrustSection title="A space CloudChef runs">
-        <p>
-          A space CloudChef runs is a space of your own that builds in a Cloudflare account belonging to
-          CloudChef&apos;s operator, so what the Spaces section says holds with you running the space and the operator
-          administering the account. Your chats, transcripts, project files, and deployed applications are stored in the
-          operator&apos;s Cloudflare account, and the operator can read them, including the AI Gateway logs of your
-          model requests unless you turned that logging off in Settings. People with other spaces there cannot open your
-          projects or your workspace. People you invite into your space build in it too: you can see and change the
-          projects they make there, as a space&apos;s admin can, and they see the projects you give them. The operator
-          looks at a space&apos;s contents only to keep the service running, to help when you ask, to stop abuse, or
-          where law requires it.
-        </p>
-        <p>
-          The operator counts the tokens of builder turns and the time workspaces run in a space, never their content,
-          to hold each space to its monthly building allowance. Stripe, Inc. processes the payment as its own page
-          collects it: your card, billing address, and email address go to Stripe under Stripe&apos;s privacy policy,
-          and Stripe tells CloudChef only whether the subscription is in a free period, paid, or ended, and when
-          building credit was paid for and how much. When you buy a domain through CloudChef, the name, address, email
-          address and phone number you give on Stripe&apos;s page are sent to Cloudflare Registrar and the domain&apos;s
-          registry as the domain&apos;s registrant; CloudChef passes them on and does not keep them.
         </p>
       </TrustSection>
 
@@ -359,10 +330,6 @@ function PrivacyPage() {
           <li>your project requests in a space, and GitHub connections you started</li>
           <li>the sites you asked to have moved</li>
           <li>
-            your subscription record, after the subscription itself is cancelled at Stripe so that nothing more is
-            charged; Stripe keeps its own record of past payments under its policy
-          </li>
-          <li>
             the records of when you sent space invites and created spaces, so a space&apos;s daily invite limit stops
             counting the invites you sent
           </li>
@@ -398,7 +365,6 @@ function PrivacyPage() {
           <li>GitHub connections you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
           <li>the sites you asked to have moved</li>
-          <li>your subscription to a space CloudChef runs, without the numbers Stripe gave it</li>
         </ul>
         <p>
           Encrypted credential material, initialisation vectors, credential handles, session token hashes, and the

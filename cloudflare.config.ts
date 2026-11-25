@@ -82,38 +82,11 @@ export default defineConfig({
       // Who may decide reports at /reports: comma-separated CloudChef user ids. Changed by a release, never in the
       // dashboard.
       OPERATOR_USER_IDS: bindings.text('4128ec6e-8d8b-4c8a-8f93-ea2973525d00'),
-      // Subscriptions to a space CloudChef runs (app/server-handlers/billing.ts). A space is a membership of this
-      // team, which lives in CloudChef's own Cloudflare account, and is paid for with this Stripe price. Either one
-      // empty, subscriptions are unavailable and "Where should your apps live?" offers the waitlist. The Stripe
-      // account is shared with other products, so the customer portal opens with CloudChef's own configuration
-      // rather than the account's default. The price, the portal configuration, the secret key and the webhook
-      // signing secret all belong to one Stripe mode: change them together.
-      MANAGED_SPACE_ORG_ID: bindings.text('f2ab805b-1a7b-4459-b6fa-48556c4b5888'),
-      STRIPE_PRICE_ID: bindings.text('price_1UfAxzCz3TLXJEZ4hV6Iz8Zg'),
-      STRIPE_PORTAL_CONFIGURATION_ID: bindings.text('bpc_1Uero5Cz3TLXJEZ4ubVS9KlG'),
-      // The one-time Stripe prices of building credit, by dollar amount (`MANAGED_SPACE_CREDIT_AMOUNTS_USD`), in the
-      // same Stripe mode as the price above. An amount without a price can't be bought.
-      STRIPE_CREDIT_PRICE_IDS: bindings.text(
-        '{"20":"price_1UfBYSCz3TLXJEZ4CrnjLtVe","50":"price_1UfBYTCz3TLXJEZ4KmDYKGMP","100":"price_1UfBYUCz3TLXJEZ4zsoY0eoH","200":"price_1UfBYUCz3TLXJEZ4jqgP1BAD","300":"price_1UfBYVCz3TLXJEZ4rzQlXlq8","500":"price_1UfBYWCz3TLXJEZ42YEgXlKl"}',
-      ),
-      STRIPE_SECRET_KEY: bindings.secret(),
-      STRIPE_WEBHOOK_SECRET: bindings.secret(),
       // Cloudflare's URL Scanner in CloudChef's own account, checking each posted site for phishing. Unset, sites are
       // not scanned and reports alone hold a post. Its token (URL Scanner edit on that account) is not declared here:
       // a declared secret must exist before every deploy. To turn scanning on, set `URL_SCANNER_API_TOKEN` with
       // `cf workers secrets`, then declare it here as `bindings.secret()` in the same release as this account id.
       URL_SCANNER_ACCOUNT_ID: bindings.text(''),
-      // Domains of their own for projects in spaces CloudChef runs (app/server-handlers/space-domains.ts): the
-      // zone in CloudChef's own account whose custom hostnames they are, and the name in it their CNAME records
-      // point to. Either one empty, domains are not offered. The token that makes them (`MANAGED_DOMAINS_API_TOKEN`:
-      // Workers Scripts, Registrar, DNS, SSL and Certificates, and Workers Routes edit on that account) is not
-      // declared here until it is set, as with the URL Scanner's.
-      MANAGED_DOMAINS_ZONE_ID: bindings.text(''),
-      MANAGED_DOMAINS_CNAME_TARGET: bindings.text(''),
-      // Buying a domain through CloudChef: the account it is registered in (the operator's, where that zone is),
-      // and the Stripe product its yearly subscriptions are prices of. Either one empty, buying is not offered.
-      MANAGED_DOMAINS_ACCOUNT_ID: bindings.text(''),
-      STRIPE_DOMAIN_PRODUCT_ID: bindings.text(''),
     },
     exports: {
       UserWorkspaceRuntimeProvisioningWorkflow: exports.workflow({

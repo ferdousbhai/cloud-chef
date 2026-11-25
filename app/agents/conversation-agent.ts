@@ -2543,7 +2543,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   protected async requireModelAccess(): Promise<{ contentLogging: boolean }> {
     const access = await modelRequestAccess(this.env);
     if (!access.allowed) {
-      throw new AgentRefusal(access.reason ?? "You no longer have access to this team's account.", 403);
+      throw new AgentRefusal("You no longer have access to this team's account.", 403);
     }
     return { contentLogging: access.contentLogging };
   }

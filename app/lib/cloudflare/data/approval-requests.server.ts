@@ -81,13 +81,9 @@ const REQUESTER_IS_MEMBER = `EXISTS (
     AND requester.paused_at IS NULL
 )`;
 
-/**
- * `?actor` is one of the team's active admins, of a team whose Cloudflare account is its own: in a space
- * CloudChef runs nobody approves a change to the account.
- */
+/** `?actor` is one of the team's active admins. */
 const ACTOR_IS_ADMIN = (actor: string) => `EXISTS (
   SELECT 1 FROM organization_members AS admins
-  JOIN organizations AS team ON team.id = admins.org_id AND team.managed_host_org_id IS NULL
   WHERE admins.org_id = approval_requests.org_id AND admins.user_id = ${actor} AND admins.role = 'admin'
     AND admins.paused_at IS NULL
 )`;

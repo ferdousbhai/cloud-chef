@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { cancelSubscriptionForErasure } from './billing';
 import { clearAuthSessionCookie } from '~/lib/.server/auth';
 import { requireRecentlyAuthenticatedSession } from '~/lib/.server/account-reauthentication';
 import { eraseControlPlaneAccount, OrganizationAdminRequiredError } from '~/lib/.server/cloudflare/account-deletion';
@@ -15,15 +14,7 @@ const accountDeletionSchema = z
   })
   .strict();
 
-export async function deleteAccountAction({
-  request,
-  env,
-  cancelSubscription = cancelSubscriptionForErasure,
-}: {
-  request: Request;
-  env: Env;
-  cancelSubscription?: typeof cancelSubscriptionForErasure;
-}): Promise<Response> {
+export async function deleteAccountAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   const session = await requireRecentlyAuthenticatedSession(
     env,
     request,
@@ -39,14 +30,6 @@ export async function deleteAccountAction({
     return Response.json(
       { error: 'Confirm the exact phrase and the retained-resources acknowledgement.' },
       { status: 400 },
-    );
-  }
-
-  // A subscription to a space CloudChef runs ends first: an erased account must never be charged again.
-  if (!(await cancelSubscription(env, session.user.id))) {
-    return Response.json(
-      { error: 'Your subscription could not be cancelled just now, so nothing was deleted. Try again shortly.' },
-      { status: 502 },
     );
   }
 

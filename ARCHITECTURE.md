@@ -149,13 +149,12 @@ migrations, applied before the deferred redeploy, must be additive.
 ## Accounts, Spaces, and Contexts
 
 Every place a person builds is a space: an organization (`organizations`) with the people in it and one connection
-to the Cloudflare account it builds in. A space has two properties that don't depend on each other: who hosts it
-(`hosting`: 'own', a Cloudflare account its admins connected, which Cloudflare bills; or 'cloudchef', the
-operator's account, by subscription) and who is in it (one person, or the people they invited). There is no
+to the Cloudflare account it builds in, an account its admins connected and Cloudflare bills. A space has one
+person in it, or the people they invited. There is no
 separate kind for a person's own account or for a team: a person's own Cloudflare account is a space with one
 person in it (`organizations.personal_user_id` names the person it was made for, and it is made the first time
 they sign in with Cloudflare), and inviting someone into it works as into any other. Every access rule reads
-membership of the space (`canUseConnection`, `runsTeam`, `isActiveAdmin` in `organization-access.server.ts`); the
+membership of the space (`canUseConnection`, `isActiveAdmin` in `organization-access.server.ts`); the
 one thing `personal_user_id` still decides is that person's workspace there, which keeps the name and secret it had
 before spaces had people (`workspaceBindingConnectionId`), and that they stay its admin. Migration 0074 made each
 connection that was one person's own into such a space, keeping its id, and its rollout triggers make any written
@@ -164,63 +163,17 @@ making an account for an address CloudChef hasn't seen (an account first made wi
 with it), and the person then chooses a username (`/<username>`) before anything else. A session works in one
 context, a connection the person may use, chosen with the workspace switcher; a tab names the context it opened in
 on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
-person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): a space CloudChef
-runs, by subscription; their own Cloudflare account, connected there after a short list of what happens on
-Cloudflare's site; or someone else's space, reached by an invite from whoever runs it. A space CloudChef runs is a
-space of the subscriber's own (`organizations.managed_host_org_id`) with its own connection to the Cloudflare
-account of the host team (`MANAGED_SPACE_ORG_ID`), the operator's, paid for through Stripe (`STRIPE_PRICE_ID`, CloudChef's
-own portal configuration in a Stripe account shared with other products, and the secrets `STRIPE_SECRET_KEY` and
-`STRIPE_WEBHOOK_SECRET`): Stripe's checkout takes the card and charges the first month,
-its webhook (`POST /api/billing/webhook`) reports every change, and
-`app/lib/cloudflare/data/managed-subscriptions.server.ts` makes the space the first time the subscription is in a
-free period or paid, pauses everyone in it when it lapses, and resumes only the pauses it made itself. The
-subscriber is the space's admin and runs it (`runsTeam`: invites, members, projects, GitHub imports), and nobody in
-it has an admin's powers over the Cloudflare account (`isActiveAdmin` is false there): no `cf` reads or changes, no
-approvals, no connecting or reauthorizing, no model or key settings, which follow the host team's, and no
-publishing over a Worker already in the account. The subscriber neither leaves nor deletes the space, which ends
-with the subscription. A space with one person in it, whoever hosts it, is to that person their own account: a session's context says so
+person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): their own
+Cloudflare account, connected there after a short list of what happens on Cloudflare's site; or someone else's
+space, reached by an invite from whoever runs it. It's asked when they try to build, and the account menu offers it
+until they have a space. A space with one person in it is to that person their own account: a session's context says so
 (`solo`), every place that names a space calls it Personal (`workspaceName` in `app/lib/workspace-name.ts`; alone
 in more than one, each goes by its name, so no two are Personal), and Settings, Spaces lists it like any other,
 with an offer to invite someone in place of a list of people; once someone else has joined it goes by its name,
-which the people in it see. Everyone's finished turns' tokens, priced at the host team's default model, and the time
-their workspace containers run, which the runtime reports as it goes (`countContainerTime` in
-`user-workspace-runtime/src/computer-sandbox.ts`), priced at Cloudflare's rates, count against a monthly allowance
-smaller than the plan's price (`MANAGED_SPACE_MONTHLY_ALLOWANCE_USD`), and `runtime-access` refuses the next model request and the next start of the container
-once it is used and the space has no credit left: its subscriber buys credit in Settings in fixed amounts
-(`MANAGED_SPACE_CREDIT_AMOUNTS_USD`, one-time Stripe prices in `STRIPE_CREDIT_PRICE_IDS`), each paid checkout is
-recorded once in `space_credit_purchases` from the return and from the webhook, and what is left is what was bought
-less every month's use beyond its allowance at `MANAGED_SPACE_CREDIT_PRICE_RATIO` times its cost (the plan's own margin), computed when asked (`spaceUsage`)
-(`app/server-handlers/billing.ts`, `app/server-handlers/runtime-credential.ts`). Where any of that is unset the
-choice is a waitlist to join (`user.managed_space_waitlist_at`, `app/server-handlers/managed-space-waitlist.ts`);
-`pnpm run ops` counts both. The plan is priced by the person, as Google Workspace is: the subscriber pays its price for everyone in the space,
-themselves included. `syncSpaceSeats` (`app/server-handlers/space-seats.ts`) counts the people again when someone
-joins, leaves or is removed, and whenever Stripe reports on the subscription, and sets the subscription's quantity
-to that number with Stripe's proration; the month's allowance, which everyone shares, moves by a person's
-allowance for the part of the month that is left, up for each who joined and back for each who left
-(`countSpaceSeats`, `space_month_allowances`), so it follows what is charged. A team connected to a Cloudflare
-account of its own pays CloudChef nothing for its people.
-
-A project in a space can be served from a domain of its subscriber's own (`app/server-handlers/space-domains.ts`,
-`space_domains`). Nobody in a space can change the Cloudflare account, and CloudChef's own deploys refuse domains
-and routes, so the control plane does it with a token of the operator's own account that is no connection's
-authorization (`MANAGED_DOMAINS_API_TOKEN`): a domain bought elsewhere becomes a custom hostname on CloudChef's own
-zone (`MANAGED_DOMAINS_ZONE_ID`, Cloudflare for SaaS) and a Worker route there from `<hostname>/*` to the project's
-Worker, and serves once the person's CNAME record points at `MANAGED_DOMAINS_CNAME_TARGET` and Cloudflare has issued
-its certificate; that record is the only proof the domain is theirs. A hostname in or under a zone of the operator's
-account is refused, a hostname serves one project, a space has at most `MAX_SPACE_DOMAINS`, and deleting the project
-removes them. A domain can also be bought (`buyDomainAction`): the name and its price are asked of Cloudflare's
-registrar again at purchase, the buyer pays what it costs the operator plus `DOMAIN_YEARLY_MARGIN_CENTS` a year
-through a Stripe subscription of its own (a price of `STRIPE_DOMAIN_PRODUCT_ID`, marked by metadata so it is never
-taken for a subscription to a space), and Stripe's page collects the name, address and phone it is registered in.
-The subscription starts with a day before its first charge: the finished checkout, reported by the return and by
-the webhook and acted on once (`claimDomainPurchase`), registers the domain in the operator's account
-(`MANAGED_DOMAINS_ACCOUNT_ID`) with the buyer as registrant, attaches it and its `www` to the project's Worker as
-Worker custom domains, and only then ends that day so the charge is made; a registration that fails cancels the
-subscription with nothing charged. While the subscription is paid and not set to end, Cloudflare renews the
-registration each year; once it is cancelled or unpaid, renewal is turned off and it runs out
-(`applyDomainSubscription`). The per-space Cloudflare accounts of `docs/proposals/managed-spaces.md` are not
-available: Cloudflare's partner program that gives the Tenant API is closed to new participants (2026-11-23). It's asked when they
-try to build, and the account menu offers it until they have a space.
+which the people in it see. CloudChef runs no space itself and takes no payment: for a few days in November 2026 it
+sold subscriptions to spaces in the operator's own Cloudflare account, which let other people's applications
+into that account, and migration 0075 closed the ones made then (their connections revoked, their people
+paused, the subscription records emptied).
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own
 account and `sha256(accountId:userId:connectionId)` for an organization's (with the runtime secret bound the same

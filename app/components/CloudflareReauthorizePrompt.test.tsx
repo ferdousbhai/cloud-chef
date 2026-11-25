@@ -24,7 +24,6 @@ const personal: WorkspaceContext = {
   orgName: 'Ada’s space',
   role: 'admin',
   draftsAllowed: true,
-  hosting: 'own',
   solo: true,
   personal: true,
 };
@@ -35,7 +34,6 @@ const teamMember: WorkspaceContext = {
   orgName: 'Acme',
   role: 'member',
   draftsAllowed: true,
-  hosting: 'own',
   solo: false,
   personal: false,
 };
@@ -139,17 +137,6 @@ describe('the Cloudflare reauthorization prompt', () => {
     await click('Reauthorize Cloudflare');
 
     await vi.waitFor(() => expect(starts).toEqual([{ callbackURL: expect.any(String), organizationId: 'org-1' }]));
-  });
-
-  it('tells someone in a space CloudChef runs that the permissions are CloudChef’s to approve, with no button', async () => {
-    context = { ...teamAdmin, hosting: 'cloudchef', solo: true };
-    await render(<CloudflareReauthorizePrompt />);
-
-    expect(document.body.textContent).toContain(
-      'CloudChef has to approve a few more Cloudflare permissions on its side',
-    );
-    expect(document.body.textContent).not.toContain('admin');
-    expect(buttons()).toEqual([]);
   });
 
   it("tells a team member who isn't an admin who can approve them, with no button", async () => {

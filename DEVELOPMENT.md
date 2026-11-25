@@ -84,29 +84,6 @@ It declares these secrets, which are configured in Cloudflare and never stored i
 - `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_PRIVATE_KEY` (PKCS#8), `GITHUB_APP_SLUG` — CloudChef's
   GitHub App, for importing private repositories as projects; unset, importing those reports itself unavailable
   (public repositories import without it).
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — subscriptions to a space CloudChef runs, with `STRIPE_PRICE_ID`,
-  `STRIPE_CREDIT_PRICE_IDS` (the one-time prices of building credit, by dollar amount),
-  `STRIPE_PORTAL_CONFIGURATION_ID` and `MANAGED_SPACE_ORG_ID` in `cloudflare.config.ts`. All of them belong to one
-  Stripe mode (a sandbox or live) and are changed together; with the price or the team's id empty the plan is not
-  offered and the waitlist is.
-
-Domains for projects in spaces CloudChef runs need three things in the operator's Cloudflare account: Cloudflare for
-SaaS enabled on CloudChef's zone with a fallback origin (an originless proxied record, `AAAA 100::`) and a proxied
-CNAME to it that people point their domains at; that zone's id and that name in `MANAGED_DOMAINS_ZONE_ID` and
-`MANAGED_DOMAINS_CNAME_TARGET` (`cloudflare.config.ts`); and the secret `MANAGED_DOMAINS_API_TOKEN`, an API token
-of that account with Workers Scripts, Registrar, DNS, SSL and Certificates and Workers Routes edit and Zone read.
-Without any of them the Domains dialog says they are not available. Buying a domain also needs
-`MANAGED_DOMAINS_ACCOUNT_ID` (that account), `STRIPE_DOMAIN_PRODUCT_ID` (a Stripe product for domains, in the same
-Stripe mode as the plan's price), and, in the Cloudflare dashboard, the Domain Registration Agreement accepted and
-a default registrant contact and payment method set: the registrar's API registers nothing without them.
-
-The Stripe account is shared with other products, so CloudChef has its own product (one recurring monthly price equal
-to `MANAGED_SPACE_MONTHLY_PRICE_USD`, `app/lib/managed-space.ts`), its own customer-portal configuration, and its own
-webhook endpoint at `https://cloudchef.build/api/billing/webhook` for `checkout.session.completed` and the
-`customer.subscription.*` events; deliveries about the other products' subscriptions are answered and ignored. The
-host team (`MANAGED_SPACE_ORG_ID`) is connected to the operator's Cloudflare account and allowed only the default
-model: every space is made in that account and follows that team's models, which the allowance prices tokens at. To move to another Stripe mode, make the same four things there, set the two
-secrets with `cf workers secrets update`, then release the price and portal configuration ids.
 
 The checked-in D1 ID belongs to CloudChef production. Before provisioning a fork in another account, replace it with
 `00000000-0000-0000-0000-000000000000`. `pnpm run provision:production` bootstraps the control-plane D1 or reconciles

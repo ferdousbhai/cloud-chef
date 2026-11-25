@@ -433,15 +433,12 @@ function ProviderKeyRow({
   );
 }
 
-/** The space Settings is showing: the person's own while they are alone in it, else by its name, and who hosts it. */
+/** The space Settings is showing: the person's own while they are alone in it, else by its name. */
 function workspaceLabel(context: CloudflareAuthSession['context']): string | null {
   if (!context) {
     return null;
   }
   const name = context.solo ? 'your space' : context.orgName;
-  if (context.hosting === 'cloudchef') {
-    return `${name}, which CloudChef runs`;
-  }
   return context.accountName ? `${name} (Cloudflare account ${context.accountName})` : name;
 }
 

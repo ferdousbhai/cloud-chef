@@ -34,7 +34,6 @@ const workspaceContextSchema = z.object({
   orgName: z.string(),
   role: z.enum(['admin', 'member']),
   draftsAllowed: z.boolean(),
-  hosting: z.enum(['own', 'cloudchef']),
   solo: z.boolean(),
   personal: z.boolean(),
 });

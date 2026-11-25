@@ -12,16 +12,15 @@ const usage = { turns: 0, inputTokens: 0, outputTokens: 0 };
 const sam = { userId: 'user-1', name: 'Sam', email: 'sam@example.com', pausedAt: null, draftsAllowed: true, usage };
 const gia = { ...sam, userId: 'user-2', name: 'Gia', email: 'gia@example.com', role: 'member' };
 
-/** Sam's own space, which CloudChef runs, with the people given beside Sam. */
+/** Sam's own space, with the people given beside Sam. */
 function ownSpace(others: (typeof gia)[]) {
   return {
     orgId: 'space-1',
     orgName: 'Sam’s space',
     role: 'admin',
     pausedAt: null,
-    hosting: 'cloudchef',
     ownerUserId: 'user-1',
-    connection: { accountName: 'CloudChef', active: true },
+    connection: { accountName: 'Sam’s account', active: true },
     members: [{ ...sam, role: 'admin' }, ...others],
     invites: [],
     github: [],
@@ -34,7 +33,6 @@ const studio = {
   orgId: 'org-2',
   orgName: 'Studio',
   role: 'member',
-  hosting: 'own',
   ownerUserId: null,
   connection: { accountName: 'Studio account', active: true },
   members: null,
@@ -51,12 +49,11 @@ async function server(input: RequestInfo | URL): Promise<Response> {
   if (url === '/api/auth/session') {
     const context: WorkspaceContext = {
       connectionId: 'connection-1',
-      accountName: 'CloudChef',
+      accountName: 'Sam’s account',
       orgId: 'space-1',
       orgName: 'Sam’s space',
       role: 'admin',
       draftsAllowed: true,
-      hosting: 'cloudchef',
       solo,
       personal: false,
     };
@@ -110,28 +107,18 @@ describe('the spaces a person builds in, in Settings', () => {
     await vi.waitFor(() => expect(text()).toContain('Studio'));
     const headings = Array.from(document.querySelectorAll('h3'), (heading) => heading.textContent);
     expect(headings).toEqual(['Personal', 'Studio']);
-    expect(text()).toContain('Run by CloudChef');
+    expect(text()).toContain('Sam’s account');
     expect(text()).not.toContain('team');
   });
 
-  it('offers, alone in it, to invite someone and says what that adds, with no list of people', async () => {
+  it('offers, alone in it, to invite someone at no cost here, with no list of people', async () => {
     solo = true;
     organizations = [ownSpace([])];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Only you so far.'));
-    expect(text()).toContain('$30 a month to your subscription');
-    expect(document.querySelector('ul')?.hidden).toBe(true);
-  });
-
-  it('says a space on a Cloudflare account of its own costs nothing here for its people', async () => {
-    solo = true;
-    organizations = [{ ...ownSpace([]), hosting: 'own', connection: { accountName: 'Sam’s account', active: true } }];
-    await render(<OrganizationsCard />);
-
-    await vi.waitFor(() => expect(text()).toContain('Only you so far.'));
     expect(text()).toContain('Nothing to pay CloudChef for them.');
-    expect(text()).not.toContain('$30');
+    expect(document.querySelector('ul')?.hidden).toBe(true);
   });
 
   it('goes by its name once someone has joined, and lists them, its owner unchanged', async () => {

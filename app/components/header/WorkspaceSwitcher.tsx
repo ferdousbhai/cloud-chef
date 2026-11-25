@@ -73,7 +73,7 @@ function WorkspaceMenuItems() {
       <MenuItem action={organizations}>
         <PlusIcon aria-hidden />
         {/* The session lists only teams with a connected account, so a member of one still unconnected sees Teams too. */}
-        {/* A space with only its subscriber in it is their own account, not a team to manage. */}
+        {/* A space with only one person in it is their own account, not a team to manage. */}
         {session.contexts.some((option) => !option.solo) ? 'Manage spaces' : 'Spaces'}
       </MenuItem>
     </>

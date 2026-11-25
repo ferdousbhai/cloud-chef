@@ -23,11 +23,6 @@ function askAdminToReauthorizeMessage(blocked = OPEN_WORKSPACE): string {
   return `CloudChef needs a few more Cloudflare permissions before it can ${blocked}. Ask the space's admin to reauthorize Cloudflare.`;
 }
 
-/** What it says in a space CloudChef runs, where the account is CloudChef's to reauthorize and nobody's in the space. */
-function cloudChefReauthorizesMessage(blocked = OPEN_WORKSPACE): string {
-  return `CloudChef has to approve a few more Cloudflare permissions on its side before it can ${blocked}. There is nothing for you to do here; if it stays this way, tell us on the Support page.`;
-}
-
 export const REAUTHORIZE_CLOUDFLARE_MESSAGE = reauthorizeCloudflareMessage();
 export const ASK_ADMIN_TO_REAUTHORIZE_MESSAGE = askAdminToReauthorizeMessage();
 
@@ -93,7 +88,7 @@ export function CloudflareReauthorizePrompt({
     }
   };
 
-  const canGrant = space === null || (space.role === 'admin' && space.hosting === 'own');
+  const canGrant = space === null || space.role === 'admin';
   return (
     <div
       role="status"
@@ -104,11 +99,7 @@ export function CloudflareReauthorizePrompt({
       )}
     >
       <p className="text-content-primary">
-        {canGrant
-          ? reauthorizeCloudflareMessage(blocked)
-          : space?.hosting === 'cloudchef'
-            ? cloudChefReauthorizesMessage(blocked)
-            : askAdminToReauthorizeMessage(blocked)}
+        {canGrant ? reauthorizeCloudflareMessage(blocked) : askAdminToReauthorizeMessage(blocked)}
       </p>
       {!canGrant ? null : signInAgain ? (
         <ReauthenticatePrompt

@@ -141,7 +141,7 @@ export async function findCloudflareAuthorization(
 
 /**
  * Whether `userId` runs every space building in `accountId` other than `orgId` (the one they are connecting):
- * each is one they are an active admin of, spaces CloudChef runs there aside. Only then may they bring a space
+ * each is one they are an active admin of. Only then may they bring a space
  * into that account while its authorization, which all of those spaces use, still works. `userId` is null
  * for someone signing in with Cloudflare for the first time, who runs no space yet.
  */
@@ -155,11 +155,6 @@ export async function runsEveryOtherSpaceInAccount(
       `SELECT COUNT(*) AS others
        FROM cloudflare_connections AS connections
        WHERE connections.account_id = ?1 AND connections.status = 'active' ${notTheirs}
-         -- A space CloudChef runs is the host team's to answer for, and that team is counted itself.
-         AND NOT EXISTS (
-           SELECT 1 FROM organizations AS space
-           WHERE space.id = connections.org_id AND space.managed_host_org_id IS NOT NULL
-         )
          AND NOT EXISTS (
            SELECT 1 FROM organization_members AS members
            WHERE members.org_id = connections.org_id AND members.user_id = ?3

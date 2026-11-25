@@ -7,8 +7,7 @@ export const PERSONAL_WORKSPACE_NAME = 'Personal';
 /**
  * What a space is called to the person building in it, among `all` the spaces they can build in. One they are
  * alone in is Personal, since to them it is their own account; a space with other people in it goes by its name,
- * which those people see. Alone in more than one (a space CloudChef runs beside a Cloudflare account of their
- * own), each goes by its name, so no two are called Personal.
+ * which those people see. Alone in more than one, each goes by its name, so no two are called Personal.
  */
 export function workspaceName(option: NamedWorkspace, all: readonly NamedWorkspace[]): string {
   return option.solo && all.filter((other) => other.solo).length <= 1 ? PERSONAL_WORKSPACE_NAME : option.orgName;
