@@ -22,7 +22,7 @@ import { Button } from '@ui/Button';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { Menu, MenuItem } from '@ui/Menu';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
-import { authClient } from '~/lib/auth-client';
+import { authClient, workInAccount } from '~/lib/auth-client';
 import {
   deleteProject,
   loadDeletionPreview,
@@ -54,7 +54,6 @@ import { ImportFromGitHubDialog } from './ImportFromGitHubDialog.client';
 import { deployInProgress, ProjectCard, ProjectCardSkeletons, type CardDeploy } from './ProjectCard';
 import { archiveName, ProjectHistoryDialog } from './ProjectHistoryDialog.client';
 import { loadSharedWithMe, type SharedProject, type SharedWithMe } from '~/lib/cloudflare/project-sharing.client';
-import { ConnectCloudflareButton } from '~/components/showcase/ConnectCloudflareButton';
 import { ShareProjectDialog } from './ShareProjectDialog.client';
 import { UploadZipDialog } from './UploadZipDialog.client';
 
@@ -753,9 +752,9 @@ function TeamProjects({
 }
 
 /**
- * Projects others shared with this person from accounts not theirs, opened in the account they are working in now:
- * Edit (Can edit) or Open (Can view) opens a workspace there; History, Clone and Download for both. A
- * viewer's changes stay theirs until they offer them and someone who can edit the project accepts. Shown only when there are some. Someone with no Cloudflare account yet is told that opening one needs it.
+ * Projects this person was added to in other people's accounts, besides the one they are working in now. Edit (Can
+ * edit) or Open (Can view) switches to the project's account and opens a workspace there. A viewer's changes stay
+ * theirs until they offer them and someone who can edit the project accepts. Shown only when there are some.
  */
 function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
   const [shared, setShared] = useState<SharedWithMe | null>(null);
@@ -773,6 +772,8 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
     setOpening(project.id);
     setOpenFailure(null);
     try {
+      // Its workspace runs in its own account: the session works there from here on.
+      await workInAccount(project.connectionId);
       if (!(await openTeamProject(project))) {
         setOpening(null);
       }
@@ -791,15 +792,6 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
       <SectionHeading id="shared-with-you" action={null}>
         Shared with you
       </SectionHeading>
-      {shared.canOpen ? null : (
-        <div className="grid justify-items-start gap-2 text-sm text-content-secondary">
-          <p>
-            To open these, connect a Cloudflare account of your own. Your workspace runs there; the owner’s site stays
-            theirs.
-          </p>
-          <ConnectCloudflareButton />
-        </div>
-      )}
       <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {shared.projects.map((project) => {
           const ref = { orgProjectId: project.id };
@@ -816,18 +808,16 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
               badge={canEdit ? 'Can edit' : 'Can view'}
               note={openFailure?.id === project.id ? openFailure.message : null}
               primary={
-                shared.canOpen ? (
-                  <Button
-                    size="xs"
-                    icon={canEdit ? <Pencil1Icon /> : <EyeOpenIcon />}
-                    aria-label={`${canEdit ? 'Edit' : 'Open'} ${project.name}`}
-                    disabled={opening !== null}
-                    loading={opening === project.id}
-                    onClick={() => void open(project)}
-                  >
-                    {canEdit ? 'Edit' : 'Open'}
-                  </Button>
-                ) : null
+                <Button
+                  size="xs"
+                  icon={canEdit ? <Pencil1Icon /> : <EyeOpenIcon />}
+                  aria-label={`${canEdit ? 'Edit' : 'Open'} ${project.name}`}
+                  disabled={opening !== null}
+                  loading={opening === project.id}
+                  onClick={() => void open(project)}
+                >
+                  {canEdit ? 'Edit' : 'Open'}
+                </Button>
               }
               menuItems={
                 <>

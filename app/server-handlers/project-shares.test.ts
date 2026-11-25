@@ -5,7 +5,8 @@ import { USER_WORKSPACE_RUNTIME_SHA256 } from '~/generated/user-workspace-runtim
 import { USER_WORKSPACE_IMAGE } from '~/lib/.server/cloudflare/user-workspace-image';
 import { runtimeIdentityHeaders } from '~/lib/.server/cloudflare/runtime-identity-headers';
 import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-workspace-runtime-secret';
-import { createAuthSession } from '~/lib/.server/auth';
+import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
+import { listWorkspaceContexts } from '~/lib/cloudflare/data/organization-access.server';
 import { findAccessibleProject } from '~/lib/cloudflare/data/org-projects.server';
 import { acceptInvitationsForUser, PROJECT_INVITATION_TTL_MS } from '~/lib/cloudflare/data/project-shares.server';
 import { readSharedCapabilitySubject } from '~/lib/.server/cloudflare/shared-project';
@@ -31,12 +32,20 @@ const COMMIT = 'a'.repeat(40);
 const sentEmailSchema = z.looseObject({ to: z.string(), subject: z.string(), text: z.string() });
 const answerSchema = z.record(z.string(), z.unknown());
 const sharedWithMeSchema = z.object({
-  projects: z.array(z.looseObject({ name: z.string(), role: z.string(), ownerName: z.string().nullable() })),
+  projects: z.array(
+    z.looseObject({
+      name: z.string(),
+      role: z.string(),
+      ownerName: z.string().nullable(),
+      connectionId: z.string(),
+    }),
+  ),
 });
+const claimedSchema = z.looseObject({ restricted: z.boolean() });
 const capabilitySchema = z.looseObject({ subject: z.string() });
 
 const sharingSchema = z.looseObject({
-  people: z.array(z.looseObject({ userId: z.string(), name: z.string(), role: z.string(), kind: z.string() })),
+  people: z.array(z.looseObject({ userId: z.string(), name: z.string(), role: z.string() })),
   invitations: z.array(z.looseObject({ id: z.string(), email: z.string(), role: z.string() })),
   done: z.unknown().optional(),
 });
@@ -48,7 +57,8 @@ afterEach(() => {
 
 /**
  * Ada's own project Recipe Box in her own account, and Bo and Cy, each with an account of their own. Every one of them
- * has a workspace runtime CloudChef can reach. Sent emails are kept.
+ * has a workspace runtime CloudChef can reach in their own account, and `runtime` can ask as their runtime in someone
+ * else's (`in`), which someone added to a project there has. Sent emails are kept.
  */
 async function world() {
   const { database, db } = controlPlaneDatabase();
@@ -96,21 +106,28 @@ async function world() {
         USER_WORKSPACE_IMAGE,
         USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION,
       );
-    /** A request from this person's runtime in their own account, as every runtime route is called. */
-    const runtime = async (path: string, init: { method?: string; body?: string; headers?: HeadersInit } = {}) => {
+    /**
+     * A request from this person's runtime, as every runtime route is called: in their own account, or (`in`) in the
+     * account of the person named, where their workspace has a name and secret of its own.
+     */
+    const runtime = async (
+      path: string,
+      init: { method?: string; body?: string; headers?: HeadersInit; in?: string } = {},
+    ) => {
+      const account = init.in ?? username;
       const secret = await deriveUserWorkspaceRuntimeSecret({
         encryptionKeyBase64: KEY,
         userId: user.id,
-        accountId: `account-${username}`,
+        accountId: `account-${account}`,
         connectionGeneration: 1,
-        organizationConnectionId: null,
+        organizationConnectionId: init.in ? `${account}-own` : null,
       });
       return new Request(`${ORIGIN}${path}`, {
         method: init.method ?? 'POST',
         headers: {
           Authorization: `Bearer ${secret}`,
           'Content-Type': 'application/json',
-          ...runtimeIdentityHeaders({ userId: user.id, connectionId: connection, connectionGeneration: 1 }),
+          ...runtimeIdentityHeaders({ userId: user.id, connectionId: `${account}-own`, connectionGeneration: 1 }),
           ...init.headers,
         },
         body: init.body,
@@ -154,9 +171,9 @@ describe('sharing a project', () => {
     const listed = sharingSchema.parse(
       await (await projectSharingAction({ request: ada.browser(sharing), env })).json(),
     );
-    expect(listed.people.map(({ name, role, kind }) => ({ name, role, kind }))).toEqual([
-      { name: 'ada', role: 'owner', kind: 'owner' },
-      { name: 'bo', role: 'edit', kind: 'shared' },
+    expect(listed.people.map(({ name, role }) => ({ name, role }))).toEqual([
+      { name: 'ada', role: 'owner' },
+      { name: 'bo', role: 'edit' },
     ]);
     expect(JSON.stringify(listed)).not.toContain('bo@example.com');
     // Bo is told, in CloudChef and by email.
@@ -166,7 +183,18 @@ describe('sharing a project', () => {
       .all();
     expect(told.results).toEqual([{ kind: 'project_shared', actor_id: ada.userId, project_id: RECIPES }]);
     expect(emails.map((email) => email.to)).toEqual(['bo@example.com']);
-    expect(await findAccessibleProject(db, RECIPES, bo.userId)).toMatchObject({ role: 'edit', shared: true });
+    expect(await findAccessibleProject(db, RECIPES, bo.userId)).toMatchObject({ role: 'edit' });
+    // He works on it in Ada's account, beside his own: there he runs nothing and starts no apps of his own.
+    expect(
+      (await listWorkspaceContexts(db, bo.userId)).map(({ connectionId, role, draftsAllowed }) => ({
+        connectionId,
+        role,
+        draftsAllowed,
+      })),
+    ).toEqual([
+      { connectionId: 'bo-own', role: 'admin', draftsAllowed: true },
+      { connectionId: 'ada-own', role: 'member', draftsAllowed: false },
+    ]);
   });
 
   it('invites every address the same way, so the person sharing never learns whether it has an account', async () => {
@@ -184,12 +212,15 @@ describe('sharing a project', () => {
       { email: 'newcomer@example.com', role: 'edit' },
     ]);
     expect(tokenOf('newcomer@example.com')).not.toBeNull();
-    // Cy, who has proven that address, takes it as soon as she looks at her projects.
+    // Cy, who has proven that address, takes it as soon as she looks at her projects: it is listed beside her own
+    // account's, with the account opening it switches to.
     const mine = sharedWithMeSchema.parse(
       await (await sharedWithMeAction({ request: cy.browser('/api/projects/shared'), env })).json(),
     );
-    expect(mine.projects).toEqual([expect.objectContaining({ name: 'Recipe Box', role: 'view', ownerName: 'ada' })]);
-    expect(await findAccessibleProject(db, RECIPES, cy.userId)).toMatchObject({ role: 'view', shared: true });
+    expect(mine.projects).toEqual([
+      expect.objectContaining({ name: 'Recipe Box', role: 'view', ownerName: 'ada', connectionId: 'ada-own' }),
+    ]);
+    expect(await findAccessibleProject(db, RECIPES, cy.userId)).toMatchObject({ role: 'view' });
   });
 
   it('refuses anyone who doesn’t run the project, even someone it is shared with to edit', async () => {
@@ -209,9 +240,100 @@ describe('sharing a project', () => {
     }
   });
 
-  it('takes access away at the next call once removed, and turns a viewer’s push away', async () => {
-    const { env, ada, bo, share, sharing } = await world();
+  it('opens it in the project’s own account for someone added, who publishes there as a collaborator', async () => {
+    const { env, ada, bo, share } = await world();
+    await share(ada, 'bo', 'edit');
+    const open = (from: { in?: string }) =>
+      bo
+        .runtime('/api/cloudflare/runtime-projects/open', { body: JSON.stringify({ orgProjectId: RECIPES }), ...from })
+        .then((request) => runtimeOpenProjectAction({ request, env, app: null }));
+    const opened = await open({ in: 'ada' });
+    expect(opened.status).toBe(200);
+    expect(await opened.json()).toMatchObject({ role: 'edit', repo: 't-recipes' });
+    // His workspace in his own account has nothing to do with it.
+    expect((await open({})).status).toBe(403);
+    // What he pushes is published in Ada's account, held to what the project already has there.
+    const claim = await runtimeDeploymentClaimAction({
+      request: await bo.runtime('/api/cloudflare/runtime-projects/deployments/claim', {
+        body: JSON.stringify({ orgProjectId: RECIPES, branch: 'main', commit: COMMIT }),
+        in: 'ada',
+      }),
+      env,
+    });
+    expect(claim.status).toBe(200);
+    expect(claimedSchema.parse(await claim.json()).restricted).toBe(true);
+    const pushed = await runtimeMainPushedAction({
+      request: await bo.runtime('/api/cloudflare/runtime-projects/main-pushed', {
+        body: JSON.stringify({ orgProjectId: RECIPES, oldCommit: null, newCommit: COMMIT }),
+        in: 'ada',
+      }),
+      env,
+    });
+    expect(pushed.status).toBe(200);
+  });
+
+  it('records no push of main for someone who may only view the project', async () => {
+    const { env, db, ada, bo, share } = await world();
     await share(ada, 'bo', 'view');
+    const pushed = await runtimeMainPushedAction({
+      request: await bo.runtime('/api/cloudflare/runtime-projects/main-pushed', {
+        body: JSON.stringify({ orgProjectId: RECIPES, oldCommit: null, newCommit: COMMIT }),
+        in: 'ada',
+      }),
+      env,
+    });
+    expect(pushed.status).toBe(403);
+    const pushes = await db.prepare('SELECT COUNT(*) AS count FROM project_main_pushes').first<{ count: number }>();
+    expect(pushes?.count).toBe(0);
+  });
+
+  it('takes someone off at their next call, and out of the account once they have no project left in it', async () => {
+    const { env, db, database, ada, bo, share, sharing } = await world();
+    const notes = '66666666-6666-4666-8666-666666666666';
+    database
+      .prepare(
+        `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+           created_at) VALUES (?, 'ada-own', 'Notes', 'notes', 't-notes', 'chat', 'cloudchef', ?, 1)`,
+      )
+      .run(notes, ada.userId);
+    await share(ada, 'bo', 'edit');
+    await addProjectShareAction({
+      request: ada.browser(`/api/projects/${notes}/sharing/add`, { to: 'bo', role: 'view' }),
+      env,
+    });
+    const open = async (projectId: string) =>
+      (
+        await runtimeOpenProjectAction({
+          request: await bo.runtime('/api/cloudflare/runtime-projects/open', {
+            body: JSON.stringify({ orgProjectId: projectId }),
+            in: 'ada',
+          }),
+          env,
+          app: null,
+        })
+      ).status;
+    const remove = (path: string) =>
+      setProjectPersonAction({ request: ada.browser(`${path}/person`, { userId: bo.userId, role: null }), env });
+    const inAdasAccount = async () =>
+      (await listWorkspaceContexts(db, bo.userId)).some((context) => context.connectionId === 'ada-own');
+
+    // Off one project: refused there at once, and still at work on the other.
+    await remove(sharing);
+    expect(await open(RECIPES)).toBe(403);
+    expect(await open(notes)).toBe(200);
+    expect(await inAdasAccount()).toBe(true);
+    // Off the last: nothing of Ada's account is his to open.
+    await remove(`/api/projects/${notes}/sharing`);
+    expect(await open(notes)).toBe(401);
+    expect(await inAdasAccount()).toBe(false);
+    // Added again, he is back, with nothing else changed.
+    await share(ada, 'bo', 'view');
+    expect(await open(RECIPES)).toBe(200);
+  });
+
+  it('lets another account read a project only through CloudChef, never push to it, and only while they may read it', async () => {
+    const { env, ada, bo, share, sharing } = await world();
+    await share(ada, 'bo', 'edit');
     const forwarded: { url: string; authorization: string | null }[] = [];
     vi.stubGlobal(
       'fetch',
@@ -232,7 +354,7 @@ describe('sharing a project', () => {
         })
       ).status;
 
-    // A viewer reads, through Ada's runtime, with a capability naming Bo, the project and his role.
+    // From his own account Bo reads it through Ada's runtime, with a capability naming him and the project, to read.
     expect(await ask('head')).toBe(200);
     expect(await ask('git/info/refs', 'GET', '?service=git-upload-pack')).toBe(200);
     expect(forwarded.map((call) => new URL(call.url).origin)).toEqual([
@@ -249,24 +371,15 @@ describe('sharing a project', () => {
       userId: bo.userId,
     });
 
-    // A viewer's push goes on too, still signed with the view role: Ada's runtime lets it set only his workspace's
-    // saved branches, where his commits are kept, and no branch of the project.
-    expect(await ask('git/git-receive-pack', 'POST')).toBe(200);
-    expect(await ask('git/info/refs', 'GET', '?service=git-receive-pack')).toBe(200);
-    for (const call of forwarded.slice(2)) {
-      const pushed = capabilitySchema.parse(
-        JSON.parse(
-          atob(call.authorization!.slice('Bearer '.length).split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/')),
-        ),
-      );
-      expect(readSharedCapabilitySubject(pushed.subject)?.role).toBe('view');
-    }
+    // A push never goes this way, even for someone who may edit it: he pushes from his workspace in Ada's account.
+    expect(await ask('git/git-receive-pack', 'POST')).toBe(403);
+    expect(await ask('git/info/refs', 'GET', '?service=git-receive-pack')).toBe(403);
+    expect(forwarded).toHaveLength(2);
 
     // Removed: refused at the very next request, before anything reaches Ada's runtime.
     await setProjectPersonAction({ request: ada.browser(`${sharing}/person`, { userId: bo.userId, role: null }), env });
-    const before = forwarded.length;
     expect(await ask('head')).toBe(403);
-    expect(forwarded.length).toBe(before);
+    expect(forwarded).toHaveLength(2);
   });
 
   it('reads a project of the runtime’s own account through CloudChef, but refuses pushing to it, one not shared, or an unknown request', async () => {
@@ -316,95 +429,29 @@ describe('sharing a project', () => {
     });
     expect(forged.status).toBe(401);
   });
-
-  it('opens a shared project in the collaborator’s own account, but leaves publishing it to the owner’s', async () => {
-    const { env, ada, bo, share } = await world();
-    await share(ada, 'bo', 'edit');
-    const opened = await runtimeOpenProjectAction({
-      request: await bo.runtime('/api/cloudflare/runtime-projects/open', {
-        body: JSON.stringify({ orgProjectId: RECIPES }),
-      }),
-      env,
-      app: null,
-    });
-    expect(opened.status).toBe(200);
-    expect(await opened.json()).toMatchObject({
-      role: 'edit',
-      inAnotherAccount: true,
-      ownerName: 'ada',
-      repo: 't-recipes',
-    });
-    // Building and deploying it happen only in Ada's account.
-    const claim = await runtimeDeploymentClaimAction({
-      request: await bo.runtime('/api/cloudflare/runtime-projects/deployments/claim', {
-        body: JSON.stringify({ orgProjectId: RECIPES, branch: 'main', commit: COMMIT }),
-      }),
-      env,
-    });
-    expect(claim.status).toBe(403);
-    // Bo's runtime can't record a push of main itself: Ada's runtime, which answered it, tells it for him.
-    const own = await runtimeMainPushedAction({
-      request: await bo.runtime('/api/cloudflare/runtime-projects/main-pushed', {
-        body: JSON.stringify({ orgProjectId: RECIPES, oldCommit: null, newCommit: COMMIT }),
-      }),
-      env,
-    });
-    expect(own.status).toBe(403);
-    const told = await runtimeMainPushedAction({
-      request: await ada.runtime('/api/cloudflare/runtime-projects/main-pushed', {
-        body: JSON.stringify({ orgProjectId: RECIPES, oldCommit: null, newCommit: COMMIT, pushedBy: bo.userId }),
-      }),
-      env,
-    });
-    expect(told.status).toBe(200);
-  });
-
-  it('records a push for someone only while they may still edit the project', async () => {
-    const { env, db, ada, bo, cy, share } = await world();
-    await share(ada, 'bo', 'view');
-    const tell = async (pushedBy: string) =>
-      (
-        await runtimeMainPushedAction({
-          request: await ada.runtime('/api/cloudflare/runtime-projects/main-pushed', {
-            body: JSON.stringify({ orgProjectId: RECIPES, oldCommit: null, newCommit: COMMIT, pushedBy }),
-          }),
-          env,
-        })
-      ).status;
-    expect(await tell(bo.userId)).toBe(403);
-    expect(await tell(cy.userId)).toBe(403);
-    const pushes = await db.prepare('SELECT COUNT(*) AS count FROM project_main_pushes').first<{ count: number }>();
-    expect(pushes?.count).toBe(0);
-  });
 });
 
-describe('a team project shared outside the team', () => {
-  it('gives an outsider their share, and a paused member nothing, whatever a share row says', async () => {
-    const { database, db, ada, bo, cy } = await world();
-    const site = '55555555-5555-4555-8555-555555555555';
-    database.exec(`
-      INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('team', 'Sites', 1, 1);
-      INSERT INTO cloudflare_connections (id, org_id, account_id, status, connection_generation, created_at, updated_at)
-        VALUES ('team-connection', 'team', 'account-team', 'active', 1, 1, 1);
-      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with, created_at)
-        VALUES ('${site}', 'team-connection', 'team', 'Site', 't-site', 'zip', 'cloudchef', 1);
-    `);
-    database
-      .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('team', ?, 'admin', 1)`)
-      .run(ada.userId);
+describe('a role left behind', () => {
+  it('gives nothing to someone paused in the project’s account, or no longer in it', async () => {
+    const { database, db, ada, bo, cy, share } = await world();
+    await share(ada, 'bo', 'edit');
+    await share(ada, 'cy', 'edit');
+    database.prepare(`UPDATE organization_members SET paused_at = 2 WHERE user_id = ?`).run(bo.userId);
+    database.prepare(`DELETE FROM organization_members WHERE org_id = 'ada-own' AND user_id = ?`).run(cy.userId);
+    expect(await findAccessibleProject(db, RECIPES, bo.userId)).toBeNull();
+    expect(await findAccessibleProject(db, RECIPES, cy.userId)).toBeNull();
+    expect(await findAccessibleProject(db, RECIPES, ada.userId)).toMatchObject({ role: 'edit' });
+    // Shared with again, someone paused is at work again: whoever runs the project just chose them.
+    await share(ada, 'bo', 'view');
+    expect(await findAccessibleProject(db, RECIPES, bo.userId)).toMatchObject({ role: 'view' });
+    // Never an admin who was paused: one project shared doesn't put them back in charge of the account.
     database
       .prepare(
-        `INSERT INTO organization_members (org_id, user_id, role, joined_at, paused_at) VALUES ('team', ?, 'member', 1, 2)`,
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at, paused_at) VALUES ('ada-own', ?, 'admin', 1, 2)`,
       )
       .run(cy.userId);
-    const shareRow = database.prepare(
-      `INSERT INTO project_shares (project_id, user_id, role, shared_by, shared_at) VALUES (?, ?, 'edit', ?, 1)`,
-    );
-    shareRow.run(site, bo.userId, ada.userId);
-    shareRow.run(site, cy.userId, ada.userId);
-    expect(await findAccessibleProject(db, site, bo.userId)).toMatchObject({ role: 'edit', shared: true });
-    expect(await findAccessibleProject(db, site, cy.userId)).toBeNull();
-    expect(await findAccessibleProject(db, site, ada.userId)).toMatchObject({ role: 'edit', shared: false });
+    await share(ada, 'cy', 'edit');
+    expect(await findAccessibleProject(db, RECIPES, cy.userId)).toBeNull();
   });
 });
 
@@ -450,9 +497,11 @@ describe('an invitation by email', () => {
       });
     const taken = await accept();
     expect(taken.status).toBe(200);
-    // She has no Cloudflare account yet: the page says opening it needs one.
-    expect(await taken.json()).toEqual({ projectId: RECIPES, needsCloudflare: true });
-    expect(await findAccessibleProject(db, RECIPES, sara.id)).toMatchObject({ role: 'edit', shared: true });
+    expect(await taken.json()).toEqual({ projectId: RECIPES });
+    expect(await findAccessibleProject(db, RECIPES, sara.id)).toMatchObject({ role: 'edit' });
+    // She has no Cloudflare account, and needs none: her session works in Ada's, where the project is.
+    const session = await getAuthSession(env, new Request(`${ORIGIN}/`, { headers: { cookie } }));
+    expect(session?.context).toMatchObject({ connectionId: 'ada-own', role: 'member', draftsAllowed: false });
     expect((await accept()).status).toBe(410);
   });
 

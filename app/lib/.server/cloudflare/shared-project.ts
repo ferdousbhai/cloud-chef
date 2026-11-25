@@ -5,11 +5,13 @@ import { MAIN_BRANCH, ProjectRepositoryError, type ProjectRepositories } from '.
 import { sharedProjectRequest } from './user-workspace-cloudflare-credential';
 
 /**
- * A project shared with someone whose workspace runs in another Cloudflare account than the project's. Their runtime
- * has no binding to the project's Artifacts and is never given a token for it: everything it reads or pushes goes to
- * the control plane (`runtime-shared/<project>/<op>`), which checks their role on each request and sends it on to a
- * runtime in the project's account, which answers it from its own Artifacts binding and applies every push check
- * there (`handleSharedProjectRequest` in the runtime). The token never leaves the project's account.
+ * A project read from a workspace whose own repositories don't give it: a public one in another Cloudflare account
+ * (a read-only `@cloudchef` chat, or a copy a change is offered from), or one of its own account its person may only
+ * view. The runtime has no binding to the project's Artifacts and is never given a token for it: what it reads goes to
+ * the control plane (`runtime-shared/<project>/<op>`), which checks on each request that its person may read the
+ * project and sends it on to a runtime in the project's account, which answers it from its own Artifacts binding
+ * (`handleSharedProjectRequest` in the runtime). The token never leaves the project's account, and nothing is pushed
+ * this way: someone added to a project works in its account, where their runtime pushes to it itself.
  *
  * The reads are the few a workspace needs besides git: main's commit, one commit, main's history, a commit's files
  * (to seed the workspace or restore a version), and a ZIP of a commit. `ancestors` is CloudChef's own: which of some
@@ -113,8 +115,9 @@ export function sharedWorkspaceRefsId(userId: string, workspace: string): string
 }
 
 /**
- * The capability subject the control plane signs for a runtime in the project's account to answer a request of
- * someone it is shared with: the project, their role and who they are. Only the control plane mints one.
+ * The capability subject the control plane signs for a runtime in the project's account to answer a request about
+ * the project for someone: the project, who they are, and their role (`edit` only for accepting an offered change).
+ * Only the control plane mints one.
  */
 export function sharedCapabilitySubject(args: { projectId: string; role: 'view' | 'edit'; userId: string }): string {
   return `shared/${args.projectId}/${args.role}/${args.userId}`;
@@ -138,7 +141,7 @@ type ReadableRepositories = Pick<
 >;
 
 /**
- * The project's account answering a read for someone it is shared with, from its own repository `repo`. `keep` is
+ * The project's account answering a read for someone who may read the project, from its own repository `repo`. `keep` is
  * what a workspace takes of a commit's files (never installed or built output).
  */
 export async function answerSharedRead(
@@ -253,7 +256,7 @@ const fileLineSchema = z.object({ path: z.string(), mode: z.string(), oid: z.str
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 
 /**
- * A shared project's repository as its workspace reads it, through the control plane: the reads of
+ * A project's repository as a workspace elsewhere reads it, through the control plane: the reads of
  * `ProjectRepositories` a workspace makes, for one project, whatever repository name the caller passes.
  */
 export class SharedProjectRepositories {

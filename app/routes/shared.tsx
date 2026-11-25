@@ -5,7 +5,6 @@ import { Button } from '@ui/Button';
 import { BrandLink } from '~/components/BrandLink';
 import { SessionCheckError } from '~/components/SignInPrompt';
 import { Loading } from '~/components/Loading';
-import { ConnectCloudflareButton } from '~/components/showcase/ConnectCloudflareButton';
 import { authClient, signOutOfCloudChef } from '~/lib/auth-client';
 import { useGoogleOrEmailSignIn } from '~/lib/hooks/useGoogleOrEmailSignIn';
 import { createPrivatePageHead } from '~/lib/social-meta';
@@ -19,12 +18,12 @@ const invitationSchema = z.object({
   role: z.enum(['view', 'edit']),
 });
 type Invitation = z.infer<typeof invitationSchema>;
-const acceptedSchema = z.object({ projectId: z.string(), needsCloudflare: z.boolean() });
+const acceptedSchema = z.object({ projectId: z.string() });
 
 /**
  * Where a project's emailed invitation lands. Signing in with the address it was sent to (Google, or an emailed link)
- * takes it at once; the project is then in "Shared with you" on the projects home. Working on it needs a Cloudflare
- * account of the person's own, which the page offers to connect when they have none.
+ * takes it at once, and the person is taken to their projects, working in the project's account. They need no
+ * Cloudflare account of their own.
  */
 export const Route = createFileRoute('/shared')({
   validateSearch: searchSchema,
@@ -38,7 +37,6 @@ function Shared() {
   const [invitation, setInvitation] = useState<Invitation | 'invalid' | null>(token ? null : 'invalid');
   const [error, setError] = useState<string | null>(null);
   const [needsProof, setNeedsProof] = useState(false);
-  const [accepted, setAccepted] = useState<z.infer<typeof acceptedSchema> | null>(null);
   const [busy, setBusy] = useState(false);
   const [linkSentTo, setLinkSentTo] = useState<string | null>(null);
   const started = useRef(false);
@@ -63,12 +61,9 @@ function Shared() {
     setBusy(true);
     setError(null);
     try {
-      const answer = await postJson('/api/project-invitations/accept', { token }, acceptedSchema);
-      if (!answer.needsCloudflare) {
-        window.location.assign('/');
-        return;
-      }
-      setAccepted(answer);
+      await postJson('/api/project-invitations/accept', { token }, acceptedSchema);
+      window.location.assign('/');
+      return;
     } catch (refusal) {
       setNeedsProof(refusal instanceof RequestError && refusal.code === 'email_unproven');
       setError(messageOf(refusal, 'This invitation could not be opened.'));
@@ -107,22 +102,9 @@ function Shared() {
   }
   const can =
     invited.role === 'edit'
-      ? 'You can change it and put your changes live on their site.'
+      ? 'You can change it and put your changes live on its site.'
       : 'You can look through it, see its history and download it.';
   const title = `${invited.inviterName} shared ${invited.projectName} with you`;
-  if (accepted) {
-    return (
-      <SharedCard title={title}>
-        <p className="app-page-lede wrap-break-word">
-          It’s in your projects now. {can} To work on it, connect a Cloudflare account of your own: your workspace runs
-          there, and {invited.inviterName}’s site stays in theirs.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <ConnectCloudflareButton />
-        </div>
-      </SharedCard>
-    );
-  }
   if (!session) {
     return (
       <SharedCard title={title}>

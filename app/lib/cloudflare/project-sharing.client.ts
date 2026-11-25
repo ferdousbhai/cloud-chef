@@ -4,8 +4,7 @@ import { projectRoleSchema, type ProjectRole } from './org-projects.client';
 
 /**
  * Sharing a project as a document is shared: a username or an email address, and Can view or Can edit. Whoever runs
- * the project (its owner, or a team's admin) shares it; someone it is shared with works on it from a Cloudflare
- * account of their own.
+ * the project shares it; someone it is shared with works on it in the project's own Cloudflare account.
  */
 const sharingSchema = z.object({
   people: z.array(
@@ -15,7 +14,6 @@ const sharingSchema = z.object({
       username: z.string().nullable(),
       image: z.string().nullable(),
       role: z.enum(['owner', 'view', 'edit']),
-      kind: z.enum(['owner', 'team', 'shared']),
     }),
   ),
   invitations: z.array(
@@ -67,11 +65,11 @@ export function resendInvitation(projectId: string, invitationId: string): Promi
 }
 
 const sharedWithMeSchema = z.object({
-  /** Whether the person has a Cloudflare account (their own, or a team's) to open a shared project in. */
-  canOpen: z.boolean(),
   projects: z.array(
     z.object({
       id: z.string(),
+      /** The account it is in, which opening it switches to. */
+      connectionId: z.string(),
       name: z.string(),
       role: projectRoleSchema,
       ownerName: z.string().nullable(),
@@ -88,7 +86,7 @@ const sharedWithMeSchema = z.object({
 export type SharedWithMe = z.infer<typeof sharedWithMeSchema>;
 export type SharedProject = SharedWithMe['projects'][number];
 
-/** The projects others shared with this person, from accounts not theirs. */
+/** The projects this person was added to in other people's accounts, besides the one they are working in. */
 export function loadSharedWithMe(signal?: AbortSignal): Promise<SharedWithMe> {
   return getJson('/api/projects/shared', sharedWithMeSchema, 'Shared projects could not be loaded.', signal);
 }

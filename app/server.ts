@@ -418,7 +418,7 @@ async function routeApplicationRequest(request: Request, env: Env, nonce: string
       ? new Response('Too many git requests. Try again shortly.\n', { status: 429, headers: { 'Retry-After': '60' } })
       : commandLineGitAction({ request, env });
   }
-  // A workspace's reads and git for a project shared with its person from another account, limited as runtime calls are.
+  // A workspace's reads and fetches of a project its own repositories don't give it, limited as runtime calls are.
   if (isRuntimeSharedPath(pathname)) {
     return (await runtimeRateLimited(request, env))
       ? Response.json(

@@ -247,10 +247,10 @@ authorization; erasing its last member removes the organization and revokes it.
 
 A project's code and history live in Cloudflare Artifacts, in the account the project belongs to: an Artifacts
 repository in the account's `cloudchef` namespace. A project belongs to a Cloudflare connection
-(`org_projects.connection_id`): a team's, whose admins own every project and give each member a role on the ones
-they choose (view or edit, `org_project_access.role`; invites grant edit), or a person's own, whose only member is
-its owner (`app/server-handlers/projects.ts`, `app/lib/cloudflare/data/org-projects.server.ts`). Who may do what
-is decided in one query (`findAccessibleProject`): a paused or removed member has no role at their next call.
+(`org_projects.connection_id`), whose space's admins run every project in it and give anyone else a role on the ones
+they choose (view or edit, `org_project_access.role`; Sharing a project, below)
+(`app/server-handlers/projects.ts`, `app/lib/cloudflare/data/org-projects.server.ts`). Who may do what is decided in
+one query (`findAccessibleProject`): someone paused or removed has no role at their next call.
 
 GitHub is only where a project may be imported from, once; nothing is read back from it afterwards. A public
 repository is imported by its address (its default branch read from the ref advertisement GitHub serves without
@@ -296,7 +296,7 @@ production only through Workers Builds.
 
 ### Sharing a project
 
-Whoever runs a project (its owner, or one of its team's admins) shares it as a document is shared, from Share in its
+Whoever runs a project (its owner, or another admin of its space) shares it as a document is shared, from Share in its
 menu (`app/server-handlers/project-shares.ts`, `app/lib/cloudflare/data/project-shares.server.ts`): a username, or an
 email address, and Can view or Can edit. A username shares at once and tells that person (a `project_shared`
 notification and an email). An address always becomes an invitation (`project_invitations`: the emailed link's
@@ -304,28 +304,30 @@ SHA-256, its role, who sent it, 14 days), whether or not it has an account, so t
 an account that has proven that address is also told in CloudChef. An invitation is taken by someone signed in with
 the address it was sent to, proven (an address only a Cloudflare login reported takes nothing): at `/shared`, or
 whenever their "Shared with you" list loads (`GET /api/projects/shared`). It lapses with its sender's right to run
-the project. A team's own members get their role in `org_project_access`; everyone else in `project_shares`
-(`findAccessibleProject`'s `shared`), and removing either stops them at their next call.
+the project.
 
-Someone a project is shared with works on it from an account of their own (the context they are in), never the
-owner's; its site and builds stay in the owner's. Their runtime has no binding to the owner's Artifacts and is never
-given a token for it: the control plane has no Artifacts scope, and a token handed to a runtime its holder controls
-would reach the repository without any push check. So every read and push goes to the control plane
-(`/api/cloudflare/runtime-shared/<project>/<op>`, `app/server-handlers/runtime-shared.ts`), authenticated as every
-runtime route is, which checks their role on that request (a view to read, an edit to push) and sends it to a
-runtime in the project's account (the first of `projectReaders` with one), with a capability it signs for that one
-person, project and role (`shared/<project>/<role>/<user>`). That runtime answers it from its own binding
-(`handleSharedProjectRequest` in `user-workspace-runtime/src/git-proxy.ts`): git with every check git here has
-(incoming refs, no secret files, main only forward), the person's saved branches under a folder of their own
-(`shared-<user>-<workspace>`), a push of main recorded as theirs (`main-pushed` with `pushedBy`, accepted only for
-someone who may still edit it) and published as anyone's; and the few reads a workspace makes besides git (main's
-commit, a commit, history, a commit's files, a ZIP; `app/lib/.server/cloudflare/shared-project.ts`). In the
-collaborator's runtime the git proxy sends git on unstaged (`forwarded`), and the agent, History and Download read
-through `SharedProjectRepositories`. `runtime-projects/open`, `status` and `site` accept a shared project (its builds
-and site read with the project's connection's authorization); every other runtime project call, publishing among
-them, refuses it. A command-line clone or push of a shared project goes the same way. The turn's context tells the
-agent whose project it is and that publishing puts it live on their site. People with no Cloudflare account can
-take an invitation but not open the project until they connect one.
+There is one way to be on someone else's project: added to it, with a role on it (`org_project_access`), in the
+Cloudflare account it lives in. Being added makes the person one of that account's space (`organization_members`:
+never an admin, and with no apps of their own there), which is what lets their workspace run in it, so they need no
+Cloudflare account of their own and the project's account pays for what they use. Taken off their last project
+there, they leave the space again (`setPersonRole`); their workspace, with its chats, stays in the account and is
+theirs again if they are added back. What they publish is held to what the project already has
+(docs/DECISIONS.md, "A collaborator works with what the project already has"). The projects home lists the projects
+of the account the session works in, and under "Shared with you" those the person was added to in other accounts;
+opening one of those moves the session, and the tab, to its account first (`workInAccount`), as taking an invitation
+does. Migration 0078 moved the shares made before this (`project_shares`, whose people worked from accounts of
+their own) into their projects' accounts.
+
+A workspace still reads some projects it has no repository binding for: a public one in another account (a
+read-only `@cloudchef` chat, or a public copy a change is offered from), or one of its own account its person may
+only view. Those reads go to the control plane (`/api/cloudflare/runtime-shared/<project>/<op>`,
+`app/server-handlers/runtime-shared.ts`), authenticated as every runtime route is, which checks that the person may
+read the project and sends the request to a runtime in the project's account (the first of `projectReaders` with
+one), with a capability it signs for that one person and project (`shared/<project>/<role>/<user>`). That runtime
+answers from its own binding (`handleSharedProjectRequest` in `user-workspace-runtime/src/git-proxy.ts`): main's
+commit, a commit, history, a commit's files, a ZIP, and git's fetch
+(`app/lib/.server/cloudflare/shared-project.ts`). Nothing is pushed this way. The same path carries CloudChef's own
+`preview` and `merge` of a change someone offered.
 
 ## Project Repositories
 

@@ -111,3 +111,19 @@ publish only to a runtime that says it holds it so.
 Not covered: a project Workers Builds publishes (imported from GitHub) is built by Cloudflare with the account's
 own build token, from the repository's Wrangler config, so someone who may edit it can add a binding there. Give
 edit on such a project only to someone trusted with the account.
+
+## One way to be on someone else's project
+
+Decided by the owner on 2026-11-25, to make CloudChef read like a successor to GitHub for people who don't write
+code: an owner, and the people the owner adds to a project. Until then there were three overlapping ways (an admin
+of a space, a member invited into it, and someone a project was shared with who worked on it from a Cloudflare
+account of their own), each with a different answer to whose account pays and where a publish goes. Now sharing a
+project is the one way in: it adds the person to that project, in the project's own Cloudflare account, which pays
+for their workspace and model whether or not they have an account of their own. A space is only the plumbing for
+that (who may run a workspace in an account); nobody is asked to think about one. Migration 0078 moved the shares
+made before into their projects' accounts.
+
+Left as they were: the space invite and "may start apps of their own" in Settings, which add
+someone to an account without a project; a third level beside view and edit for someone trusted to add to the
+account (today only an admin of the space can); and a project Workers Builds publishes, which the collaborator rule
+above doesn't hold.

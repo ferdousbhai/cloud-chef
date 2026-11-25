@@ -1,8 +1,7 @@
 import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { hasSameOrigin, readJsonRequest, withinAddressRateLimit } from '~/lib/.server/request-guards';
-import { getAuthSession } from '~/lib/.server/auth';
-import { listWorkspaceContexts } from '~/lib/cloudflare/data/organization-access.server';
+import { getAuthSession, setSessionContext } from '~/lib/.server/auth';
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { listSharedProjects, requireManagedProject, type Project } from '~/lib/cloudflare/data/org-projects.server';
 import { shownName } from '~/lib/shown-name';
@@ -24,11 +23,10 @@ import { projectIdOfPath } from './projects';
 import { signedIn } from './signed-in';
 
 /**
- * Sharing a project, as a document is shared: whoever runs it (its owner, or one of its team's admins) types a
+ * Sharing a project, as a document is shared: whoever runs it (its owner, or another admin of its space) types a
  * username or an email address and chooses Can view or Can edit. A username shares at once and tells that person; an
  * address is always invited (an email with a link), so the person sharing never learns whether it has an account.
- * Whoever it is shared with works on it from a Cloudflare account of their own; its site and builds stay in the
- * owner's.
+ * Whoever it is shared with works on it in the project's own Cloudflare account, which needs none of their own.
  */
 export const PROJECT_SHARING_ROUTE = '/api/projects/:projectId/sharing';
 export const PROJECT_SHARING_ADD_ROUTE = '/api/projects/:projectId/sharing/add';
@@ -149,20 +147,20 @@ export function setProjectInvitationAction({ request, env }: { request: Request;
 }
 
 /**
- * `GET /api/projects/shared`: the projects others shared with this person, from accounts not theirs, for the projects
- * home's "Shared with you". An invitation to their address, once CloudChef has proven it is theirs, is taken first,
- * so a project shared with their email shows as soon as they look. `canOpen` is whether they have an account of
- * their own to open one in.
+ * `GET /api/projects/shared`: the projects this person was added to in other people's accounts, for the projects
+ * home's "Shared with you": not those of the account they are working in, which the home lists already. An invitation
+ * to their address, once CloudChef has proven it is theirs, is taken first, so a project shared with their email shows
+ * as soon as they look. Each names its account (`connectionId`), which opening it switches to.
  */
 export function sharedWithMeAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     await acceptInvitationsForUser(env.DB, session.user.id);
-    const shared = await listSharedProjects(env.DB, session.user.id);
+    const shared = await listSharedProjects(env.DB, session.user.id, session.context?.connectionId ?? null);
     return Response.json(
       {
-        canOpen: session.context !== null,
         projects: shared.map((project) => ({
           id: project.id,
+          connectionId: project.connectionId,
           name: project.name,
           role: project.role,
           ownerName: project.ownerName ? shownName(project.ownerName) : null,
@@ -205,7 +203,7 @@ export async function describeProjectInvitationAction({ request, env }: { reques
 
 /**
  * `POST /api/project-invitations/accept`: the person signed in takes the invitation, which needs the address it was
- * sent to, proven. Answers whether they have a Cloudflare account to open it from yet (`needsCloudflare`).
+ * sent to, proven. Their session then works in the project's account, so the projects home shows it.
  */
 export async function acceptProjectInvitationAction({ request, env }: { request: Request; env: Env }) {
   if (!hasSameOrigin(request)) {
@@ -220,9 +218,12 @@ export async function acceptProjectInvitationAction({ request, env }: { request:
     return body.response;
   }
   try {
-    const { projectId } = await acceptInvitation(env.DB, { token: body.data.token, userId: session.user.id });
-    const contexts = await listWorkspaceContexts(env.DB, session.user.id);
-    return Response.json({ projectId, needsCloudflare: contexts.length === 0 }, { headers: NO_STORE });
+    const { projectId, connectionId } = await acceptInvitation(env.DB, {
+      token: body.data.token,
+      userId: session.user.id,
+    });
+    await setSessionContext(env, request, connectionId);
+    return Response.json({ projectId }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ProjectShareError) {
       return shareRefusal(error);
@@ -268,14 +269,11 @@ async function sharingAnswer(
   done?: { invited: string } | { shared: string },
 ): Promise<Response> {
   const sharing = await projectSharing(env.DB, project);
-  // Whether its space has other people in it: then its admins all run it, and it is theirs, not one person's.
-  const people = await env.DB.prepare('SELECT COUNT(*) AS count FROM organization_members WHERE org_id = ?')
-    .bind(project.orgId)
-    .first<{ count: number }>();
+  // Whether several people run it: then it is theirs together, not one person's.
   const answer: Awaited<ReturnType<typeof projectSharing>> & {
     team: boolean;
     done?: { invited: string } | { shared: string };
-  } = { ...sharing, team: (people?.count ?? 0) > 1 };
+  } = { ...sharing, team: sharing.people.filter((person) => person.role === 'owner').length > 1 };
   if (done) {
     answer.done = done;
   }
@@ -315,7 +313,7 @@ async function sendSharedEmail(
   const project = nameForEmail(details.project.name, 'a project');
   const can =
     details.role === 'edit'
-      ? 'You can change it and put your changes live on their site.'
+      ? 'You can change it and put your changes live on its site.'
       : 'You can look through it, see its history and download it.';
   const text = [
     `${sharer} shared ${project} with you on CloudChef.`,
@@ -326,8 +324,6 @@ async function sendSharedEmail(
     ...(details.invitation
       ? [
           `Sign in with this address (${details.to}). The link works for ${PROJECT_INVITATION_TTL_MS / 86_400_000} days.`,
-          'To work on it you need a Cloudflare account of your own: your workspace runs there,',
-          `and ${sharer}'s site stays in theirs.`,
         ]
       : []),
   ].join('\n');

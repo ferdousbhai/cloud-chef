@@ -1,14 +1,17 @@
 import { shownName } from '~/lib/shown-name';
 import { normalizeEmail } from '~/lib/.server/auth';
 import { bytesToBase64Url, sha256Hex } from '~/lib/hex-digest';
-import { setProjectAccess, type Project, type ProjectRole } from './org-projects.server';
+import type { Project, ProjectRole } from './org-projects.server';
 
 /**
  * Sharing a project with people, as a document is shared: by username, which finds that person, or by email
  * address, which always makes an invitation, so the person sharing never learns whether an address has a
- * CloudChef account. A team's own members get their role in `org_project_access`; everyone else in
- * `project_shares`, and works on the project from an account of their own (`findAccessibleProject`'s
- * `shared`). Whoever runs the project (its owner, or one of its team's active admins) shares it.
+ * CloudChef account. Whoever runs the project (its owner, or another admin of its space) shares it.
+ *
+ * There is one way to be on someone else's project: added to it, with a role on it (`org_project_access`), in the
+ * Cloudflare account the project lives in. Being added makes the person one of that account's space
+ * (`organization_members`, never an admin, and with no apps of their own there), which is what lets their workspace
+ * run in it; losing their last project there takes them out of it again.
  */
 export const PROJECT_INVITATION_TTL_MS = 14 * 24 * 60 * 60_000;
 
@@ -31,17 +34,14 @@ export type SharingPerson = {
   name: string;
   username: string | null;
   image: string | null;
-  /** `owner`: runs it (its owner, or a team admin); otherwise what they may do. */
+  /** `owner`: runs it (its owner, or another admin of its space); otherwise what they may do. */
   role: 'owner' | ProjectRole;
-  /** `team`: a member of the project's team; `shared`: someone it was shared with. */
-  kind: 'owner' | 'team' | 'shared';
 };
 
 export type SharingInvitation = { id: string; email: string; role: ProjectRole; sentAt: number; expiresAt: number };
 
 /**
- * Whether `?{n}`, the user, runs the project in `projects`: its owner for a person's own, an active admin of its team
- * for a team's.
+ * Whether `?{n}`, the user, runs the project in `projects`: an active admin of its space, which its owner is.
  */
 function runsProjectSql(user: string): string {
   return `EXISTS (
@@ -59,26 +59,23 @@ export async function projectSharing(
   const [{ results: people }, { results: invitations }] = await Promise.all([
     db
       .prepare(
-        `SELECT person.id, person.name, person.username, person.image, chosen.role, chosen.kind FROM (
-           SELECT user_id, 'owner' AS role, 'owner' AS kind, 0 AS sort, joined_at AS since FROM organization_members
-             WHERE org_id = ?3 AND role = 'admin' AND paused_at IS NULL
+        `SELECT person.id, person.name, person.username, person.image, chosen.role FROM (
+           SELECT user_id, 'owner' AS role, 0 AS sort, joined_at AS since FROM organization_members
+             WHERE org_id = ?2 AND role = 'admin' AND paused_at IS NULL
            UNION ALL
-           SELECT access.user_id, access.role, 'team', 1, access.granted_at FROM org_project_access AS access
-             JOIN organization_members AS members ON members.org_id = ?3 AND members.user_id = access.user_id
+           SELECT access.user_id, access.role, 1, access.granted_at FROM org_project_access AS access
+             JOIN organization_members AS members ON members.org_id = ?2 AND members.user_id = access.user_id
              WHERE access.project_id = ?1 AND members.role = 'member' AND members.paused_at IS NULL
-           UNION ALL
-           SELECT user_id, role, 'shared', 1, shared_at FROM project_shares WHERE project_id = ?1
          ) AS chosen JOIN "user" AS person ON person.id = chosen.user_id
          ORDER BY chosen.sort, chosen.since`,
       )
-      .bind(project.id, project.connectionId, project.orgId)
+      .bind(project.id, project.orgId)
       .all<{
         id: string;
         name: string | null;
         username: string | null;
         image: string | null;
         role: SharingPerson['role'];
-        kind: SharingPerson['kind'];
       }>(),
     db
       .prepare(
@@ -95,7 +92,6 @@ export async function projectSharing(
       username: row.username,
       image: row.image,
       role: row.role,
-      kind: row.kind,
     })),
     invitations: invitations.map((row) => ({
       id: row.id,
@@ -115,8 +111,8 @@ export type ShareOutcome =
 /**
  * Shares `project` with `to`, a username (`sara` or `@sara`) or an email address, to view or edit it. A username
  * shares with that person at once. An address makes an invitation, or renews the one it has; an account that has
- * proven that address is also told in CloudChef, and takes it the next time it looks. A team's own member is given
- * the role as a member, whichever way they are named.
+ * proven that address is also told in CloudChef, and takes it the next time it looks. Someone already working in the
+ * project's account is given the role at once, whichever way they are named.
  */
 export async function shareProject(
   db: D1Database,
@@ -141,10 +137,8 @@ export async function shareProject(
   if (await runs(db, args.project.id, person.id)) {
     throw new ProjectShareError(person.id === args.actorId ? 'That’s you.' : 'They run this project already.', 409);
   }
-  const shared = await grant(db, { ...args, userId: person.id, now });
-  if (shared === 'shared') {
-    await notifyShared(db, { userId: person.id, actorId: args.actorId, project: args.project, now });
-  }
+  await grant(db, { projectId: args.project.id, userId: person.id, role: args.role, by: args.actorId, now });
+  await notifyShared(db, { userId: person.id, actorId: args.actorId, project: args.project, now });
   return { kind: 'shared', userId: person.id, email: person.email, name: shownName(person.name ?? username) };
 }
 
@@ -156,7 +150,8 @@ async function inviteByEmail(
   if (actor && normalizeEmail(actor.email) === args.email) {
     throw new ProjectShareError('That’s you.', 409);
   }
-  // A team's admins already see their members' addresses: one of them is given the role as a member.
+  // Whoever runs a project already sees the addresses of the people working in its account: one of them is given
+  // the role at once.
   if (args.project.orgId) {
     const member = await db
       .prepare(
@@ -169,7 +164,13 @@ async function inviteByEmail(
       if (await runs(db, args.project.id, member.user_id)) {
         throw new ProjectShareError('They run this project already.', 409);
       }
-      await grant(db, { ...args, userId: member.user_id });
+      await grant(db, {
+        projectId: args.project.id,
+        userId: member.user_id,
+        role: args.role,
+        by: args.actorId,
+        now: args.now,
+      });
       const name = await db
         .prepare('SELECT name FROM "user" WHERE id = ?')
         .bind(member.user_id)
@@ -207,40 +208,34 @@ async function inviteByEmail(
 }
 
 /**
- * Gives `userId` the role: as a member when they are in the project's team (`org_project_access`), else as someone
- * it is shared with (`project_shares`). Which of the two it was.
+ * Gives `userId` the role on the project, in the name of `by`, who runs it. It makes them one of the project's space
+ * if they weren't: someone who works there only on the projects they are given, which is what lets their workspace
+ * run in its account. Someone paused there is working again, since whoever runs the project just chose them (never
+ * an admin who was paused, whom sharing one project must not put back in charge of the account). A role they already
+ * had keeps when it was first given.
  */
 async function grant(
   db: D1Database,
-  args: { project: Project; actorId: string; userId: string; role: ProjectRole; now: number },
-): Promise<'team' | 'shared'> {
-  if (args.project.orgId) {
-    const member = await db
-      .prepare('SELECT 1 AS yes FROM organization_members WHERE org_id = ? AND user_id = ?')
-      .bind(args.project.orgId, args.userId)
-      .first();
-    if (member) {
-      await setProjectAccess(db, {
-        orgId: args.project.orgId,
-        actorId: args.actorId,
-        projectId: args.project.id,
-        userId: args.userId,
-        role: args.role,
-      });
-      return 'team';
-    }
-  }
-  await db
-    .prepare(
-      `INSERT INTO project_shares (project_id, user_id, role, shared_by, shared_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT (project_id, user_id) DO UPDATE SET role = excluded.role`,
-    )
-    .bind(args.project.id, args.userId, args.role, args.actorId, args.now)
-    .run();
-  return 'shared';
+  args: { projectId: string; userId: string; role: ProjectRole; by: string; now: number },
+): Promise<void> {
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
+         SELECT org_id, ?2, 'member', ?3, 0 FROM org_projects WHERE id = ?1 AND org_id IS NOT NULL
+         ON CONFLICT (org_id, user_id) DO UPDATE SET paused_at = NULL WHERE organization_members.role = 'member'`,
+      )
+      .bind(args.projectId, args.userId, args.now),
+    db
+      .prepare(
+        `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (project_id, user_id) DO UPDATE SET role = excluded.role, granted_by = excluded.granted_by`,
+      )
+      .bind(args.projectId, args.userId, args.role, args.by, args.now),
+  ]);
 }
 
-/** Whether `userId` runs the project: its owner, or an active admin of its team. */
+/** Whether `userId` runs the project: its owner, or another active admin of its space. */
 export async function runsProject(db: D1Database, projectId: string, userId: string): Promise<boolean> {
   return runs(db, projectId, userId);
 }
@@ -254,39 +249,55 @@ async function runs(db: D1Database, projectId: string, userId: string): Promise<
 }
 
 /**
- * Changes what someone the project is shared with may do, or (null) takes it away: a team member's grant, or a
- * share. Taking it away stops their workspace at its next call to CloudChef.
+ * Changes what someone added to the project may do, or (null) takes them off it, which stops their workspace at its
+ * next call to CloudChef. Taken off the last project they had in its account, they leave that account's space too,
+ * unless they build apps of their own there: nothing is left for them to open in it. Their workspace there, with its
+ * chats, is kept in the account, and is theirs again if they are added back.
  */
 export async function setPersonRole(
   db: D1Database,
   args: { project: Project; actorId: string; userId: string; role: ProjectRole | null },
 ): Promise<void> {
-  if (args.project.orgId) {
-    const member = await db
-      .prepare('SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?')
-      .bind(args.project.orgId, args.userId)
-      .first<{ role: string }>();
-    if (member) {
-      if (member.role === 'admin') {
-        throw new ProjectShareError('The space’s admins run every project in it.', 409);
-      }
-      await setProjectAccess(db, { orgId: args.project.orgId, ...args, projectId: args.project.id });
-      return;
+  const member = await db
+    .prepare('SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?')
+    .bind(args.project.orgId, args.userId)
+    .first<{ role: string }>();
+  if (member?.role === 'admin') {
+    throw new ProjectShareError('Whoever runs the account runs every project in it.', 409);
+  }
+  if (args.role !== null) {
+    const changed = await db
+      .prepare('UPDATE org_project_access SET role = ?, granted_by = ? WHERE project_id = ? AND user_id = ?')
+      .bind(args.role, args.actorId, args.project.id, args.userId)
+      .run();
+    if (changed.meta.changes === 0) {
+      throw new ProjectShareError('This project isn’t shared with them.', 404);
     }
+    return;
   }
-  const changed =
-    args.role === null
-      ? await db
-          .prepare('DELETE FROM project_shares WHERE project_id = ? AND user_id = ?')
-          .bind(args.project.id, args.userId)
-          .run()
-      : await db
-          .prepare('UPDATE project_shares SET role = ? WHERE project_id = ? AND user_id = ?')
-          .bind(args.role, args.project.id, args.userId)
-          .run();
-  if (changed.meta.changes === 0 && args.role !== null) {
-    throw new ProjectShareError('This project isn’t shared with them.', 404);
-  }
+  // Each later write happens only once they have no project left there and build nothing of their own, so someone
+  // still on another project keeps their place, and a role given back meanwhile keeps it too.
+  const left = `NOT EXISTS (
+      SELECT 1 FROM org_project_access AS access JOIN org_projects AS projects ON projects.id = access.project_id
+      WHERE projects.org_id = ?1 AND access.user_id = ?2)`;
+  const gone = 'NOT EXISTS (SELECT 1 FROM organization_members WHERE org_id = ?1 AND user_id = ?2)';
+  await db.batch([
+    db
+      .prepare('DELETE FROM org_project_access WHERE project_id = ? AND user_id = ?')
+      .bind(args.project.id, args.userId),
+    db
+      .prepare(
+        `DELETE FROM organization_members
+         WHERE org_id = ?1 AND user_id = ?2 AND role = 'member' AND drafts_allowed = 0 AND ${left}`,
+      )
+      .bind(args.project.orgId, args.userId),
+    db
+      .prepare(
+        `DELETE FROM user_computer_runtimes
+         WHERE user_id = ?2 AND connection_id IN (SELECT id FROM cloudflare_connections WHERE org_id = ?1) AND ${gone}`,
+      )
+      .bind(args.project.orgId, args.userId),
+  ]);
 }
 
 /** Changes an invitation's role, or cancels it (null). */
@@ -352,6 +363,7 @@ export async function describeInvitation(
 type InvitationRow = {
   id: string;
   project_id: string;
+  connection_id: string;
   email: string;
   role: ProjectRole;
   invited_by: string;
@@ -368,7 +380,7 @@ async function validInvitations(
   const { results } = await db
     .prepare(
       `SELECT invitations.id, invitations.project_id, invitations.email, invitations.role, invitations.invited_by,
-         projects.name AS project_name, inviter.name AS inviter_name
+         projects.connection_id, projects.name AS project_name, inviter.name AS inviter_name
        FROM project_invitations AS invitations
        JOIN org_projects AS projects ON projects.id = invitations.project_id
        JOIN "user" AS inviter ON inviter.id = invitations.invited_by
@@ -386,12 +398,13 @@ async function validInvitation(db: D1Database, by: { tokenHash: string }, now: n
 
 /**
  * Takes the invitation with `token` for `userId`, who must have proven the address it was sent to. Answers the
- * project it shares. An address only reported by a Cloudflare login was never proven, so it takes nothing.
+ * project it shares and the account it is in. An address only reported by a Cloudflare login was never proven, so it
+ * takes nothing.
  */
 export async function acceptInvitation(
   db: D1Database,
   args: { token: string; userId: string; now?: number },
-): Promise<{ projectId: string }> {
+): Promise<{ projectId: string; connectionId: string }> {
   const now = args.now ?? Date.now();
   const invitation = await validInvitation(db, { tokenHash: await sha256Hex(args.token) }, now);
   if (!invitation) {
@@ -412,7 +425,7 @@ export async function acceptInvitation(
     throw new ProjectShareError('Confirm your email address to open this invitation.', 403, 'email_unproven');
   }
   await take(db, invitation, args.userId, now);
-  return { projectId: invitation.project_id };
+  return { projectId: invitation.project_id, connectionId: invitation.connection_id };
 }
 
 /**
@@ -446,22 +459,12 @@ export async function acceptInvitationsForUser(db: D1Database, userId: string, n
   return user ? acceptInvitationsForEmail(db, { userId, email: user.email, now }) : 0;
 }
 
-/** An invitation becomes its taker's role, and is gone: in one batch, so a second taker finds nothing. */
+/** An invitation becomes its taker's role, and is gone first, so a second taker finds nothing. */
 async function take(db: D1Database, invitation: InvitationRow, userId: string, now: number): Promise<void> {
   if (await runs(db, invitation.project_id, userId)) {
     await db.prepare('DELETE FROM project_invitations WHERE id = ?').bind(invitation.id).run();
     return;
   }
-  const project = await db
-    .prepare('SELECT org_id FROM org_projects WHERE id = ?')
-    .bind(invitation.project_id)
-    .first<{ org_id: string | null }>();
-  const member =
-    project?.org_id &&
-    (await db
-      .prepare('SELECT 1 AS yes FROM organization_members WHERE org_id = ? AND user_id = ?')
-      .bind(project.org_id, userId)
-      .first());
   const deleted = await db
     .prepare('DELETE FROM project_invitations WHERE id = ? RETURNING id')
     .bind(invitation.id)
@@ -469,18 +472,13 @@ async function take(db: D1Database, invitation: InvitationRow, userId: string, n
   if (!deleted) {
     return;
   }
-  // A team's member is given the role as one; anyone else as someone it is shared with. A share they had keeps when
-  // it was first given, and takes the invitation's role.
-  await db
-    .prepare(
-      member
-        ? `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT (project_id, user_id) DO UPDATE SET role = excluded.role`
-        : `INSERT INTO project_shares (project_id, user_id, role, shared_by, shared_at) VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT (project_id, user_id) DO UPDATE SET role = excluded.role`,
-    )
-    .bind(invitation.project_id, userId, invitation.role, invitation.invited_by, now)
-    .run();
+  await grant(db, {
+    projectId: invitation.project_id,
+    userId,
+    role: invitation.role,
+    by: invitation.invited_by,
+    now,
+  });
 }
 
 /** The account that has proven `email`, if one has: one known only from a Cloudflare login hasn't. */

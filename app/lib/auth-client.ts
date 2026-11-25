@@ -4,7 +4,7 @@ import { atom, onMount } from 'nanostores';
 import { useEffect } from 'react';
 import { z } from 'zod';
 import type { CloudflareAuthSession } from '~/lib/.server/auth';
-import { rememberTabWorkspace, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
+import { moveTabWorkspace, rememberTabWorkspace, resetUserRuntimeSession } from '~/lib/cloudflare/runtime-session';
 import { captureProductEvent } from '~/lib/telemetry.client';
 import {
   CLOUDFLARE_AUTHORIZATION_ERROR_PARAM,
@@ -225,6 +225,15 @@ async function switchAndReopen(connectionId: string) {
   resetUserRuntimeSession();
   clearPendingSubmit();
   window.location.assign('/');
+}
+
+/**
+ * Moves the session, and this tab, to another account the person works in without leaving the page: for opening a
+ * project that lives there, which then leaves for its chat.
+ */
+export async function workInAccount(connectionId: string): Promise<void> {
+  await postJson('/api/context', { connectionId }, noContentSchema, 'Unable to switch accounts.');
+  moveTabWorkspace(connectionId);
 }
 
 export function createCloudflareReturnURL(returnURL = window.location.href, origin = window.location.origin): string {

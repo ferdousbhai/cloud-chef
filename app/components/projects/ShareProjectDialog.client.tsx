@@ -27,7 +27,7 @@ const SELECT_CLASS =
 /**
  * Who may use a project, and adding someone, as a document is shared: their username or email, and Can view or Can
  * edit. An address always shows as Invited until someone takes it, so it never says whether it has an account.
- * Reached from a project's menu by whoever runs it (its owner, or one of its team's admins).
+ * Reached from a project's menu by whoever runs it.
  */
 export function ShareProjectDialog({
   project,
@@ -261,8 +261,8 @@ export function ShareProjectDialog({
       </div>
       <p className="mt-4 text-xs text-content-tertiary">
         {sharing?.team
-          ? 'People outside the space work on it from their own Cloudflare account. The site stays in the space’s.'
-          : 'People you share with work on it from their own Cloudflare account. The site stays in yours.'}
+          ? 'They work in this project’s Cloudflare account, which pays for what they use, with what the project already has there.'
+          : 'They work in your Cloudflare account, which pays for what they use, with what the project already has there.'}
       </p>
     </Modal>
   );

@@ -240,8 +240,8 @@ export function postRuntimeRoute(
 }
 
 /**
- * A request about a project shared with this runtime's person, whose repository is in another account: the control
- * plane checks their role and sends it on to a runtime in that account (`runtime-shared/<project>/<op>`). git's own
+ * A read of a project this runtime's own repositories don't give it (`shared-project.ts`): the control plane checks
+ * that its person may read it and sends it on to a runtime in the project's account (`runtime-shared/<project>/<op>`). git's own
  * requests pass through as git sent them, headers and body; the runtime's secret and identity go beside them.
  */
 export function sharedProjectRequest(

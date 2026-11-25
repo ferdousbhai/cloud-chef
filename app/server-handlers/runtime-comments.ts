@@ -204,7 +204,7 @@ export async function runtimeSuggestAction({ request, env }: { request: Request;
     return authenticated;
   }
   const { body, identity } = authenticated;
-  // Someone the project is theirs, their team's or shared with: only their workspaces save commits in it.
+  // Someone who runs the project or was added to it: only their workspaces save commits in it.
   const project = await findAccessibleProject(env.DB, body.orgProjectId, identity.userId);
   const post = project ? await postOfProject(env.DB, project.id) : null;
   if (!project || !post) {

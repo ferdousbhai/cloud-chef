@@ -286,7 +286,9 @@ describe('a private project’s post', () => {
     const { database, db, postId } = await seeded();
     database.exec(`UPDATE org_projects SET visibility = 'private' WHERE id = 'recipes'`);
     database.exec(
-      `INSERT INTO project_shares (project_id, user_id, role, shared_at) VALUES ('recipes', 'ben', 'view', 1)`,
+      `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
+         SELECT org_id, 'ben', 'member', 1, 0 FROM org_projects WHERE id = 'recipes';
+       INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('recipes', 'ben', 'view', 1)`,
     );
 
     await expect(startThread(db, { userId: 'mira', postId, body: 'Hello' })).rejects.toMatchObject({ status: 404 });

@@ -35,7 +35,7 @@ const claimSchema = z.strictObject({
   commit: COMMIT,
   /** For a head read earlier (on opening a project): when it was read, so a newer push's claim wins. */
   headReadAt: z.number().int().positive().optional(),
-  /** Whose push it is, when not the runtime's own person: someone the project is shared with from another account. */
+  /** Whose push it is, when not the runtime's own person: whoever accepted a change someone offered. */
   pushedBy: z.string().min(1).max(128).optional(),
   /** A change someone offered: a collaborator's publish, whoever's runtime builds it. */
   asCollaborator: z.literal(true).optional(),

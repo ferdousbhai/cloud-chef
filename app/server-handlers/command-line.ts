@@ -32,7 +32,6 @@ import { getAuthSession } from '~/lib/.server/auth';
 import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { mintRuntimeCapability } from '~/lib/cloudflare/runtime-capability';
 import {
-  isSharedOp,
   sharedCapabilitySubject,
   type SHARED_MERGE,
   type SHARED_PREVIEW,
@@ -174,17 +173,6 @@ export async function commandLineGitAction({ request, env }: { request: Request;
   // Someone who may only read it gets nothing else; a public one is read through its owner's runtime.
   if (!target.mayPush && !readsOnly(rest, new URL(request.url).searchParams)) {
     return new Response('You can read this project but not push to it. Make a copy to change it.\n', { status: 403 });
-  }
-  // Shared with them from another account: a runtime there answers, for them and with their role.
-  const sharedOp = `git/${rest}`;
-  if (target.sharedRole && isSharedOp(sharedOp)) {
-    return forwardToProjectAccount(request, env, {
-      project: target,
-      userId,
-      role: target.sharedRole,
-      op: sharedOp,
-      workspace: 'command-line',
-    });
   }
   const runtime = await readerRuntime(request, env, userId, target);
   if ('refusal' in runtime) {
@@ -650,8 +638,6 @@ type Readable = {
   /** Read only because it is public: nothing but reading goes to a member's runtime for them. */
   readsAsPublic: boolean;
   mayPush: boolean;
-  /** Their role when it was shared with them from an account not theirs; null otherwise. */
-  sharedRole: 'view' | 'edit' | null;
 };
 
 /** The project `ref` names, if `userId` may read it. */
@@ -669,7 +655,6 @@ async function findReadable(
         connectionId: project.connectionId,
         readsAsPublic: project.role === 'public',
         mayPush: project.role === 'edit',
-        sharedRole: project.shared && project.role !== 'public' ? project.role : null,
       }
     : null;
 }
@@ -680,7 +665,7 @@ async function findReadable(
  * they leave. It is asked only to read: the callers check that.
  */
 async function readerRuntime(request: Request, env: Env, userId: string, target: Readable) {
-  if (!target.readsAsPublic && !target.sharedRole) {
+  if (!target.readsAsPublic) {
     return runtimeFor(request, env, userId, target.connectionId);
   }
   const readers = await projectReaders(env.DB, target);

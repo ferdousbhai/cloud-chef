@@ -32,7 +32,7 @@ export async function seedLinkedWorkspace(
     BuilderWorkspaceApi,
     'beginSeed' | 'appendSeed' | 'commitSeed' | 'abortSeed' | 'setLinkedProject' | 'linkedProject'
   >,
-  /** This account's repositories, or a shared project's read through CloudChef (`SharedProjectRepositories`). */
+  /** This account's repositories, or another project's read through CloudChef (`SharedProjectRepositories`). */
   repositories: {
     streamFilesAt(
       repo: string,

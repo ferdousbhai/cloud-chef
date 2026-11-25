@@ -24,11 +24,11 @@ const startAnswerSchema = z.object({ status: z.enum(['started', 'queued']), chat
 
 /**
  * `@cloudchef` in a thread (docs/proposals/comment-threads.md): starts, or continues, the writer's chat for this
- * thread in their own space, and the turn's final message is posted as the reply to `commentId` when it ends
- * (`runtime-projects/comments/answered`). The run is always theirs: their space, their model, their usage. Someone who
- * can edit the project gets a turn in the project's own chat (for a project shared with them, from their own
- * account, as when they open it); anyone else a read-only chat seeded from the post's project at its live commit,
- * tied to no project. Their later mentions in the thread go to the same chat. Null when there's nothing to answer.
+ * thread, and the turn's final message is posted as the reply to `commentId` when it ends
+ * (`runtime-projects/comments/answered`). Someone who can edit the project gets a turn in the project's own chat, in
+ * their workspace in the project's account, as when they open it; anyone else a read-only chat in the space they
+ * build in, on their own model and usage, seeded from the post's project at its live commit and tied to no project.
+ * Their later mentions in the thread go to the same chat. Null when there's nothing to answer.
  */
 export async function answerMention(
   env: Env,
@@ -52,8 +52,7 @@ export async function answerMention(
   const project = await findReadableProject(env.DB, { id: post.projectId }, userId);
   const access = project?.role === 'edit' ? 'edit' : 'read';
   // Their space: the project's own account when they work in it, else the one they build in now.
-  const connectionId =
-    project && access === 'edit' && !project.shared ? project.connectionId : (session.context?.connectionId ?? null);
+  const connectionId = project && access === 'edit' ? project.connectionId : (session.context?.connectionId ?? null);
   if (!connectionId) {
     const message = 'Choose where to build first, then ask again.';
     await addAgentReply(env.DB, { threadId, askerId: userId, body: `${message} ${origin}/` });

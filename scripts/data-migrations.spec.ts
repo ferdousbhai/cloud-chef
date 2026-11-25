@@ -253,6 +253,62 @@ describe('CloudChef control-plane D1 schema', () => {
     expect(db.prepare('SELECT handle FROM cloudflare_credentials').all()).toEqual([{ handle: 'own-grant' }]);
   });
 
+  test('moves each project shared outside its account into that account, with the role the share gave', () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const migrations = readdirSync('migrations')
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    const moved = migrations.indexOf('0078_shared_into_the_owners_account.sql');
+    for (const migration of migrations.slice(0, moved)) {
+      db.exec(readFileSync(`migrations/${migration}`, 'utf8'));
+    }
+    // Ada's own account with two projects. Bo has both shared with him, Cy one; Dee works in the account already,
+    // on Notes only, and a share of Recipes with her never counted.
+    db.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
+        ('ada', 'Ada', 'ada@example.com', 1, 1, 1), ('bo', 'Bo', 'bo@example.com', 1, 1, 1),
+        ('cy', 'Cy', 'cy@example.com', 1, 1, 1), ('dee', 'Dee', 'dee@example.com', 1, 1, 1);
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account-ada', 'active', 1, 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+        created_at) VALUES
+        ('recipes', 'ada-own', 'Recipes', 'recipes', 't-recipes', 'chat', 'cloudchef', 'ada', 1),
+        ('notes', 'ada-own', 'Notes', 'notes', 't-notes', 'chat', 'cloudchef', 'ada', 1);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
+        VALUES ('ada-own', 'dee', 'member', 5, 1);
+      INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
+        VALUES ('notes', 'dee', 'view', 'ada', 5);
+      INSERT INTO project_shares (project_id, user_id, role, shared_by, shared_at) VALUES
+        ('recipes', 'bo', 'edit', 'ada', 20), ('notes', 'bo', 'view', 'ada', 10),
+        ('recipes', 'cy', 'view', 'ada', 30), ('recipes', 'dee', 'edit', 'ada', 40);
+    `);
+
+    db.exec(readFileSync(`migrations/${migrations[moved]}`, 'utf8'));
+
+    expect(
+      db
+        .prepare(
+          `SELECT user_id, role, joined_at, drafts_allowed FROM organization_members
+           WHERE org_id = 'ada-own' ORDER BY user_id`,
+        )
+        .all(),
+    ).toEqual([
+      { user_id: 'ada', role: 'admin', joined_at: 1, drafts_allowed: 1 },
+      { user_id: 'bo', role: 'member', joined_at: 10, drafts_allowed: 0 },
+      { user_id: 'cy', role: 'member', joined_at: 30, drafts_allowed: 0 },
+      { user_id: 'dee', role: 'member', joined_at: 5, drafts_allowed: 1 },
+    ]);
+    expect(
+      db.prepare('SELECT project_id, user_id, role FROM org_project_access ORDER BY user_id, project_id').all(),
+    ).toEqual([
+      { project_id: 'notes', user_id: 'bo', role: 'view' },
+      { project_id: 'recipes', user_id: 'bo', role: 'edit' },
+      { project_id: 'recipes', user_id: 'cy', role: 'view' },
+      { project_id: 'notes', user_id: 'dee', role: 'view' },
+    ]);
+  });
+
   test('ends with only the current control-plane and Computer locator schema', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

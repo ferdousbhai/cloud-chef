@@ -233,55 +233,36 @@ export async function listScopeProjects(db: D1Database, scope: ProjectScope): Pr
 }
 
 /**
- * A role for `userId` on the project in `projects`, as `findAccessibleProject` decides it: edit for a
- * person's own project and for an active admin of the team's, the granted role for an active member, none
- * (NULL) for a paused member, and for anyone else (outside the person's own account, or outside the team) the
- * role the project was shared with them with (`project_shares`). `?2` is the user.
+ * A role for `userId` on the project in `projects`, as `findAccessibleProject` decides it: edit for an active admin
+ * of the project's space (its owner is one), the role they were given on it for anyone else working there, and none
+ * (NULL) for someone paused or not in it. `?2` is the user.
  */
-const ROLE = `CASE
-  WHEN EXISTS (
-    SELECT 1 FROM organization_members AS members WHERE members.org_id = projects.org_id AND members.user_id = ?2
-  ) THEN (
+const ROLE = `(
     SELECT CASE WHEN members.role = 'admin' THEN 'edit' ELSE (
       SELECT access.role FROM org_project_access AS access
       WHERE access.project_id = projects.id AND access.user_id = ?2
     ) END
     FROM organization_members AS members
     WHERE members.org_id = projects.org_id AND members.user_id = ?2 AND members.paused_at IS NULL
-  )
-  ELSE (
-    SELECT shares.role FROM project_shares AS shares WHERE shares.project_id = projects.id AND shares.user_id = ?2
-  )
-END`;
+  )`;
 
 /**
  * Whose the project in `projects` is, as people outside its space are told: the person its space was made for, or
  * the space by its name.
  */
-export const PROJECT_OWNER_NAME = `(
+const PROJECT_OWNER_NAME = `(
     SELECT COALESCE(people.name, spaces.name) FROM organizations AS spaces
     LEFT JOIN "user" AS people ON people.id = spaces.personal_user_id
     WHERE spaces.id = projects.org_id
   )`;
 
-/**
- * Whether the role `ROLE` gives comes from the project's being shared with `?2` (1), not from its account being
- * theirs or their team's (0): they work on it from an account of their own, not the project's.
- */
-const SHARED = `NOT EXISTS (
-    SELECT 1 FROM organization_members AS members WHERE members.org_id = projects.org_id AND members.user_id = ?2
-  )`;
+/** A project with someone's role on it. */
+export type AccessibleProject = Project & { role: ProjectRole };
 
-/**
- * A project with someone's role on it, and whether it was shared with them: then its account isn't one they work in,
- * and their workspace reaches it through CloudChef (`runtime-shared`).
- */
-export type AccessibleProject = Project & { role: ProjectRole; shared: boolean };
-
-type AccessibleRow = ProjectRow & { role: ProjectRole; shared: number };
+type AccessibleRow = ProjectRow & { role: ProjectRole };
 
 function toAccessible(row: AccessibleRow): AccessibleProject {
-  return { ...toProject(row), role: row.role, shared: row.shared === 1 };
+  return { ...toProject(row), role: row.role };
 }
 
 /** The projects of the connection `connectionId` that `userId` may view or edit now, with their role. */
@@ -293,7 +274,7 @@ export async function listAccessibleProjects(
   const { results } = await db
     .prepare(
       `SELECT * FROM (
-         SELECT ${PROJECT_COLUMNS}, ${ROLE} AS role, ${SHARED} AS shared FROM org_projects AS projects
+         SELECT ${PROJECT_COLUMNS}, ${ROLE} AS role FROM org_projects AS projects
          WHERE projects.connection_id = ?1
        ) WHERE role IS NOT NULL ORDER BY name`,
     )
@@ -303,24 +284,29 @@ export async function listAccessibleProjects(
 }
 
 /**
- * The projects shared with `userId` that they may view or edit now, in every account but their own: what "Shared with
- * you" lists, newest share first, with whose each is.
+ * The projects `userId` was added to in other people's accounts and may view or edit now: what "Shared with you"
+ * lists, newest first, with whose each is. Not those of the account they are working in (`exceptConnectionId`),
+ * which the projects home lists already.
  */
 export async function listSharedProjects(
   db: D1Database,
   userId: string,
+  exceptConnectionId: string | null,
 ): Promise<(AccessibleProject & { ownerName: string | null; sharedAt: number })[]> {
   const { results } = await db
     .prepare(
-      `SELECT * FROM (
-         SELECT ${PROJECT_COLUMNS}, ${ROLE.replaceAll('?2', '?1')} AS role, ${SHARED.replaceAll('?2', '?1')} AS shared,
-           ${PROJECT_OWNER_NAME} AS owner_name,
-           shares.shared_at
-         FROM project_shares AS shares JOIN org_projects AS projects ON projects.id = shares.project_id
-         WHERE shares.user_id = ?1
-       ) WHERE role IS NOT NULL AND shared = 1 ORDER BY shared_at DESC`,
+      `SELECT ${PROJECT_COLUMNS}, access.role, ${PROJECT_OWNER_NAME} AS owner_name, access.granted_at AS shared_at
+       FROM org_project_access AS access
+       JOIN org_projects AS projects ON projects.id = access.project_id
+       JOIN organization_members AS members ON members.org_id = projects.org_id AND members.user_id = access.user_id
+       WHERE access.user_id = ?1 AND members.role = 'member' AND members.paused_at IS NULL
+         AND projects.connection_id IS NOT ?2
+         AND EXISTS (
+           SELECT 1 FROM cloudflare_connections AS connections
+           WHERE connections.id = projects.connection_id AND connections.status = 'active')
+       ORDER BY access.granted_at DESC`,
     )
-    .bind(userId)
+    .bind(userId, exceptConnectionId)
     .all<AccessibleRow & { owner_name: string | null; shared_at: number }>();
   return results.map((row) => ({ ...toAccessible(row), ownerName: row.owner_name, sharedAt: row.shared_at }));
 }
@@ -334,7 +320,7 @@ export async function findAccessibleProject(
   const row = await db
     .prepare(
       `SELECT * FROM (
-         SELECT ${PROJECT_COLUMNS}, ${ROLE} AS role, ${SHARED} AS shared FROM org_projects AS projects
+         SELECT ${PROJECT_COLUMNS}, ${ROLE} AS role FROM org_projects AS projects
          WHERE projects.id = ?1
        ) WHERE role IS NOT NULL`,
     )
@@ -383,7 +369,7 @@ export async function findReadableProject(
   db: D1Database,
   ref: { id: string } | { owner: string; slug: string },
   userId: string,
-): Promise<(Project & { role: ProjectRole | 'public'; shared: boolean }) | null> {
+): Promise<(Project & { role: ProjectRole | 'public' }) | null> {
   const accessible =
     'id' in ref
       ? await findAccessibleProject(db, ref.id, userId)
@@ -401,7 +387,7 @@ export async function findReadableProject(
     .bind(...('id' in ref ? [ref.id] : [ref.owner, ref.slug]))
     .first<ProjectRow>();
   if (row) {
-    return { ...toProject(row), role: 'public', shared: false };
+    return { ...toProject(row), role: 'public' };
   }
   if ('id' in ref) {
     return null;
@@ -523,8 +509,7 @@ async function findAccessibleProjectByFullName(
   const row = await db
     .prepare(
       `SELECT * FROM (
-         SELECT ${PROJECT_COLUMNS}, ${ROLE.replaceAll('?2', '?3')} AS role, ${SHARED.replaceAll('?2', '?3')} AS shared
-         FROM org_projects AS projects
+         SELECT ${PROJECT_COLUMNS}, ${ROLE.replaceAll('?2', '?3')} AS role FROM org_projects AS projects
          WHERE projects.slug = ?2 AND projects.created_by = (SELECT id FROM "user" WHERE username = ?1)
        ) WHERE role IS NOT NULL`,
     )

@@ -20,6 +20,12 @@ export function rememberTabWorkspace(connectionId: string | null) {
   tabWorkspace ??= connectionId;
 }
 
+/** This tab itself moved the session to another account: what it asks for next is that account's. */
+export function moveTabWorkspace(connectionId: string): void {
+  tabWorkspace = connectionId;
+  resetUserRuntimeSession();
+}
+
 /** `workspace_preparing` is not a failure: the workspace is being built and has not answered yet. */
 const userRuntimeErrorCodeSchema = z.enum([
   'cloudflare_reauthorization_required',

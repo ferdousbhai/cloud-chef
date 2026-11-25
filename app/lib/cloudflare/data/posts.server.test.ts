@@ -156,9 +156,11 @@ describe('showing posts', () => {
     const own = await findPostByAddress(db, 'sara', 'recipe-box', 'sara');
     expect(own.project).toMatchObject({ slug: 'recipe-box', isPublic: false });
     expect(own.post).toMatchObject({ id: postId, screenshot: null });
-    // Ben once shared the project: he sees it too.
+    // Ben once added to the project: he sees it too.
     database.exec(
-      `INSERT INTO project_shares (project_id, user_id, role, shared_at) VALUES ('recipes', 'ben', 'view', 1)`,
+      `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
+         SELECT org_id, 'ben', 'member', 1, 0 FROM org_projects WHERE id = 'recipes';
+       INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES ('recipes', 'ben', 'view', 1)`,
     );
     expect((await findPostByAddress(db, 'sara', 'recipe-box', 'ben')).post?.id).toBe(postId);
   });

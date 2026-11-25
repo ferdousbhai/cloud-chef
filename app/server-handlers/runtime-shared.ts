@@ -1,7 +1,6 @@
-import { findAccessibleProject, findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
+import { findReadableProject } from '~/lib/cloudflare/data/org-projects.server';
 import {
   isSharedOp,
-  isSharedRead,
   sharedOpWrites,
   sharedWorkspaceName,
   SHARED_WORKSPACE_HEADER,
@@ -10,15 +9,16 @@ import { forwardToProjectAccount } from './command-line';
 import { authenticateRuntimeRequest } from './runtime-authentication';
 
 /**
- * `/api/cloudflare/runtime-shared/<project>/<op>`: a workspace runtime reading or pushing a project shared with its
- * person from another Cloudflare account (`app/lib/.server/cloudflare/shared-project.ts`). The runtime proves who it
- * is, as every runtime route does; then, on every request, the person must still have the project shared with them
- * (a view to read, an edit to push), so removing them, or making them a viewer, stops their workspace at its next
- * request. The request goes on to a runtime in the project's account, which answers it.
+ * `/api/cloudflare/runtime-shared/<project>/<op>`: a workspace runtime reading a project its own repositories don't
+ * give it (`app/lib/.server/cloudflare/shared-project.ts`): one in another Cloudflare account, or one of its own
+ * account its person may only view. The runtime proves who it is, as every runtime route does; then, on every
+ * request, the person must still be able to read the project. The request goes on to a runtime in the project's
+ * account, which answers it. Nothing is pushed this way: someone who may change a project works in its account, where
+ * their runtime pushes to it itself.
  *
- * A public project's reads, and git's fetches of it (never a push), are answered for anyone signed in, as its code is
- * readable by anyone at its git address: a read-only `@cloudchef` run seeds its workspace from them, and the agent
- * fetches a public copy a thread suggests a change from (docs/proposals/comment-threads.md).
+ * A public project's reads, and git's fetches of it, are answered for anyone signed in, as its code is readable by
+ * anyone at its git address: a read-only `@cloudchef` run seeds its workspace from them, and the agent fetches a
+ * public copy a thread suggests a change from (docs/proposals/comment-threads.md).
  */
 const SHARED_PATH =
   /^\/api\/cloudflare\/runtime-shared\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(.+)$/;
@@ -34,7 +34,6 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
   if (!match || !isSharedOp(op)) {
     return refusal('Not found.', 404);
   }
-  const write = sharedOpWrites(op, url.searchParams);
   if ((request.method === 'POST') !== op.startsWith('git/git-')) {
     return refusal('Method not allowed.', 405);
   }
@@ -42,19 +41,15 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
   if (authenticated instanceof Response) {
     return authenticated;
   }
-  const { identity, connection } = authenticated;
-  const readable =
-    isSharedRead(op) || !write ? await findReadableProject(env.DB, { id: match[1]! }, identity.userId) : null;
-  const project = readable ?? (await findAccessibleProject(env.DB, match[1]!, identity.userId));
-  // Reads and fetches: any project they may read, in any account, their own included (a team project they may only
-  // view, or a public copy beside the original). A push: only one shared with them from another account, since a
-  // runtime pushes to a project of its own account itself.
-  if (!project || (!readable && (project.connectionId === connection.id || !project.shared))) {
+  const { identity } = authenticated;
+  // Reads and fetches of any project they may read, in any account, their own included (one they may only view, or a
+  // public copy beside the original). Never a push.
+  const project = sharedOpWrites(op, url.searchParams)
+    ? null
+    : await findReadableProject(env.DB, { id: match[1]! }, identity.userId);
+  if (!project) {
     return refusal('This project is not shared with you.', 403);
   }
-  // With the view role a push goes on too: the runtime in the project's account lets it set only their workspace's
-  // saved branches, where their commits are kept, from the role signed here.
-  const role = project.role === 'edit' ? 'edit' : 'view';
   const workspace = sharedWorkspaceName(request.headers.get(SHARED_WORKSPACE_HEADER));
   if (!workspace) {
     return refusal('Name the workspace this is for.', 400);
@@ -63,7 +58,7 @@ export async function runtimeSharedAction({ request, env }: { request: Request; 
     return await forwardToProjectAccount(request, env, {
       project,
       userId: identity.userId,
-      role,
+      role: 'view',
       op,
       workspace,
     });
