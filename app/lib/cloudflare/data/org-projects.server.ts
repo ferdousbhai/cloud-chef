@@ -3,6 +3,7 @@ import {
   findCloudflareConnectionForPerson,
 } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { shownName } from '~/lib/shown-name';
+import { findMembership, isActiveAdmin } from './organization-access.server';
 import { OrganizationError, requireAdmin } from './organizations.server';
 
 /** One GitHub account a connection's GitHub App is installed on, whose repositories it may import. */
@@ -255,6 +256,34 @@ const PROJECT_OWNER_NAME = `(
     LEFT JOIN "user" AS people ON people.id = spaces.personal_user_id
     WHERE spaces.id = projects.org_id
   )`;
+
+/**
+ * Whether a publish that runs for these people is a collaborator's: any of them neither made the project nor is an
+ * active admin of its space. A collaborator's publish uses the resources the project already has in the account, and
+ * adds none: a new one comes with a publish by its creator or an admin.
+ */
+export async function publishesAsCollaborator(
+  db: D1Database,
+  project: { createdBy: string | null },
+  orgId: string,
+  userIds: readonly string[],
+): Promise<boolean> {
+  for (const userId of new Set(userIds)) {
+    if (userId !== project.createdBy && !isActiveAdmin(await findMembership(db, orgId, userId))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Whose the project is, as someone added to it is told: the person its space was made for, or the space. */
+export async function projectOwnerName(db: D1Database, projectId: string): Promise<string | null> {
+  const row = await db
+    .prepare(`SELECT ${PROJECT_OWNER_NAME} AS name FROM org_projects AS projects WHERE projects.id = ?`)
+    .bind(projectId)
+    .first<{ name: string | null }>();
+  return row?.name ? shownName(row.name) : null;
+}
 
 /** A project with someone's role on it. */
 export type AccessibleProject = Project & { role: ProjectRole };

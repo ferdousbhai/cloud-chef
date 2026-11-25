@@ -3,7 +3,7 @@ import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare
 import { isCloudChefWorkerName } from '~/lib/.server/cloudflare/project-build-plan';
 import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
 import { siteAllowsFraming } from '~/lib/.server/site-framing';
-import { recordProductionPublish } from '~/lib/cloudflare/data/org-projects.server';
+import { publishesAsCollaborator, recordProductionPublish } from '~/lib/cloudflare/data/org-projects.server';
 import {
   claimDeployment,
   DEPLOYMENT_LEASE_MS,
@@ -65,25 +65,6 @@ const credentialSchema = z.strictObject({
   /** The runtime holds this publish to what the project's Worker already uses (a collaborator's publish). */
   restricted: z.literal(true).optional(),
 });
-
-/**
- * Whether a publish that runs for these people is a collaborator's: any of them neither made the project nor is an
- * active admin of its space. A collaborator's publish uses the resources the project already has in the account, and
- * adds none: a new one comes with a publish by its creator or an admin.
- */
-async function publishesAsCollaborator(
-  db: D1Database,
-  project: { createdBy: string | null },
-  orgId: string,
-  userIds: readonly string[],
-): Promise<boolean> {
-  for (const userId of new Set(userIds)) {
-    if (userId !== project.createdBy && !isActiveAdmin(await findMembership(db, orgId, userId))) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /** The project as a runtime may build and deploy it, or the refusal to answer. */
 async function openDeployableProject<T extends { orgProjectId: string }>(

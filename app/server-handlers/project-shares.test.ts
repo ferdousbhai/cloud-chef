@@ -249,7 +249,8 @@ describe('sharing a project', () => {
         .then((request) => runtimeOpenProjectAction({ request, env, app: null }));
     const opened = await open({ in: 'ada' });
     expect(opened.status).toBe(200);
-    expect(await opened.json()).toMatchObject({ role: 'edit', repo: 't-recipes' });
+    // His workspace is told whose it is, so the agent knows what a publish may use.
+    expect(await opened.json()).toMatchObject({ role: 'edit', repo: 't-recipes', addedTo: 'ada' });
     // His workspace in his own account has nothing to do with it.
     expect((await open({})).status).toBe(403);
     // What he pushes is published in Ada's account, held to what the project already has there.

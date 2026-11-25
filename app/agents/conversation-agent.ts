@@ -474,6 +474,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   private transcriptBinding: BuilderTranscriptBinding | null = null;
   /** The account's project repositories (Artifacts); the ConversationAgent harness replaces it with a fake. */
   private readonly repositories = (): ProjectRepositories => new ProjectRepositories(this.env.ARTIFACTS);
+  /** Whose the workspace's project is, when its person was added to it, as the control plane last said. */
+  #addedTo: string | null = null;
   /** Chat requests between their checks and recording their turn as active: a restore waits for none. */
   private startingTurns = 0;
   /** Editor saves under way, from before their closed check: a closed conversation waits for them too. */
@@ -708,9 +710,15 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     if (untoldChanges.length > 0) {
       this.setState({ ...this.state, untoldChanges: [] });
     }
-    const turnContext = withNotes(parsed.data.turnContext, [await siteNote, await mainNote, ...untoldChanges]);
+    const viewOnlyNow = await viewOnly;
+    const turnContext = withNotes(parsed.data.turnContext, [
+      this.addedToNote(viewOnlyNow),
+      await siteNote,
+      await mainNote,
+      ...untoldChanges,
+    ]);
     this.#postThreads = await postThreads;
-    this.noteViewOnly(await viewOnly);
+    this.noteViewOnly(viewOnlyNow);
     const shown = await this.chat.messages();
     const userMessages = shown.filter((message) => message.role === 'user').length + 1;
     console.info({ event: 'builder_chat_turn_started', firstUserMessage: userMessages === 1 });
@@ -1772,6 +1780,24 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /**
+   * For someone added to another person's project who may change it, the turn's context says whose it is and what a
+   * publish may use, so the agent plans within it instead of meeting a refused publish. Null otherwise: someone who
+   * may only view is told so already.
+   */
+  private addedToNote(viewOnly: boolean | null): string | null {
+    if (this.#addedTo === null || (viewOnly ?? this.state.linkedProject?.viewOnly === true)) {
+      return null;
+    }
+    const owner = this.#addedTo || 'someone else';
+    return (
+      `This project is ${owner}'s, and the person you're working with was added to it. It lives in ${owner}'s ` +
+      `Cloudflare account. Publishing (pushing main) uses only what the project already has there: a version that ` +
+      `needs a new database, storage bucket, key-value namespace or any other new binding is not published until ` +
+      `${owner} publishes it, so say so before building something that needs one.`
+    );
+  }
+
+  /**
    * Whether the person may only view the workspace's project, as the control plane says now: a role changes while a
    * chat is open. Null when there is no project or it can't be learned quickly, so nothing waits on it.
    */
@@ -1779,7 +1805,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     const identity = runtimeConnectionIdentity(this.env);
     const read = (async () => {
       const linked = await this.workspace.linkedProject();
-      return linked && identity ? (await openProject(this.env, identity, linked.orgProjectId)).role !== 'edit' : null;
+      if (!linked || !identity) {
+        return null;
+      }
+      const project = await openProject(this.env, identity, linked.orgProjectId);
+      this.#addedTo = project.addedTo ?? null;
+      return project.role !== 'edit';
     })();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<null>((resolve) => {

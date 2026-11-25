@@ -68,8 +68,8 @@ export async function ensurePersonalSpace(db: D1Database, userId: string): Promi
       .bind(orgId, spaceNameFor(person?.name ?? ''), userId, now),
     db
       .prepare(
-        `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
-         SELECT ?1, ?2, 'admin', ?3, 1 WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?1)`,
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at)
+         SELECT ?1, ?2, 'admin', ?3 WHERE EXISTS (SELECT 1 FROM organizations WHERE id = ?1)`,
       )
       .bind(orgId, userId, now),
   ]);

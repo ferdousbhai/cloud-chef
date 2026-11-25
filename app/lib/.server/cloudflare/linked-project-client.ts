@@ -45,6 +45,11 @@ const openedProjectSchema = z.object({
   deploysWith: z.enum(['workers_builds', 'cloudchef']).optional().catch(undefined),
   /** What it was made from: 'chat' for an app made in a chat, which the chat names. */
   createdFrom: z.string().nullable().optional().catch(null),
+  /**
+   * Set when the person was added to someone else's project (they neither made it nor run its account): whose it is.
+   * What they publish is held to what the project already has there.
+   */
+  addedTo: z.string().max(256).nullable().optional().catch(null),
 });
 type OpenedProject = z.infer<typeof openedProjectSchema>;
 

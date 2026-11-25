@@ -19,6 +19,8 @@ import {
   abandonImport,
   addUploadedProject,
   findAccessibleProject,
+  projectOwnerName,
+  publishesAsCollaborator,
   findReadableProject,
   listGitHubInstallations,
   recordImportedRepo,
@@ -102,6 +104,10 @@ export async function runtimeOpenProjectAction(args: {
     member: await memberIdentity(args.env.DB, identity.userId),
     deploysWith: project.deploysWith,
     createdFrom: project.createdFrom,
+    // Added to someone else's project: what they publish is held to what it already has, and whose it is.
+    addedTo: (await publishesAsCollaborator(args.env.DB, project, connection.orgId, [identity.userId]))
+      ? ((await projectOwnerName(args.env.DB, project.id)) ?? '')
+      : null,
   };
   if (project.repo !== null || project.role !== 'edit') {
     return json(answer, 200);

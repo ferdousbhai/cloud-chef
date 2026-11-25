@@ -98,7 +98,7 @@ Decided by the owner on 2026-11-25. Anyone may sign up (Cloudflare, Google or an
 no Cloudflare account of its own and no project it was added to can only look, follow, like and comment: it has no
 workspace, container or model. Someone a creator adds to a project builds in the creator's account and uses the
 project's resources there, and adds none. A publish is a collaborator's when it runs for anyone who neither made the
-project nor is an admin of its space (`publishesAsCollaborator` in `app/server-handlers/runtime-deployments.ts`,
+project nor is an admin of its space (`publishesAsCollaborator` in `app/lib/cloudflare/data/org-projects.server.ts`,
 kept as `project_deployments.restricted`), and so is the preview of a change someone offered, whoever's reading of
 the thread built it. The builder holds such a publish to what the project's live Worker already uses, read from
 Cloudflare when it uploads (`addedResources` in `deploy-api-policy.ts`): no new database, namespace or bucket, no
