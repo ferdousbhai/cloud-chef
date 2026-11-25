@@ -199,7 +199,6 @@ describe('runtimeUsageAction', () => {
         input_tokens: 200,
         output_tokens: 40,
         cached_tokens: 80,
-        container_seconds: 0,
       },
     ]);
 

@@ -92,6 +92,7 @@ const migrationPolicies = [
       '0073_space_seats.sql': '1723ca2fb0f7f9412fb59270d95566df68cd8f75ab5deb8073ff8e5daef10c3b',
       '0074_personal_spaces.sql': '84cfd491698fc2bb393fdbd2029577291574b19a25ae0cc5aee05213b730f691',
       '0075_close_managed_spaces.sql': '663432c94b1aed865f6a4fab9ac3ad1aef7a0cc96a88ee77f673a986f7ac677d',
+      '0076_drop_managed_space_storage.sql': '40c7cfb641223111ac3130d7d636b8f79f3bcea640a85e76c36dc68c63439475',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -162,6 +163,8 @@ const migrationPolicies = [
       // CloudChef stopped running spaces in its operator's account: the subscription, credit, domain and Stripe
       // receipt records are emptied (whole-table DELETE), since the release this ships with reads none of them.
       '0075_close_managed_spaces.sql',
+      // The tables and columns 0075 emptied: the release before this one names none of them.
+      '0076_drop_managed_space_storage.sql',
     ],
   },
   {

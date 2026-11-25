@@ -173,7 +173,7 @@ with an offer to invite someone in place of a list of people; once someone else 
 which the people in it see. CloudChef runs no space itself and takes no payment: for a few days in November 2026 it
 sold subscriptions to spaces in the operator's own Cloudflare account, which let other people's applications
 into that account, and migration 0075 closed the ones made then (their connections revoked, their people
-paused, the subscription records emptied).
+paused), and 0076 dropped what they stored.
 
 Each person gets their own workspace runtime per connection, named from `sha256(accountId:userId)` for their own
 account and `sha256(accountId:userId:connectionId)` for an organization's (with the runtime secret bound the same
