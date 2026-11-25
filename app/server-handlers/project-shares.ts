@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { publicOrigin } from '~/lib/.server/public-origin';
 import { hasSameOrigin, readJsonRequest, withinAddressRateLimit } from '~/lib/.server/request-guards';
 import { getAuthSession, setSessionContext } from '~/lib/.server/auth';
+import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
+import { prepareWorkspaceInBackground } from './cloudflare-integration';
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { listSharedProjects, requireManagedProject, type Project } from '~/lib/cloudflare/data/org-projects.server';
 import { shownName } from '~/lib/shown-name';
@@ -205,7 +207,15 @@ export async function describeProjectInvitationAction({ request, env }: { reques
  * `POST /api/project-invitations/accept`: the person signed in takes the invitation, which needs the address it was
  * sent to, proven. Their session then works in the project's account, so the projects home shows it.
  */
-export async function acceptProjectInvitationAction({ request, env }: { request: Request; env: Env }) {
+export async function acceptProjectInvitationAction({
+  request,
+  env,
+  prepareWorkspace = prepareWorkspaceInBackground,
+}: {
+  request: Request;
+  env: Env;
+  prepareWorkspace?: typeof prepareWorkspaceInBackground;
+}) {
   if (!hasSameOrigin(request)) {
     return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
   }
@@ -222,7 +232,12 @@ export async function acceptProjectInvitationAction({ request, env }: { request:
       token: body.data.token,
       userId: session.user.id,
     });
-    await setSessionContext(env, request, connectionId);
+    const connection = await findActiveCloudflareConnection(env.DB, connectionId);
+    if (connection) {
+      await setSessionContext(env, request, connection.id);
+      // Their workspace in the project's account starts preparing now, so its first setup is done when they open it.
+      await prepareWorkspace(env, session.user.id, connection);
+    }
     return Response.json({ projectId }, { headers: NO_STORE });
   } catch (error) {
     if (error instanceof ProjectShareError) {

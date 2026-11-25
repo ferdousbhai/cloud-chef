@@ -292,8 +292,8 @@ function GoogleMark() {
 }
 
 /**
- * Signed in with nowhere to build yet: the ways a person's apps can live, simplest first. A team's space needs
- * its admin's invitation, which brings them straight in; their own Cloudflare account they connect here.
+ * Signed in with nowhere to build yet: their own Cloudflare account, connected here, or a project someone else
+ * shares with them, which they work on in that person's account.
  */
 export function ChooseSpace({
   initialError = null,
@@ -382,10 +382,10 @@ export function ChooseSpace({
       >
         Your apps, their data and the AI that builds them run in your account, and Cloudflare bills you for them.
       </SpaceChoice>
-      <SpaceChoice title="In someone else's space">
-        If someone you know builds with CloudChef, ask them to invite{' '}
-        <span className="break-all">{session.user.email}</span>. The invitation&apos;s link brings you straight in, and
-        what you build there is theirs to pay for.
+      <SpaceChoice title="On someone else's project">
+        If someone you know builds with CloudChef, ask them to share a project with{' '}
+        <span className="break-all">{session.user.email}</span>. The link they send brings you straight in, and what you
+        use there is theirs to pay for.
       </SpaceChoice>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-content-tertiary">
         <CloudflareConnectLegalNotice planNote={false} />

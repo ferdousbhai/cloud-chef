@@ -66,8 +66,7 @@ Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, sc
   (`default_builder_model`) and the models its picker offers (`allowed_builder_models_json`); and one OAuth
   authorization per Cloudflare account (`cloudflare_authorizations`: its access and refresh tokens encrypted as a
   credential, beside the granted scopes), shared by every space building in that account;
-- teams (organizations), their members and invites, daily per-member model usage (`organization_usage_daily`), and
-  the invites sent and teams created that count toward their limits (`organization_quota_events`);
+- spaces (organizations), their members, and daily per-member model usage (`organization_usage_daily`);
 - projects (each a connection's, personal or a team's): their Artifacts repository or the GitHub repository they
   are imported from, the Worker Workers Builds builds them into, members' roles, their publishes, and GitHub
   App installations;

@@ -109,15 +109,17 @@ describe('runtimeCredentialAction', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Cloudflare connection is unavailable.' });
   });
 
-  it("serves an organization's token to each unpaused member's runtime, and to no one else", async () => {
+  it("serves a space's token to each unpaused admin's runtime, and to no one else", async () => {
     const { database, db } = controlPlaneDatabase();
     database.exec(`
       INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
         ('member-1', 'Sam', 'sam@acme.com', 1, 1, 1),
+        ('added', 'Bo', 'bo@example.com', 1, 1, 1),
         ('outsider', 'Eve', 'eve@example.com', 1, 1, 1);
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('org-1', 'Acme', 1, 1), ('org-2', 'Other', 1, 1);
       INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
-        ('org-1', 'member-1', 'member', 1),
+        ('org-1', 'member-1', 'admin', 1),
+        ('org-1', 'added', 'member', 1),
         ('org-2', 'outsider', 'admin', 1);
     `);
     mocks.requireActiveCloudflareConnection.mockResolvedValue({ ...connection, orgId: 'org-1', personalUserId: null });
@@ -135,6 +137,8 @@ describe('runtimeCredentialAction', () => {
       ).status;
 
     expect(await ask('member-1')).toBe(200);
+    // Someone added to a project there works in the account, but its authorization never reaches their workspace.
+    expect(await ask('added')).toBe(403);
     expect(await ask('outsider')).toBe(401);
     // Each member's runtime has its own secret: one member's can't fetch the token as another.
     const borrowed = await runtimeCredentialAction({

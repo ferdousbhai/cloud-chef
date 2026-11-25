@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  controlPlaneDatabase,
-  createProvenEmailUser,
-  envWith,
-  inviteToTeam,
-  withStatementHook,
-} from '~/test/control-plane-d1';
+import { controlPlaneDatabase, createProvenEmailUser, envWith, withStatementHook } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import { z } from 'zod';
 import {
@@ -73,7 +67,6 @@ async function sessionFrom(env: Env, response: Response) {
 describe('Google sign-in', () => {
   it('asks Google for a verified identity with PKCE, then signs in a person a team invited', async () => {
     const { env, database } = setup();
-    await inviteToTeam(env.DB, 'sam@acme.com');
     const { response, authorizationUrl, state } = await start(env);
     expect(response.status).toBe(201);
     expect(authorizationUrl.searchParams.get('code_challenge_method')).toBe('S256');
@@ -188,7 +181,6 @@ describe('Google sign-in', () => {
 
   it('finds the same user when their Google email changes', async () => {
     const { env } = setup();
-    await inviteToTeam(env.DB, 'old@acme.com');
     const first = await start(env);
     google({ sub: 'g-1', email: 'old@acme.com', email_verified: true });
     const one = await completeGoogleSignInAction({

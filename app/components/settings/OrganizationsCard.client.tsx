@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { PlusIcon } from '@radix-ui/react-icons';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { MenuItem, MenuSeparator } from '@ui/Menu';
@@ -8,7 +7,7 @@ import { TextInput } from '@ui/TextInput';
 import { authClient, createCloudflareReturnURL, refreshSession, signInWithCloudflare } from '~/lib/auth-client';
 import { switchAccount } from '~/lib/account-actions.client';
 import { workspaceName } from '~/lib/workspace-name';
-import { errorFeedback, FeedbackLine, noteFeedback, type Feedback } from './Feedback';
+import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
 import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
@@ -35,19 +34,7 @@ const organizationsSchema = z.object({
             email: z.string(),
             role: roleSchema,
             pausedAt: z.number().nullable(),
-            draftsAllowed: z.boolean(),
             usage: z.object({ turns: z.number(), inputTokens: z.number(), outputTokens: z.number() }),
-          }),
-        )
-        .nullable(),
-      invites: z
-        .array(
-          z.object({
-            id: z.string(),
-            email: z.string(),
-            role: roleSchema,
-            projectIds: z.array(z.string()),
-            draftsAllowed: z.boolean(),
           }),
         )
         .nullable(),
@@ -56,8 +43,6 @@ const organizationsSchema = z.object({
     }),
   ),
 });
-const createdSchema = z.object({ orgId: z.string() });
-const invitedSchema = z.object({ inviteUrl: z.string(), emailed: z.boolean() });
 const memberUpdatedSchema = z.object({ ok: z.literal(true), workspaceDeleted: z.boolean().optional() });
 const teamDeletedSchema = z.object({
   deleted: z.literal(true),
@@ -69,7 +54,7 @@ const teamDeletedSchema = z.object({
 /** Where a deleted team's outcome waits across the reload that follows it. */
 const TEAM_DELETED_NOTICE_KEY = 'cloudchef:team-deleted';
 
-type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member' | 'allow_drafts' | 'disallow_drafts';
+type MemberAction = 'pause' | 'resume' | 'remove' | 'make_admin' | 'make_member';
 
 type Organization = z.infer<typeof organizationsSchema>['organizations'][number];
 type OrgProject = Organization['projects'][number];
@@ -78,14 +63,13 @@ type OrgProject = Organization['projects'][number];
 const MEMBER_PROJECTS_SHOWN = 3;
 
 /**
- * Spaces: every place this person builds, each with who hosts it, the people in it and its projects. Whoever
- * runs one invites people by email; they sign in with Google or an emailed link, without Cloudflare logins.
+ * Spaces: every place this person builds, each with its Cloudflare account, the people in it and its projects.
+ * People come into one by having a project shared with them; whoever runs it may make one of them an admin.
  */
 export function OrganizationsCard() {
   const { data: session } = authClient.useSession();
   const [organizations, setOrganizations] = useState<Organization[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   // What a return from GitHub (connecting it, or approving a production request) or deleting a team has
   // to say, shown once.
   const [githubMessage] = useState<string | null>(() => {
@@ -143,16 +127,7 @@ export function OrganizationsCard() {
   }, [organizations]);
 
   return (
-    <SettingsCard
-      id="organizations"
-      title="Spaces"
-      description="Where you build, and who builds there with you."
-      action={
-        <Button size="sm" variant="neutral" icon={<PlusIcon aria-hidden />} onClick={() => setCreating(true)}>
-          New space
-        </Button>
-      }
-    >
+    <SettingsCard id="organizations" title="Spaces" description="Where you build, and who builds there with you.">
       <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
       {githubMessage ? (
         <p className="mt-3 text-sm text-content-secondary" role="status">
@@ -166,7 +141,7 @@ export function OrganizationsCard() {
       ) : null}
       {organizations?.length === 0 ? (
         <p className="mt-4 text-sm text-content-secondary">
-          You have no space to build in yet. Choose one on the home page, or make one here.
+          You have nowhere to build yet. Connect your Cloudflare account on the home page.
         </p>
       ) : null}
       <div className="mt-4 grid min-w-0 gap-3">
@@ -183,7 +158,6 @@ export function OrganizationsCard() {
           />
         ))}
       </div>
-      {creating ? <CreateTeamDialog onClose={() => setCreating(false)} onChanged={reload} /> : null}
     </SettingsCard>
   );
 }
@@ -195,65 +169,6 @@ function nameAmong(
 ): string {
   const context = contexts.find((option) => option.orgId === space.orgId);
   return context ? workspaceName(context, contexts) : space.orgName;
-}
-
-/** Naming a new space, then straight on to connecting the Cloudflare account it builds in. */
-function CreateTeamDialog({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> }) {
-  const [name, setName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    const orgName = name.trim();
-    setBusy(true);
-    setError(null);
-    let created = false;
-    try {
-      const { orgId } = await postJson('/api/organizations/create', { name: orgName }, createdSchema);
-      created = true;
-      // It exists now: trying again must not create a second one.
-      setName('');
-      // Straight on to connecting its Cloudflare account, which only its admin can do.
-      await signInWithCloudflare(createCloudflareReturnURL(window.location.href), { organizationId: orgId });
-    } catch (createError) {
-      const reason = messageOf(createError, 'That did not work.');
-      setError(
-        created
-          ? `Created ${orgName}, but connecting its Cloudflare account didn't start: ${reason} Use Connect Cloudflare on the space.`
-          : messageOf(createError, 'Unable to create the space.'),
-      );
-      setBusy(false);
-      void onChanged();
-    }
-  };
-  return (
-    <Modal
-      title="New space"
-      description="Another place to build, apart from the one you have: you become its admin, then connect the Cloudflare account it builds in. Nothing to pay CloudChef for it."
-      onClose={onClose}
-    >
-      <form className="grid gap-3" onSubmit={(event) => void create(event)}>
-        <TextInput
-          required
-          autoFocus
-          maxLength={80}
-          placeholder="Space name"
-          aria-label="Space name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-        />
-        <FeedbackLine feedback={errorFeedback(error)} className="" />
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="neutral" size="sm" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" size="sm" variant="primary" loading={busy} className="max-w-full">
-            Create and connect Cloudflare
-          </Button>
-        </div>
-      </form>
-    </Modal>
-  );
 }
 
 /** Opens another account to build in; a refusal is shown as a toast, since the page stays. */
@@ -291,14 +206,14 @@ function OrganizationRow({
   const [peopleFeedback, setPeopleFeedback] = useState<Feedback>(null);
   const [connectFeedback, setConnectFeedback] = useState<Feedback>(null);
   const [renaming, setRenaming] = useState(false);
-  const [dialog, setDialog] = useState<'invite' | 'delete' | 'leave' | null>(null);
+  const [dialog, setDialog] = useState<'delete' | 'leave' | null>(null);
   const admin = organization.role === 'admin' && organization.pausedAt === null;
   const connection = organization.connection;
   const projects = organization.projects;
-  const people = (organization.members?.length ?? 0) + (organization.invites?.length ?? 0);
+  const people = organization.members?.length ?? 0;
   // Made for this person: it is theirs, whoever else is in it.
   const mine = myUserId !== null && organization.ownerUserId === myUserId;
-  // Alone in it, with nobody invited: there are no people to list yet.
+  // Alone in it: there are no people to list yet.
   const alone = admin && people <= 1;
 
   const connectCloudflare = () =>
@@ -309,15 +224,6 @@ function OrganizationRow({
         });
       },
       (message) => setConnectFeedback(errorFeedback(message)),
-    );
-
-  const revoke = (inviteId: string) =>
-    void runRequest(
-      async () => {
-        await postJson('/api/organizations/invite/revoke', { orgId: organization.orgId, inviteId }, noContentSchema);
-        await onChanged();
-      },
-      (message) => setPeopleFeedback(errorFeedback(message)),
     );
 
   return (
@@ -386,18 +292,12 @@ function OrganizationRow({
       {admin ? (
         <>
           <div className="mt-4 grid min-w-0 gap-2 text-sm">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h4 className="mr-auto font-medium">
-                People <span className="font-normal text-content-tertiary">{people}</span>
-              </h4>
-              <Button size="xs" variant="neutral" icon={<PlusIcon aria-hidden />} onClick={() => setDialog('invite')}>
-                Invite
-              </Button>
-            </div>
+            <h4 className="font-medium">
+              People <span className="font-normal text-content-tertiary">{people}</span>
+            </h4>
             {alone ? (
               <p className="text-xs text-content-tertiary">
-                Only you so far. Invite someone to build here with you, in this Cloudflare account. Nothing to pay
-                CloudChef for them.
+                Only you so far. To work on a project with someone, share it with them from its menu.
               </p>
             ) : null}
             <ul
@@ -417,31 +317,6 @@ function OrganizationRow({
                   onFeedback={setPeopleFeedback}
                 />
               ))}
-              {organization.invites?.map((pending) => (
-                <li key={pending.id} className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2">
-                  <span className="min-w-0 flex-1 basis-40">
-                    <span className="block truncate" title={pending.email}>
-                      {pending.email}
-                    </span>
-                    <span className="block text-xs text-content-tertiary">
-                      {pending.role}
-                      {pending.role === 'member' && pending.projectIds.length > 0
-                        ? ` · ${pending.projectIds.length} ${pending.projectIds.length === 1 ? 'project' : 'projects'}`
-                        : ''}
-                      {pending.role === 'member' && !pending.draftsAllowed ? ' · given projects only' : ''}
-                    </span>
-                  </span>
-                  <StatusBadge>Invited</StatusBadge>
-                  <Button
-                    size="xs"
-                    variant="neutral"
-                    aria-label={`Revoke the invite to ${pending.email}`}
-                    onClick={() => revoke(pending.id)}
-                  >
-                    Revoke
-                  </Button>
-                </li>
-              ))}
             </ul>
             <FeedbackLine feedback={peopleFeedback} className="" />
           </div>
@@ -456,9 +331,7 @@ function OrganizationRow({
       ) : (
         <MyOrgProjects projects={projects} />
       )}
-      {dialog === 'invite' ? (
-        <InviteDialog organization={organization} onChanged={onChanged} onClose={() => setDialog(null)} />
-      ) : dialog === 'delete' ? (
+      {dialog === 'delete' ? (
         <DeleteTeam orgId={organization.orgId} orgName={organization.orgName} onCancel={() => setDialog(null)} />
       ) : dialog === 'leave' && myUserId ? (
         <LeaveOrganization
@@ -469,167 +342,6 @@ function OrganizationRow({
         />
       ) : null}
     </div>
-  );
-}
-
-/** Inviting someone by email: their role, whether they may start apps of their own, and their projects. */
-function InviteDialog({
-  organization,
-  onChanged,
-  onClose,
-}: {
-  organization: Organization;
-  onChanged: () => Promise<void>;
-  onClose: () => void;
-}) {
-  const projects = organization.projects;
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'member' | 'admin'>('member');
-  // The projects a new member gets: every project until the admin unticks some.
-  const [chosenProjects, setChosenProjects] = useState<ReadonlySet<string> | null>(null);
-  // Off unless the admin says so: a member works on the projects they are given.
-  const [draftsAllowed, setDraftsAllowed] = useState(false);
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<Feedback>(null);
-  const [busy, setBusy] = useState(false);
-  const projectIds = chosenProjects ?? new Set(projects.map((project) => project.id));
-
-  const toggleProject = (projectId: string, chosen: boolean) => {
-    const next = new Set(projectIds);
-    if (chosen) {
-      next.add(projectId);
-    } else {
-      next.delete(projectId);
-    }
-    setChosenProjects(next);
-  };
-
-  const invite = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setFeedback(null);
-    try {
-      const invited = await postJson(
-        '/api/organizations/invite',
-        {
-          orgId: organization.orgId,
-          email: email.trim(),
-          role,
-          // Admins work on every project.
-          projectIds:
-            role === 'member' ? projects.filter((project) => projectIds.has(project.id)).map(({ id }) => id) : [],
-          draftsAllowed: role === 'admin' || draftsAllowed,
-        },
-        invitedSchema,
-      );
-      setInviteUrl(invited.inviteUrl);
-      setFeedback(
-        invited.emailed
-          ? noteFeedback(`Invite sent to ${email.trim()}. You can also share this link.`)
-          : errorFeedback("The invite email couldn't be sent; share this link instead."),
-      );
-      setEmail('');
-      setChosenProjects(null);
-      await onChanged();
-    } catch (inviteError) {
-      setFeedback(errorFeedback(messageOf(inviteError, 'Unable to invite.')));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal
-      title={`Invite to ${organization.orgName}`}
-      description="They sign in with Google or an emailed link, and see this space by that name."
-      onClose={onClose}
-    >
-      {inviteUrl ? (
-        <div className="grid gap-3">
-          <FeedbackLine feedback={feedback} className="" />
-          <TextInput
-            readOnly
-            value={inviteUrl}
-            aria-label="Invite link"
-            className="w-full"
-            onFocus={(event) => event.target.select()}
-          />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant="neutral" onClick={() => setInviteUrl(null)}>
-              Invite someone else
-            </Button>
-            <Button size="sm" variant="primary" onClick={onClose}>
-              Done
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <form className="grid min-w-0 gap-3 text-sm" onSubmit={(event) => void invite(event)}>
-          <div className="flex flex-wrap gap-2">
-            <TextInput
-              type="email"
-              required
-              autoFocus
-              placeholder="name@company.com"
-              aria-label="Email to invite"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              className="min-w-0 flex-1 basis-48"
-            />
-            <select
-              aria-label="Role"
-              value={role}
-              onChange={(event) => setRole(event.target.value === 'admin' ? 'admin' : 'member')}
-              className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-2 text-sm"
-            >
-              <option value="member">Member</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <p className="text-xs text-content-secondary">
-            They build in this space’s Cloudflare account, which Cloudflare bills. Nothing to pay CloudChef for them.
-          </p>
-          {role === 'member' ? (
-            <>
-              {projects.length > 0 ? (
-                <fieldset className="grid min-w-0 gap-1 text-content-secondary">
-                  <legend className="mb-1 text-content-primary">Projects they get</legend>
-                  {projects.map((project) => (
-                    <label key={project.id} className="flex min-w-0 items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={projectIds.has(project.id)}
-                        onChange={(event) => toggleProject(project.id, event.target.checked)}
-                      />
-                      {project.name}
-                    </label>
-                  ))}
-                </fieldset>
-              ) : null}
-              <label className="flex min-w-0 items-center gap-2 text-content-secondary">
-                <input
-                  type="checkbox"
-                  checked={draftsAllowed}
-                  onChange={(event) => setDraftsAllowed(event.target.checked)}
-                />
-                Can start new apps of their own
-              </label>
-            </>
-          ) : (
-            <p className="text-xs text-content-tertiary">Admins work on every project and run the space.</p>
-          )}
-          <FeedbackLine feedback={feedback} className="" />
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button size="sm" variant="neutral" disabled={busy} onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" variant="primary" loading={busy}>
-              Send invite
-            </Button>
-          </div>
-        </form>
-      )}
-    </Modal>
   );
 }
 
@@ -682,8 +394,8 @@ function LeaveOrganization({
     <Modal title={`Leave ${orgName}?`} onClose={leaving ? undefined : onCancel}>
       <div className="grid gap-3 text-sm text-content-secondary">
         <p>
-          Your workspace in its Cloudflare account, with your chats and project files there, is deleted. You need a new
-          invite to come back.
+          Your workspace in its Cloudflare account, with your chats and project files there, is deleted. To come back,
+          someone there shares a project with you again.
         </p>
         <FeedbackLine feedback={feedback} className="" />
         <div className="flex flex-wrap justify-end gap-2">
@@ -814,8 +526,8 @@ function DeleteTeam({
         {intro ? <p className="text-content-primary">{intro}</p> : null}
         <p>
           Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there, is deleted. Its
-          members, invites, projects and usage are removed from CloudChef, and CloudChef&apos;s access to the Cloudflare
-          account is revoked, unless someone still builds in it outside this space. This can&apos;t be undone.
+          members, projects and usage are removed from CloudChef, and CloudChef&apos;s access to the Cloudflare account
+          is revoked, unless someone still builds in it outside this space. This can&apos;t be undone.
         </p>
         <p>
           What stays: each project&apos;s code and history, deployed apps with their databases and storage, and AI
@@ -937,7 +649,6 @@ function MemberRow({
           </span>
           {member.pausedAt ? <StatusBadge tone="warning">Paused</StatusBadge> : null}
           {member.role === 'admin' ? <StatusBadge>{owner ? 'Owner' : 'Admin'}</StatusBadge> : null}
-          {member.role === 'member' && !member.draftsAllowed ? <StatusBadge>Given projects only</StatusBadge> : null}
         </div>
         <p
           className="text-xs text-content-tertiary sm:truncate"
@@ -955,13 +666,6 @@ function MemberRow({
               {member.pausedAt ? 'Resume' : 'Pause'}
             </MenuItem>
           )}
-          {member.role === 'member' ? (
-            // Without their own apps, a member works only on the projects they're given and never gets the
-            // team's Cloudflare authorization.
-            <MenuItem action={() => void act(member.draftsAllowed ? 'disallow_drafts' : 'allow_drafts')}>
-              {member.draftsAllowed ? 'Stop new apps of their own' : 'Allow new apps of their own'}
-            </MenuItem>
-          ) : null}
           <MenuItem
             action={() =>
               member.role === 'admin' && self

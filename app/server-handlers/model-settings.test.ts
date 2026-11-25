@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { controlPlaneDatabase, createProvenEmailUser, envWith } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, createProvenEmailUser, createSpace, envWith } from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
-import { createOrganization } from '~/lib/cloudflare/data/organizations.server';
 import { UserCloudflareAccountApi } from '~/lib/.server/cloudflare/user-account-api';
 import { linkedGatewayKeys } from '~/lib/.server/cloudflare/ai-gateway-keys';
 import { CORE_CLOUDFLARE_OAUTH_SCOPES } from '~/lib/.server/cloudflare/cloudflare-oauth-scope-manifest';
@@ -256,11 +255,9 @@ async function setup({
   };
   const admin = await signIn('ada@acme.com');
   const member = await signIn('sam@acme.com');
-  const orgId = await createOrganization(db, admin.userId, 'Acme');
+  const orgId = await createSpace(db, admin.userId, 'Acme');
   database
-    .prepare(
-      `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES (?, ?, 'member', 1, 1)`,
-    )
+    .prepare(`INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'member', 1)`)
     .run(orgId, member.userId);
   database.exec(
     `INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, key_version, created_at)

@@ -13,7 +13,6 @@ import { Route as IndexRouteImport } from './routes/index';
 import { Route as ApprovalsRouteImport } from './routes/approvals';
 import { Route as ExploreRouteImport } from './routes/explore';
 import { Route as FeedRouteImport } from './routes/feed';
-import { Route as JoinRouteImport } from './routes/join';
 import { Route as MoveRouteImport } from './routes/move';
 import { Route as NotificationsRouteImport } from './routes/notifications';
 import { Route as PrivacyRouteImport } from './routes/privacy';
@@ -50,11 +49,6 @@ const ExploreRoute = ExploreRouteImport.update({
 const FeedRoute = FeedRouteImport.update({
   id: '/feed',
   path: '/feed',
-  getParentRoute: () => rootRouteImport,
-} as any);
-const JoinRoute = JoinRouteImport.update({
-  id: '/join',
-  path: '/join',
   getParentRoute: () => rootRouteImport,
 } as any);
 const MoveRoute = MoveRouteImport.update({
@@ -148,7 +142,6 @@ export interface FileRoutesByFullPath {
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
   '/feed': typeof FeedRoute;
-  '/join': typeof JoinRoute;
   '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
@@ -172,7 +165,6 @@ export interface FileRoutesByTo {
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
   '/feed': typeof FeedRoute;
-  '/join': typeof JoinRoute;
   '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
@@ -197,7 +189,6 @@ export interface FileRoutesById {
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
   '/feed': typeof FeedRoute;
-  '/join': typeof JoinRoute;
   '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
@@ -223,7 +214,6 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/explore'
     | '/feed'
-    | '/join'
     | '/move'
     | '/notifications'
     | '/privacy'
@@ -247,7 +237,6 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/explore'
     | '/feed'
-    | '/join'
     | '/move'
     | '/notifications'
     | '/privacy'
@@ -271,7 +260,6 @@ export interface FileRouteTypes {
     | '/approvals'
     | '/explore'
     | '/feed'
-    | '/join'
     | '/move'
     | '/notifications'
     | '/privacy'
@@ -296,7 +284,6 @@ export interface RootRouteChildren {
   ApprovalsRoute: typeof ApprovalsRoute;
   ExploreRoute: typeof ExploreRoute;
   FeedRoute: typeof FeedRoute;
-  JoinRoute: typeof JoinRoute;
   MoveRoute: typeof MoveRoute;
   NotificationsRoute: typeof NotificationsRoute;
   PrivacyRoute: typeof PrivacyRoute;
@@ -344,13 +331,6 @@ declare module '@tanstack/react-router' {
       path: '/feed';
       fullPath: '/feed';
       preLoaderRoute: typeof FeedRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    '/join': {
-      id: '/join';
-      path: '/join';
-      fullPath: '/join';
-      preLoaderRoute: typeof JoinRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/move': {
@@ -480,7 +460,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApprovalsRoute: ApprovalsRoute,
   ExploreRoute: ExploreRoute,
   FeedRoute: FeedRoute,
-  JoinRoute: JoinRoute,
   MoveRoute: MoveRoute,
   NotificationsRoute: NotificationsRoute,
   PrivacyRoute: PrivacyRoute,

@@ -14,7 +14,6 @@ const INITIALISATION_VECTOR = 'iv-must-never-be-exported';
 const SESSION_TOKEN_HASH = 'token-hash-must-never-be-exported';
 const PROVIDER_SESSION_ID = 'provider-session-must-never-be-exported';
 const CREDENTIAL_HANDLE = 'credential-handle-must-never-be-exported';
-const INVITE_TOKEN_HASH = 'invite-token-hash-must-never-be-exported';
 const GITHUB_STATE = 'github-state-must-never-be-exported';
 const OAUTH_STATE = 'oauth-state-must-never-be-exported';
 const EMAIL_TOKEN_HASH = 'email-token-hash-must-never-be-exported';
@@ -80,18 +79,6 @@ describe('control-plane account export', () => {
       total: 1,
       truncated: false,
       memberships: [{ organizationId: 'connection-user-1', role: 'admin' }],
-    });
-    expect(exported.sections.organizationInvites).toEqual({
-      status: 'exported',
-      total: 0,
-      truncated: false,
-      invites: [],
-    });
-    expect(exported.sections.organizationQuotaEvents).toEqual({
-      status: 'exported',
-      total: 0,
-      truncated: false,
-      events: [],
     });
     expect(exported.sections.organizationUsage).toEqual({ status: 'exported', total: 0, truncated: false, usage: [] });
     expect(exported.sections.organizationProjects).toEqual({
@@ -228,8 +215,6 @@ describe('control-plane account export', () => {
       'encryptedCredential',
       'computerRuntimes',
       'organizations',
-      'organizationInvites',
-      'organizationQuotaEvents',
       'organizationUsage',
       'organizationProjects',
       'githubConnections',
@@ -251,11 +236,7 @@ describe('control-plane account export', () => {
         allowed_builder_models_json = '["anthropic/claude-sonnet-4-5"]';
       UPDATE user_computer_runtimes SET image_digest = 'sha256:abc', protocol_version = 7, last_session_at = 9;
       INSERT INTO organizations (id, name, created_at, updated_at) VALUES ('acme', 'Acme', 1, 1);
-      INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed) VALUES ('acme', 'user-1', 'member', 2, 0);
-      INSERT INTO organization_invites
-        (id, org_id, email, role, token_hash, invited_by, expires_at, created_at, project_ids, drafts_allowed)
-        VALUES ('invite-1', 'acme', 'USER-1@example.test', 'member', '${INVITE_TOKEN_HASH}', 'user-1', 10, 1,
-                '["project-1"]', 0);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ('acme', 'user-1', 'member', 2);
       INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
         VALUES ('acme-connection', 'acme', 'account-acme', 'active', 1, 1);
       INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
@@ -267,8 +248,6 @@ describe('control-plane account export', () => {
         VALUES ('${GITHUB_STATE}', 'connection-user-1', NULL, 'user-1', '/settings', 20, 2);
       INSERT INTO email_sign_in_tokens (token_hash, email, return_to, expires_at, created_at)
         VALUES ('${EMAIL_TOKEN_HASH}', 'user-1@example.test', '/join', 30, 4);
-      INSERT INTO organization_quota_events (kind, user_id, org_id, created_at)
-        VALUES ('team', 'user-1', 'gone-team', 5), ('invite', 'user-1', 'acme', 6);
     `);
 
     const exported = await exportControlPlaneAccount({ env: envWith({ DB: db }), userId: 'user-1' });
@@ -283,22 +262,7 @@ describe('control-plane account export', () => {
       computerRuntimes: [{ imageDigest: 'sha256:abc', protocolVersion: 7, lastSessionAt: '1970-01-01T00:00:00.009Z' }],
     });
     expect(exported.sections.organizations).toMatchObject({
-      memberships: expect.arrayContaining([
-        expect.objectContaining({ organizationId: 'acme', role: 'member', draftsAllowed: false }),
-      ]),
-    });
-    expect(exported.sections.organizationInvites).toMatchObject({
-      invites: [{ organizationName: 'Acme', projectIds: ['project-1'], draftsAllowed: false }],
-    });
-    // What they sent and created counts toward the limits even after the team is gone, so it is theirs to see.
-    expect(exported.sections.organizationQuotaEvents).toEqual({
-      status: 'exported',
-      total: 2,
-      truncated: false,
-      events: [
-        { kind: 'invite', organizationId: 'acme', createdAt: '1970-01-01T00:00:00.006Z' },
-        { kind: 'team', organizationId: 'gone-team', createdAt: '1970-01-01T00:00:00.005Z' },
-      ],
+      memberships: expect.arrayContaining([expect.objectContaining({ organizationId: 'acme', role: 'member' })]),
     });
     // Their own projects and the team's they were given, with their role.
     expect(exported.sections.organizationProjects).toEqual({
@@ -333,7 +297,7 @@ describe('control-plane account export', () => {
     });
     // What these records are checked against stays in the control plane.
     const serialized = JSON.stringify(exported);
-    for (const secret of [INVITE_TOKEN_HASH, GITHUB_STATE, OAUTH_STATE, EMAIL_TOKEN_HASH]) {
+    for (const secret of [GITHUB_STATE, OAUTH_STATE, EMAIL_TOKEN_HASH]) {
       expect({ secret, present: serialized.includes(secret) }).toEqual({ secret, present: false });
     }
   });

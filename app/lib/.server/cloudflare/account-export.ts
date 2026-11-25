@@ -1,13 +1,8 @@
-import { z } from 'zod';
 import type { AccountExportSectionName } from '~/lib/account-data';
 import { readBuilderModelSettings } from '~/lib/cloudflare/data/builder-model-settings.server';
 import { exportShowcase } from '~/lib/cloudflare/data/posts.server';
 import { findCloudflareConnectionForPerson } from './cloudflare-connection-repository';
-import {
-  draftsAllowed,
-  storedProjectIds,
-  type OrganizationRole,
-} from '~/lib/cloudflare/data/organization-access.server';
+import { type OrganizationRole } from '~/lib/cloudflare/data/organization-access.server';
 
 /**
  * Bumped whenever a field is added, removed, or reinterpreted, so a file a user
@@ -27,8 +22,6 @@ const SECTION_NAMES = [
   'encryptedCredential',
   'computerRuntimes',
   'organizations',
-  'organizationInvites',
-  'organizationQuotaEvents',
   'organizationUsage',
   'organizationProjects',
   'githubConnections',
@@ -56,7 +49,7 @@ const EXPORT_OMITS = [
   'Chats, transcripts, project files, and deployment records. These live in the connected Cloudflare account, not in the control plane. Download individual project source with Download code in the project header.',
   'Workers, D1 databases, R2 buckets, KV namespaces, Containers, Durable Objects, and Agents that CloudChef deployed, and the logs and traces they produce. These live in the connected Cloudflare account and are readable with that account’s own tools.',
   'Copies held by the browser. No server request can reach them; clear CloudChef site data in every browser and profile you have used.',
-  'Encrypted credential material, initialisation vectors, credential handles, session tokens, and the hashes and state values that sign-in links, invites, and authorizations in progress are checked against. These are never exported.',
+  'Encrypted credential material, initialisation vectors, credential handles, session tokens, and the hashes and state values that sign-in links, invitations, and authorizations in progress are checked against. These are never exported.',
 ];
 
 type ExportedAccount = {
@@ -123,27 +116,6 @@ type ExportedMembership = {
   role: string;
   joinedAt: string;
   pausedAt: string | null;
-  /** Whether they may build new apps of their own there, or only the GitHub projects they're given. */
-  draftsAllowed: boolean;
-};
-
-/** An invite addressed to this person's email, accepted or not. */
-type ExportedInvite = {
-  organizationName: string;
-  role: string;
-  createdAt: string;
-  expiresAt: string;
-  acceptedAt: string | null;
-  /** The team's projects it gives on joining. */
-  projectIds: string[];
-  draftsAllowed: boolean;
-};
-
-/** An invite this person sent, or a team they created, as counted toward the limits on both. */
-type ExportedQuotaEvent = {
-  kind: 'invite' | 'team';
-  organizationId: string;
-  createdAt: string;
 };
 
 /** One day's model use in an organization's account, as its admins see it. */
@@ -236,8 +208,6 @@ type ControlPlaneExport = {
     encryptedCredential: ExportedSection<{ encryptedCredential: ExportedEncryptedCredential | null }>;
     computerRuntimes: ExportedSection<BoundedList<{ computerRuntimes: ExportedComputerRuntime[] }>>;
     organizations: ExportedSection<BoundedList<{ memberships: ExportedMembership[] }>>;
-    organizationInvites: ExportedSection<BoundedList<{ invites: ExportedInvite[] }>>;
-    organizationQuotaEvents: ExportedSection<BoundedList<{ events: ExportedQuotaEvent[] }>>;
     organizationUsage: ExportedSection<BoundedList<{ usage: ExportedUsageDay[] }>>;
     organizationProjects: ExportedSection<BoundedList<{ projects: ExportedProjectAccess[] }>>;
     githubConnections: ExportedSection<BoundedList<{ connections: ExportedGitHubConnection[] }>>;
@@ -263,8 +233,6 @@ export async function exportControlPlaneAccount(args: { env: Env; userId: string
     encryptedCredential: await exportSection('encryptedCredential', () => readEncryptedCredential(db, args.userId)),
     computerRuntimes: await exportSection('computerRuntimes', () => readComputerRuntimes(db, args.userId)),
     organizations: await exportSection('organizations', () => readMemberships(db, args.userId)),
-    organizationInvites: await exportSection('organizationInvites', () => readInvites(db, args.userId)),
-    organizationQuotaEvents: await exportSection('organizationQuotaEvents', () => readQuotaEvents(db, args.userId)),
     organizationUsage: await exportSection('organizationUsage', () => readUsage(db, args.userId)),
     organizationProjects: await exportSection('organizationProjects', () => readProjectAccess(db, args.userId)),
     githubConnections: await exportSection('githubConnections', () => readGitHubConnections(db, args.userId)),
@@ -453,25 +421,17 @@ async function readMemberships(
     db,
     userId,
     `SELECT members.org_id, organizations.name, members.role, members.joined_at, members.paused_at,
-              members.drafts_allowed, COUNT(*) OVER () AS total_rows
+              COUNT(*) OVER () AS total_rows
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
        WHERE members.user_id = ?
        ORDER BY members.joined_at LIMIT ?`,
-    (row: {
-      org_id: string;
-      name: string;
-      role: OrganizationRole;
-      joined_at: number;
-      paused_at: number | null;
-      drafts_allowed: number;
-    }) => ({
+    (row: { org_id: string; name: string; role: OrganizationRole; joined_at: number; paused_at: number | null }) => ({
       organizationId: row.org_id,
       organizationName: row.name,
       role: row.role,
       joinedAt: isoTimestamp(row.joined_at),
       pausedAt: optionalIsoTimestamp(row.paused_at),
-      draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
     }),
   );
   return { memberships, ...bounds };
@@ -532,58 +492,6 @@ async function readOAuthStates(db: D1Database, userId: string): Promise<BoundedL
     }),
   );
   return { states, ...bounds };
-}
-
-async function readInvites(db: D1Database, userId: string): Promise<BoundedList<{ invites: ExportedInvite[] }>> {
-  // The invite token's hash authenticates acceptance, so only the record of the invite is exported.
-  const { items: invites, ...bounds } = await readBoundedList(
-    db,
-    userId,
-    `SELECT organizations.name, invites.role, invites.created_at, invites.expires_at, invites.accepted_at,
-              invites.project_ids, invites.drafts_allowed, COUNT(*) OVER () AS total_rows
-       FROM organization_invites AS invites
-       JOIN organizations ON organizations.id = invites.org_id
-       -- Only to an email CloudChef proved: one a Cloudflare login merely reports says nothing about
-       -- who holds it, and the invites to it aren't this person's to see.
-       WHERE invites.email = (SELECT email FROM "user" WHERE id = ? AND email_proven_at IS NOT NULL) COLLATE NOCASE
-       ORDER BY invites.created_at DESC LIMIT ?`,
-    (row: {
-      name: string;
-      role: OrganizationRole;
-      created_at: number;
-      expires_at: number;
-      accepted_at: number | null;
-      project_ids: string | null;
-      drafts_allowed: number;
-    }) => ({
-      organizationName: row.name,
-      role: row.role,
-      createdAt: isoTimestamp(row.created_at),
-      expiresAt: isoTimestamp(row.expires_at),
-      acceptedAt: optionalIsoTimestamp(row.accepted_at),
-      projectIds: storedProjectIds(row.project_ids),
-      draftsAllowed: draftsAllowed(row.role, row.drafts_allowed),
-    }),
-  );
-  return { invites, ...bounds };
-}
-
-const quotaEventKindSchema = z.enum(['invite', 'team']);
-
-async function readQuotaEvents(db: D1Database, userId: string): Promise<BoundedList<{ events: ExportedQuotaEvent[] }>> {
-  const { items: events, ...bounds } = await readBoundedList(
-    db,
-    userId,
-    `SELECT kind, org_id, created_at, COUNT(*) OVER () AS total_rows
-       FROM organization_quota_events WHERE user_id = ?
-       ORDER BY created_at DESC LIMIT ?`,
-    (row: { kind: string; org_id: string; created_at: number }) => ({
-      kind: quotaEventKindSchema.parse(row.kind),
-      organizationId: row.org_id,
-      createdAt: isoTimestamp(row.created_at),
-    }),
-  );
-  return { events, ...bounds };
 }
 
 async function readMoveRequests(

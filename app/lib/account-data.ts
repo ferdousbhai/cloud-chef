@@ -15,8 +15,6 @@ const ACCOUNT_EXPORT_SECTION_LABELS = {
   encryptedCredential: 'CloudChef’s stored access to the Cloudflare account you build in',
   computerRuntimes: 'your workspaces',
   organizations: 'the spaces you are in',
-  organizationInvites: 'invites sent to you',
-  organizationQuotaEvents: 'the invites you sent and spaces you created, as counted toward their limits',
   organizationUsage: 'your model use in spaces',
   organizationProjects: 'your projects, and the projects you were given in other people’s spaces',
   githubConnections: 'your GitHub connections in progress',

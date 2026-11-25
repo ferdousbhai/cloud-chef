@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { controlPlaneDatabase, createProvenEmailUser, inviteToTeam } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, createProvenEmailUser } from '~/test/control-plane-d1';
 import {
   attachCloudflareIdentity,
   CloudflareAccountHoldsEmailError,
@@ -74,7 +74,6 @@ describe('signing in without Cloudflare, then connecting it', () => {
       { subject: 'cf-attacker', email: 'victim@corp.com', name: null, picture: null },
       null,
     );
-    await inviteToTeam(db, 'victim@corp.com');
     // Proving the address never signs the victim into the attacker's account: they are told it has one,
     await expect(upsertVerifiedEmailUser(db, { email: 'victim@corp.com' })).rejects.toBeInstanceOf(
       CloudflareAccountHoldsEmailError,
@@ -128,7 +127,6 @@ describe('signing in without Cloudflare, then connecting it', () => {
       null,
     );
     // Someone (perhaps Sam on another device, not signed in) proves sam@corp.com by link, invited to a team.
-    await inviteToTeam(db, 'sam@corp.com');
     await upsertVerifiedEmailUser(db, { email: 'sam@corp.com' }, null, { separateAccount: true });
     await expect(
       upsertCloudflareUser(db, { subject: 'cf-sam', email: 'Sam@corp.com', name: 'Sam', picture: null }, null),
@@ -149,7 +147,6 @@ describe('signing in with Google or an emailed link', () => {
 
   it('makes a new account for an address a team has invited', async () => {
     const { database, db } = controlPlaneDatabase();
-    await inviteToTeam(db, 'Kim@Acme.com');
     const kim = await upsertVerifiedEmailUser(db, { email: 'kim@acme.com', name: 'Kim' });
     expect(kim).toMatchObject({ email: 'kim@acme.com', name: 'Kim' });
     expect(
@@ -159,7 +156,6 @@ describe('signing in with Google or an emailed link', () => {
 
   it('names a new account without a name by its address before the @, as the person wrote it', async () => {
     const { db } = controlPlaneDatabase();
-    await inviteToTeam(db, 'sara.ahmed@acme.com');
     await expect(upsertVerifiedEmailUser(db, { email: 'Sara.Ahmed@Acme.com' })).resolves.toMatchObject({
       email: 'sara.ahmed@acme.com',
       name: 'Sara.Ahmed',

@@ -54,7 +54,7 @@ export function ProjectAccessList({
   };
 
   if (members.length === 0) {
-    return <p className="text-xs text-content-tertiary">Invite people to the space to share this project.</p>;
+    return <p className="text-xs text-content-tertiary">To add someone, share this project with them from its menu.</p>;
   }
 
   return (

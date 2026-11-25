@@ -37,7 +37,6 @@ const controlPlaneTables = [
   'project_invitations',
   'project_main_pushes',
   'project_main_rewrites',
-  'project_shares',
   'project_slug_redirects',
   'project_visits',
   'thread_followers',

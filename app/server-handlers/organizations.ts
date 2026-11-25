@@ -1,23 +1,14 @@
 import { z } from 'zod';
-import { prepareWorkspaceInBackground } from '~/server-handlers/cloudflare-integration';
-import { publicOrigin } from '~/lib/.server/public-origin';
-import { normalizeEmail, setSessionContext } from '~/lib/.server/auth';
-import { hasSameOrigin, readJsonRequest, withinAddressRateLimit } from '~/lib/.server/request-guards';
-import { SENDER } from './email-auth';
-import { answeringOrganizationErrors, signedIn } from './signed-in';
+import { setSessionContext } from '~/lib/.server/auth';
+import { readJsonRequest } from '~/lib/.server/request-guards';
+import { signedIn } from './signed-in';
 import { isRecentSignIn, reauthenticationRequired } from '~/lib/.server/account-reauthentication';
 import { findCloudflareConnectionForOrganization } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import {
-  acceptInvite,
-  createInvite,
-  createOrganization,
-  describeInvite,
   listOrganizations,
   organizationWorkspaceOwners,
   prepareOrganizationDeletion,
   renameOrganization,
-  requireAdmin,
-  revokeInvite,
   updateMember,
 } from '~/lib/cloudflare/data/organizations.server';
 import {
@@ -30,11 +21,10 @@ import { deleteTeamWorkspace } from '~/lib/.server/cloudflare/team-workspace';
 import { deleteOrganization } from '~/lib/.server/cloudflare/account-deletion';
 
 /**
- * Organizations: an admin connects the organization's Cloudflare account and invites people by email;
- * they sign in (Google or an emailed link), accept, and build in that account. Every handler needs a
- * session and a same-origin request; admin-only ones check the role on each call.
+ * Spaces: each is one connected Cloudflare account and the people who work in it. Other people come into one by
+ * being added to one of its projects (`project-shares.ts`), and an admin may make one of them an admin too. Every
+ * handler needs a session and a same-origin request; admin-only ones check the role on each call.
  */
-const ORGANIZATION_INVITE_PATH = '/join';
 /** Control and formatting characters, newlines among them: never part of a name. */
 const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\u2028\u2029]/gu;
 /** A web address, or anything an email client may turn into a link, inside a name. */
@@ -45,26 +35,14 @@ const teamNameSchema = z
   .string()
   .transform((name) => name.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim())
   .pipe(z.string().min(1).max(80));
-const createSchema = z.strictObject({ name: teamNameSchema });
-const inviteSchema = z.strictObject({
-  orgId: z.string().uuid(),
-  email: z.email().max(254),
-  role: z.enum(['admin', 'member']).default('member'),
-  /** The organization's GitHub projects they get on joining. */
-  projectIds: z.array(z.string().uuid()).max(500).default([]),
-  /** Whether they may build new apps of their own, not only work on the projects they're given: only if said. */
-  draftsAllowed: z.boolean().default(false),
-});
-const acceptSchema = z.strictObject({ token: z.string().min(32).max(128) });
 const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) });
 const memberSchema = z.strictObject({
   orgId: z.string().uuid(),
   userId: z.string().min(1).max(128),
-  action: z.enum(['pause', 'resume', 'remove', 'make_admin', 'make_member', 'allow_drafts', 'disallow_drafts']),
+  action: z.enum(['pause', 'resume', 'remove', 'make_admin', 'make_member']),
   /** On removal, also delete their workspace (chats, project files) from the organization's account. */
   deleteWorkspace: z.boolean().default(true),
 });
-const revokeInviteSchema = z.strictObject({ orgId: z.string().uuid(), inviteId: z.string().uuid() });
 const renameSchema = z.strictObject({ orgId: z.string().uuid(), name: teamNameSchema });
 const deleteSchema = z.strictObject({ orgId: z.string().uuid() });
 /** How many members' workspaces a team's deletion deletes at once. */
@@ -109,107 +87,6 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
   });
 }
 
-export function createOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, createSchema, 'Give the space a name.');
-    if ('response' in body) {
-      return body.response;
-    }
-    const orgId = await createOrganization(env.DB, session.user.id, body.data.name);
-    return Response.json({ orgId }, { status: 201 });
-  });
-}
-
-/**
- * Invites someone by email: the link is emailed to them and returned, so the admin can also pass it
- * on themselves. Only the invited address can accept it.
- */
-export function inviteToOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, inviteSchema, 'Enter a valid email address.');
-    if ('response' in body) {
-      return body.response;
-    }
-    const { orgId, role, projectIds, draftsAllowed } = body.data;
-    const email = normalizeEmail(body.data.email);
-    const admin = await requireAdmin(env.DB, orgId, session.user.id);
-    // Invites are email CloudChef sends with text an admin chose, so they're rate-limited per admin.
-    const { success } = await env.SIGN_IN_RATE_LIMITER.limit({ key: `invite:${session.user.id}` });
-    if (!success) {
-      return Response.json({ error: 'Too many invites at once. Try again in a minute.' }, { status: 429 });
-    }
-    const { token, expiresAt } = await createInvite(env.DB, {
-      orgId,
-      email,
-      role,
-      invitedBy: session.user.id,
-      projectIds,
-      draftsAllowed,
-    });
-    const link = new URL(ORGANIZATION_INVITE_PATH, publicOrigin(request));
-    link.searchParams.set('token', token);
-    const emailed = await sendInvite(env, {
-      to: email,
-      orgName: admin.orgName,
-      inviter: session.user.name,
-      link,
-    });
-    return Response.json({ inviteUrl: link.toString(), expiresAt, emailed }, { status: 201 });
-  });
-}
-
-/**
- * What an invite link is for, so its page can greet the person by the organization and offer to sign
- * them in with the invited address. Needs no session: the link itself is the secret.
- */
-export async function describeInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  if (!hasSameOrigin(request)) {
-    return Response.json({ error: 'Invalid request origin.' }, { status: 403 });
-  }
-  if (!(await withinAddressRateLimit(env.SIGN_IN_RATE_LIMITER, request))) {
-    return Response.json({ error: 'Too many requests. Try again shortly.' }, { status: 429 });
-  }
-  const body = await readJsonRequest(request, acceptSchema, 'This invite link is not valid.');
-  if ('response' in body) {
-    return body.response;
-  }
-  return answeringOrganizationErrors(async () => {
-    const invite = await describeInvite(env.DB, body.data.token);
-    return invite
-      ? Response.json(invite, { headers: { 'Cache-Control': 'no-store' } })
-      : Response.json({ error: 'This invite has been used or has expired. Ask for a new one.' }, { status: 410 });
-  });
-}
-
-export function acceptInviteAction({
-  request,
-  env,
-  prepareWorkspace = prepareWorkspaceInBackground,
-}: {
-  request: Request;
-  env: Env;
-  prepareWorkspace?: typeof prepareWorkspaceInBackground;
-}): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, acceptSchema, 'This invite link is not valid.');
-    if ('response' in body) {
-      return body.response;
-    }
-    const { orgId } = await acceptInvite(env.DB, { token: body.data.token, userId: session.user.id });
-    // Straight into the organization's account, once its admin has connected one; `switched` tells the
-    // invite page whether the builder is ready to open there.
-    const connection = await findCloudflareConnectionForOrganization(env.DB, orgId);
-    const switched = connection?.status === 'active';
-    if (switched) {
-      await setSessionContext(env, request, connection.id);
-      // Their workspace in the team's account starts preparing now, so its first setup is done when they open
-      // a project.
-      await prepareWorkspace(env, session.user.id, connection);
-    }
-    return Response.json({ orgId, switched });
-  });
-}
-
 /**
  * An admin pausing, resuming, removing, promoting or demoting a member, or a member leaving. Pausing
  * or removing takes effect at the person's next request: the credential broker and the workspace
@@ -248,17 +125,6 @@ export function updateMemberAction({
       },
     );
     return Response.json({ ok: true, workspaceDeleted });
-  });
-}
-
-export function revokeInviteAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, revokeInviteSchema, 'Choose an invite to revoke.');
-    if ('response' in body) {
-      return body.response;
-    }
-    await revokeInvite(env.DB, { ...body.data, actorId: session.user.id });
-    return new Response(null, { status: 204 });
   });
 }
 
@@ -357,44 +223,11 @@ export function switchContextAction({ request, env }: { request: Request; env: E
 }
 
 /**
- * A team's or a person's name as an invite email shows it: one line, no control characters, and no
+ * A project's or a person's name as an email CloudChef sends shows it: one line, no control characters, and no
  * web or email address, since whoever chose the name could otherwise put their own link in an email
  * CloudChef sends.
  */
 export function nameForEmail(name: string, fallback: string): string {
   const plain = name.replace(CONTROL_CHARACTERS, ' ').replace(LINK_LIKE, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
   return /[\p{L}\p{N}]/u.test(plain) ? plain : fallback;
-}
-
-/** Emails an invite; false when email isn't configured or sending failed (the admin still has the link). */
-async function sendInvite(
-  env: Env,
-  details: { to: string; orgName: string; inviter: string; link: URL },
-): Promise<boolean> {
-  const invite = {
-    ...details,
-    orgName: nameForEmail(details.orgName, 'A space'),
-    inviter: nameForEmail(details.inviter, 'An admin of the space'),
-  };
-  const text = [
-    `${invite.inviter} invited you to build apps with ${invite.orgName} on CloudChef.`,
-    '',
-    `Accept the invite: ${invite.link.toString()}`,
-    '',
-    `Sign in with this address (${invite.to}), with Google or an emailed link; you don't need a Cloudflare`,
-    `login. What you build is stored in ${invite.orgName}'s Cloudflare account, where its administrators can`,
-    'see it. The invite works once, within 7 days.',
-  ].join('\n');
-  try {
-    await env.SIGN_IN_EMAIL.send({
-      from: SENDER,
-      to: invite.to,
-      subject: `${invite.orgName} invited you to CloudChef`,
-      text,
-    });
-    return true;
-  } catch {
-    console.error('Unable to send an organization invite');
-    return false;
-  }
 }

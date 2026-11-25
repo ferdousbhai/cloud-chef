@@ -21,14 +21,14 @@ export async function runtimeCredentialAction(args: { request: Request; env: Env
     return authenticated;
   }
   const { body, identity } = authenticated;
-  // A member who only works on GitHub projects reaches production through GitHub alone: their
-  // workspace is never handed the space's Cloudflare authorization.
+  // Someone added to a project works with what it already has: their workspace is never handed the account's
+  // Cloudflare authorization, which only its admins' get.
   const membership = await findMembership(args.env.DB, authenticated.connection.orgId, identity.userId);
-  if (!membership?.draftsAllowed) {
+  if (!isActiveAdmin(membership)) {
     return credentialResponse(
       {
         code: 'cloudflare_token_withheld',
-        error: 'This space lets you work on the projects you were given only.',
+        error: 'You work on the projects shared with you here. Only whoever runs the account changes it directly.',
       },
       403,
     );

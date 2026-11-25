@@ -29,8 +29,8 @@ export function HomeIntro({
   children,
 }: HomeIntroProps) {
   const { data: session, isPending } = authClient.useSession();
-  // A member whose organization limits them to its team projects can't start a new app here.
-  const projectsOnly = homepage && session?.context && !session.context.draftsAllowed ? session.context.orgName : null;
+  // Someone added to projects in another person's account starts no new app there.
+  const projectsOnly = homepage && session?.context ? !session.context.draftsAllowed : false;
   return (
     <div className="cloudchef-home-shell grow p-4 sm:px-6 lg:px-8">
       <section className="cloudchef-home-copy min-w-0" aria-labelledby="intro">
@@ -38,10 +38,10 @@ export function HomeIntro({
           <div className="min-w-0">
             <HomeHeroCopy headingId="intro" pitch={homepage && !isPending && !session} />
 
-            {projectsOnly !== null ? (
+            {projectsOnly ? (
               <div className="cloudchef-home-composer-stack" role="status">
                 <p className="app-page-lede mx-auto wrap-break-word text-center">
-                  {projectsOnly} lets you work on the projects it gave you. Choose one below to start.
+                  You work on the projects shared with you here. Choose one below to start.
                 </p>
               </div>
             ) : (

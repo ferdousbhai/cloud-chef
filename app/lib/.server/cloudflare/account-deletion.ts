@@ -44,7 +44,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   // workspaces and the teams only they belonged to are gone, and a retry then picks up from there.
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
     throw new OrganizationAdminRequiredError(
-      'Make someone else an admin of your space first, or remove the people you invited into it.',
+      'Make someone else an admin of your space first, or remove the people you added to its projects.',
     );
   }
   // While each team's authorization still works: nothing reaches those workspaces once it's revoked.
@@ -109,11 +109,11 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
     db
       .prepare('DELETE FROM email_sign_in_tokens WHERE email = (SELECT lower(email) FROM "user" WHERE id = ?)')
       .bind(args.userId),
-    // The invites addressed to them, as the export lists them: only to an email CloudChef proved, so
-    // erasing an account whose Cloudflare login merely reports an address can't withdraw invites to it.
+    // The projects shared with their address and not yet taken: only with an email CloudChef proved, so erasing an
+    // account whose Cloudflare login merely reports an address can't withdraw invitations to it.
     db
       .prepare(
-        `DELETE FROM organization_invites
+        `DELETE FROM project_invitations
          WHERE email = (SELECT email FROM "user" WHERE id = ? AND email_proven_at IS NOT NULL) COLLATE NOCASE`,
       )
       .bind(args.userId),

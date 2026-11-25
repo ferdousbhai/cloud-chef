@@ -95,6 +95,7 @@ const migrationPolicies = [
       '0076_drop_managed_space_storage.sql': '40c7cfb641223111ac3130d7d636b8f79f3bcea640a85e76c36dc68c63439475',
       '0077_collaborator_publishes.sql': '55386d76cabb12a364b7d3fc9b1952c8bff3ae4bbc67c29ce3ce28081ca657f7',
       '0078_shared_into_the_owners_account.sql': 'e54ef6ca5d5f90dbe3d1496ebf97835561f7267690e18262619ec93b6da4e470',
+      '0079_drop_project_shares.sql': '91fba1cacbf69aadbd4e3f03536e3972453d99d4cbd5006f2431b41c109ba673',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -167,6 +168,8 @@ const migrationPolicies = [
       '0075_close_managed_spaces.sql',
       // The tables and columns 0075 emptied: the release before this one names none of them.
       '0076_drop_managed_space_storage.sql',
+      // The shares 0078 moved into their projects' accounts: the release before this one names the table nowhere.
+      '0079_drop_project_shares.sql',
     ],
   },
   {

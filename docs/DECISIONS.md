@@ -123,7 +123,8 @@ for their workspace and model whether or not they have an account of their own. 
 that (who may run a workspace in an account); nobody is asked to think about one. Migration 0078 moved the shares
 made before into their projects' accounts.
 
-Left as they were: the space invite and "may start apps of their own" in Settings, which add
-someone to an account without a project; a third level beside view and edit for someone trusted to add to the
-account (today only an admin of the space can); and a project Workers Builds publishes, which the collaborator rule
-above doesn't hold.
+The owner also decided, the same day: no new spaces are made beside a person's own ("New space" is gone; the ones
+there are carry on); the space invite, its `/join` page and "may start apps of their own" are gone, so only a
+space's admins start projects in it; and there is no third level beside view and edit: someone trusted with the
+account comes in through a project and is made an admin in Settings. Not covered: a project Workers Builds
+publishes, which the collaborator rule above doesn't hold.

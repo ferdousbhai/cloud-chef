@@ -1,28 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   controlPlaneDatabase,
   createProvenEmailUser,
+  createSpace,
   envWith,
   sessionCookieSignedInBefore,
   withStatementHook,
 } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import {
-  acceptInviteAction,
-  createOrganizationAction,
   deleteOrganizationAction,
-  describeInviteAction,
-  inviteToOrganizationAction,
   listOrganizationsAction,
   renameOrganizationAction,
-  revokeInviteAction,
   switchContextAction,
   updateMemberAction,
 } from './organizations';
-import { completeEmailSignInAction, startEmailSignInAction } from './email-auth';
 import { updateMember } from '~/lib/cloudflare/data/organizations.server';
-import { sha256Hex } from '~/lib/hex-digest';
 
 const ORIGIN = 'https://cloudchef.build';
 
@@ -58,423 +52,73 @@ function post(cookie: string, path: string, body: Record<string, string | boolea
   });
 }
 
-/** Signs in by the link emailed to `email`, as the invite page has someone do: their session cookie. */
-async function signInByEmailedLink(env: Env, sent: string[], email: string) {
-  const start = await startEmailSignInAction({
-    request: post('', '/api/auth/email/start', { email, callbackURL: `${ORIGIN}/join` }),
-    env,
-  });
-  expect(start.status).toBe(202);
-  const token = /sign-in\/email\?token=([\w-]+)/.exec(sent.at(-1) ?? '')?.[1] ?? 'missing';
-  const complete = await completeEmailSignInAction({
-    request: post('', '/api/auth/email/complete', { token }),
-    env,
-  });
-  expect(complete.status).toBe(200);
-  const cookie = (complete.headers.get('set-cookie') ?? '').split(';')[0];
-  const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie } }));
-  return { userId: session?.user.id ?? 'missing', cookie };
-}
+const listedSchema = z.object({
+  organizations: z.array(
+    z.looseObject({
+      orgId: z.string(),
+      role: z.string(),
+      members: z.array(z.looseObject({ role: z.string() })).nullable(),
+    }),
+  ),
+});
 
-const createdSchema = z.object({ orgId: z.string() });
-const invitedSchema = z.object({ inviteUrl: z.string(), emailed: z.boolean() });
-
-/** An organization whose admin has connected its Cloudflare account, as `acme-connection`. */
-async function createOrg(env: Env, cookie: string, { connect = true } = {}) {
-  const response = await createOrganizationAction({
-    request: post(cookie, '/api/organizations/create', { name: 'Acme' }),
-    env,
-  });
-  expect(response.status).toBe(201);
-  const { orgId } = createdSchema.parse(await response.json());
-  if (connect) {
-    await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1)`,
-    )
-      .bind(orgId)
-      .run();
-  }
+/** A space beside Ada's own whose admin has connected its Cloudflare account, as `acme-connection`. */
+async function createOrg(env: Env, adminId: string) {
+  const orgId = await createSpace(env.DB, adminId, 'Acme');
+  await env.DB.prepare(
+    `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
+     VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1)`,
+  )
+    .bind(orgId)
+    .run();
   return orgId;
 }
 
-async function invite(
-  env: Env,
-  cookie: string,
-  orgId: string,
-  email: string,
-  options: { draftsAllowed?: boolean } = {},
-) {
-  const response = await inviteToOrganizationAction({
-    request: post(cookie, '/api/organizations/invite', { orgId, email, ...options }),
-    env,
-  });
-  return { status: response.status, body: response.ok ? invitedSchema.parse(await response.json()) : null };
+/** Someone in the space as a project shared with them leaves them: not an admin. */
+async function join(env: Env, orgId: string, userId: string) {
+  await env.DB.prepare("INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'member', 1)")
+    .bind(orgId, userId)
+    .run();
 }
 
-function tokenOf(inviteUrl: string): string {
-  return new URL(inviteUrl).searchParams.get('token') ?? '';
-}
-
-describe('organizations', () => {
-  it('lets an admin invite someone by email, who joins and builds in the organization account', async () => {
-    const { env, sent, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-
-    const invited = await invite(env, admin.cookie, orgId, 'Sam@Acme.com');
-    expect(invited.status).toBe(201);
-    expect(invited.body?.emailed).toBe(true);
-    expect(sent[0]).toContain('"to":"sam@acme.com"');
-    expect(sent[0]).toContain(invited.body?.inviteUrl ?? 'missing');
-
-    // Sam has no CloudChef account: the invite lets an emailed link make one.
-    const sam = await signInByEmailedLink(env, sent, 'sam@acme.com');
-    const prepareWorkspace = vi.fn().mockResolvedValue(undefined);
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-      prepareWorkspace,
-    });
-    expect(accepted.status).toBe(200);
-    expect(await accepted.json()).toEqual({ orgId, switched: true });
-    // Sam's workspace in Acme's account starts preparing at once, before they open a project.
-    expect(prepareWorkspace).toHaveBeenCalledWith(env, sam.userId, expect.objectContaining({ id: 'acme-connection' }));
-
-    // Sam now works in Acme's account, on the projects they are given and no new apps of their own (the invite's
-    // default).
-    const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
-    expect(session?.context).toMatchObject({
-      orgId,
-      connectionId: 'acme-connection',
-      role: 'member',
-      draftsAllowed: false,
-    });
-
-    // The admin sees members and invites; the member sees neither.
-    const asAdmin = await listOrganizationsAction({
-      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
-      env,
-    });
-    const adminView = z
-      .object({ organizations: z.array(z.object({ members: z.array(z.object({ email: z.string() })).nullable() })) })
-      .parse(await asAdmin.json());
-    expect(adminView.organizations[0].members?.map((member) => member.email)).toEqual(['ada@acme.com', 'sam@acme.com']);
-    const asMember = await listOrganizationsAction({
-      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: sam.cookie } }),
-      env,
-    });
-    const memberView = z
-      .object({ organizations: z.array(z.object({ members: z.null(), invites: z.null() })) })
-      .safeParse(await asMember.json());
-    expect(memberView.success).toBe(true);
-  });
-
-  it('joins with GitHub projects only when the inviting admin unticks building new apps', async () => {
+describe('the people in a space', () => {
+  it('shows who is in it to its admins only, and opens only for the people in it', async () => {
     const { env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com', { draftsAllowed: false });
-
-    const listed = await listOrganizationsAction({
-      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
-      env,
-    });
-    const invites = z
-      .object({ organizations: z.array(z.object({ invites: z.array(z.object({ draftsAllowed: z.boolean() })) })) })
-      .parse(await listed.json()).organizations[0].invites;
-    expect(invites).toEqual([expect.objectContaining({ draftsAllowed: false })]);
-
+    const orgId = await createOrg(env, admin.userId);
     const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
-    const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
-    expect(session?.context).toMatchObject({ role: 'member', draftsAllowed: false, solo: false });
-  });
-
-  it("joins an organization whose Cloudflare connection isn't active without switching into it", async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const token = tokenOf((await invite(env, admin.cookie, orgId, 'sam@acme.com')).body?.inviteUrl ?? '');
-    await env.DB.prepare(`UPDATE cloudflare_connections SET status = 'error' WHERE id = 'acme-connection'`).run();
-
-    const sam = await signIn('sam@acme.com');
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token }),
-      env,
-    });
-
-    expect(accepted.status).toBe(200);
-    expect(await accepted.json()).toEqual({ orgId, switched: false });
-    const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
-    expect(session?.context?.orgId).not.toBe(orgId);
-  });
-
-  it('tells the link holder what an invite is for, before they sign in, until it is used', async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const token = tokenOf((await invite(env, admin.cookie, orgId, 'sam@acme.com')).body?.inviteUrl ?? '');
-    const describe = () =>
-      describeInviteAction({ request: post('', '/api/organizations/invite/describe', { token }), env });
-
-    const described = await describe();
-    expect(described.status).toBe(200);
-    expect(await described.json()).toEqual({ orgName: 'Acme', email: 'sam@acme.com', inviterName: expect.any(String) });
-
-    const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({ request: post(sam.cookie, '/api/organizations/accept', { token }), env });
-    expect((await describe()).status).toBe(410);
-  });
-
-  it('accepts an invite only once, and only from the invited address', async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    const token = tokenOf(invited.body?.inviteUrl ?? '');
-
     const eve = await signIn('eve@example.com');
-    const wrongPerson = await acceptInviteAction({
-      request: post(eve.cookie, '/api/organizations/accept', { token }),
-      env,
-    });
-    expect(wrongPerson.status).toBe(403);
-    // Proving eve's email wouldn't help, so the page doesn't offer it.
-    expect(await wrongPerson.json()).not.toHaveProperty('code');
+    await join(env, orgId, sam.userId);
+    const listed = async (cookie: string) =>
+      listedSchema
+        .parse(
+          await (
+            await listOrganizationsAction({
+              request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie } }),
+              env,
+            })
+          ).json(),
+        )
+        .organizations.find((organization) => organization.orgId === orgId);
 
-    const sam = await signIn('sam@acme.com');
-    const first = await acceptInviteAction({ request: post(sam.cookie, '/api/organizations/accept', { token }), env });
-    expect(first.status).toBe(200);
-    const again = await acceptInviteAction({ request: post(sam.cookie, '/api/organizations/accept', { token }), env });
-    expect(again.status).toBe(410);
-  });
-
-  it("doesn't accept an invite for someone whose email only a Cloudflare sign-in reported", async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    // A Cloudflare-only user whose Cloudflare login reports sam@acme.com: never proven by CloudChef.
-    const sam = await signIn('sam@acme.com');
-    database.prepare('UPDATE "user" SET email_proven_at = NULL WHERE id = ?').run(sam.userId);
-
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
-    expect(accepted.status).toBe(403);
-    // The page offers to prove the address, keeping this one account.
-    expect(await accepted.json()).toMatchObject({ code: 'email_unproven' });
-  });
-
-  it('creates an organization from a session signed in a while ago', async () => {
-    const { database, env } = await setup();
-    const user = await createProvenEmailUser(env.DB, 'ada@acme.com');
-    // Signed in an hour ago: creating needs no fresh sign-in, and connecting is approved on Cloudflare.
-    const cookie = await sessionCookieSignedInBefore(env, user.id, 60 * 60_000);
-    const created = await createOrganizationAction({
-      request: post(cookie, '/api/organizations/create', { name: 'Acme' }),
-      env,
-    });
-    expect(created.status).toBe(201);
-    expect(database.prepare('SELECT COUNT(*) AS n FROM organizations').get()).toEqual({ n: 1 });
-  });
-
-  it("doesn't send invites until the organization's Cloudflare account is connected", async () => {
-    const { env, sent, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie, { connect: false });
-    expect((await invite(env, admin.cookie, orgId, 'sam@acme.com')).status).toBe(409);
-    expect(sent).toHaveLength(0);
-  });
-
-  it('keeps links and extra lines a team or admin put in their names out of invite emails', async () => {
-    const { database, env, sent, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    database.prepare(`UPDATE "user" SET name = ? WHERE id = ?`).run('Ada\r\nBcc: www.evil.example', admin.userId);
-    const created = await createOrganizationAction({
-      request: post(admin.cookie, '/api/organizations/create', {
-        name: 'Acme\nClaim your prize: https://evil.example/login or evil.example. Thanks',
-      }),
-      env,
-    });
-    const { orgId } = createdSchema.parse(await created.json());
-    expect(database.prepare('SELECT name FROM organizations').get()).toEqual({
-      name: 'Acme Claim your prize: https://evil.example/login or evil.example. Thanks',
-    });
-    await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('acme-connection', ?, 'account-acme', 'Acme', 'active', 1, 1)`,
-    )
-      .bind(orgId)
-      .run();
-
-    expect((await invite(env, admin.cookie, orgId, 'sam@acme.com')).status).toBe(201);
-    const email = z.object({ subject: z.string(), text: z.string() }).parse(JSON.parse(sent[0]));
-    expect(email.subject).toBe('Acme Claim your prize: or Thanks invited you to CloudChef');
-    expect(email.text).not.toContain('evil');
-    expect(email.text.split('\n')[0]).toBe(
-      'Ada Bcc: invited you to build apps with Acme Claim your prize: or Thanks on CloudChef.',
+    expect((await listed(admin.cookie))?.members?.map((member) => member.role)).toEqual(
+      expect.arrayContaining(['admin', 'member']),
     );
-  });
+    expect(await listed(sam.cookie)).toMatchObject({ role: 'member', members: null });
+    expect(await listed(eve.cookie)).toBeUndefined();
 
-  it('caps the teams one person creates, and the invites they send in a day across them', async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    for (let index = 0; index < 10; index += 1) {
-      const created = await createOrganizationAction({
-        request: post(admin.cookie, '/api/organizations/create', { name: `Team ${index}` }),
-        env,
-      });
-      expect(created.status).toBe(201);
-    }
-    const eleventh = await createOrganizationAction({
-      request: post(admin.cookie, '/api/organizations/create', { name: 'Team 10' }),
-      env,
-    });
-    expect(eleventh.status).toBe(409);
-
-    // A hundred invites sent today from another of their teams: none more from this one.
-    const orgIds = database.prepare('SELECT id FROM organizations ORDER BY name').all();
-    const [first, second] = orgIds.map((row) => z.object({ id: z.string() }).parse(row).id);
-    const insert = database.prepare(
-      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
-    );
-    for (let index = 0; index < 100; index += 1) {
-      insert.run(admin.userId, first, Date.now());
-    }
-    await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('second-connection', ?, 'account-2', 'Second', 'active', 1, 1)`,
-    )
-      .bind(second)
-      .run();
-    expect((await invite(env, admin.cookie, second, 'sam@acme.com')).status).toBe(409);
-  });
-
-  it("doesn't give a team's creation back when the team is deleted, until 30 days have passed", async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const create = (name: string) =>
-      createOrganizationAction({ request: post(admin.cookie, '/api/organizations/create', { name }), env });
-    for (let index = 0; index < 10; index += 1) {
-      expect((await create(`Team ${index}`)).status).toBe(201);
-    }
-    database.prepare(`DELETE FROM organizations WHERE name = 'Team 0'`).run();
-
-    const again = await create('Team 10');
-    expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({ error: 'You can have up to 10 spaces, and create up to 10 in 30 days.' });
-    expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()?.count).toBe(9);
-
-    database.prepare('UPDATE organization_quota_events SET created_at = ?').run(Date.now() - 31 * 24 * 60 * 60_000);
-    expect((await create('Team 10')).status).toBe(201);
-    // Nine teams before, and the tenth: the limit on teams one has stands as well.
-    expect((await create('Team 11')).status).toBe(409);
-  });
-
-  it('counts a revoked invite, and one from a deleted team, toward the daily limits', async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const insert = database.prepare(
-      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
-    );
-    for (let index = 0; index < 99; index += 1) {
-      insert.run(admin.userId, orgId, Date.now());
-    }
-    expect((await invite(env, admin.cookie, orgId, 'sam@acme.com')).status).toBe(201);
-    database.prepare('DELETE FROM organization_invites').run();
-
-    expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(409);
-
-    // The team deleted, its invites go, but what its admin sent still counts for them in another.
-    database.prepare('DELETE FROM organizations WHERE id = ?').run(orgId);
-    const otherOrgId = await createOrganizationAction({
-      request: post(admin.cookie, '/api/organizations/create', { name: 'Other' }),
-      env,
-    }).then(async (response) => createdSchema.parse(await response.json()).orgId);
-    await env.DB.prepare(
-      `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)
-       VALUES ('other-connection', ?, 'account-other', 'Other', 'active', 1, 1)`,
-    )
-      .bind(otherOrgId)
-      .run();
-    expect((await invite(env, admin.cookie, otherOrgId, 'kim@acme.com')).status).toBe(409);
-  });
-
-  it('lets only one of two invites sent at once take the last place of the day, and counts only it', async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const insert = database.prepare(
-      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
-    );
-    for (let index = 0; index < 99; index += 1) {
-      insert.run(admin.userId, orgId, Date.now());
-    }
-    // The other invite is counted after this one checked the limits, and before it is written.
-    const racing = withStatementHook(env.DB, (query) => {
-      if (query.includes('INSERT INTO organization_invites')) {
-        insert.run(admin.userId, orgId, Date.now());
-      }
-    });
-
-    const refused = await invite({ ...env, DB: racing }, admin.cookie, orgId, 'sam@acme.com');
-
-    expect(refused.status).toBe(409);
-    expect(database.prepare('SELECT COUNT(*) AS count FROM organization_invites').get()).toEqual({ count: 0 });
-    expect(database.prepare('SELECT COUNT(*) AS count FROM organization_quota_events').get()).toEqual({
-      count: 101,
-    });
-  });
-
-  it('lets only admins invite, and only to accounts a person may use', async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const sam = await signIn('sam@acme.com');
-    expect((await invite(env, sam.cookie, orgId, 'eve@example.com')).status).toBe(403);
-
-    const switched = await switchContextAction({
-      request: post(sam.cookie, '/api/context', { connectionId: 'someone-elses-connection' }),
-      env,
-    });
-    expect(switched.status).toBe(403);
-  });
-
-  it('refuses requests from other origins and without a session', async () => {
-    const { env } = await setup();
-    const foreign = await createOrganizationAction({
-      request: new Request(`${ORIGIN}/api/organizations/create`, {
-        method: 'POST',
-        headers: { Origin: 'https://attacker.example', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Acme' }),
-      }),
-      env,
-    });
-    expect(foreign.status).toBe(403);
-    const anonymous = await createOrganizationAction({
-      request: post('', '/api/organizations/create', { name: 'Acme' }),
-      env,
-    });
-    expect(anonymous.status).toBe(401);
+    const open = (cookie: string) =>
+      switchContextAction({ request: post(cookie, '/api/context', { connectionId: 'acme-connection' }), env });
+    expect((await open(sam.cookie)).status).toBe(204);
+    expect((await open(eve.cookie)).status).toBe(403);
   });
 
   it('pauses, resumes and removes members, and never leaves an organization without an active admin', async () => {
     const { database, env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const orgId = await createOrg(env, admin.userId);
     const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
+    await join(env, orgId, sam.userId);
     const deleted: string[] = [];
     const act = async (cookie: string, userId: string, action: string, deleteWorkspace = true) =>
       updateMemberAction({
@@ -509,17 +153,12 @@ describe('organizations', () => {
     expect(deleted).toEqual([admin.userId]);
     expect(database.prepare('SELECT user_id FROM organization_members').all()).toEqual([{ user_id: sam.userId }]);
   });
-
   it("deletes another member's workspace only from a sign-in within the last few minutes", async () => {
     const { database, env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const orgId = await createOrg(env, admin.userId);
     const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
+    await join(env, orgId, sam.userId);
     const staleCookie = await sessionCookieSignedInBefore(env, admin.userId, 60 * 60_000);
     const deleted: string[] = [];
     const remove = (cookie: string, deleteWorkspace: boolean) =>
@@ -550,17 +189,12 @@ describe('organizations', () => {
     expect(deleted).toEqual([]);
     expect(database.prepare('SELECT COUNT(*) AS n FROM organization_members').get()).toEqual({ n: 1 });
   });
-
   it('lets a member leave, deleting their own workspace, from a sign-in made a while ago', async () => {
     const { env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const orgId = await createOrg(env, admin.userId);
     const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
+    await join(env, orgId, sam.userId);
     const staleCookie = await sessionCookieSignedInBefore(env, sam.userId, 60 * 60_000);
     const left = await updateMemberAction({
       request: post(staleCookie, '/api/organizations/member', { orgId, userId: sam.userId, action: 'remove' }),
@@ -569,165 +203,12 @@ describe('organizations', () => {
     });
     expect(left.status).toBe(200);
   });
-
-  it("lapses an admin's invites once they're no longer an admin", async () => {
+  it("removes a member together with their grants or not at all, so none come back if they're added again", async () => {
     const { database, env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    database.prepare('UPDATE organization_members SET role = ? WHERE user_id = ?').run('member', admin.userId);
+    const orgId = await createOrg(env, admin.userId);
     const sam = await signIn('sam@acme.com');
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
-    expect(accepted.status).toBe(410);
-  });
-
-  it('lets an admin revoke a pending invite', async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    const listed = await listOrganizationsAction({
-      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
-      env,
-    });
-    const inviteId = z
-      .object({ organizations: z.array(z.object({ invites: z.array(z.object({ id: z.string() })) })) })
-      .parse(await listed.json()).organizations[0].invites[0].id;
-
-    const revoked = await revokeInviteAction({
-      request: post(admin.cookie, '/api/organizations/invite/revoke', { orgId, inviteId }),
-      env,
-    });
-    expect(revoked.status).toBe(204);
-    const sam = await signIn('sam@acme.com');
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
-    expect(accepted.status).toBe(410);
-  });
-  it('gives an invited person the projects the admin chose, those still in the organization, from that admin', async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const addProject = async (id: string, repoId: number) => {
-      await env.DB.prepare(
-        `INSERT INTO org_projects (id, connection_id, org_id, name, import_repo_id, import_repo_full_name, import_branch,
-           created_from, created_at)
-         VALUES (?1, (SELECT id FROM cloudflare_connections WHERE org_id = ?2), ?2, ?3, ?4, ?5, 'main', 'github', 1)`,
-      )
-        .bind(id, orgId, `project-${repoId}`, repoId, `acme/project-${repoId}`)
-        .run();
-    };
-    const [site, blog, unlinked, elsewhere] = [
-      crypto.randomUUID(),
-      crypto.randomUUID(),
-      crypto.randomUUID(),
-      crypto.randomUUID(),
-    ];
-    await addProject(site, 1);
-    await addProject(blog, 2);
-    await addProject(unlinked, 3);
-
-    const response = await inviteToOrganizationAction({
-      request: new Request(`${ORIGIN}/api/organizations/invite`, {
-        method: 'POST',
-        headers: { Origin: ORIGIN, 'Content-Type': 'application/json', cookie: admin.cookie },
-        body: JSON.stringify({ orgId, email: 'sam@acme.com', projectIds: [site, unlinked, elsewhere] }),
-      }),
-      env,
-    });
-    expect(response.status).toBe(201);
-    const { inviteUrl } = invitedSchema.parse(await response.json());
-
-    // The admin sees what the pending invite gives; a project from elsewhere was never kept.
-    const listed = await listOrganizationsAction({
-      request: new Request(`${ORIGIN}/api/organizations`, { headers: { cookie: admin.cookie } }),
-      env,
-    });
-    const pending = z
-      .object({ organizations: z.array(z.object({ invites: z.array(z.object({ projectIds: z.array(z.string()) })) })) })
-      .parse(await listed.json()).organizations[0].invites[0];
-    expect(pending.projectIds.toSorted()).toEqual([site, unlinked].toSorted());
-
-    await env.DB.prepare('DELETE FROM org_projects WHERE id = ?').bind(unlinked).run();
-    const sam = await signIn('sam@acme.com');
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(inviteUrl) }),
-      env,
-    });
-    expect(accepted.status).toBe(200);
-    const { results } = await env.DB.prepare('SELECT project_id, granted_by FROM org_project_access WHERE user_id = ?')
-      .bind(sam.userId)
-      .all();
-    expect(results).toEqual([{ project_id: site, granted_by: admin.userId }]);
-  });
-
-  it('refuses to invite someone already in the team, since accepting would change nothing', async () => {
-    const { env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
-
-    const again = await inviteToOrganizationAction({
-      request: post(admin.cookie, '/api/organizations/invite', { orgId, email: 'SAM@acme.com', role: 'admin' }),
-      env,
-    });
-
-    expect(again.status).toBe(409);
-    expect(await again.json()).toEqual({
-      error:
-        'sam@acme.com is already in the space. To change what they can do, use Make admin or the other buttons by their name.',
-    });
-    expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(201);
-  });
-
-  it('says an invite lapsed because its sender is no longer an admin, not that it was used', async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    const token = tokenOf(invited.body?.inviteUrl ?? '');
-    database.prepare('UPDATE organization_members SET role = ? WHERE user_id = ?').run('member', admin.userId);
-    const lapsed = {
-      error:
-        'Whoever sent this invite is no longer an admin of Acme, so it no longer works. Ask one of its admins for a new one.',
-      code: 'inviter_not_admin',
-    };
-
-    const described = await describeInviteAction({
-      request: post('', '/api/organizations/invite/describe', { token }),
-      env,
-    });
-    expect(described.status).toBe(410);
-    expect(await described.json()).toEqual(lapsed);
-    const sam = await signIn('sam@acme.com');
-    const accepted = await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token }),
-      env,
-    });
-    expect(accepted.status).toBe(410);
-    expect(await accepted.json()).toEqual(lapsed);
-  });
-
-  it("removes a member together with their grants or not at all, so none come back if they're invited again", async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
+    await join(env, orgId, sam.userId);
     database.exec(`
       INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
         VALUES ('site', 'acme-connection', '${orgId}', 'Site', 'p-site', 'chat', 1);
@@ -767,88 +248,6 @@ describe('organizations', () => {
       runtimes: [{ user_id: admin.userId }],
     });
   });
-
-  it('replaces an invite still waiting for the same email, so only the one sent last works', async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const first = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    // Fifty invites wait, Sam's among them: sending Sam's again takes no new place.
-    database.exec(`
-      WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 49)
-      INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
-      SELECT 'other-' || i, '${orgId}', 'person' || i || '@acme.com', 'member', 'hash-' || i, '${admin.userId}',
-             ${Date.now() + 60 * 60_000}, 1
-      FROM n;
-    `);
-    const second = await invite(env, admin.cookie, orgId, 'Sam@acme.com');
-    expect(second.status).toBe(201);
-    expect((await invite(env, admin.cookie, orgId, 'kim@acme.com')).status).toBe(409);
-    expect(
-      database.prepare(`SELECT COUNT(*) AS count FROM organization_invites WHERE email LIKE 'sam@acme.com'`).get(),
-    ).toEqual({ count: 1 });
-
-    // A resend that another invite beats to the day's last place leaves the earlier invite as it was.
-    const insert = database.prepare(
-      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES ('invite', ?, ?, ?)`,
-    );
-    for (let index = 0; index < 97; index += 1) {
-      insert.run(admin.userId, orgId, Date.now());
-    }
-    const racing = withStatementHook(env.DB, (query) => {
-      if (query.includes('INSERT INTO organization_invites')) {
-        insert.run(admin.userId, orgId, Date.now());
-      }
-    });
-    expect((await invite({ ...env, DB: racing }, admin.cookie, orgId, 'sam@acme.com')).status).toBe(409);
-
-    const sam = await signIn('sam@acme.com');
-    const accept = (inviteUrl: string | undefined) =>
-      acceptInviteAction({
-        request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(inviteUrl ?? '') }),
-        env,
-      });
-    expect((await accept(first.body?.inviteUrl)).status).toBe(410);
-    expect((await accept(second.body?.inviteUrl)).status).toBe(200);
-  });
-
-  it('leaves no invite to a member waiting once they join, nor once they are removed, to bring them back', async () => {
-    const { database, env, signIn } = await setup();
-    const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
-    // An admin invite for Sam left over from before an invite replaced the last, and one for Ada herself.
-    const leftover = async (id: string, email: string) => {
-      const token = `${id}-token-as-long-as-a-real-one-is`;
-      database
-        .prepare(
-          `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
-           VALUES (?, ?, ?, 'admin', ?, ?, ?, 1)`,
-        )
-        .run(id, orgId, email, await sha256Hex(token), admin.userId, Date.now() + 60 * 60_000);
-      return token;
-    };
-    const asAdmin = await leftover('as-admin', 'SAM@acme.com');
-    await leftover('for-ada', 'ada@acme.com');
-    const pending = () =>
-      database.prepare('SELECT id FROM organization_invites WHERE accepted_at IS NULL ORDER BY id').all();
-    const sam = await signIn('sam@acme.com');
-    const accept = (token: string) =>
-      acceptInviteAction({ request: post(sam.cookie, '/api/organizations/accept', { token }), env });
-
-    expect((await accept(tokenOf(invited.body?.inviteUrl ?? ''))).status).toBe(200);
-    expect(pending()).toEqual([{ id: 'for-ada' }]);
-
-    // One that slipped in while Sam was a member goes when Sam does; a refused removal keeps Ada's.
-    const slippedIn = await leftover('slipped-in', 'sam@acme.com');
-    const remove = (userId: string) => updateMember(env.DB, { orgId, actorId: admin.userId, userId, action: 'remove' });
-    await expect(remove(admin.userId)).rejects.toThrow('a space always needs one');
-    expect(pending()).toEqual([{ id: 'for-ada' }, { id: 'slipped-in' }]);
-    await remove(sam.userId);
-    expect(pending()).toEqual([{ id: 'for-ada' }]);
-    expect((await accept(slippedIn)).status).toBe(410);
-    expect((await accept(asAdmin)).status).toBe(410);
-  });
 });
 
 describe('a team’s name and deletion', () => {
@@ -857,13 +256,9 @@ describe('a team’s name and deletion', () => {
     const context = await setup();
     const { database, env, signIn } = context;
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
-    const invited = await invite(env, admin.cookie, orgId, 'sam@acme.com');
+    const orgId = await createOrg(env, admin.userId);
     const sam = await signIn('sam@acme.com');
-    await acceptInviteAction({
-      request: post(sam.cookie, '/api/organizations/accept', { token: tokenOf(invited.body?.inviteUrl ?? '') }),
-      env,
-    });
+    await join(env, orgId, sam.userId);
     database.exec(
       `INSERT INTO cloudflare_credentials (handle, ciphertext_base64, iv_base64, key_version, created_at)
        VALUES ('acme-credential', 'x', 'y', 1, 1);
@@ -960,7 +355,6 @@ describe('a team’s name and deletion', () => {
          VALUES (?, 'acme-connection', 1, 'worker-2', 'https://runtime-2.example', 'sha', 'ready', NULL, 1, 1)`,
       )
       .run(admin.userId);
-    await invite(env, admin.cookie, orgId, 'kim@acme.com');
 
     // A member can't delete it.
     expect((await remove(env, sam.cookie, orgId).response).status).toBe(403);
@@ -977,7 +371,6 @@ describe('a team’s name and deletion', () => {
     for (const table of [
       'organizations',
       'organization_members',
-      'organization_invites',
       'github_installations',
       'org_projects',
       'org_project_access',
@@ -1018,7 +411,7 @@ describe('a team’s name and deletion', () => {
   it('is deleted, not left, when its only member leaves', async () => {
     const { database, env, signIn } = await setup();
     const admin = await signIn('ada@acme.com');
-    const orgId = await createOrg(env, admin.cookie);
+    const orgId = await createOrg(env, admin.userId);
 
     const left = await updateMemberAction({
       request: post(admin.cookie, '/api/organizations/member', { orgId, userId: admin.userId, action: 'remove' }),

@@ -10,7 +10,7 @@ import type { Project, ProjectRole } from './org-projects.server';
  *
  * There is one way to be on someone else's project: added to it, with a role on it (`org_project_access`), in the
  * Cloudflare account the project lives in. Being added makes the person one of that account's space
- * (`organization_members`, never an admin, and with no apps of their own there), which is what lets their workspace
+ * (`organization_members`, not an admin, so with no apps of their own there), which is what lets their workspace
  * run in it; losing their last project there takes them out of it again.
  */
 export const PROJECT_INVITATION_TTL_MS = 14 * 24 * 60 * 60_000;
@@ -221,8 +221,8 @@ async function grant(
   await db.batch([
     db
       .prepare(
-        `INSERT INTO organization_members (org_id, user_id, role, joined_at, drafts_allowed)
-         SELECT org_id, ?2, 'member', ?3, 0 FROM org_projects WHERE id = ?1 AND org_id IS NOT NULL
+        `INSERT INTO organization_members (org_id, user_id, role, joined_at)
+         SELECT org_id, ?2, 'member', ?3 FROM org_projects WHERE id = ?1 AND org_id IS NOT NULL
          ON CONFLICT (org_id, user_id) DO UPDATE SET paused_at = NULL WHERE organization_members.role = 'member'`,
       )
       .bind(args.projectId, args.userId, args.now),
@@ -250,8 +250,8 @@ async function runs(db: D1Database, projectId: string, userId: string): Promise<
 
 /**
  * Changes what someone added to the project may do, or (null) takes them off it, which stops their workspace at its
- * next call to CloudChef. Taken off the last project they had in its account, they leave that account's space too,
- * unless they build apps of their own there: nothing is left for them to open in it. Their workspace there, with its
+ * next call to CloudChef. Taken off the last project they had in its account, they leave that account's space too:
+ * nothing is left for them to open in it. Their workspace there, with its
  * chats, is kept in the account, and is theirs again if they are added back.
  */
 export async function setPersonRole(
@@ -275,7 +275,7 @@ export async function setPersonRole(
     }
     return;
   }
-  // Each later write happens only once they have no project left there and build nothing of their own, so someone
+  // Each later write happens only once they have no project left there, so someone
   // still on another project keeps their place, and a role given back meanwhile keeps it too.
   const left = `NOT EXISTS (
       SELECT 1 FROM org_project_access AS access JOIN org_projects AS projects ON projects.id = access.project_id
@@ -288,7 +288,7 @@ export async function setPersonRole(
     db
       .prepare(
         `DELETE FROM organization_members
-         WHERE org_id = ?1 AND user_id = ?2 AND role = 'member' AND drafts_allowed = 0 AND ${left}`,
+         WHERE org_id = ?1 AND user_id = ?2 AND role = 'member' AND ${left}`,
       )
       .bind(args.project.orgId, args.userId),
     db

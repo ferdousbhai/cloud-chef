@@ -575,18 +575,22 @@ describe('a runtime adding a project uploaded as a ZIP', () => {
     expect(database.prepare('SELECT COUNT(*) AS n FROM org_projects WHERE id = ?').get(UPLOADED)).toEqual({ n: 0 });
   });
 
-  it("makes a team member's chat a team project they may edit, which the chat then names", async () => {
+  it('makes a chat a project only for an admin of the space, which the chat then names', async () => {
     const { env, runtime, database, sara } = await setup();
-    database.prepare('UPDATE organization_members SET drafts_allowed = 1 WHERE user_id = ?').run(sara.userId);
-    const added = await runtimeRegisterUploadAction({
-      request: await runtime('/api/cloudflare/runtime-projects/register-upload', {
-        orgProjectId: UPLOADED,
-        name: 'New project',
-        repo: `t-${UPLOADED}`,
-        chat: true,
-      }),
-      env,
-    });
+    const register = async () =>
+      runtimeRegisterUploadAction({
+        request: await runtime('/api/cloudflare/runtime-projects/register-upload', {
+          orgProjectId: UPLOADED,
+          name: 'New project',
+          repo: `t-${UPLOADED}`,
+          chat: true,
+        }),
+        env,
+      });
+    // Someone added to a project there starts none of their own.
+    expect((await register()).status).toBe(403);
+    database.prepare(`UPDATE organization_members SET role = 'admin' WHERE user_id = ?`).run(sara.userId);
+    const added = await register();
     expect(added.status).toBe(201);
     expect(
       database.prepare('SELECT org_id, created_from, deploys_with, slug FROM org_projects WHERE id = ?').get(UPLOADED),

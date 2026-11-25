@@ -1,12 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { z } from 'zod';
-import { controlPlaneDatabase, createProvenEmailUser, envWith, withStatementHook } from '~/test/control-plane-d1';
+import {
+  controlPlaneDatabase,
+  createProvenEmailUser,
+  createSpace,
+  envWith,
+  withStatementHook,
+} from '~/test/control-plane-d1';
 import { createAuthSession } from '~/lib/.server/auth';
 import { createGitHubAppJwt } from '~/lib/.server/github/app-jwt';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
-import { createOrganizationAction, listOrganizationsAction, updateMemberAction } from './organizations';
+import { listOrganizationsAction, updateMemberAction } from './organizations';
 import {
   completeGitHubInstallAction,
   disconnectGitHubAction,
@@ -109,11 +115,7 @@ async function setup() {
     return { userId: user.id, cookie };
   };
   const admin = await signIn('ada@acme.com');
-  const created = await createOrganizationAction({
-    request: post(admin.cookie, '/api/organizations/create', { name: 'Acme' }),
-    env,
-  });
-  const { orgId } = z.object({ orgId: z.string() }).parse(await created.json());
+  const orgId = await createSpace(db, admin.userId, 'Acme');
   database
     .prepare(
       `INSERT INTO cloudflare_connections (id, org_id, account_id, account_name, status, created_at, updated_at)

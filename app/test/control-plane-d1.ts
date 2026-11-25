@@ -88,27 +88,21 @@ export async function createProvenEmailUser(
 }
 
 /**
- * A pending invite to a team for `email`, sent by the team's admin, expiring `expiresIn` milliseconds from
- * now: what lets Google or an emailed link make a new account for that address.
+ * A space with `adminId` as its admin and no Cloudflare account yet, as spaces made beside a person's own were:
+ * none is made that way any more, and the ones there are carry on. Its id.
  */
-export async function inviteToTeam(db: D1Database, email: string, expiresIn = 60 * 60_000): Promise<void> {
-  const admin = await createProvenEmailUser(db, `admin-${crypto.randomUUID()}@team.example`);
+export async function createSpace(db: D1Database, adminId: string, name: string): Promise<string> {
   const orgId = crypto.randomUUID();
   const now = Date.now();
   await db.batch([
     db
-      .prepare('INSERT INTO organizations (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)')
-      .bind(orgId, 'Team', now, now),
+      .prepare('INSERT INTO organizations (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(orgId, name, adminId, now, now),
     db
       .prepare("INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES (?, ?, 'admin', ?)")
-      .bind(orgId, admin.id, now),
-    db
-      .prepare(
-        `INSERT INTO organization_invites (id, org_id, email, role, token_hash, invited_by, expires_at, created_at)
-         VALUES (?, ?, ?, 'member', ?, ?, ?, ?)`,
-      )
-      .bind(crypto.randomUUID(), orgId, email, crypto.randomUUID(), admin.id, now + expiresIn, now),
+      .bind(orgId, adminId, now),
   ]);
+  return orgId;
 }
 
 function result<T>(results: T[], changes = 0): D1Result<T> {

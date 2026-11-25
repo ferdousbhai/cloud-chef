@@ -339,7 +339,7 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
       const membership = await findMembership(args.env.DB, connection.orgId, identity.userId);
       if (!membership?.draftsAllowed) {
         return json(
-          { code: 'drafts_not_allowed', error: 'This space lets you work on the projects you were given only.' },
+          { code: 'drafts_not_allowed', error: 'You work on the projects shared with you here, and start none.' },
           403,
         );
       }

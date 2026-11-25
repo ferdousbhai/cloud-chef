@@ -9,7 +9,7 @@ import { refreshSession } from '~/lib/auth-client';
 import { OrganizationsCard } from './OrganizationsCard.client';
 
 const usage = { turns: 0, inputTokens: 0, outputTokens: 0 };
-const sam = { userId: 'user-1', name: 'Sam', email: 'sam@example.com', pausedAt: null, draftsAllowed: true, usage };
+const sam = { userId: 'user-1', name: 'Sam', email: 'sam@example.com', pausedAt: null, usage };
 const gia = { ...sam, userId: 'user-2', name: 'Gia', email: 'gia@example.com', role: 'member' };
 
 /** Sam's own space, with the people given beside Sam. */
@@ -22,7 +22,6 @@ function ownSpace(others: (typeof gia)[]) {
     ownerUserId: 'user-1',
     connection: { accountName: 'Sam’s account', active: true },
     members: [{ ...sam, role: 'admin' }, ...others],
-    invites: [],
     github: [],
     projects: [],
   };
@@ -36,7 +35,6 @@ const studio = {
   ownerUserId: null,
   connection: { accountName: 'Studio account', active: true },
   members: null,
-  invites: null,
 };
 
 let organizations: (ReturnType<typeof ownSpace> | typeof studio)[] = [];
@@ -99,7 +97,7 @@ async function render(element: ReactElement) {
 const text = () => document.body.textContent ?? '';
 
 describe('the spaces a person builds in, in Settings', () => {
-  it('lists the one made for them as Personal while they are alone in it, beside the ones they were invited into', async () => {
+  it('lists the one made for them as Personal while they are alone in it, beside the ones they were added to', async () => {
     solo = true;
     organizations = [ownSpace([]), studio];
     await render(<OrganizationsCard />);
@@ -111,13 +109,13 @@ describe('the spaces a person builds in, in Settings', () => {
     expect(text()).not.toContain('team');
   });
 
-  it('offers, alone in it, to invite someone at no cost here, with no list of people', async () => {
+  it('says, alone in it, that sharing a project is how someone joins, with no list of people', async () => {
     solo = true;
     organizations = [ownSpace([])];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Only you so far.'));
-    expect(text()).toContain('Nothing to pay CloudChef for them.');
+    expect(text()).toContain('share it with them from its menu');
     expect(document.querySelector('ul')?.hidden).toBe(true);
   });
 

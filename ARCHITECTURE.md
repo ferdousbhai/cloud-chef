@@ -150,10 +150,12 @@ migrations, applied before the deferred redeploy, must be additive.
 
 Every place a person builds is a space: an organization (`organizations`) with the people in it and one connection
 to the Cloudflare account it builds in, an account its admins connected and Cloudflare bills. A space has one
-person in it, or the people they invited. There is no
+person in it, or also the people its projects are shared with. There is no
 separate kind for a person's own account or for a team: a person's own Cloudflare account is a space with one
 person in it (`organizations.personal_user_id` names the person it was made for, and it is made the first time
-they sign in with Cloudflare), and inviting someone into it works as into any other. Every access rule reads
+they sign in with Cloudflare). No other space is made: the ones made beside a person's own before 2026-11-25 carry
+on. Someone comes into a space by having one of its projects shared with them (Sharing a project, below), and an
+admin may make one of them an admin too. Every access rule reads
 membership of the space (`canUseConnection`, `isActiveAdmin` in `organization-access.server.ts`); the
 one thing `personal_user_id` still decides is that person's workspace there, which keeps the name and secret it had
 before spaces had people (`workspaceBindingConnectionId`), and that they stay its admin. Migration 0074 made each
@@ -165,11 +167,11 @@ context, a connection the person may use, chosen with the workspace switcher; a 
 on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): their own
 Cloudflare account, connected there after a short list of what happens on Cloudflare's site; or someone else's
-space, reached by an invite from whoever runs it. It's asked when they try to build, and the account menu offers it
+account, reached by a project its owner shares with them. It's asked when they try to build, and the account menu offers it
 until they have a space. A space with one person in it is to that person their own account: a session's context says so
 (`solo`), every place that names a space calls it Personal (`workspaceName` in `app/lib/workspace-name.ts`; alone
 in more than one, each goes by its name, so no two are Personal), and Settings, Spaces lists it like any other,
-with an offer to invite someone in place of a list of people; once someone else has joined it goes by its name,
+with how to add someone in place of a list of people; once someone else has joined it goes by its name,
 which the people in it see. CloudChef runs no space itself and takes no payment: for a few days in November 2026 it
 sold subscriptions to spaces in the operator's own Cloudflare account, which let other people's applications
 into that account, and migration 0075 closed the ones made then (their connections revoked, their people
@@ -289,10 +291,10 @@ turn's context names so the agent knows where the live site is (it reads it with
 connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
 `/api/projects/<id>/workers-builds/switch` says when it is done, and otherwise how.
 
-A team member's new chat makes one of the team's projects that its maker may edit, published like any other
-without an admin's approval. An admin can also limit a member to the team's projects:
-that member's runtime is refused the team's Cloudflare token by the credential broker, so their work reaches
-production only through Workers Builds.
+Only a space's admins start projects in it: an admin's new chat makes one. Anyone else there works on the projects
+shared with them, and their runtime is refused the account's Cloudflare token by the credential broker
+(`runtime-credential.ts`), so `cf` in their workspace changes nothing and what they publish goes through the
+deployment pipeline, held to what the project already has.
 
 ### Sharing a project
 
@@ -401,7 +403,7 @@ history, a clone command and a ZIP of any commit through the runtime (`projects.
 | State                                                                                        | Authoritative owner                                  |
 | -------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
 | Identity, OAuth credentials, sessions, connection metadata, runtime locators                 | CloudChef control-plane D1                           |
-| Organizations, memberships, invites, per-member daily usage counts                           | CloudChef control-plane D1                           |
+| Organizations, memberships, invitations, per-member daily usage counts                       | CloudChef control-plane D1                           |
 | Projects, members' roles, GitHub installations, publishes of projects CloudChef deploys      | CloudChef control-plane D1                           |
 | Showcase posts, follows, likes, comments, notifications, reports, copies waiting for a space | CloudChef control-plane D1                           |
 | Showcase screenshots of public projects' live sites, and the clips their authors approved    | CloudChef's own R2 (`SHOWCASE_MEDIA`)                |
@@ -856,4 +858,4 @@ User input, generated code, model output, and repository context are untrusted. 
 Cloudflare bindings; generated-project actions reject secret files. Generated code never executes in the CloudChef
 control-plane Worker. Runtime capabilities are short-lived and bound to the authenticated user and browser origin.
 A member's chats, transcripts, and project files live in their organization's Cloudflare account, where its
-administrators and account holders can read them; the product says so when someone accepts an invite.
+administrators and account holders can read them; the Share dialog says whose account they work in.

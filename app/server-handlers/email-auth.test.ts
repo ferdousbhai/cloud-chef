@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { controlPlaneDatabase, createProvenEmailUser, envWith, inviteToTeam } from '~/test/control-plane-d1';
+import { controlPlaneDatabase, createProvenEmailUser, envWith } from '~/test/control-plane-d1';
 import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import {
   completeEmailSignInAction,
@@ -50,7 +50,6 @@ function tokenFrom(text: string): string {
 describe('email sign-in', () => {
   it('emails a one-time link that signs in a new user a team invited, without a Cloudflare connection', async () => {
     const { env, sent } = setup();
-    await inviteToTeam(env.DB, 'sam@example.com');
     const start = await startEmailSignInAction({
       request: post('/api/auth/email/start', { email: 'Sam@Example.com', callbackURL: `${ORIGIN}/chat/1` }),
       env,

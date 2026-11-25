@@ -205,11 +205,11 @@ export function AccountDataCard() {
               Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions,
               default model, and which models the picker offers) and when CloudChef stored and last renewed its access
               to that Cloudflare account, which everyone building there shares, so someone else may have given it; your
-              workspaces; your teams, the invites sent to you, your model use there, and the team projects you were
-              given; your team project requests (asking for a draft to become a team project), with which saved version
-              of it was sent; GitHub connections you started; emailed sign-in links; and sign-in and authorization
-              session records. Secrets are left out: CloudChef&apos;s stored keys to Cloudflare, sign-in tokens, and the
-              codes used to check sign-in links and invites.
+              workspaces; the spaces you are in, your model use there, and the projects you were given; your team
+              project requests (asking for a draft to become a team project), with which saved version of it was sent;
+              GitHub connections you started; emailed sign-in links; and sign-in and authorization session records.
+              Secrets are left out: CloudChef&apos;s stored keys to Cloudflare, sign-in tokens, and the codes used to
+              check sign-in links and invitations.
             </p>
             <p className="mt-2">
               Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare

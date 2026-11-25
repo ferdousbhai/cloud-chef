@@ -1,5 +1,4 @@
 import { credentialUnreferenced } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import { ORGANIZATION_QUOTA_WINDOW_MS } from './organizations.server';
 
 const CLOUDFLARE_AUTH_RETENTION_SWEEP_LIMIT = 100;
 /**
@@ -72,20 +71,11 @@ function pruneBatch(db: D1Database, now: number, limit: number): Promise<D1Resul
       .bind(now, limit),
     db
       .prepare(
-        // Accepted or not, an invite is read only until it expires; the limits count organization_quota_events.
-        `DELETE FROM organization_invites
-         WHERE id IN (SELECT id FROM organization_invites WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
+        // A project's emailed invitation can't be taken once it expires, and names an address until then.
+        `DELETE FROM project_invitations
+         WHERE id IN (SELECT id FROM project_invitations WHERE expires_at <= ? ORDER BY expires_at LIMIT ?)`,
       )
       .bind(now, limit),
-    db
-      .prepare(
-        // Kept as long as the longest limit they count toward.
-        `DELETE FROM organization_quota_events
-         WHERE rowid IN (
-           SELECT rowid FROM organization_quota_events WHERE created_at <= ? ORDER BY created_at LIMIT ?
-         )`,
-      )
-      .bind(now - ORGANIZATION_QUOTA_WINDOW_MS, limit),
     db
       .prepare(
         `DELETE FROM cloudflare_credentials

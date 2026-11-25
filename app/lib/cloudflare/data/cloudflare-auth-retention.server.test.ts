@@ -6,7 +6,6 @@ import {
   pruneCloudflareAuthDataBestEffort,
   UNREFERENCED_CREDENTIAL_RETENTION_MS,
 } from './cloudflare-auth-retention.server';
-import { ORGANIZATION_QUOTA_WINDOW_MS } from './organizations.server';
 
 /** Prunes with the clock at `now`. */
 function pruneAt(db: D1Database, now: number) {
@@ -59,13 +58,9 @@ describe('Cloudflare authorization retention', () => {
     const insertGitHubState = database.prepare('INSERT INTO github_install_states (id, expires_at) VALUES (?, ?)');
     insertGitHubState.run('github-expired', now - 1);
     insertGitHubState.run('github-live', now + 1);
-    const insertInvite = database.prepare(
-      'INSERT INTO organization_invites (id, expires_at, accepted_at) VALUES (?, ?, ?)',
-    );
-    insertInvite.run('invite-expired', now - 1, null);
-    insertInvite.run('invite-accepted-expired', now - 1, now - 2);
-    insertInvite.run('invite-accepted-live', now + 1, now - 2);
-    insertInvite.run('invite-live', now + 1, null);
+    const insertInvitation = database.prepare('INSERT INTO project_invitations (id, expires_at) VALUES (?, ?)');
+    insertInvitation.run('invitation-expired', now - 1);
+    insertInvitation.run('invitation-live', now + 1);
 
     await expect(pruneAt(db, now)).resolves.toBeUndefined();
     expect(values(database, 'cloudflare_oauth_states', 'id')).toEqual(['state-live']);
@@ -73,7 +68,7 @@ describe('Cloudflare authorization retention', () => {
     expect(values(database, 'email_sign_in_tokens', 'token_hash')).toEqual(['link-live']);
     expect(values(database, 'google_sign_in_states', 'id')).toEqual(['google-live']);
     expect(values(database, 'github_install_states', 'id')).toEqual(['github-live']);
-    expect(values(database, 'organization_invites', 'id')).toEqual(['invite-accepted-live', 'invite-live']);
+    expect(values(database, 'project_invitations', 'id')).toEqual(['invitation-live']);
     expect(values(database, 'cloudflare_credentials', 'handle')).toEqual([
       'credential-fresh',
       'credential-recently-rotated',
@@ -109,24 +104,6 @@ describe('Cloudflare authorization retention', () => {
     }
     await pruneAt(db, now);
     expect(values(database, 'cloudflare_oauth_states', 'id')).toHaveLength(11);
-  });
-
-  it('keeps invite and team-creation entries for as long as the limits they count toward', async () => {
-    const { database, db } = retentionDatabase();
-    const now = 2 * ORGANIZATION_QUOTA_WINDOW_MS;
-    const insert = database.prepare(
-      `INSERT INTO organization_quota_events (kind, user_id, org_id, created_at) VALUES (?, 'user-1', 'org-1', ?)`,
-    );
-    insert.run('invite', now - ORGANIZATION_QUOTA_WINDOW_MS - 1);
-    insert.run('team', now - ORGANIZATION_QUOTA_WINDOW_MS + 1);
-    insert.run('invite', now - 60_000);
-
-    await pruneAt(db, now);
-
-    expect(values(database, 'organization_quota_events', 'kind')).toEqual(['invite', 'team']);
-    expect(database.prepare('SELECT MIN(created_at) AS oldest FROM organization_quota_events').get()?.oldest).toBe(
-      now - ORGANIZATION_QUOTA_WINDOW_MS + 1,
-    );
   });
 
   it('contains scheduled pruning failures', async () => {
@@ -182,16 +159,9 @@ function retentionDatabase(): { database: DatabaseSyncInstance; db: D1Database }
       id TEXT PRIMARY KEY,
       expires_at INTEGER NOT NULL
     );
-    CREATE TABLE organization_invites (
+    CREATE TABLE project_invitations (
       id TEXT PRIMARY KEY,
-      expires_at INTEGER NOT NULL,
-      accepted_at INTEGER
-    );
-    CREATE TABLE organization_quota_events (
-      kind TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      org_id TEXT NOT NULL,
-      created_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL
     );
   `);
   const db = {

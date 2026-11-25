@@ -32,8 +32,9 @@ function PrivacyPage() {
             chose, your note if you left one, and when you asked, until you withdraw the request or erase your account
           </li>
           <li>
-            spaces you belong to: their names, your role, whether you may build new apps of your own there, and invites
-            sent to your address (with the role and projects they give)
+            spaces you belong to, their names and your role there; and each project shared with you or by you: who it
+            was shared with, what they may do, and, for an address invited by email, that address until the invitation
+            is taken, cancelled or 14 days old
           </li>
           <li>
             per-day counts of the model turns and tokens each person uses in a space, except yours in the space made for
@@ -51,10 +52,6 @@ function PrivacyPage() {
             project requests in a space (asking for a draft to become one of its projects): its title, note, preview
             URL, and which saved version of it was sent; once an admin decides, only its title, that version and the
             decision are kept
-          </li>
-          <li>
-            when you sent each space invite and created each space, kept for 30 days because they count toward the
-            limits on invites and spaces, even after the invite is revoked or the space deleted
           </li>
           <li>
             each account&apos;s model settings (the model new chats start on, and which models the picker offers) and
@@ -117,9 +114,10 @@ function PrivacyPage() {
       <TrustSection title="Spaces">
         <p>
           Every place you build is a space: the people in it and the one Cloudflare account it builds in. A Cloudflare
-          account of your own is a space with only you in it, until you invite someone, and what this section says about
-          members and admins is then about you. A space shares its Cloudflare account among the people its admins
-          invite. Members sign in with Google or an emailed link and do not need Cloudflare logins of their own. Each
+          account of your own is a space with only you in it, until you share a project with someone, and what this
+          section says about members and admins is then about you. Someone a project is shared with works on it in the
+          space&apos;s Cloudflare account, which pays for what they use there, and an admin may make one of them an
+          admin too. Members sign in with Google or an emailed link and do not need Cloudflare logins of their own. Each
           member builds in a separate workspace in the space&apos;s account, so their chats, transcripts, project files,
           and deployed applications are stored there, under that account&apos;s controls. Its administrators, and anyone
           with access to that Cloudflare account, can read them, including the AI Gateway logs of each member&apos;s
@@ -135,10 +133,10 @@ function PrivacyPage() {
           applications they deployed stay there. An admin can rename the space or delete it. Deleting a space deletes
           every member&apos;s workspace from its Cloudflare account, revokes CloudChef&apos;s authorization there unless
           anyone, you included, still builds in that account on their own or in another space, and removes the
-          space&apos;s records from CloudChef: its members, invites, usage counts, GitHub connections, projects, and
-          project requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications
-          deployed from it with their databases and storage, stay in the Cloudflare account; repositories imported from
-          GitHub and CloudChef&apos;s GitHub App stay on GitHub until removed there.
+          space&apos;s records from CloudChef: its members, usage counts, GitHub connections, projects, and project
+          requests. The projects&apos; code and history in the account&apos;s Artifacts, and applications deployed from
+          it with their databases and storage, stay in the Cloudflare account; repositories imported from GitHub and
+          CloudChef&apos;s GitHub App stay on GitHub until removed there.
         </p>
         <p>
           Every project&apos;s code and history is a git repository in Cloudflare Artifacts, in the Cloudflare account
@@ -295,9 +293,8 @@ function PrivacyPage() {
           <li>
             OAuth authorization and Google sign-in state expires after 10 minutes, GitHub installation state after 15
           </li>
-          <li>emailed sign-in links after 15 minutes, and space invites after 7 days</li>
+          <li>emailed sign-in links after 15 minutes, and a project&apos;s emailed invitations after 14 days</li>
           <li>authentication sessions after 30 days</li>
-          <li>the records of when you sent each space invite and created each space after 30 days</li>
           <li>unreferenced encrypted credential records become eligible for removal after 24 hours</li>
         </ul>
         <p>
@@ -329,10 +326,6 @@ function PrivacyPage() {
           <li>your runtime locators and space memberships</li>
           <li>your project requests in a space, and GitHub connections you started</li>
           <li>the sites you asked to have moved</li>
-          <li>
-            the records of when you sent space invites and created spaces, so a space&apos;s daily invite limit stops
-            counting the invites you sent
-          </li>
         </ul>
         <p>
           It also deletes your workspace in the Cloudflare account of each space other people run, as leaving the space
@@ -359,8 +352,7 @@ function PrivacyPage() {
           </li>
           <li>the existence, storage time, and key version of your encrypted credential record</li>
           <li>your runtime locators</li>
-          <li>your space memberships, invites addressed to you, and your daily usage counts</li>
-          <li>when you sent each space invite and created each space, while those records are kept</li>
+          <li>your space memberships and your daily usage counts</li>
           <li>your own projects and the projects you were given in other spaces, and the project requests you sent</li>
           <li>GitHub connections you started, and sign-in links emailed to you</li>
           <li>your authentication-session and OAuth-state records</li>
@@ -368,11 +360,11 @@ function PrivacyPage() {
         </ul>
         <p>
           Encrypted credential material, initialisation vectors, credential handles, session token hashes, and the
-          hashes and states that sign-in links, invites, and authorizations in progress are checked against are never
-          exported. Because a single file discloses your whole account record, the export requires the same sign-in
-          completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and reports
-          the untruncated count beside them, and a section that could not be read is named in the file, which reports
-          itself incomplete rather than looking whole.
+          hashes and states that sign-in links, invitations, and authorizations in progress are checked against are
+          never exported. Because a single file discloses your whole account record, the export requires the same
+          sign-in completed in the last ten minutes that erasure requires. Each section is bounded at 200 records and
+          reports the untruncated count beside them, and a section that could not be read is named in the file, which
+          reports itself incomplete rather than looking whole.
         </p>
       </TrustSection>
 
