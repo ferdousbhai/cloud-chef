@@ -177,13 +177,23 @@ async function recordMainPush(
 }
 
 /** A branch pushed to a project CloudChef deploys itself is built: main to go live, another for a preview. */
-async function publishPush(env: GitProxyEnv, project: { orgProjectId: string } | null, update: RefUpdate) {
+async function publishPush(
+  env: GitProxyEnv,
+  project: { orgProjectId: string } | null,
+  update: RefUpdate,
+  /**
+   * Whose push it is, when not this runtime's own person (someone the project is shared with from another account);
+   * or `offered`, for a change someone offered, which is held to what the project already uses whoever builds it.
+   */
+  from?: { pushedBy: string } | 'offered',
+) {
   if (project && update.ref.startsWith('refs/heads/') && !/^0{40}$/.test(update.newOid)) {
     await env.PROJECT_BUILDER.get(env.PROJECT_BUILDER.idFromName(project.orgProjectId))
       .enqueue({
         orgProjectId: project.orgProjectId,
         branch: update.ref.slice('refs/heads/'.length),
         commit: update.newOid,
+        ...(from === 'offered' ? { asCollaborator: true as const } : from ? { pushedBy: from.pushedBy } : {}),
       })
       .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
   }
@@ -355,6 +365,7 @@ export async function handleSharedProjectRequest(
       orgProjectId: shared.projectId,
       mayEdit: shared.role === 'edit',
       deploysWith: project.deploysWith,
+      acceptedBy: shared.userId,
     });
   }
   if (shared.op === SHARED_PREVIEW) {
@@ -365,11 +376,13 @@ export async function handleSharedProjectRequest(
     const { branch, commit } = asked.data;
     const kept = await repositories.setBranch(project.repo, branch, commit);
     if (kept && commit) {
-      await publishPush(env, project.deploysWith === 'cloudchef' ? { orgProjectId: shared.projectId } : null, {
-        ref: `refs/heads/${branch}`,
-        oldOid: '0'.repeat(40),
-        newOid: commit,
-      });
+      await publishPush(
+        env,
+        project.deploysWith === 'cloudchef' ? { orgProjectId: shared.projectId } : null,
+        { ref: `refs/heads/${branch}`, oldOid: '0'.repeat(40), newOid: commit },
+        // Its code is whoever offered it's, not the person whose reading of the thread built the preview.
+        'offered',
+      );
     }
     return Response.json({ kept }, { headers: { 'Cache-Control': 'no-store' } });
   }
@@ -413,7 +426,7 @@ export async function handleSharedProjectRequest(
     workspaceRefs: workspaceRefsPrefix(sharedWorkspaceRefsId(shared.userId, workspace)),
     recordPush: async (update) => {
       await recordMainPush(env, shared.projectId, update, shared.userId);
-      await publishPush(env, deployed, update);
+      await publishPush(env, deployed, update, { pushedBy: shared.userId });
     },
     recordBase: async () => undefined,
     recordMainFetched: async () => undefined,
@@ -431,7 +444,14 @@ async function mergeSuggestedChange(
   request: Request,
   env: GitProxyEnv,
   repositories: ProjectRepositories,
-  project: { repo: string; orgProjectId: string; mayEdit: boolean; deploysWith?: 'workers_builds' | 'cloudchef' },
+  project: {
+    repo: string;
+    orgProjectId: string;
+    mayEdit: boolean;
+    deploysWith?: 'workers_builds' | 'cloudchef';
+    /** Who accepted the change: main is published as theirs. */
+    acceptedBy: string;
+  },
 ): Promise<Response> {
   if (request.method !== 'POST' || !project.mayEdit) {
     return new Response('Only someone who can change this project accepts a change to it.', { status: 403 });
@@ -449,11 +469,12 @@ async function mergeSuggestedChange(
   let answer: SharedMergeAnswer;
   if ('merged' in result) {
     answer = { status: 'merged', ...result.merged };
-    await publishPush(env, project.deploysWith === 'cloudchef' ? { orgProjectId: project.orgProjectId } : null, {
-      ref: 'refs/heads/main',
-      oldOid: result.merged.from,
-      newOid: result.merged.to,
-    });
+    await publishPush(
+      env,
+      project.deploysWith === 'cloudchef' ? { orgProjectId: project.orgProjectId } : null,
+      { ref: 'refs/heads/main', oldOid: result.merged.from, newOid: result.merged.to },
+      { pushedBy: project.acceptedBy },
+    );
   } else if ('conflict' in result) {
     answer = { status: 'conflict', files: result.conflict };
   } else {

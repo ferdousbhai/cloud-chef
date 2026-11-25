@@ -3,6 +3,9 @@ import { parse as parseToml } from 'smol-toml';
 import { z } from 'zod';
 import { runtimeConnectionIdentity } from '../../app/lib/.server/cloudflare/cloudflare-api-runtime-identity';
 import {
+  addedResources,
+  boundDatabases,
+  collaboratorRefusal,
   deployApiDecision,
   deployBindingsCheck,
   isCloudChefResourceName,
@@ -166,7 +169,15 @@ type Job = {
   migrated: number;
   /** The project's name in addresses, which a CloudChef app's Worker is named after. */
   slug: string | null;
+  /**
+   * A collaborator's publish (the control plane says so): it uses what the project's live Worker already uses in the
+   * account, and adds nothing.
+   */
+  restricted: boolean;
 };
+
+/** A job as the deploy gate and the token are asked about it. */
+type JobRef = Pick<Job, 'deploymentId' | 'orgProjectId' | 'restricted'>;
 
 type JobRow = {
   deployment_id: string;
@@ -186,6 +197,7 @@ type JobRow = {
   deploy_config: string | null;
   migrated: number;
   project_slug: string | null;
+  restricted: number;
 };
 
 const jobSchema = z.object({
@@ -193,6 +205,10 @@ const jobSchema = z.object({
   branch: z.string().regex(/^[A-Za-z0-9._/-]{1,255}$/),
   commit: z.string().regex(/^[0-9a-f]{40}$/),
   headReadAt: z.number().int().positive().optional(),
+  /** Whose push it is, when not this runtime's own person: someone the project is shared with. */
+  pushedBy: z.string().min(1).max(128).optional(),
+  /** A change someone offered: held to what the project already uses, whoever builds it. */
+  asCollaborator: z.literal(true).optional(),
 });
 
 const planSchema = z.looseObject({
@@ -236,6 +252,8 @@ class StepFailure extends Error {
 /** The work was superseded by a newer commit, or isn't this runtime's any more: stop quietly. */
 class StepAbandoned extends Error {}
 
+const LIVE_SETTINGS_UNREAD = 'CloudChef couldn’t read what the project’s Worker uses now. Publish again.';
+
 const DEPLOY_REFUSED = (message: string) =>
   Response.json({ success: false, errors: [{ code: 10000, message }] }, { status: 403 });
 
@@ -246,6 +264,8 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
   );
   private readonly scheduledCallbacks: ScheduledCallbacks<'runNext'>;
   #deployToken: { deploymentId: string; token: string; at: number } | null = null;
+  /** Why the running Wrangler command of a collaborator's publish was refused a request, for how the publish ended. */
+  #collaboratorRefusal: string | null = null;
   /** When the last step ended, so one scheduled call runs only one step even if several calls fall due at once. */
   #lastStepEndedAt = 0;
   /** The deploy proxy's requests in the running Wrangler command, summed up in the log when it ends. */
@@ -281,12 +301,17 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       deploy_config TEXT,
       migrated INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
-      project_slug TEXT
+      project_slug TEXT,
+      restricted INTEGER NOT NULL DEFAULT 0
     )`);
     // A table from before CloudChef apps were built here lacks the slug.
     const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(builder_jobs)').toArray();
     if (!columns.some((column) => column.name === 'project_slug')) {
       ctx.storage.sql.exec('ALTER TABLE builder_jobs ADD COLUMN project_slug TEXT');
+    }
+    // And one from before a collaborator's publish was held to the project's own resources.
+    if (!columns.some((column) => column.name === 'restricted')) {
+      ctx.storage.sql.exec('ALTER TABLE builder_jobs ADD COLUMN restricted INTEGER NOT NULL DEFAULT 0');
     }
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS builder_logs (
       deployment_id TEXT PRIMARY KEY,
@@ -382,6 +407,8 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     branch: string;
     commit: string;
     headReadAt?: number;
+    pushedBy?: string;
+    asCollaborator?: true;
   }): Promise<{ queued: boolean }> {
     const request = jobSchema.parse(value);
     const claimed = await claimProjectDeployment(this.env, this.identity(), request);
@@ -397,6 +424,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       kind: claimed.kind,
       recordedWorker: claimed.workerName,
       slug: claimed.slug,
+      restricted: claimed.restricted === true,
     });
     return { queued: true };
   }
@@ -423,6 +451,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       kind: retried.kind,
       recordedWorker: claimed.workerName,
       slug: claimed.slug,
+      restricted: claimed.restricted === true,
     });
     return { deploymentId: retried.deploymentId };
   }
@@ -441,16 +470,19 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
 
   /** A job from its first step, replacing any earlier run of the same deployment. */
   private async addJob(
-    job: Pick<Job, 'deploymentId' | 'orgProjectId' | 'repo' | 'branch' | 'commit' | 'kind' | 'recordedWorker' | 'slug'>,
+    job: Pick<
+      Job,
+      'deploymentId' | 'orgProjectId' | 'repo' | 'branch' | 'commit' | 'kind' | 'recordedWorker' | 'slug' | 'restricted'
+    >,
   ): Promise<void> {
     this.ctx.storage.sql.exec(
       `INSERT INTO builder_jobs (deployment_id, org_project_id, repo, branch, commit_sha, kind, recorded_worker, status,
-         created_at, project_slug)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+         created_at, project_slug, restricted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
        ON CONFLICT(deployment_id) DO UPDATE SET repo = excluded.repo, recorded_worker = excluded.recorded_worker,
          status = 'pending', step = 'prepare', restarts = 0, waits = 0, plan = NULL, worker_name = NULL,
          name_taken = 0, deploy_config = NULL, migrated = 0, created_at = excluded.created_at,
-         project_slug = excluded.project_slug`,
+         project_slug = excluded.project_slug, restricted = excluded.restricted`,
       job.deploymentId,
       job.orgProjectId,
       job.repo,
@@ -460,6 +492,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       job.recordedWorker,
       Date.now(),
       job.slug,
+      job.restricted ? 1 : 0,
     );
     await this.schedule(0, 'runNext', {});
   }
@@ -797,20 +830,72 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       }
       const names = await appResourceNames(workerName, job.orgProjectId);
       const resources: AppResources = {};
+      // A collaborator's publish finds what the app already has and makes nothing: what is missing is named.
+      const missing: string[] = [];
+      const have = async (
+        what: string,
+        name: string,
+        find: () => Promise<{ id: string; name: string } | null>,
+        make: () => Promise<{ id: string; name: string }>,
+      ) => {
+        if (!job.restricted) {
+          return make();
+        }
+        const found = await find();
+        if (!found) {
+          missing.push(`a new ${what}, ${name},`);
+        }
+        return found;
+      };
       await step('make the app’s database, storage and cache', async () => {
         if (profile.bindings.d1) {
-          resources.DB = await api.ensureD1Database(names.DB);
+          const database = await have(
+            'D1 database',
+            names.DB,
+            () => api.findD1Database(names.DB),
+            () => api.ensureD1Database(names.DB),
+          );
+          if (database) {
+            resources.DB = database;
+          }
         }
         if (profile.bindings.appAgent) {
-          resources.AGENT_SECURITY_DB = await api.ensureD1Database(names.AGENT_SECURITY_DB);
+          const database = await have(
+            'D1 database',
+            names.AGENT_SECURITY_DB,
+            () => api.findD1Database(names.AGENT_SECURITY_DB),
+            () => api.ensureD1Database(names.AGENT_SECURITY_DB),
+          );
+          if (database) {
+            resources.AGENT_SECURITY_DB = database;
+          }
         }
         if (profile.bindings.r2) {
-          resources.APP_STORAGE = { name: (await api.ensureR2Bucket(names.APP_STORAGE)).name };
+          const bucket = await have(
+            'R2 bucket',
+            names.APP_STORAGE,
+            () => api.readR2Bucket(names.APP_STORAGE),
+            () => api.ensureR2Bucket(names.APP_STORAGE),
+          );
+          if (bucket) {
+            resources.APP_STORAGE = { name: bucket.name };
+          }
         }
         if (profile.bindings.kv) {
-          resources.APP_CACHE = { id: (await api.ensureKvNamespace(names.APP_CACHE)).id };
+          const namespace = await have(
+            'KV namespace',
+            names.APP_CACHE,
+            () => api.findKvNamespace(names.APP_CACHE),
+            () => api.ensureKvNamespace(names.APP_CACHE),
+          );
+          if (namespace) {
+            resources.APP_CACHE = { id: namespace.id };
+          }
         }
       });
+      if (missing.length > 0) {
+        throw new StepFailure('deploy', collaboratorRefusal(missing));
+      }
       const made = Object.entries(resources).map(
         ([binding, resource]) => `${binding} ${'name' in resource ? resource.name : resource.id}`,
       );
@@ -1121,6 +1206,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       CI: '1',
     };
     this.#requests = emptyRequestTally();
+    this.#collaboratorRefusal = null;
     try {
       const output = await this.command(
         `cd ${WORK_DIR} && ${WRANGLER} ${args}`,
@@ -1145,7 +1231,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       if (details?.stdout.trim()) {
         this.appendLog(job, `\nWhat Wrangler recorded:\n${details.stdout.trim()}\n`);
       }
-      throw new StepFailure(stage, failureSentence(stage));
+      throw new StepFailure(stage, this.#collaboratorRefusal ?? failureSentence(stage));
     }
   }
 
@@ -1176,14 +1262,27 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     this.#deployToken = null;
   }
 
-  private gate(): { deploymentId: string; orgProjectId: string; workerName: string } | null {
+  private gate(): (JobRef & { workerName: string }) | null {
     const gate = first(
-      this.ctx.storage.sql.exec<{ deployment_id: string; org_project_id: string; worker_name: string }>(
-        'SELECT deployment_id, org_project_id, worker_name FROM builder_gate WHERE singleton = 1',
+      this.ctx.storage.sql.exec<{
+        deployment_id: string;
+        org_project_id: string;
+        worker_name: string;
+        restricted: number | null;
+      }>(
+        `SELECT deployment_id, org_project_id, worker_name,
+           (SELECT restricted FROM builder_jobs WHERE builder_jobs.deployment_id = builder_gate.deployment_id) AS restricted
+         FROM builder_gate WHERE singleton = 1`,
       ),
     );
     return gate
-      ? { deploymentId: gate.deployment_id, orgProjectId: gate.org_project_id, workerName: gate.worker_name }
+      ? {
+          deploymentId: gate.deployment_id,
+          orgProjectId: gate.org_project_id,
+          workerName: gate.worker_name,
+          // A gate whose job is gone is held to the stricter rule.
+          restricted: gate.restricted !== 0,
+        }
       : null;
   }
 
@@ -1214,7 +1313,11 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       { method: request.method, pathname: url.pathname },
       { accountId: this.env.CLOUDFLARE_ACCOUNT_ID, workerName: gate.workerName },
     );
-    const job = { deploymentId: gate.deploymentId, orgProjectId: gate.orgProjectId };
+    const job: JobRef = {
+      deploymentId: gate.deploymentId,
+      orgProjectId: gate.orgProjectId,
+      restricted: gate.restricted,
+    };
     const headers = new Headers(request.headers);
     for (const name of ['host', 'content-length', 'cf-connecting-ip', 'x-forwarded-for']) {
       headers.delete(name);
@@ -1237,6 +1340,18 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
         if (refusal) {
           return DEPLOY_REFUSED(refusal);
         }
+        if (job.restricted) {
+          const live = await this.liveSettings(job, gate.workerName);
+          if (live === undefined) {
+            return DEPLOY_REFUSED(LIVE_SETTINGS_UNREAD);
+          }
+          if (!boundDatabases(live).has(databaseId)) {
+            return this.refuseCollaborator(
+              job,
+              `This version changes the D1 database ${databaseId}, which the project doesn’t use yet. Its creator, or an admin of its space, publishes a version that does.`,
+            );
+          }
+        }
         const body = await request.arrayBuffer();
         return sentPastRefusals(
           () => this.sendWithToken(job, upstream, request.method, headers, body),
@@ -1249,12 +1364,33 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
         if (!named || isCloudChefResourceName(named.name ?? named.title ?? '')) {
           return DEPLOY_REFUSED('A project can’t make resources with CloudChef’s names.');
         }
+        if (job.restricted) {
+          const kind = url.pathname.endsWith('/d1/database')
+            ? 'D1 database'
+            : url.pathname.endsWith('/r2/buckets')
+              ? 'R2 bucket'
+              : 'KV namespace';
+          return this.refuseCollaborator(
+            job,
+            collaboratorRefusal([`a new ${kind}, ${named.name ?? named.title ?? 'unnamed'},`]),
+          );
+        }
         return this.sendWithToken(job, upstream, request.method, headers, text);
       }
       case 'check_bindings': {
         const checked = await this.checkedWorkerUpload(job, request, gate.workerName);
         if ('refusal' in checked) {
           return DEPLOY_REFUSED(checked.refusal);
+        }
+        if (job.restricted) {
+          const live = await this.liveSettings(job, gate.workerName);
+          if (live === undefined) {
+            return DEPLOY_REFUSED(LIVE_SETTINGS_UNREAD);
+          }
+          const added = new Set(checked.settings.flatMap((value) => addedResources(value, live, gate.workerName)));
+          if (added.size > 0) {
+            return this.refuseCollaborator(job, collaboratorRefusal([...added]));
+          }
         }
         if (checked.body instanceof FormData) {
           // Sent again as form data, with a boundary of its own.
@@ -1267,10 +1403,10 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
 
   /** A Worker upload's settings, checked against `deployBindingsCheck` and the resources it binds by id. */
   private async checkedWorkerUpload(
-    job: Pick<Job, 'deploymentId' | 'orgProjectId'>,
+    job: JobRef,
     request: Request,
     workerName: string,
-  ): Promise<{ refusal: string } | { body: BodyInit | null }> {
+  ): Promise<{ refusal: string } | { body: BodyInit | null; settings: WorkerSettings[] }> {
     const unreadable = { refusal: 'CloudChef couldn’t read the Worker’s settings.' };
     const type = (request.headers.get('content-type') ?? '').toLowerCase();
     const settings: WorkerSettings[] = [];
@@ -1324,14 +1460,11 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       lookups.namespaces.push(...checked.lookups.namespaces);
     }
     const refusal = await this.resourceRefusal(job, lookups);
-    return refusal ? { refusal } : { body };
+    return refusal ? { refusal } : { body, settings };
   }
 
   /** Why a D1 database or KV namespace, by id, can't be used: it is CloudChef's, or couldn't be looked up. */
-  private async resourceRefusal(
-    job: Pick<Job, 'deploymentId' | 'orgProjectId'>,
-    lookups: BindingLookups,
-  ): Promise<string | null> {
+  private async resourceRefusal(job: JobRef, lookups: BindingLookups): Promise<string | null> {
     const checks = [
       ...lookups.databases.map((id) => ({ path: `/d1/database/${id}`, field: 'name' as const })),
       ...lookups.namespaces.map((id) => ({ path: `/storage/kv/namespaces/${id}`, field: 'title' as const })),
@@ -1355,8 +1488,33 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     return null;
   }
 
+  /**
+   * What the project's Worker uses now, as Cloudflare has its settings: what a collaborator's publish may use. Null
+   * for a Worker that isn't there yet (a project never published), undefined when it couldn't be read.
+   */
+  private async liveSettings(job: JobRef, workerName: string): Promise<WorkerSettings | null | undefined> {
+    try {
+      const response = await this.cloudflare(job, `/workers/scripts/${workerName}/settings`);
+      if (response.status === 404) {
+        await response.body?.cancel().catch(() => undefined);
+        return null;
+      }
+      const parsed = z.object({ result: workerSettingsSchema }).safeParse(await response.json().catch(() => null));
+      return response.ok && parsed.success ? parsed.data.result : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Refuses a request of a collaborator's publish that would add something, and keeps why for how the publish ended. */
+  private refuseCollaborator(job: JobRef, message: string): Response {
+    this.#collaboratorRefusal = message;
+    this.appendLog(job, `\n${message}\n`);
+    return DEPLOY_REFUSED(message);
+  }
+
   /** A read of the account's API with the deploy's token, by its path below the account. */
-  private async cloudflare(job: Pick<Job, 'deploymentId' | 'orgProjectId'>, path: string): Promise<Response> {
+  private async cloudflare(job: JobRef, path: string): Promise<Response> {
     const token = await this.deployToken(job);
     return fetch(`${CLOUDFLARE_API}/client/v4/accounts/${this.env.CLOUDFLARE_ACCOUNT_ID}${path}`, {
       headers: { authorization: `Bearer ${token}` },
@@ -1364,7 +1522,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
   }
 
   private async sendWithToken(
-    job: Pick<Job, 'deploymentId' | 'orgProjectId'>,
+    job: JobRef,
     upstream: string,
     method: string,
     headers: Headers,
@@ -1381,15 +1539,20 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
   }
 
   /** The account's token for the running deploy step, which the control plane gives only while it runs. */
-  private async deployToken(job: Pick<Job, 'deploymentId' | 'orgProjectId'>): Promise<string> {
+  private async deployToken(job: JobRef): Promise<string> {
     const cached = this.#deployToken;
     if (cached?.deploymentId === job.deploymentId && Date.now() - cached.at < TOKEN_REUSE_MS) {
       return cached.token;
     }
-    const token = await projectDeploymentCredential(this.env, this.identity(), {
+    const asked: Parameters<typeof projectDeploymentCredential>[2] = {
       orgProjectId: job.orgProjectId,
       deploymentId: job.deploymentId,
-    });
+    };
+    if (job.restricted) {
+      // Saying so is what the control plane gives a collaborator's publish the token for.
+      asked.restricted = true;
+    }
+    const token = await projectDeploymentCredential(this.env, this.identity(), asked);
     this.#deployToken = { deploymentId: job.deploymentId, token, at: Date.now() };
     return token;
   }
@@ -1442,6 +1605,7 @@ function toJob(row: JobRow): Job {
     deployConfig: row.deploy_config,
     migrated: row.migrated,
     slug: row.project_slug,
+    restricted: row.restricted === 1,
   };
 }
 

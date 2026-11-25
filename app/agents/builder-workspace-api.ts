@@ -223,6 +223,8 @@ export interface ProjectBuilderRpc extends Rpc.DurableObjectBranded {
     branch: string;
     commit: string;
     headReadAt?: number;
+    pushedBy?: string;
+    asCollaborator?: true;
   }): Promise<{ queued: boolean }>;
   retry(value: {
     orgProjectId: string;

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { deployApiDecision, deployBindingsCheck } from './deploy-api-policy';
+import {
+  addedResources,
+  boundDatabases,
+  collaboratorRefusal,
+  deployApiDecision,
+  deployBindingsCheck,
+} from './deploy-api-policy';
 import { buildPlan, deployWorkerName, withoutJsonComments } from './project-build-plan';
 
 const PACKAGE = JSON.stringify({ scripts: { build: 'vite build' } });
@@ -189,5 +195,87 @@ describe("a deployed Worker's bindings", () => {
         },
       }),
     ).toHaveProperty('refusal');
+  });
+});
+
+describe('what a collaborator’s publish would add to a project', () => {
+  const live = {
+    bindings: [
+      { type: 'd1', name: 'DB', id: 'db-1' },
+      { type: 'kv_namespace', name: 'CACHE', namespace_id: 'kv-1' },
+      { type: 'r2_bucket', name: 'FILES', bucket_name: 'glossary-files' },
+      { type: 'ai', name: 'AI' },
+      { type: 'plain_text', name: 'GREETING', text: 'hello' },
+    ],
+  };
+  const added = (bindings: { type: string; [field: string]: string }[], current: typeof live | null = live) =>
+    addedResources({ bindings }, current, 'glossary');
+
+  it('is nothing for what the live Worker already uses, however a binding is called', () => {
+    expect(
+      added([
+        { type: 'd1', name: 'DATABASE', id: 'db-1' },
+        { type: 'kv_namespace', name: 'CACHE', namespace_id: 'kv-1' },
+        { type: 'r2_bucket', name: 'UPLOADS', bucket_name: 'glossary-files' },
+        { type: 'ai', name: 'MODELS' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('is nothing for the Worker’s own settings, Durable Objects and Workflows', () => {
+    expect(
+      added([
+        { type: 'plain_text', name: 'NEW_FLAG', text: 'on' },
+        { type: 'secret_text', name: 'KEY', text: 's' },
+        { type: 'inherit', name: 'OLD' },
+        { type: 'assets', name: 'ASSETS' },
+        { type: 'durable_object_namespace', name: 'ROOM', class_name: 'Room' },
+        { type: 'durable_object_namespace', name: 'ROOM2', class_name: 'Room', script_name: 'glossary' },
+        { type: 'workflow', name: 'FLOW', workflow_name: 'flow', class_name: 'Flow' },
+        { type: 'service', name: 'SELF', service: 'glossary' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('names every other database, bucket, Worker, queue and product the upload reaches', () => {
+    expect(
+      added([
+        { type: 'd1', name: 'DB', id: 'db-2' },
+        { type: 'kv_namespace', name: 'CACHE', namespace_id: 'kv-2' },
+        { type: 'r2_bucket', name: 'FILES', bucket_name: 'payroll' },
+        { type: 'service', name: 'API', service: 'billing' },
+        { type: 'queue', name: 'JOBS', queue_name: 'jobs' },
+        { type: 'durable_object_namespace', name: 'ROOM', class_name: 'Room', script_name: 'chat' },
+        { type: 'browser', name: 'BROWSER' },
+        { type: 'send_email', name: 'MAIL' },
+      ]),
+    ).toEqual([
+      'the D1 database db-2',
+      'the KV namespace kv-2',
+      'the R2 bucket payroll',
+      'the Worker billing',
+      'the queue jobs',
+      'the Durable Object Room of the Worker chat',
+      'Browser Rendering',
+      'sending email',
+    ]);
+  });
+
+  it('counts everything as new for a project never published, and a tail Worker as a resource', () => {
+    expect(added([{ type: 'd1', name: 'DB', id: 'db-1' }], null)).toEqual(['the D1 database db-1']);
+    expect(addedResources({ tail_consumers: [{ service: 'logs' }] }, live, 'glossary')).toEqual([
+      'the tail Worker logs',
+    ]);
+  });
+
+  it('lets SQL run only on the databases the live Worker binds', () => {
+    expect([...boundDatabases(live)]).toEqual(['db-1']);
+    expect([...boundDatabases(null)]).toEqual([]);
+  });
+
+  it('says who can publish a version that adds something', () => {
+    expect(collaboratorRefusal(['the R2 bucket payroll', 'Workers AI'])).toBe(
+      'This version adds the R2 bucket payroll, Workers AI to the project. Someone added to a project works with what it already has: its creator, or an admin of its space, publishes a version that adds something.',
+    );
   });
 });

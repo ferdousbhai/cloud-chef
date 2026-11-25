@@ -803,6 +803,31 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
     });
   });
 
+  it('publishes as a collaborator for anyone but the project’s creator and its space’s admins', async () => {
+    const { env, runtime, database, sara } = await uploaded();
+    const restrictedOf = async (commit: string, extra: Record<string, string | boolean> = {}) => {
+      const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+        orgProjectId: UPLOAD,
+        branch: 'main',
+        commit,
+        ...extra,
+      });
+      return claimed.body.restricted;
+    };
+    // A member the project was given to.
+    expect(await restrictedOf('1'.repeat(40))).toBe(true);
+    // Its creator publishes with everything the account allows a project.
+    database.prepare('UPDATE org_projects SET created_by = ? WHERE id = ?').run(sara.userId, UPLOAD);
+    expect(await restrictedOf('2'.repeat(40))).toBe(false);
+    // A push of someone else's, or a change someone offered, is a collaborator's whoever's runtime builds it.
+    expect(await restrictedOf('3'.repeat(40), { pushedBy: 'someone-it-is-shared-with' })).toBe(true);
+    expect(await restrictedOf('4'.repeat(40), { asCollaborator: true })).toBe(true);
+    // An admin of the space, as its creator.
+    database.prepare('UPDATE org_projects SET created_by = NULL WHERE id = ?').run(UPLOAD);
+    database.prepare(`UPDATE organization_members SET role = 'admin' WHERE user_id = ?`).run(sara.userId);
+    expect(await restrictedOf('5'.repeat(40))).toBe(false);
+  });
+
   it('hands out the account authorization only while its claimed deploy step runs, and never for Workers Builds projects', async () => {
     const { env, runtime } = await uploaded();
     const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
@@ -824,12 +849,24 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
       deploymentId,
       state: 'deploying',
     });
+    // The runtime here is a member's, so the publish is a collaborator's: a runtime that doesn't say it holds the
+    // publish to what the project already uses (one from before that rule) gets no token.
+    expect(claimed.body.restricted).toBe(true);
+    expect(
+      (
+        await call(runtimeDeploymentCredentialAction, runtime, env, 'credential', {
+          orgProjectId: UPLOAD,
+          deploymentId,
+        })
+      ).status,
+    ).toBe(409);
     // Now it is resolved from the account's authorization (the fixture's can't be decrypted, so it is unavailable).
     expect(
       (
         await call(runtimeDeploymentCredentialAction, runtime, env, 'credential', {
           orgProjectId: UPLOAD,
           deploymentId,
+          restricted: true,
         })
       ).status,
     ).toBe(503);

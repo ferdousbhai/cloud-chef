@@ -448,6 +448,8 @@ const claimedDeploymentSchema = z.object({
   kind: z.enum(['production', 'preview']),
   state: z.string(),
   attempt: z.number().int().positive(),
+  /** A collaborator's publish: it may use what the project's Worker already uses, and add nothing. */
+  restricted: z.boolean().optional(),
   repo: z.string().min(1),
   workerName: z.string().nullable(),
   /** The project's name in addresses, which a CloudChef app's Worker is named after. */
@@ -459,7 +461,14 @@ type ClaimedDeployment = z.infer<typeof claimedDeploymentSchema>;
 export async function claimProjectDeployment(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; branch: string; commit: string; headReadAt?: number },
+  body: {
+    orgProjectId: string;
+    branch: string;
+    commit: string;
+    headReadAt?: number;
+    pushedBy?: string;
+    asCollaborator?: true;
+  },
 ): Promise<ClaimedDeployment> {
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/deployments/claim', body, STATUS_TIMEOUT_MS);
   return readAnswer(response, claimedDeploymentSchema, 'CloudChef could not start the deploy.');
@@ -528,7 +537,7 @@ type DeploymentReport = z.infer<typeof deploymentReportSchema>;
 export async function projectDeploymentCredential(
   env: RuntimeEnv,
   identity: Identity,
-  body: { orgProjectId: string; deploymentId: string; forceRefresh?: boolean },
+  body: { orgProjectId: string; deploymentId: string; forceRefresh?: boolean; restricted?: true },
 ): Promise<string> {
   const response = await postRuntimeRoute(
     env,

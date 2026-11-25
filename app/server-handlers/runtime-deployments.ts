@@ -35,6 +35,10 @@ const claimSchema = z.strictObject({
   commit: COMMIT,
   /** For a head read earlier (on opening a project): when it was read, so a newer push's claim wins. */
   headReadAt: z.number().int().positive().optional(),
+  /** Whose push it is, when not the runtime's own person: someone the project is shared with from another account. */
+  pushedBy: z.string().min(1).max(128).optional(),
+  /** A change someone offered: a collaborator's publish, whoever's runtime builds it. */
+  asCollaborator: z.literal(true).optional(),
 });
 const retrySchema = z.strictObject({
   ...projectFields,
@@ -58,7 +62,28 @@ const credentialSchema = z.strictObject({
   ...projectFields,
   deploymentId: DEPLOYMENT,
   forceRefresh: z.boolean().optional(),
+  /** The runtime holds this publish to what the project's Worker already uses (a collaborator's publish). */
+  restricted: z.literal(true).optional(),
 });
+
+/**
+ * Whether a publish that runs for these people is a collaborator's: any of them neither made the project nor is an
+ * active admin of its space. A collaborator's publish uses the resources the project already has in the account, and
+ * adds none: a new one comes with a publish by its creator or an admin.
+ */
+async function publishesAsCollaborator(
+  db: D1Database,
+  project: { createdBy: string | null },
+  orgId: string,
+  userIds: readonly string[],
+): Promise<boolean> {
+  for (const userId of new Set(userIds)) {
+    if (userId !== project.createdBy && !isActiveAdmin(await findMembership(db, orgId, userId))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** The project as a runtime may build and deploy it, or the refusal to answer. */
 async function openDeployableProject<T extends { orgProjectId: string }>(
@@ -87,13 +112,20 @@ export async function runtimeDeploymentClaimAction(args: { request: Request; env
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, identity } = opened;
+  const { project, body, identity, connection } = opened;
   const { deployment, claimed } = await claimDeployment(args.env.DB, {
     projectId: project.id,
     branch: body.branch,
     commit: body.commit,
     defaultBranch: project.defaultBranch,
     userId: identity.userId,
+    // Naming who pushed can only make it a collaborator's publish, never lift that from the runtime's own person.
+    restricted:
+      body.asCollaborator === true ||
+      (await publishesAsCollaborator(args.env.DB, project, connection.orgId, [
+        identity.userId,
+        ...(body.pushedBy ? [body.pushedBy] : []),
+      ])),
     notBefore: body.headReadAt,
   });
   return json(
@@ -103,6 +135,7 @@ export async function runtimeDeploymentClaimAction(args: { request: Request; env
       kind: deployment.kind,
       state: deployment.state,
       attempt: deployment.attempt,
+      restricted: deployment.restricted,
       repo: project.repo,
       workerName: project.deployWorkerName,
       slug: project.fullName?.split('/')[1] ?? null,
@@ -131,7 +164,12 @@ export async function runtimeDeploymentRetryAction(args: { request: Request; env
   }
   const deployment = body.toWantedWorker
     ? await deployToWantedWorker(args.env.DB, { id: body.deploymentId, projectId: project.id, userId: identity.userId })
-    : await retryDeployment(args.env.DB, { id: body.deploymentId, userId: identity.userId });
+    : await retryDeployment(args.env.DB, {
+        id: body.deploymentId,
+        userId: identity.userId,
+        // Its creator or an admin trying a collaborator's publish again publishes it as their own.
+        restricted: await publishesAsCollaborator(args.env.DB, project, connection.orgId, [identity.userId]),
+      });
   if (!deployment || deployment.projectId !== project.id) {
     return json(
       {
@@ -254,13 +292,18 @@ export async function runtimeDeploymentCredentialAction(args: { request: Request
   }
   const { project, body, identity, credentialHandle } = opened;
   const live = await args.env.DB.prepare(
-    `SELECT 1 FROM project_deployments
+    `SELECT restricted FROM project_deployments
      WHERE id = ? AND project_id = ? AND claimed_by = ? AND state = 'deploying' AND lease_expires_at > ?`,
   )
     .bind(body.deploymentId, project.id, identity.userId, Date.now())
-    .first();
+    .first<{ restricted: number }>();
   if (!live) {
     return json({ error: 'Nothing of this project is being deployed by this workspace now.' }, 409);
+  }
+  // A collaborator's publish gets the token only from a runtime that holds it to the project's own resources: one
+  // from before that rule asks without saying so, and is refused until it has upgraded.
+  if (live.restricted === 1 && body.restricted !== true) {
+    return json({ error: 'This workspace is being upgraded. Publish again in a few minutes.' }, 409);
   }
   try {
     const accessToken = await D1CloudflareCredentialVault.fromEnv(args.env).resolve(credentialHandle, {

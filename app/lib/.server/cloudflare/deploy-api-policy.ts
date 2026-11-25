@@ -135,6 +135,10 @@ const bindingSchema = z.looseObject({
   namespace_id: z.string().optional(),
   id: z.string().optional(),
   database_id: z.string().optional(),
+  class_name: z.string().optional(),
+  dataset: z.string().optional(),
+  index_name: z.string().optional(),
+  pipeline: z.string().optional(),
 });
 
 const consumersSchema = z.array(z.looseObject({ service: z.string().optional() })).optional();
@@ -199,4 +203,110 @@ export function deployBindingsCheck(
     return refuse('Durable Objects moved from another Worker');
   }
   return { lookups };
+}
+
+/** Bindings that are the Worker's own code and settings: they reach nothing else in the account. */
+const OWN_BINDING_TYPES = new Set([
+  'plain_text',
+  'secret_text',
+  'json',
+  'inherit',
+  'assets',
+  'version_metadata',
+  'wasm_module',
+  'text_blob',
+  'data_blob',
+  'ratelimit',
+]);
+
+/**
+ * What a binding uses in the account beyond the Worker itself, in words a person reads: a resource by its name or
+ * id, or a product by its name (Workers AI, sending email), which is the same thing however its variable is called.
+ * Null for a binding that uses nothing else: its own settings, and its own Durable Objects and Workflows.
+ */
+function bindingResource(binding: z.infer<typeof bindingSchema>, workerName: string): string | null {
+  if (OWN_BINDING_TYPES.has(binding.type)) {
+    return null;
+  }
+  const another = binding.script_name !== undefined && binding.script_name !== workerName;
+  switch (binding.type) {
+    case 'd1':
+      return `the D1 database ${binding.id ?? binding.database_id ?? 'without an id'}`;
+    case 'kv_namespace':
+      return `the KV namespace ${binding.namespace_id ?? 'without an id'}`;
+    case 'r2_bucket':
+      return `the R2 bucket ${binding.bucket_name ?? 'without a name'}`;
+    case 'service':
+      return binding.service === workerName ? null : `the Worker ${binding.service ?? 'without a name'}`;
+    case 'queue':
+      return `the queue ${binding.queue_name ?? 'without a name'}`;
+    case 'durable_object_namespace':
+      return another ? `the Durable Object ${binding.class_name ?? ''} of the Worker ${binding.script_name}` : null;
+    case 'workflow':
+      return another ? `the Workflow ${binding.workflow_name ?? ''} of the Worker ${binding.script_name}` : null;
+    case 'analytics_engine':
+      return `the Analytics Engine dataset ${binding.dataset ?? 'without a name'}`;
+    case 'vectorize':
+      return `the Vectorize index ${binding.index_name ?? 'without a name'}`;
+    case 'pipelines':
+      return `the pipeline ${binding.pipeline ?? 'without a name'}`;
+    case 'ai':
+      return 'Workers AI';
+    case 'browser':
+      return 'Browser Rendering';
+    case 'images':
+      return 'Cloudflare Images';
+    case 'media':
+      return 'Cloudflare Media';
+    case 'send_email':
+      return 'sending email';
+    default:
+      return `a binding of type ${binding.type}`;
+  }
+}
+
+/** Everything a Worker's settings use in the account beyond the Worker itself, tail Workers among them. */
+function settingsResources(settings: z.infer<typeof workerSettingsSchema>, workerName: string): Set<string> {
+  const resources = new Set<string>();
+  for (const binding of settings.bindings ?? []) {
+    const resource = bindingResource(binding, workerName);
+    if (resource) {
+      resources.add(resource);
+    }
+  }
+  for (const consumer of [...(settings.tail_consumers ?? []), ...(settings.streaming_tail_consumers ?? [])]) {
+    if (consumer.service && consumer.service !== workerName) {
+      resources.add(`the tail Worker ${consumer.service}`);
+    }
+  }
+  return resources;
+}
+
+/**
+ * For a collaborator's publish: what the Worker being uploaded would use that the project's live Worker doesn't use
+ * already (`live`, its settings as Cloudflare has them; none for a project never published). Empty when it adds
+ * nothing.
+ */
+export function addedResources(
+  upload: z.infer<typeof workerSettingsSchema>,
+  live: z.infer<typeof workerSettingsSchema> | null,
+  workerName: string,
+): string[] {
+  const has = live ? settingsResources(live, workerName) : new Set<string>();
+  return [...settingsResources(upload, workerName)].filter((resource) => !has.has(resource));
+}
+
+/** The D1 databases a Worker's settings bind, by id: the ones a collaborator's publish may run SQL on. */
+export function boundDatabases(settings: z.infer<typeof workerSettingsSchema> | null): Set<string> {
+  return new Set(
+    (settings?.bindings ?? []).flatMap((binding) => {
+      const id = binding.type === 'd1' ? (binding.id ?? binding.database_id) : undefined;
+      return id === undefined ? [] : [id];
+    }),
+  );
+}
+
+/** Said when a collaborator's publish would add something to the account. */
+export function collaboratorRefusal(added: readonly string[]): string {
+  return `This version adds ${added.join(', ')} to the project. Someone added to a project works with what it already has: its creator, or an admin of its space, publishes a version that adds something.`;
 }

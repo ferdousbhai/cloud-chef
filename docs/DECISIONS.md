@@ -91,3 +91,23 @@ other D1 database while publishing. Cloudflare's Tenant API, which would give ea
 closed to new participants (asked 2026-11-23). A space builds only in a Cloudflare account its own admins connected;
 someone without one is invited into a space by a person who trusts them with that account. Migration 0075 closed the
 spaces made in those days. Reconsider only with an account per space.
+
+## A collaborator works with what the project already has
+
+Decided by the owner on 2026-11-25. Anyone may sign up (Cloudflare, Google or an emailed link), and an account with
+no Cloudflare account of its own and no project it was added to can only look, follow, like and comment: it has no
+workspace, container or model. Someone a creator adds to a project builds in the creator's account and uses the
+project's resources there, and adds none. A publish is a collaborator's when it runs for anyone who neither made the
+project nor is an admin of its space (`publishesAsCollaborator` in `app/server-handlers/runtime-deployments.ts`,
+kept as `project_deployments.restricted`), and so is the preview of a change someone offered, whoever's reading of
+the thread built it. The builder holds such a publish to what the project's live Worker already uses, read from
+Cloudflare when it uploads (`addedResources` in `deploy-api-policy.ts`): no new database, namespace or bucket, no
+SQL on a database the Worker doesn't bind, and no binding the Worker doesn't have, Workers AI, Browser Rendering and
+sending email among them. A starter app's own database, storage and cache are found, never made. What a version adds
+is said on the failed publish, and its creator or an admin publishes it by trying that publish again, which is the
+approval; there is no separate request. The control plane gives the account's authorization for a collaborator's
+publish only to a runtime that says it holds it so.
+
+Not covered: a project Workers Builds publishes (imported from GitHub) is built by Cloudflare with the account's
+own build token, from the repository's Wrangler config, so someone who may edit it can add a binding there. Give
+edit on such a project only to someone trusted with the account.

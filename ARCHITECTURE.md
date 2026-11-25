@@ -599,7 +599,10 @@ builds from its own files (`app/lib/.server/cloudflare/project-build-plan.ts`), 
 proxy, installs and builds it as an unprivileged user holding no credential, stops that user's processes, and deploys
 with CloudChef's own Wrangler, whose every request to Cloudflare it sends on itself with the account's authorization,
 only while the control plane says the deploy runs and only if it is one a deploy of that Worker may make
-(`app/lib/.server/cloudflare/deploy-api-policy.ts`): the token never leaves the builder. Main deploys to production;
+(`app/lib/.server/cloudflare/deploy-api-policy.ts`): the token never leaves the builder. A publish that runs for
+someone who neither made the project nor is an admin of its space is a collaborator's (`restricted`): it may use only
+what the project's live Worker already uses and makes nothing new, and what it would add is said on the failed
+publish, which the creator or an admin tries again to publish it themselves (docs/DECISIONS.md). Main deploys to production;
 another branch uploads a preview version. How it went is reported back (`runtime-projects/deployments/report`), its
 log kept in the person's own account, and the control plane records once which version went live, who made it, and
 the site's address (`recordProductionPublish`). Each step runs in a scheduled call of its own, a lost container starts

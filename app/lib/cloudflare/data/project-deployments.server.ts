@@ -27,6 +27,8 @@ type ProjectDeployment = {
   step: DeploymentStep | null;
   /** When the current step began, in milliseconds. */
   stepStartedAt: number | null;
+  /** A collaborator's publish: it may use what the project's Worker already uses, and add nothing. */
+  restricted: boolean;
   attempt: number;
   createdAt: number;
   updatedAt: number;
@@ -59,13 +61,14 @@ type DeploymentRow = {
   wanted_worker_name: string | null;
   step: DeploymentStep | null;
   step_started_at: number | null;
+  restricted: number;
   attempt: number;
   created_at: number;
   updated_at: number;
 };
 
 const COLUMNS = `id, project_id, kind, branch, commit_sha, state, failure_stage, reason, url, worker_name,
-  wanted_worker_name, step, step_started_at, attempt, created_at, updated_at`;
+  wanted_worker_name, step, step_started_at, restricted, attempt, created_at, updated_at`;
 
 function toDeployment(row: DeploymentRow): ProjectDeployment {
   return {
@@ -82,6 +85,7 @@ function toDeployment(row: DeploymentRow): ProjectDeployment {
     wantedWorkerName: row.wanted_worker_name,
     step: row.step,
     stepStartedAt: row.step_started_at,
+    restricted: row.restricted === 1,
     attempt: row.attempt,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -111,6 +115,8 @@ export async function claimDeployment(
     commit: string;
     defaultBranch: string;
     userId: string;
+    /** Whether it runs for a collaborator: someone who neither made the project nor is an admin of its space. */
+    restricted?: boolean;
     notBefore?: number;
     now?: number;
   },
@@ -140,11 +146,23 @@ export async function claimDeployment(
   const inserted = await db
     .prepare(
       `INSERT INTO project_deployments
-         (id, project_id, kind, branch, commit_sha, state, claimed_by, lease_expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)
+         (id, project_id, kind, branch, commit_sha, state, claimed_by, restricted, lease_expires_at, created_at,
+          updated_at)
+       VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)
        ON CONFLICT (project_id, branch, commit_sha) DO NOTHING`,
     )
-    .bind(id, args.projectId, kind, args.branch, args.commit, args.userId, now + DEPLOYMENT_LEASE_MS, now, now)
+    .bind(
+      id,
+      args.projectId,
+      kind,
+      args.branch,
+      args.commit,
+      args.userId,
+      args.restricted ? 1 : 0,
+      now + DEPLOYMENT_LEASE_MS,
+      now,
+      now,
+    )
     .run();
   if (inserted.meta.changes === 1) {
     await db
@@ -167,7 +185,7 @@ export async function claimDeployment(
     .prepare(
       `UPDATE project_deployments
        SET state = 'queued', failure_stage = NULL, reason = NULL, step = NULL, step_started_at = NULL, attempt = attempt + 1, claimed_by = ?,
-           lease_expires_at = ?, updated_at = ?
+           restricted = ?, lease_expires_at = ?, updated_at = ?
        WHERE project_id = ? AND branch = ? AND commit_sha = ?
          AND (
            (state IN ('building', 'deploying') AND (lease_expires_at IS NULL OR lease_expires_at <= ?))
@@ -176,6 +194,7 @@ export async function claimDeployment(
     )
     .bind(
       args.userId,
+      args.restricted ? 1 : 0,
       now + DEPLOYMENT_LEASE_MS,
       now,
       args.projectId,
@@ -193,19 +212,20 @@ export async function claimDeployment(
 }
 
 /**
- * Starts a failed deployment of the same commit again, for `userId`'s runtime: its attempt counts up. Only a failed
- * one, and only while it is still the newest of its branch.
+ * Starts a failed deployment of the same commit again, for `userId`'s runtime: its attempt counts up, and it is a
+ * collaborator's publish or not by who tries it again. Only a failed one, and only while it is still the newest of
+ * its branch.
  */
 export async function retryDeployment(
   db: D1Database,
-  args: { id: string; userId: string; now?: number },
+  args: { id: string; userId: string; restricted?: boolean; now?: number },
 ): Promise<ProjectDeployment | null> {
   const now = args.now ?? Date.now();
   const updated = await db
     .prepare(
       `UPDATE project_deployments
        SET state = 'queued', failure_stage = NULL, reason = NULL, step = NULL, step_started_at = NULL, attempt = attempt + 1, claimed_by = ?,
-           lease_expires_at = ?, updated_at = ?
+           restricted = ?, lease_expires_at = ?, updated_at = ?
        WHERE id = ? AND state = 'failed'
          AND NOT EXISTS (
            SELECT 1 FROM project_deployments newer
@@ -213,7 +233,7 @@ export async function retryDeployment(
              AND newer.created_at > project_deployments.created_at
          )`,
     )
-    .bind(args.userId, now + DEPLOYMENT_LEASE_MS, now, args.id)
+    .bind(args.userId, args.restricted ? 1 : 0, now + DEPLOYMENT_LEASE_MS, now, args.id)
     .run();
   return updated.meta.changes === 1 ? readDeployment(db, args.id) : null;
 }
@@ -247,7 +267,8 @@ export async function deployToWantedWorker(
           `UPDATE project_deployments
            SET state = 'queued', failure_stage = NULL, reason = NULL, step = NULL, step_started_at = NULL, url = NULL,
                worker_name = NULL,
-               wanted_worker_name = NULL, attempt = attempt + 1, claimed_by = ?, lease_expires_at = ?, updated_at = ?
+               wanted_worker_name = NULL, attempt = attempt + 1, claimed_by = ?, restricted = 0, lease_expires_at = ?,
+               updated_at = ?
            WHERE id = ? AND state = 'succeeded'
              AND NOT EXISTS (
                SELECT 1 FROM project_deployments newer

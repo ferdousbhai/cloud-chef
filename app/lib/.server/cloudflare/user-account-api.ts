@@ -421,6 +421,12 @@ export class UserCloudflareAccountApi {
   }
 
   /** The D1 database with this name, created when the account has none. */
+  /** The D1 database with this name, or null when the account has none. */
+  async findD1Database(resourceName: string): Promise<{ id: string; name: string } | null> {
+    const id = await this.findD1DatabaseId(resourceName);
+    return id ? { id, name: resourceName } : null;
+  }
+
   async ensureD1Database(resourceName: string): Promise<{ id: string; name: string }> {
     requireCloudflareResourceName(resourceName);
     return findOrCreate(
@@ -587,7 +593,8 @@ export class UserCloudflareAccountApi {
     return { id: result.name, name: result.name };
   }
 
-  private async readR2Bucket(resourceName: string): Promise<{ id: string; name: string } | null> {
+  /** The R2 bucket with this name, or null when the account has none. */
+  async readR2Bucket(resourceName: string): Promise<{ id: string; name: string } | null> {
     const existing = await this.callOptional<{ name?: string }>(`/r2/buckets/${encodeURIComponent(resourceName)}`, {
       method: 'GET',
     });
@@ -627,7 +634,7 @@ export class UserCloudflareAccountApi {
   }
 
   /** Resolve one namespace by name out of the account listing, which is the only KV lookup there is. */
-  private async findKvNamespace(resourceName: string): Promise<{ id: string; name: string } | null> {
+  async findKvNamespace(resourceName: string): Promise<{ id: string; name: string } | null> {
     requireCloudflareResourceName(resourceName);
     const matches = (await this.listKvNamespaces()).filter((namespace) => namespace.name === resourceName);
     if (matches.length > 1) {
