@@ -230,7 +230,7 @@ const MAX_INVITES_PER_INVITER_PER_DAY = 100;
 /**
  * A one-time invite for `email`; the link carries the token, and only its hash is stored. `projectIds`
  * are the organization's projects the person gets on joining, to edit (others are ignored); a member may
- * build new apps of their own unless `draftsAllowed` is false. It replaces any invite still waiting for
+ * build new apps of their own only when `draftsAllowed` is true. It replaces any invite still waiting for
  * the same email, whose link stops working: one person has one way in, the one sent last.
  */
 export async function createInvite(
@@ -269,7 +269,7 @@ export async function createInvite(
         await sha256Hex(token),
         expiresAt,
         projectIds.length > 0 ? JSON.stringify(projectIds) : null,
-        args.draftsAllowed === false ? 0 : 1,
+        args.draftsAllowed === true ? 1 : 0,
       ),
     db
       .prepare(

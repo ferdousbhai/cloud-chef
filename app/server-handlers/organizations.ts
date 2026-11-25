@@ -52,8 +52,8 @@ const inviteSchema = z.strictObject({
   role: z.enum(['admin', 'member']).default('member'),
   /** The organization's GitHub projects they get on joining. */
   projectIds: z.array(z.string().uuid()).max(500).default([]),
-  /** Whether they may build new apps of their own, not only work on the projects they're given. */
-  draftsAllowed: z.boolean().default(true),
+  /** Whether they may build new apps of their own, not only work on the projects they're given: only if said. */
+  draftsAllowed: z.boolean().default(false),
 });
 const acceptSchema = z.strictObject({ token: z.string().min(32).max(128) });
 const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) });

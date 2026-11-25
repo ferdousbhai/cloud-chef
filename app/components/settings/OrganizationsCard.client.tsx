@@ -487,7 +487,8 @@ function InviteDialog({
   const [role, setRole] = useState<'member' | 'admin'>('member');
   // The projects a new member gets: every project until the admin unticks some.
   const [chosenProjects, setChosenProjects] = useState<ReadonlySet<string> | null>(null);
-  const [draftsAllowed, setDraftsAllowed] = useState(true);
+  // Off unless the admin says so: a member works on the projects they are given.
+  const [draftsAllowed, setDraftsAllowed] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [busy, setBusy] = useState(false);

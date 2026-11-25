@@ -141,13 +141,14 @@ describe('organizations', () => {
     // Sam's workspace in Acme's account starts preparing at once, before they open a project.
     expect(prepareWorkspace).toHaveBeenCalledWith(env, sam.userId, expect.objectContaining({ id: 'acme-connection' }));
 
-    // Sam now works in Acme's account, as a member who may build new apps of their own (the invite's default).
+    // Sam now works in Acme's account, on the projects they are given and no new apps of their own (the invite's
+    // default).
     const session = await getAuthSession(env, new Request(ORIGIN, { headers: { cookie: sam.cookie } }));
     expect(session?.context).toMatchObject({
       orgId,
       connectionId: 'acme-connection',
       role: 'member',
-      draftsAllowed: true,
+      draftsAllowed: false,
     });
 
     // The admin sees members and invites; the member sees neither.
