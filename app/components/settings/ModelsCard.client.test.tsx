@@ -173,21 +173,17 @@ describe('ModelsCard', () => {
     expect(document.body.textContent).toContain('Key linked · stored in your Cloudflare account');
   });
 
-  it('says a key under another name can’t be used, and how to fix it', async () => {
+  it('says which keys kept under other names are tried first, and what happens when none answers', async () => {
     initialKeys = {
       status: 'ready',
       providers: [{ provider: 'anthropic', key: null, otherAliases: ['sg'] }],
     };
     await render();
     expect(document.body.textContent).toContain(
-      'This account’s AI Gateway has the Anthropic key “sg”, but CloudChef can only use a key named “default”. ' +
-        'Paste the key here and CloudChef saves it under that name; “sg” stays as it is.',
+      'This account’s AI Gateway also has the Anthropic key “sg”, tried first. ' +
+        'If Anthropic can’t be reached with any of them, the turn goes on with a Workers AI model.',
     );
     expect(document.querySelector('input[aria-label="Anthropic API key"]')).not.toBeNull();
-    canManage = false;
-    root?.unmount();
-    await render();
-    expect(document.body.textContent).toContain('An admin can paste the key here to fix it.');
   });
 
   it("lists a linked key's models from a catalog requested after linking, not one already in flight", async () => {

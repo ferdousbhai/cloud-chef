@@ -47,12 +47,12 @@ import { signedIn } from './signed-in';
 /** One provider's key on the account's default gateway, as Settings shows it: never the key itself. */
 type ProviderKeyStatus = {
   provider: GatewayProviderSlug;
-  /** The key CloudChef uses, the provider's `default` one. */
+  /** The provider's `default` key, the one Settings links and unlinks. */
   key: {
     /** Cloudflare's masked preview of the key. */
     secretPreview: string | null;
   } | null;
-  /** The aliases of the provider's other keys on the gateway, which CloudChef can't use. */
+  /** The names of the provider's other keys on the gateway, in the order they are tried, all before `default`. */
   otherAliases: string[];
 };
 
@@ -286,7 +286,7 @@ async function withAccountApi(
 }
 
 /**
- * Removes the provider's `default` key from the gateway (the one CloudChef uses, whoever added it) and the secret
+ * Removes the provider's `default` key from the gateway (the one Settings links, whoever added it) and the secret
  * Cloudflare kept it in, which a new key under the same alias needs free. No other key or secret is touched.
  */
 async function removeDefaultKey(api: GatewayKeyAccountApi, provider: GatewayProviderSlug): Promise<void> {
@@ -316,13 +316,12 @@ async function gatewayKeysStatus(api: GatewayKeyAccountApi): Promise<GatewayKeys
     return {
       status: 'ready',
       providers: GATEWAY_PROVIDER_SLUGS.map((provider) => {
-        const key = keys.get(provider);
+        const ordered = keys.get(provider) ?? [];
+        const key = ordered.find(({ alias }) => isDefaultAlias(alias));
         return {
           provider,
           key: key ? { secretPreview: key.secretPreview } : null,
-          otherAliases: listed
-            .filter(({ providerSlug, alias }) => providerSlug === provider && !isDefaultAlias(alias))
-            .map(({ alias }) => alias),
+          otherAliases: ordered.filter(({ alias }) => !isDefaultAlias(alias)).map(({ alias }) => alias),
         };
       }),
     };

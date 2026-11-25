@@ -30,7 +30,7 @@ import { getJson, messageOf, postJson } from '~/lib/json-request';
 const providerKeySchema = z.object({
   provider: z.enum(GATEWAY_PROVIDER_SLUGS),
   key: z.object({ secretPreview: z.string().nullable() }).nullable(),
-  /** The provider's keys on the gateway under another name, which CloudChef can't use. */
+  /** The provider's keys on the gateway under names of their own, in the order they are tried, before the one here. */
   otherAliases: z.array(z.string()).catch([]),
 });
 
@@ -420,13 +420,10 @@ function ProviderKeyRow({
           <span> · stored in your Cloudflare account</span>
         </p>
       ) : null}
-      {!key && otherAliases.length > 0 ? (
-        // Cloudflare uses only a provider's key named "default" for CloudChef's requests.
+      {otherAliases.length > 0 ? (
+        // Keys an admin stored in Cloudflare under names of their own come before the one linked here.
         <p className="text-xs leading-5 text-content-secondary">
-          {`This account’s AI Gateway has the ${label} ${otherAliases.length === 1 ? 'key' : 'keys'} ${otherNames}, but CloudChef can only use a key named “default”. `}
-          {canManage
-            ? `Paste the key here and CloudChef saves it under that name; ${otherNames} stays as it is.`
-            : 'An admin can paste the key here to fix it.'}
+          {`This account’s AI Gateway also has the ${label} ${otherAliases.length === 1 ? 'key' : 'keys'} ${otherNames}, tried first${key ? ', then the one here' : ''}. If ${label} can’t be reached with any of them, the turn goes on with a Workers AI model.`}
         </p>
       ) : null}
     </li>

@@ -226,8 +226,8 @@ describe('the builder catalog an account is offered', () => {
     const without = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], NO_ACCOUNT_MODEL_SETTINGS);
     // Which key each provider has never changes what is offered.
     const keys: GatewayKey[] = [
-      { provider: 'anthropic', revision: 'key@1' },
-      { provider: 'grok', revision: 'key@1' },
+      { provider: 'anthropic', alias: 'default', revision: 'key@1' },
+      { provider: 'grok', alias: 'default', revision: 'key@1' },
     ];
     const linked = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL, pro], {
       ...NO_ACCOUNT_MODEL_SETTINGS,
@@ -255,7 +255,7 @@ describe('the builder catalog an account is offered', () => {
   });
 
   it('offers every provider at once in a catalog the browser accepts', () => {
-    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, revision: 'key@1' }));
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
     const all = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
       ...NO_ACCOUNT_MODEL_SETTINGS,
       gatewayKeys: everyKey,
@@ -271,7 +271,7 @@ describe('the builder catalog an account is offered', () => {
   });
 
   it('offers no batch-only variant, model router, audio or image model, search-only model, or classifier', () => {
-    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, revision: 'key@1' }));
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
     const ids = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
       ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: null,
@@ -296,7 +296,7 @@ describe('the builder catalog an account is offered', () => {
   });
 
   it("offers each reasoning model the efforts Pi lists for it, never off, and none to a model that doesn't reason", () => {
-    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, revision: 'key@1' }));
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
     const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
       ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: null,
@@ -338,7 +338,7 @@ describe('the builder catalog an account is offered', () => {
     const claudeChosen = {
       ...NO_ACCOUNT_MODEL_SETTINGS,
       defaultModelId: 'anthropic/claude-opus-5-5',
-      gatewayKeys: [{ provider: 'anthropic' as const, revision: 'key@1' }],
+      gatewayKeys: [{ provider: 'anthropic' as const, alias: 'default', revision: 'key@1' }],
     };
     expect(builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], claudeChosen).defaultModelId).toBe(
       'anthropic/claude-opus-5-5',
@@ -360,18 +360,33 @@ describe('the builder catalog an account is offered', () => {
     const linked = vi.fn(async (): Promise<AccountModelSettings> => ({
       ...NO_ACCOUNT_MODEL_SETTINGS,
       gatewayKeys: [
-        { provider: 'openai', revision: 'key@1' },
-        { provider: 'anthropic', revision: 'config-sg@2026-10-01' },
+        { provider: 'openai', alias: 'default', revision: 'key@1' },
+        { provider: 'anthropic', alias: 'sg', revision: 'config-sg@2026-10-01' },
+        { provider: 'anthropic', alias: 'default', revision: 'config-main@2026-10-26' },
       ],
     }));
 
+    // With the provider's keys in the order they are tried, and the Workers AI model the turn falls back to.
     await expect(requireBuilderModel(binding, 'anthropic/claude-opus-5-5', linked)).resolves.toEqual({
       model: expect.objectContaining({ id: 'anthropic/claude-opus-5-5' }),
-      gatewayKeyRevision: 'config-sg@2026-10-01',
+      gateway: {
+        keys: [
+          { alias: 'sg', revision: 'config-sg@2026-10-01' },
+          { alias: 'default', revision: 'config-main@2026-10-26' },
+        ],
+        fallback: expect.objectContaining({ id: CLOUDFLARE_WORKERS_AI_MODEL }),
+      },
     });
     await expect(requireBuilderModel(binding, 'openai/gpt-5', linked)).resolves.toMatchObject({
-      gatewayKeyRevision: 'key@1',
+      gateway: { keys: [{ alias: 'default', revision: 'key@1' }] },
     });
+    // An account that doesn't allow the Workers AI model has nothing to fall back to.
+    await expect(
+      requireBuilderModel(binding, 'openai/gpt-5', async () => ({
+        ...(await linked()),
+        allowedModelIds: ['openai/gpt-5'],
+      })),
+    ).resolves.toMatchObject({ gateway: { fallback: null } });
     // No key for OpenRouter on the gateway.
     await expect(requireBuilderModel(binding, 'openrouter/openai/gpt-5', linked)).rejects.toMatchObject({
       status: 409,
@@ -406,7 +421,7 @@ describe('the builder catalog an account is offered', () => {
     };
     const settings = async (): Promise<AccountModelSettings> => ({
       ...NO_ACCOUNT_MODEL_SETTINGS,
-      gatewayKeys: [{ provider: 'anthropic', revision: 'key@1' }],
+      gatewayKeys: [{ provider: 'anthropic', alias: 'default', revision: 'key@1' }],
       allowedModelIds: [CLOUDFLARE_WORKERS_AI_MODEL, 'anthropic/claude-opus-5-5'],
     });
 
@@ -460,7 +475,7 @@ describe('the builder catalog an account is offered', () => {
 describe("the models an account's admin allows", () => {
   const pro = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/deepseek-ai/deepseek-v4-pro-0813' as const, label: 'Pro' };
   const oss = { ...DEFAULT_WORKERS_AI_MODEL, id: '@cf/openai/gpt-oss-120b' as const, label: 'GPT OSS' };
-  const anthropicKey: GatewayKey[] = [{ provider: 'anthropic', revision: 'key@1' }];
+  const anthropicKey: GatewayKey[] = [{ provider: 'anthropic', alias: 'default', revision: 'key@1' }];
 
   it('offers every compatible model while the admin has chosen none', () => {
     const settings = { ...NO_ACCOUNT_MODEL_SETTINGS, gatewayKeys: anthropicKey };
@@ -472,7 +487,7 @@ describe("the models an account's admin allows", () => {
   });
 
   it("leaves exactly one model per family and generation across Pi's whole catalog", () => {
-    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, revision: 'key@1' }));
+    const everyKey = GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: 'key@1' }));
     const { models } = builderModelCatalogPayload([DEFAULT_WORKERS_AI_MODEL], {
       ...NO_ACCOUNT_MODEL_SETTINGS,
       gatewayKeys: everyKey,

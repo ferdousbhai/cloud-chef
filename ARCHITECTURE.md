@@ -214,13 +214,14 @@ refuses a custom fetch and so cannot be carried by the binding, and Fireworks, w
 
 Every key is the account's own (BYOK), kept in its Secrets Store and attached to the default gateway as a provider
 key, and nothing about it is CloudChef's: the control plane reads the gateway's provider keys from the account each
-time, whoever added them, and uses each provider's default key, or its newest, under whatever alias it has. An
+time, whoever added them, and uses every key a provider has there, in order: the keys stored under a name of their
+own first, by name, then the one named `default` (`findGatewayKeys`). An
 organization's admins, or the person whose own account it is, can also paste a key in Settings, with the
 connection's Cloudflare authorization (`aig.write`, `secrets-store.write`); it goes to Cloudflare once, never into
 CloudChef's storage. Cloudflare's BYOK flow is the only one: it takes a pasted key and stores it as the secret
-`default_{provider}_cloudchef` (alias `cloudchef`, CloudChef's name, so relinking and unlinking delete it), and only
-on a gateway with authentication on and a Secrets Store linked. Linking replaces the provider's keys on the gateway,
-including one added in Cloudflare, which Settings says first; unlinking removes only CloudChef's. Linking first
+`default_{provider}_default` (alias `default`, the one Cloudflare uses when a request names none), and only
+on a gateway with authentication on and a Secrets Store linked. Linking replaces the provider's `default` key,
+including one added in Cloudflare; unlinking removes only that one, and keys under other names stay. Linking first
 readies the gateway: one with both is left alone, one missing either is written back whole (Cloudflare's update
 replaces the gateway) with every other setting kept, authentication on, and the account's first store linked if it
 had none, and a missing gateway is created that way. Turning authentication on is reported in Settings, since the
@@ -232,7 +233,14 @@ A gateway model's request runs Pi's implementation of the provider's API in the 
 AI binding as a universal request to `env.AI.gateway('default')`, at the provider's slug and the endpoint the SDK
 asked for, which the gateway authenticates as the account itself: no gateway token exists and no provider credential
 leaves the Worker, so the gateway adds the stored key, the one `cf-aig-byok-alias` names when it is not the
-provider's default. The logging choice above rides as `cf-aig-*` headers. The runtime asks the control plane
+provider's default (honoured on the binding's universal requests; checked 2026-11-25, after a period in which it was
+ignored). When the provider refuses a key, or says it is spent or rate-limited, the same request goes again with the
+account's next key (`createGatewayFetch` in `pi-ai-models.ts`). When none gets an answer, or the provider itself is
+failing, and nothing of the response was written yet, the request is answered by CloudChef's pinned Workers AI
+model instead, if the account allows it (`answeredOrElse`), so the turn goes on. A chat remembers a refused or
+spent key for an hour (`unusableModelKeys` in its agent's state), so its later requests and turns start with the
+next key, or the Workers AI model, without meeting the refusal again; a key replaced on the gateway is another key
+and is tried at once, and a rate limit is never remembered. The logging choice above rides as `cf-aig-*` headers. The runtime asks the control plane
 (`/api/cloudflare/runtime-models`) for its catalog and before each gateway model's turn which keys (provider and
 alias) are on the gateway, which the control plane asks Cloudflare each time; no answer means only Workers AI. The
 same answer carries the account's default model (`cloudflare_connections.default_builder_model`), chosen by its

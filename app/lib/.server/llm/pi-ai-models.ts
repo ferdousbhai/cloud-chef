@@ -1,5 +1,6 @@
 import type {
   Api,
+  AssistantMessageEvent,
   AssistantMessageEventStream,
   Model,
   ModelCost,
@@ -21,9 +22,11 @@ import {
   type AnthropicOptions,
 } from '@earendil-works/pi-ai/api/anthropic-messages';
 import { MIN_ANSWER_TOKENS, thinkingBudgetForLevel } from '@earendil-works/pi-ai/api/simple-options';
+import { createAssistantMessageEventStream } from '@earendil-works/pi-ai/utils/event-stream';
 import { modelTokenEstimateSafetyTokens } from 'cloudchef-agent/context-limits';
 import { z } from 'zod';
 import {
+  GATEWAY_KEY_ALIAS,
   GATEWAY_PROVIDERS,
   gatewayModelProvider,
   type BuilderModel,
@@ -156,17 +159,135 @@ export function getPiModel(
     model?: BuilderModel;
     sessionAffinity?: string;
     gatewayLogging: WorkersAiGatewayLogging;
-    /** For a gateway provider's model: which of the account's keys for the provider it is, as Cloudflare last changed it. */
-    gatewayKeyRevision?: string;
+    /**
+     * For a gateway provider's model: the account's keys for the provider, in the order they are tried, and the
+     * Workers AI model the turn goes on with when none of them gets an answer.
+     */
+    gateway?: {
+      keys: readonly GatewayRouteKey[];
+      fallback: BuilderModel | null;
+      /** Which of those keys were found unusable lately, kept by the caller so later turns don't ask them again. */
+      unusable?: UnusableKeys;
+    };
   },
 ): ModelHandle {
-  if (gatewayModelProvider(modelId) !== null) {
-    return getGatewayPiModel(accountCredentials, modelId, {
-      gatewayLogging: settings.gatewayLogging,
-      keyRevision: settings.gatewayKeyRevision,
-      sessionAffinity: settings.sessionAffinity,
-    });
+  if (gatewayModelProvider(modelId) === null) {
+    return getWorkersAiPiModel(accountCredentials, modelId, settings);
   }
+  const unreached: ProviderUnreached = { reason: null };
+  const provider = gatewayModelProvider(modelId);
+  const keys = (settings.gateway?.keys ?? []).map((key) => ({
+    ...key,
+    id: `${provider}:${key.alias}:${key.revision}`,
+  }));
+  const unusable = settings.gateway?.unusable ?? rememberedForThisTurn();
+  const primary = getGatewayPiModel(accountCredentials, modelId, {
+    gatewayLogging: settings.gatewayLogging,
+    keys,
+    unusable,
+    sessionAffinity: settings.sessionAffinity,
+    unreached,
+  });
+  const fallbackModel = settings.gateway?.fallback;
+  if (!fallbackModel) {
+    return primary;
+  }
+  const fallback = getWorkersAiPiModel(accountCredentials, fallbackModel.id, {
+    model: fallbackModel,
+    sessionAffinity: settings.sessionAffinity,
+    gatewayLogging: settings.gatewayLogging,
+  });
+  // The level asked of the provider's model isn't one the Workers AI model was offered at: it runs at its own.
+  const onFallback = (context: TranscriptContext, options: ModelStreamOptions = {}) => {
+    const { reasoning: _reasoning, ...rest } = options;
+    recordPiStage('gateway_fallback_to_workers_ai', fallback.model.id);
+    return fallback.stream(fallback.model, context, rest);
+  };
+  return {
+    model: primary.model,
+    stream: (streamModel, context, options) => {
+      // Every key was found unusable lately: nothing is asked of the provider until one is worth trying again.
+      if (keys.length > 0 && keys.every((key) => unusable.has(key.id))) {
+        return onFallback(context, options);
+      }
+      unreached.reason = null;
+      return answeredOrElse(
+        primary.stream(streamModel, context, options),
+        () => unreached.reason !== null,
+        () => onFallback(context, options),
+      );
+    },
+  };
+}
+
+/** One of the account's keys for a provider: the name it is stored under on the gateway, and which key that is. */
+type GatewayRouteKey = { alias: string; revision: string };
+
+/**
+ * The keys a provider refused or said were spent, by `provider:alias:revision`, so a request skips them instead of
+ * meeting the same refusal: `add` when one is found so, `has` while that still counts. Whoever keeps it decides for
+ * how long (a balance gets topped up); a key replaced on the gateway has a new revision and starts afresh.
+ */
+export type UnusableKeys = { has(key: string): boolean; add(key: string): void };
+
+/** Kept only as long as the handle: what a caller that remembers nothing across turns gets. */
+function rememberedForThisTurn(): UnusableKeys {
+  const found = new Set<string>();
+  return { has: (key) => found.has(key), add: (key) => void found.add(key) };
+}
+
+/**
+ * What a gateway request found when its provider gave no answer with any of the account's keys: `keys` when the
+ * last of them was refused, spent or rate-limited, `service` when the provider itself failed. Null while the
+ * provider answers. Written by the request, read by the turn's fallback.
+ */
+type ProviderUnreached = { reason: 'keys' | 'service' | null };
+
+/**
+ * `primary`, unless it ends in an error before writing anything and `unreached()` says its provider gave no answer:
+ * then `fallback`'s stream instead, as if it had been asked first. Once anything was written the response is
+ * `primary`'s to finish, error or not.
+ */
+function answeredOrElse(
+  primary: AssistantMessageEventStream,
+  unreached: () => boolean,
+  fallback: () => AssistantMessageEventStream,
+): AssistantMessageEventStream {
+  const out = createAssistantMessageEventStream();
+  void (async () => {
+    const held: AssistantMessageEvent[] = [];
+    let writing = false;
+    for await (const event of primary) {
+      if (!writing) {
+        if (event.type === 'start') {
+          held.push(event);
+          continue;
+        }
+        if (event.type === 'error' && unreached()) {
+          for await (const answered of fallback()) {
+            out.push(answered);
+          }
+          out.end();
+          return;
+        }
+        writing = true;
+        for (const started of held) {
+          out.push(started);
+        }
+      }
+      out.push(event);
+    }
+    out.end();
+  })();
+  return out;
+}
+
+/** A Workers AI model, streamed through the account's own binding. */
+function getWorkersAiPiModel(
+  accountCredentials: WorkersAiAccountCredentials,
+  modelId: BuilderModelId,
+  settings: { model?: BuilderModel; sessionAffinity?: string; gatewayLogging: WorkersAiGatewayLogging },
+): ModelHandle {
   // Pi's entry for the model; a model Pi does not list is never offered (`readWorkersAiBuilderModelCatalog`).
   const catalog: PiCatalogEntry | undefined = piWorkersAiModel(modelId);
   const model: Model<Api> = {
@@ -345,17 +466,25 @@ export function gatewayKeyRejectedMessage(provider: GatewayProviderSlug): string
  * ceiling, and thinking compatibility, exactly as Pi describes it. Only the transport is CloudChef's:
  * the SDK's request is handed to the account's own `default` AI Gateway through the Workers AI
  * binding, which the gateway accepts as the account itself, so no gateway token exists. The gateway
- * adds the account's stored key for the provider (BYOK) because the request carries none: the SDK's
- * own credential header never leaves this Worker.
+ * adds one of the account's stored keys for the provider (BYOK) because the request carries none: the
+ * SDK's own credential header never leaves this Worker.
  */
 function getGatewayPiModel(
   accountCredentials: WorkersAiAccountCredentials,
   modelId: BuilderModelId,
   {
     gatewayLogging,
-    keyRevision,
+    keys,
     sessionAffinity,
-  }: { gatewayLogging: WorkersAiGatewayLogging; keyRevision?: string; sessionAffinity?: string },
+    unusable,
+    unreached,
+  }: {
+    gatewayLogging: WorkersAiGatewayLogging;
+    keys: readonly (GatewayRouteKey & { id: string })[];
+    unusable: UnusableKeys;
+    sessionAffinity?: string;
+    unreached: ProviderUnreached;
+  },
 ): ModelHandle {
   const entry = piGatewayModel(modelId);
   if (!entry) {
@@ -367,7 +496,9 @@ function getGatewayPiModel(
     endpoint: `${new URL(entry.model.baseUrl).pathname}/${transport.endpoint}`.replace(/^\/+/, ''),
     forwardedHeaders: transport.forwardedHeaders,
     gatewayLogging,
-    keyRevision,
+    keys,
+    unusable,
+    unreached,
   };
   const handle: ModelHandle = {
     model: entry.model,
@@ -406,7 +537,11 @@ type GatewayRequestHeaders = WorkersAiGatewayHeaders & Record<string, string> & 
  * provider, at the one endpoint the builder uses. The body goes as the SDK wrote it; the headers are
  * the provider API's own (its version and betas), plus the gateway's: whether to log the request,
  * filed under the chat and person when logged, as the person chose in Settings, and never cached. The
- * gateway adds the account's `default` key for the provider, the only one it uses on binding requests.
+ * gateway adds the account's key for the provider that the request names (`cf-aig-byok-alias`), or its
+ * `default` one. The account's keys are tried in order: when the provider refuses one, or says it is
+ * spent or rate-limited, the same request goes again with the next, and a refused or spent key is
+ * remembered (`unusable`) so later requests start with the next one. What the last one answered is the
+ * answer, and `unreached` says when that was no answer at all, so the turn can go on with another model.
  *
  * One refusal is answered once by a corrected request: OpenAI refuses reasoning summaries to an
  * organization it hasn't verified, so that request goes again without one, and requests with that key
@@ -419,8 +554,11 @@ function createGatewayFetch(
     endpoint: string;
     forwardedHeaders: readonly string[];
     gatewayLogging: WorkersAiGatewayLogging;
-    /** Which of the account's keys for the provider the turn looked up. */
-    keyRevision?: string;
+    /** The account's keys for the provider, in the order they are tried; none sends with its `default`. */
+    keys: readonly (GatewayRouteKey & { id: string })[];
+    /** The keys found unusable lately, skipped while another is left, and added to as more are found. */
+    unusable: UnusableKeys;
+    unreached: ProviderUnreached;
     /** The model this request is for, and whether it asked for a reasoning level. */
     reasoning: { model: Model<Api>; requested: boolean; summaries: boolean };
   },
@@ -440,60 +578,94 @@ function createGatewayFetch(
         forwarded[name] = value;
       }
     }
-    const send = (query: ProviderRequestBody | WrittenBody) => {
-      const headers: GatewayRequestHeaders = {
-        'content-type': 'application/json',
-        ...workersAiGatewayHeaders(route.gatewayLogging),
-        ...forwarded,
-      };
-      return binding
-        .gateway(GATEWAY_ID)
-        .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
-    };
-    // Which key a refusal of reasoning summaries is remembered against, so a key put in its place since
-    // starts afresh.
-    const refusalKey = `${route.provider}:${route.keyRevision ?? ''}`;
-    const summariesRefused = refusedSummaryKeys(binding);
-    // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
     const body = await request.json();
-    const parsed = providerRequestBodySchema.safeParse(body);
-    const query = parsed.success
-      ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
-          requested: route.reasoning.requested,
-          summaries: summariesRefused.has(refusalKey) ? 'refused' : route.reasoning.summaries,
-        })
-      : writtenBodySchema.parse(body);
-    let response = await send(query);
-    if (response.status === 400 && route.reasoning.model.api === 'anthropic-messages') {
-      // Claude refuses replayed thinking whose signature no longer matches: one bound to a conversation
-      // whose earlier turns have changed since (enforced for accounts made from 2026-08-31), or one it
-      // cannot read. Its documented recovery is to send the conversation once more without any thinking
-      // blocks, so the turn goes on without that reasoning rather than failing.
-      const withoutThinking = refusesReplayedThinking(await readText(response.clone()))
-        ? withoutThinkingBlocks(query)
-        : null;
-      if (withoutThinking) {
+    /** The request with one of the account's keys, corrected once where the provider says how. */
+    const sendWithKey = async (key: GatewayRouteKey): Promise<Response> => {
+      const send = (query: ProviderRequestBody | WrittenBody) => {
+        const headers: GatewayRequestHeaders = {
+          'content-type': 'application/json',
+          ...workersAiGatewayHeaders(route.gatewayLogging),
+          ...forwarded,
+        };
+        if (key.alias !== GATEWAY_KEY_ALIAS) {
+          headers['cf-aig-byok-alias'] = key.alias;
+        }
+        return binding
+          .gateway(GATEWAY_ID)
+          .run({ provider: route.provider, endpoint, headers, query }, { signal: request.signal });
+      };
+      // Which key a refusal of reasoning summaries is remembered against, so a key put in its place since
+      // starts afresh.
+      const refusalKey = `${route.provider}:${key.alias}:${key.revision}`;
+      const summariesRefused = refusedSummaryKeys(binding);
+      // A body whose reasoning fields are not shaped as Pi writes them goes exactly as written.
+      const parsed = providerRequestBodySchema.safeParse(body);
+      const query = parsed.success
+        ? withProviderDefaultReasoning(route.reasoning.model, parsed.data, {
+            requested: route.reasoning.requested,
+            summaries: summariesRefused.has(refusalKey) ? 'refused' : route.reasoning.summaries,
+          })
+        : writtenBodySchema.parse(body);
+      let response = await send(query);
+      if (response.status === 400 && route.reasoning.model.api === 'anthropic-messages') {
+        // Claude refuses replayed thinking whose signature no longer matches: one bound to a conversation
+        // whose earlier turns have changed since (enforced for accounts made from 2026-08-31), or one it
+        // cannot read. Its documented recovery is to send the conversation once more without any thinking
+        // blocks, so the turn goes on without that reasoning rather than failing.
+        const withoutThinking = refusesReplayedThinking(await readText(response.clone()))
+          ? withoutThinkingBlocks(query)
+          : null;
+        if (withoutThinking) {
+          await response.body?.cancel().catch(() => undefined);
+          request.signal.throwIfAborted();
+          recordPiStage('gateway_thinking_stripped_retry', route.reasoning.model.id);
+          response = await send(withoutThinking);
+        }
+      }
+      if (
+        response.status === 400 &&
+        parsed.success &&
+        parsed.data.reasoning?.summary !== undefined &&
+        refusesReasoningSummaries(await readText(response.clone()))
+      ) {
+        summariesRefused.add(refusalKey);
+        delete parsed.data.reasoning.summary;
+        if (Object.keys(parsed.data.reasoning).length === 0) {
+          delete parsed.data.reasoning;
+        }
         await response.body?.cancel().catch(() => undefined);
         request.signal.throwIfAborted();
-        recordPiStage('gateway_thinking_stripped_retry', route.reasoning.model.id);
-        response = await send(withoutThinking);
+        recordPiStage('gateway_corrected_retry', route.reasoning.model.id);
+        response = await send(query);
       }
-    }
-    if (
-      response.status === 400 &&
-      parsed.success &&
-      parsed.data.reasoning?.summary !== undefined &&
-      refusesReasoningSummaries(await readText(response.clone()))
-    ) {
-      summariesRefused.add(refusalKey);
-      delete parsed.data.reasoning.summary;
-      if (Object.keys(parsed.data.reasoning).length === 0) {
-        delete parsed.data.reasoning;
+      return response;
+    };
+    const known = route.keys.length > 0 ? route.keys : [{ alias: GATEWAY_KEY_ALIAS, revision: '', id: '' }];
+    const worthTrying = known.filter((key) => !route.unusable.has(key.id));
+    const keys = worthTrying.length > 0 ? worthTrying : known;
+    let response = new Response(null, { status: 401 });
+    for (const [index, key] of keys.entries()) {
+      try {
+        response = await sendWithKey(key);
+      } catch (failure) {
+        // The gateway itself couldn't be asked: not this key's doing, and not an answer.
+        route.unreached.reason = request.signal.aborted ? null : 'service';
+        throw failure;
       }
-      await response.body?.cancel().catch(() => undefined);
-      request.signal.throwIfAborted();
-      recordPiStage('gateway_corrected_retry', route.reasoning.model.id);
-      response = await send(query);
+      const last = index === keys.length - 1;
+      const refused = await keyUnusable(response);
+      // A rate limit passes within the minute; a refused or spent key is not asked again for a while.
+      if (refused && response.status !== 429 && key.id) {
+        route.unusable.add(key.id);
+      }
+      if (refused && !last) {
+        await response.body?.cancel().catch(() => undefined);
+        request.signal.throwIfAborted();
+        recordPiStage('gateway_next_key', route.reasoning.model.id);
+        continue;
+      }
+      route.unreached.reason = refused ? 'keys' : response.status >= 500 ? 'service' : null;
+      break;
     }
     if (response.status === 401 || response.status === 403) {
       await response.body?.cancel().catch(() => undefined);
@@ -508,6 +680,21 @@ function createGatewayFetch(
     }
     return response;
   };
+}
+
+/**
+ * Whether a provider's answer says the key it was asked with can't be used now, so the account's next key is worth
+ * trying: refused (401, 403), out of credit (402, or the 400 Anthropic answers with for a spent balance), over its
+ * rate limit (429), or no longer on the gateway under that name (the gateway's 400, code 2040).
+ */
+async function keyUnusable(response: Response): Promise<boolean> {
+  if (response.status === 401 || response.status === 402 || response.status === 403 || response.status === 429) {
+    return true;
+  }
+  if (response.status !== 400) {
+    return false;
+  }
+  return /credit balance|billing|no BYOK credential|"internalCode":\s*2040/i.test(await readText(response.clone()));
 }
 
 /**

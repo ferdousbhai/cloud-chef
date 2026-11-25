@@ -540,7 +540,7 @@ describe('Settings: models', () => {
     });
     const connection = connectionOf(database);
     expect(await linkedGatewayKeys(env, connection, openAccountApi)).toEqual([
-      { provider: 'anthropic', revision: expect.stringMatching(/^config-/) },
+      { provider: 'anthropic', alias: 'default', revision: expect.stringMatching(/^config-/) },
     ]);
     const gatewayLinked = cloudflare.gateway();
 
@@ -589,7 +589,7 @@ describe('Settings: models', () => {
     expect(cloudflare.providers).toEqual([mistralKey]);
   });
 
-  it('uses a key added in Cloudflare only under the name default, and says which keys it cannot use', async () => {
+  it('uses every key a provider has on the gateway, the ones under a name of their own before default', async () => {
     const { env, admin, cloudflare, database } = await setup();
     const openAccountApi = cloudflare.openAccountApi;
     const dashboardKey = (id: string, provider: string, alias: string) => ({
@@ -607,7 +607,6 @@ describe('Settings: models', () => {
       dashboardKey('config-main', 'openai', 'default'),
     );
 
-    // Cloudflare uses only a provider's key named default on CloudChef's requests.
     expect(await (await modelSettingsAction({ request: get(admin.cookie), env, openAccountApi })).json()).toMatchObject(
       {
         keys: {
@@ -621,8 +620,11 @@ describe('Settings: models', () => {
         },
       },
     );
+    // A runtime is given each provider's keys in the order it tries them.
     expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual([
-      { provider: 'openai', revision: 'config-main@' },
+      { provider: 'anthropic', alias: 'sg', revision: 'config-sg@' },
+      { provider: 'openai', alias: 'old', revision: 'config-old@' },
+      { provider: 'openai', alias: 'default', revision: 'config-main@' },
     ]);
 
     // Linking a key in CloudChef saves it under that name, and leaves the others as they are.
@@ -664,7 +666,7 @@ describe('Settings: models', () => {
       'default_openrouter_default',
     ]);
     expect(await linkedGatewayKeys(env, connectionOf(database), openAccountApi)).toEqual(
-      GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, revision: expect.any(String) })),
+      GATEWAY_PROVIDER_SLUGS.map((provider) => ({ provider, alias: 'default', revision: expect.any(String) })),
     );
 
     await unlinkGatewayKeyAction({
@@ -840,7 +842,7 @@ describe("the team's default model", () => {
         gatewayKeys: async () => keys,
       });
 
-    const keys: GatewayKey[] = [{ provider: 'anthropic', revision: 'key@1' }];
+    const keys: GatewayKey[] = [{ provider: 'anthropic', alias: 'default', revision: 'key@1' }];
     expect(await (await ask(keys)).json()).toEqual({
       defaultModelId: 'anthropic/claude-opus-5-5',
       gatewayKeys: keys,

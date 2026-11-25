@@ -116,10 +116,39 @@ export async function readWorkersAiBuilderModelCatalog(
 }
 
 /**
+ * How a gateway provider's model is reached for a turn: the account's keys for the provider, tried in this order,
+ * and the Workers AI model the turn goes on with when the provider can't be reached with any of them (null when
+ * the account doesn't allow that model, or it can't be confirmed).
+ */
+export type GatewayRoute = {
+  keys: readonly { alias: string; revision: string }[];
+  fallback: BuilderModel | null;
+};
+
+/**
+ * CloudChef's pinned Workers AI model, when the account allows and can serve it: what a turn on a provider's model
+ * falls back to. It needs no key, so it answers when a provider's keys are spent, refused or its service is down.
+ */
+async function workersAiFallback(
+  binding: WorkersAiCatalogBinding,
+  settings: AccountModelSettings,
+): Promise<BuilderModel | null> {
+  if (!isBuilderModelAllowed(settings, CLOUDFLARE_WORKERS_AI_MODEL)) {
+    return null;
+  }
+  try {
+    return await requireWorkersAiBuilderModel(binding, CLOUDFLARE_WORKERS_AI_MODEL, settings);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The model a builder turn runs on, confirmed against what the account allows and can serve now: the
  * account's admin must allow it; a Workers AI model is checked against the account's live catalog; a
  * gateway provider's model against Pi's catalog and the account's keys on its default gateway. A
- * gateway model comes with which of the account's keys for its provider it runs with.
+ * gateway model comes with the account's keys for its provider, in the order they are tried, and the
+ * model the turn goes on with when none of them gets an answer (`GatewayRoute`).
  *
  * Fail closed: settings that could not be learned (null, or a lookup that threw) say nothing about
  * what the admin allows or which keys are there, so the turn is refused as a check that could not be
@@ -131,7 +160,7 @@ export async function requireBuilderModel(
   binding: WorkersAiCatalogBinding,
   modelId: BuilderModelId,
   accountSettings: () => Promise<AccountModelSettings | null>,
-): Promise<{ model: BuilderModel; gatewayKeyRevision?: string }> {
+): Promise<{ model: BuilderModel; gateway?: GatewayRoute }> {
   let settings: AccountModelSettings | null;
   try {
     settings = await accountSettings();
@@ -158,14 +187,20 @@ export async function requireBuilderModel(
   }
   // A provider's model is sent only while the account's gateway holds its own key for it.
   const { label } = GATEWAY_PROVIDERS[provider];
-  const key = settings.gatewayKeys.find((candidate) => candidate.provider === provider);
-  if (!key) {
+  const keys = settings.gatewayKeys.filter((candidate) => candidate.provider === provider);
+  if (keys.length === 0) {
     throw new Response(
       `${label} is not set up for this account. An admin can link a ${label} key in Settings, under Models.`,
       { status: 409 },
     );
   }
-  return { model, gatewayKeyRevision: key.revision };
+  return {
+    model,
+    gateway: {
+      keys: keys.map(({ alias, revision }) => ({ alias, revision })),
+      fallback: await workersAiFallback(binding, settings),
+    },
+  };
 }
 
 /**

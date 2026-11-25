@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CLOUDFLARE_WORKERS_AI_MODELS } from '@earendil-works/pi-ai/providers/cloudflare-workers-ai.models';
 import { normalizeContext, type Message } from '@earendil-works/pi-ai';
 import { z } from 'zod';
-import { CLOUDFLARE_PROJECT_TITLE_MODEL, type BuilderModelId } from '~/lib/workers-ai-model';
+import { CLOUDFLARE_PROJECT_TITLE_MODEL, type BuilderModel, type BuilderModelId } from '~/lib/workers-ai-model';
 import { gatewayKeyRejectedMessage, getPiModel, type WorkersAiAccountCredentials } from './pi-ai-models';
 import { completeText } from './pi-ai-invoke';
 import type { ProviderRequestBody } from './provider-default-reasoning';
@@ -270,10 +270,13 @@ describe("a gateway provider's model", () => {
     return sse([chunk({ role: 'assistant', content: text }, null), last], { done: true });
   }
 
+  /** The provider's one key, as Cloudflare last changed it, with nothing to fall back to. */
+  const keyed = (revision: string) => ({ gateway: { keys: [{ alias: 'default', revision }], fallback: null } });
+
   async function streamOnce(
     credentials: WorkersAiAccountCredentials,
     modelId: BuilderModelId,
-    settings: { gatewayLogging?: WorkersAiGatewayLogging; gatewayKeyRevision?: string } = {},
+    settings: { gatewayLogging?: WorkersAiGatewayLogging; gateway?: Parameters<typeof getPiModel>[2]['gateway'] } = {},
     { reasoning, messages }: { reasoning?: 'high'; messages?: Message[] } = {},
   ) {
     const handle = getPiModel(credentials, modelId, { gatewayLogging: WORKERS_AI_GATEWAY_UNLOGGED, ...settings });
@@ -435,19 +438,19 @@ describe("a gateway provider's model", () => {
       request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
     );
 
-    const first = await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-1' });
+    const first = await streamOnce(credentials, 'openai/gpt-5', keyed('key-1'));
 
     expect(first.stopReason).toBe('stop');
     expect(calls.map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
     // The rest of the request is unchanged.
     expect(calls[1]?.request.query).toEqual({ ...calls[0]?.request.query, reasoning: undefined });
 
-    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-1' });
+    await streamOnce(credentials, 'openai/gpt-5', keyed('key-1'));
     expect(calls).toHaveLength(3);
     expect(calls[2]?.request.query.reasoning?.summary).toBeUndefined();
 
     // Another key on the same account is asked afresh.
-    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-2' });
+    await streamOnce(credentials, 'openai/gpt-5', keyed('key-2'));
     expect(calls.slice(3).map(({ request }) => request.query.reasoning?.summary)).toEqual(['auto', undefined]);
   });
 
@@ -455,15 +458,10 @@ describe("a gateway provider's model", () => {
     const { calls, credentials } = gatewayBinding((request) =>
       request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
     );
-    await streamOnce(credentials, 'openai/gpt-5', { gatewayKeyRevision: 'key-1' });
+    await streamOnce(credentials, 'openai/gpt-5', keyed('key-1'));
     expect(calls).toHaveLength(2);
 
-    const chosen = await streamOnce(
-      credentials,
-      'openai/gpt-5',
-      { gatewayKeyRevision: 'key-1' },
-      { reasoning: 'high' },
-    );
+    const chosen = await streamOnce(credentials, 'openai/gpt-5', keyed('key-1'), { reasoning: 'high' });
 
     expect(chosen.stopReason).toBe('stop');
     // Pi writes a summary itself beside a chosen effort; it never goes out, and only one request does.
@@ -475,7 +473,7 @@ describe("a gateway provider's model", () => {
     const { calls, credentials } = gatewayBinding((request) =>
       request.query.reasoning?.summary === undefined ? openaiResponsesStream('Hello', 'gpt-5') : unverified(),
     );
-    const key = (gatewayKeyRevision: string) => ({ gatewayKeyRevision });
+    const key = keyed;
 
     await streamOnce(credentials, 'openai/gpt-5', key('key-1@2026-10-01'));
     await streamOnce(credentials, 'openai/gpt-5', key('key-1@2026-10-01'));
@@ -648,6 +646,123 @@ describe("a gateway provider's model", () => {
 
       expect(other.calls).toHaveLength(1);
       expect(bare.calls).toHaveLength(1);
+    });
+  });
+
+  describe('an account with several keys for a provider', () => {
+    const REFUSED = () =>
+      Response.json({ type: 'error', error: { type: 'authentication_error', message: 'no' } }, { status: 401 });
+    const SPENT = () =>
+      Response.json(
+        {
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: 'Your credit balance is too low to access the Anthropic API.',
+          },
+        },
+        { status: 400 },
+      );
+    const sgThenDefault = [
+      { alias: 'sg', revision: 'r1' },
+      { alias: 'default', revision: 'r2' },
+    ];
+    const FALLBACK: BuilderModel = {
+      id: CLOUDFLARE_PROJECT_TITLE_MODEL,
+      label: 'Workers AI',
+      description: '',
+      contextTokens: 131_072,
+      requiresPaid: false,
+      reasoning: false,
+      vision: false,
+    };
+    /** What a caller keeps between turns: the keys found unusable. */
+    function remembering() {
+      const found = new Set<string>();
+      return { found, unusable: { has: (key: string) => found.has(key), add: (key: string) => void found.add(key) } };
+    }
+    /** A binding whose gateway answers by the key a request names, and whose Workers AI model answers `text`. */
+    function account(byAlias: Record<string, () => Response>, text = 'From Workers AI') {
+      const { calls, credentials } = gatewayBinding((request) =>
+        (byAlias[request.headers['cf-aig-byok-alias'] ?? 'default'] ?? REFUSED)(),
+      );
+      const ran: string[] = [];
+      const run = async (model: string) => {
+        ran.push(model);
+        return chatCompletionsStream(text, model);
+      };
+      return { calls, ran, credentials: { binding: Object.assign(credentials.binding, { run }) } };
+    }
+    const aliases = (calls: readonly GatewayCall[]) =>
+      calls.map((call) => call.request.headers['cf-aig-byok-alias'] ?? 'default');
+    const textOf = (message: { content: readonly { type: string; text?: string }[] }) =>
+      message.content.map((part) => part.text ?? '').join('');
+
+    it('asks with each in order, and remembers one refused or spent so the next request starts after it', async () => {
+      for (const failure of [REFUSED, SPENT]) {
+        const { calls, credentials } = account({ sg: failure, default: () => anthropicStream('From default') });
+        const { found, unusable } = remembering();
+        const gateway = { keys: sgThenDefault, fallback: null, unusable };
+
+        expect(textOf(await streamOnce(credentials, opus, { gateway }))).toBe('From default');
+        expect(aliases(calls)).toEqual(['sg', 'default']);
+        expect([...found]).toEqual(['anthropic:sg:r1']);
+
+        // The next request, in this turn or a later one that kept it, doesn't meet the same refusal.
+        expect(textOf(await streamOnce(credentials, opus, { gateway }))).toBe('From default');
+        expect(aliases(calls)).toEqual(['sg', 'default', 'default']);
+      }
+    });
+
+    it('tries the next key for a rate limit without holding it against the first', async () => {
+      const limited = () => Response.json({ type: 'error', error: { type: 'rate_limit_error' } }, { status: 429 });
+      const { calls, credentials } = account({ sg: limited, default: () => anthropicStream('From default') });
+      const { found, unusable } = remembering();
+
+      await streamOnce(credentials, opus, { gateway: { keys: sgThenDefault, fallback: null, unusable } });
+      expect(aliases(calls)).toEqual(['sg', 'default']);
+      expect([...found]).toEqual([]);
+    });
+
+    it('goes on with the Workers AI model when no key gets an answer, and straight to it from then on', async () => {
+      const { calls, ran, credentials } = account({ sg: SPENT, default: REFUSED });
+      const { found, unusable } = remembering();
+      const gateway = { keys: sgThenDefault, fallback: FALLBACK, unusable };
+
+      const answered = await streamOnce(credentials, opus, { gateway });
+      expect(answered.stopReason).toBe('stop');
+      expect(textOf(answered)).toBe('From Workers AI');
+      expect(aliases(calls)).toEqual(['sg', 'default']);
+      expect([...found]).toEqual(['anthropic:sg:r1', 'anthropic:default:r2']);
+
+      // Nothing is asked of the provider while every key is remembered unusable.
+      expect(textOf(await streamOnce(credentials, opus, { gateway }))).toBe('From Workers AI');
+      expect(calls).toHaveLength(2);
+      expect(ran).toEqual([CLOUDFLARE_PROJECT_TITLE_MODEL, CLOUDFLARE_PROJECT_TITLE_MODEL]);
+
+      // A key replaced on the gateway is another key, tried at once.
+      const replaced = account({ sg: () => anthropicStream('From the new key') });
+      const next = { ...gateway, keys: [{ alias: 'sg', revision: 'r9' }, sgThenDefault[1]!] };
+      expect(textOf(await streamOnce(replaced.credentials, opus, { gateway: next }))).toBe('From the new key');
+    });
+
+    it('goes on with the Workers AI model while the provider itself is failing, holding that against no key', async () => {
+      const down = () => Response.json({ type: 'error', error: { type: 'overloaded_error' } }, { status: 529 });
+      const { ran, credentials } = account({ sg: down, default: down });
+      const { found, unusable } = remembering();
+
+      const answered = await streamOnce(credentials, opus, {
+        gateway: { keys: sgThenDefault, fallback: FALLBACK, unusable },
+      });
+      expect(textOf(answered)).toBe('From Workers AI');
+      expect(ran).toEqual([CLOUDFLARE_PROJECT_TITLE_MODEL]);
+      expect([...found]).toEqual([]);
+    });
+
+    it('reports the refusal when there is no model to go on with', async () => {
+      const { credentials } = account({ sg: REFUSED, default: REFUSED });
+      const refused = await streamOnce(credentials, opus, { gateway: { keys: sgThenDefault, fallback: null } });
+      expect(refused.errorMessage).toContain(gatewayKeyRejectedMessage('anthropic'));
     });
   });
 

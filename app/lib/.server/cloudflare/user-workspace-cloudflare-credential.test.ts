@@ -72,8 +72,8 @@ describe('readAccountModelSettings', () => {
     vi.stubGlobal('fetch', respond);
 
     const gatewayKeys = [
-      { provider: 'anthropic', revision: 'key-sg@1' },
-      { provider: 'openrouter', revision: 'key-default@1' },
+      { provider: 'anthropic', alias: 'sg', revision: 'key-sg@1' },
+      { provider: 'openrouter', alias: 'default', revision: 'key-default@1' },
     ];
     const allowedModelIds = ['anthropic/claude-opus-5-5', '@cf/zai-org/glm-5.3-flash'];
     respond.mockResolvedValueOnce(

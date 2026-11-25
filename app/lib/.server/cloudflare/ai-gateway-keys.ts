@@ -11,9 +11,9 @@ import {
 
 /**
  * A gateway provider's models run in a connected account only with that account's own key for the
- * provider, stored on its `default` AI Gateway as a provider key (BYOK) under the alias `default`
- * (`GATEWAY_KEY_ALIAS`) in the account's Secrets Store, whoever added it: an admin in Cloudflare's
- * dashboard, or CloudChef from Settings. CloudChef reads which keys are there from the account itself
+ * provider, stored on its `default` AI Gateway as a provider key (BYOK) in the account's Secrets Store, whoever added
+ * it: an admin in Cloudflare's dashboard, under any name, or CloudChef from Settings, under the alias `default`
+ * (`GATEWAY_KEY_ALIAS`). CloudChef reads which keys are there from the account itself
  * each time, links and unlinks keys with the connection's Cloudflare authorization, and never stores,
  * reads, or returns a key itself.
  */
@@ -51,18 +51,26 @@ export type OpenGatewayKeyAccountApi = (env: Env, connection: CloudflareConnecti
 export const openGatewayKeyAccountApi: OpenGatewayKeyAccountApi = openConnectionAccountApi;
 
 /**
- * The key each gateway provider's requests use on the account's default gateway: the provider's key aliased
- * `default`. Providers CloudChef does not offer, and keys under any other alias, are left out.
+ * Each gateway provider's keys on the account's default gateway, in the order its requests try them: the keys an
+ * admin stored under a name of their own first, by name, then the one named `default`. A named key is a deliberate
+ * choice (credit to spend first, say); `default` is what is left when it can't be used. Providers CloudChef does not
+ * offer, and providers with no key, are left out.
  */
 export async function findGatewayKeys(
   api: Pick<GatewayKeyAccountApi, 'listAiGatewayProviderKeys'>,
-): Promise<Map<GatewayProviderSlug, AiGatewayProviderKey>> {
+): Promise<Map<GatewayProviderSlug, AiGatewayProviderKey[]>> {
   const keys = await api.listAiGatewayProviderKeys(AI_GATEWAY_ID);
-  const found = new Map<GatewayProviderSlug, AiGatewayProviderKey>();
+  const found = new Map<GatewayProviderSlug, AiGatewayProviderKey[]>();
   for (const provider of GATEWAY_PROVIDER_SLUGS) {
-    const key = keys.find(({ providerSlug, alias }) => providerSlug === provider && isDefaultAlias(alias));
-    if (key) {
-      found.set(provider, key);
+    const ordered = keys
+      .filter(({ providerSlug }) => providerSlug === provider)
+      .toSorted(
+        (left, right) =>
+          Number(isDefaultAlias(left.alias)) - Number(isDefaultAlias(right.alias)) ||
+          left.alias.localeCompare(right.alias),
+      );
+    if (ordered.length > 0) {
+      found.set(provider, ordered);
     }
   }
   return found;
@@ -83,10 +91,13 @@ export async function linkedGatewayKeys(
   }
   try {
     const keys = await findGatewayKeys(await open(env, connection));
-    return [...keys].map(([provider, { id, modifiedAt }]) => ({
-      provider,
-      revision: `${id}@${modifiedAt ?? ''}`.slice(0, 256),
-    }));
+    return [...keys].flatMap(([provider, ordered]) =>
+      ordered.map(({ id, alias, modifiedAt }) => ({
+        provider,
+        alias: isDefaultAlias(alias) ? GATEWAY_KEY_ALIAS : alias,
+        revision: `${id}@${modifiedAt ?? ''}`.slice(0, 256),
+      })),
+    );
   } catch {
     console.warn('Unable to confirm which provider keys the account has on its AI Gateway.');
     return [];

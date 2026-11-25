@@ -171,22 +171,24 @@ export function gatewayModelProvider(modelId: BuilderModelId): GatewayProviderSl
 }
 
 /**
- * A provider key on the account's default gateway, as a runtime needs it: which provider, and which key it is, as
- * Cloudflare last changed it (its id and modification time), so what one key was refused isn't held against
- * another put in its place.
+ * A provider key on the account's default gateway, as a runtime needs it: which provider, the name it is stored
+ * under there (its alias), and which key it is, as Cloudflare last changed it (its id and modification time), so what
+ * one key was refused isn't held against another put in its place.
  */
-export type GatewayKey = { provider: GatewayProviderSlug; revision: string };
+export type GatewayKey = { provider: GatewayProviderSlug; alias: string; revision: string };
 
 /**
- * The only alias a provider key is used under. CloudChef's runtimes reach the gateway through their Workers AI
- * binding, and on those requests Cloudflare uses the provider's key aliased `default` and ignores
- * `cf-aig-byok-alias`; a key under any other alias stays on the gateway, unused by CloudChef.
+ * The alias Cloudflare uses for a provider's key when a request names none, and the one Settings saves a pasted key
+ * under. A provider may have other keys on the gateway under names of their own, which a request picks with
+ * `cf-aig-byok-alias` (honoured on the binding's universal requests since November 2026, checked 2026-11-25). A
+ * provider's keys are tried in order: the named ones first, by name, then `default` (`orderedGatewayKeys`).
  */
 export const GATEWAY_KEY_ALIAS = 'default';
 
 export const gatewayKeysSchema = z.array(
   z.object({
     provider: gatewayProviderSlugSchema,
+    alias: z.string().min(1).max(128).default(GATEWAY_KEY_ALIAS),
     revision: z.string().max(256),
   }),
 );
@@ -195,7 +197,7 @@ export const gatewayKeysSchema = z.array(
 export type AccountModelSettings = {
   /** The model the account's admin chose as everyone's default, if any. */
   defaultModelId: string | null;
-  /** The provider keys on the account's default AI Gateway, one per provider: those providers' models can run. */
+  /** The provider keys on the account's default AI Gateway, each provider's in the order they are tried: those providers' models can run. */
   gatewayKeys: GatewayKey[];
   /**
    * The models the account's admin allows in the model picker; null while the admin has not chosen,

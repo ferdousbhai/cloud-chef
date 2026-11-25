@@ -226,7 +226,7 @@ class HarnessConversationAgent extends ConversationAgent {
     return {
       accountCredentials: await getUserWorkersAiCredentials(this.env, userId),
       model: TEST_MODEL,
-      gatewayKeyRevision: undefined,
+      gateway: undefined,
       chosenReasoningLevel: undefined,
     };
   }
@@ -251,7 +251,7 @@ class HarnessConversationAgent extends ConversationAgent {
     if (!this.faux) {
       return super.restoreTurnModel(...args);
     }
-    this.useModel(args[0], await getUserWorkersAiCredentials(this.env, OWNER_ID), TEST_MODEL);
+    this.useModel(args[0], await getUserWorkersAiCredentials(this.env, OWNER_ID), TEST_MODEL, undefined);
   }
 
   protected override async requireModelAccess(): Promise<{ contentLogging: boolean }> {

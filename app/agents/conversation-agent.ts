@@ -136,7 +136,12 @@ import {
 import { createBuilderTools } from '~/lib/.server/llm/builder-tools';
 import { createWorkersAiTools } from '~/lib/.server/llm/workers-ai-tools';
 import { builderModels } from '~/lib/.server/llm/builder-models';
-import { getPiModel, type ModelHandle, type WorkersAiAccountCredentials } from '~/lib/.server/llm/pi-ai-models';
+import {
+  getPiModel,
+  type ModelHandle,
+  type UnusableKeys,
+  type WorkersAiAccountCredentials,
+} from '~/lib/.server/llm/pi-ai-models';
 import { createBuilderSkillContext } from '~/lib/.server/llm/builder-skills';
 import { systemPrompt, type ProjectFacts } from 'cloudchef-agent/prompts/system';
 import {
@@ -204,7 +209,11 @@ import {
 import { workersAiGatewayLogging, type WorkersAiGatewayLogging } from '~/lib/.server/llm/workers-ai-gateway';
 import { recordModelResponse, turnUsage, type ModelTurnUsage } from '~/lib/.server/llm/workers-ai-telemetry';
 import type { Usage } from '@earendil-works/pi-ai';
-import { requireBuilderModel, requireBuilderReasoningLevel } from '~/lib/.server/llm/workers-ai-model-catalog';
+import {
+  requireBuilderModel,
+  requireBuilderReasoningLevel,
+  type GatewayRoute,
+} from '~/lib/.server/llm/workers-ai-model-catalog';
 import { effectiveDefaultModelId } from '~/lib/workers-ai-model';
 import type { ThreadFacts } from 'cloudchef-agent/prompts/system';
 import {
@@ -324,8 +333,10 @@ export type BuilderTurnModel = {
   modelId: BuilderModelId;
   reasoningLevel: BuilderReasoningLevel | undefined;
   contentLogging: boolean;
-  gatewayKeyRevision: string | undefined;
 };
+
+/** How long a chat skips a provider key it found refused or spent before trying it again. */
+const UNUSABLE_KEY_MS = 60 * 60_000;
 
 /** How often a running turn checks its overall time limit and whether it has gone quiet. */
 const TURN_LIMIT_CHECK_MS = 15_000;
@@ -359,6 +370,11 @@ export type ConversationAgentState = {
    * CloudChef refused because main moved elsewhere: told at its next turn.
    */
   untoldChanges?: string[];
+  /**
+   * The provider keys a turn of this chat found refused or spent (`provider:alias:revision`), and until when each is
+   * skipped, so the next turns start with the key, or the Workers AI model, the last one ended on.
+   */
+  unusableModelKeys?: Record<string, number>;
   validationProgress?: {
     toolCallId: string;
     stage: BuilderValidationStage;
@@ -679,7 +695,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       parsed.data,
       durableIdentity.transcript,
     );
-    const { accountCredentials, model, gatewayKeyRevision, chosenReasoningLevel } = await this.chooseModel(
+    const { accountCredentials, model, gateway, chosenReasoningLevel } = await this.chooseModel(
       durableIdentity.userId,
       modelId,
       reasoningLevel,
@@ -761,9 +777,8 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
         modelId,
         reasoningLevel: chosenReasoningLevel,
         contentLogging,
-        gatewayKeyRevision,
       };
-      this.useModel(turnModel, accountCredentials, model);
+      this.useModel(turnModel, accountCredentials, model, gateway);
       this.setState({ ...this.state, turnModel });
       const conversation = await this.piHarness.conversation(ROOT_SESSION);
       const current = this.requireTurnModels();
@@ -802,17 +817,17 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   ): Promise<{
     accountCredentials: WorkersAiAccountCredentials;
     model: BuilderModel;
-    gatewayKeyRevision: string | undefined;
+    gateway: GatewayRoute | undefined;
     chosenReasoningLevel: BuilderReasoningLevel | undefined;
   }> {
     const accountCredentials = await getUserWorkersAiCredentials(this.env, userId);
-    const { model, gatewayKeyRevision } = await requireBuilderModel(accountCredentials.binding, modelId, () =>
+    const { model, gateway } = await requireBuilderModel(accountCredentials.binding, modelId, () =>
       readAccountModelSettings(this.env),
     );
     return {
       accountCredentials,
       model,
-      gatewayKeyRevision,
+      gateway,
       chosenReasoningLevel: requireBuilderReasoningLevel(model, reasoningLevel),
     };
   }
@@ -881,7 +896,12 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
     return createBuilderSkillContext({ starterApp: (await this.projectFacts()).starterApp });
   }
 
-  protected useModel(turnModel: BuilderTurnModel, credentials: WorkersAiAccountCredentials, model: BuilderModel): void {
+  protected useModel(
+    turnModel: BuilderTurnModel,
+    credentials: WorkersAiAccountCredentials,
+    model: BuilderModel,
+    gateway: GatewayRoute | undefined,
+  ): void {
     const transcript = this.transcriptBinding;
     const handle = getPiModel(credentials, turnModel.modelId, {
       model,
@@ -893,9 +913,28 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
           ? { chat: transcript.chatInitialId, user: this.userId, agent: transcript.agentName }
           : undefined,
       ),
-      gatewayKeyRevision: turnModel.gatewayKeyRevision,
+      gateway: gateway && { ...gateway, unusable: this.unusableModelKeys() },
     });
     this.turnModels = { handle, ...builderModels(handle) };
+  }
+
+  /**
+   * The provider keys this chat found refused or spent, kept in its state for `UNUSABLE_KEY_MS`: long enough that a
+   * chat doesn't meet the same refusal every turn, short enough that a balance topped up is found again without
+   * anyone saying so. A key replaced on the gateway is another key (its revision), and is tried at once.
+   */
+  private unusableModelKeys(): UnusableKeys {
+    return {
+      has: (key) => (this.state.unusableModelKeys?.[key] ?? 0) > Date.now(),
+      add: (key) => {
+        const now = Date.now();
+        const kept = Object.entries(this.state.unusableModelKeys ?? {}).filter(([, until]) => until > now);
+        this.setState({
+          ...this.state,
+          unusableModelKeys: Object.fromEntries([...kept, [key, now + UNUSABLE_KEY_MS]]),
+        });
+      },
+    };
   }
 
   /** The model a turn chose, again after a restart, so pi can go on with the run it cut off. */
@@ -905,10 +944,10 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       return;
     }
     const credentials = await getUserWorkersAiCredentials(this.env, userId);
-    const { model } = await requireBuilderModel(credentials.binding, turnModel.modelId, () =>
+    const { model, gateway } = await requireBuilderModel(credentials.binding, turnModel.modelId, () =>
       readAccountModelSettings(this.env),
     );
-    this.useModel(turnModel, credentials, model);
+    this.useModel(turnModel, credentials, model, gateway);
   }
 
   private requireTurnModels(): NonNullable<ConversationAgent['turnModels']> {
