@@ -205,7 +205,7 @@ export function AccountDataCard() {
               Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions,
               default model, and which models the picker offers) and when CloudChef stored and last renewed its access
               to that Cloudflare account, which everyone building there shares, so someone else may have given it; your
-              workspaces; the spaces you are in, your model use there, and the projects you were given; your team
+              workspaces; the accounts you are in, your model use there, and the projects you were given; your team
               project requests (asking for a draft to become a team project), with which saved version of it was sent;
               GitHub connections you started; emailed sign-in links; and sign-in and authorization session records.
               Secrets are left out: CloudChef&apos;s stored keys to Cloudflare, sign-in tokens, and the codes used to
@@ -390,7 +390,7 @@ export function AccountDataCard() {
 /** Who an authorization was kept for, in words: teams by name, and someone else's own space without saying whose. */
 function keptForText(account: KeptAuthorization): string {
   const who = [
-    ...account.teams.map((team) => `the space ${team}`),
+    ...account.teams.map((team) => `the account ${team}`),
     ...(account.someoneElsesOwnSpace ? ['another person working on their own'] : []),
   ];
   return who.length <= 1 ? (who[0] ?? 'someone else') : `${who.slice(0, -1).join(', ')} and ${who.at(-1)}`;

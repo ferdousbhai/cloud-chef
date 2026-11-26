@@ -184,7 +184,7 @@ function cloudchefTools(person: WebMcpPerson): WebMcpTool[] {
       name: 'list_approvals',
       title: 'List approvals',
       description:
-        'Lists what waits for the signed-in person as an admin of their spaces: Cloudflare changes members asked for. Approving or declining is done by the person on the Approvals page.',
+        'Lists what waits for the signed-in person as an admin of their accounts: Cloudflare changes members asked for. Approving or declining is done by the person on the Approvals page.',
       input: z.object({}),
       readOnly: true,
       run: async () => {

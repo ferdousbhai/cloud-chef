@@ -31,9 +31,9 @@ export function ProjectPeople({
         <span
           key={person.userId}
           title={`${person.name} · ${roleWords(person.role)}`}
-          className={`rounded-full ring-2 ring-bolt-elements-background-depth-1 ${index > 0 ? '-ml-1.5' : ''}`}
+          className={`rounded-full ring-2 ring-bolt-elements-background-depth-1 ${index > 0 ? '-ml-1' : ''}`}
         >
-          <Avatar name={person.name} image={person.image} size={22} />
+          <Avatar name={person.name} image={person.image} size={24} />
         </span>
       ))}
       {more > 0 ? (
@@ -42,7 +42,7 @@ export function ProjectPeople({
             .slice(FACES_SHOWN)
             .map((person) => person.name)
             .join(', ')}
-          className="-ml-1.5 flex h-[22px] min-w-[22px] items-center justify-center rounded-full bg-bolt-elements-background-depth-3 px-1 text-[11px] font-medium text-content-secondary ring-2 ring-bolt-elements-background-depth-1"
+          className="-ml-1 flex h-6 min-w-6 items-center justify-center rounded-full bg-bolt-elements-background-depth-3 px-1 text-[11px] font-medium text-content-secondary ring-2 ring-bolt-elements-background-depth-1"
         >
           +{more}
         </span>

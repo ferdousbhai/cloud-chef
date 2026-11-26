@@ -140,7 +140,7 @@ export async function runtimeDeploymentRetryAction(args: { request: Request; env
   if (body.toWantedWorker) {
     const owner = isActiveAdmin(await findMembership(args.env.DB, connection.orgId, identity.userId));
     if (!owner) {
-      return json({ error: 'Only the space’s admins can publish over a Worker already in the account.' }, 403);
+      return json({ error: 'Only the account’s admins can publish over a Worker already in the account.' }, 403);
     }
   }
   const deployment = body.toWantedWorker

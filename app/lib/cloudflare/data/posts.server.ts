@@ -522,7 +522,7 @@ export async function forgetMediaOfPrivateProject(db: D1Database, projectId: str
 async function requireManagedPost(db: D1Database, postId: string, userId: string): Promise<ManagedPost> {
   const post = await findManagedPost(db, postId, userId);
   if (!post) {
-    throw new ShowcaseError('Only the person whose post it is, or their space’s admin, can do that.', 403);
+    throw new ShowcaseError('Only the person whose post it is, or their account’s admin, can do that.', 403);
   }
   return post;
 }
@@ -1086,7 +1086,7 @@ export async function addPendingCopy(
     .bind(args.userId)
     .first<{ count: number }>();
   if ((count?.count ?? 0) >= 10) {
-    throw new ShowcaseError('You have 10 copies waiting already. They’re made once your space is ready.', 429);
+    throw new ShowcaseError('You have 10 copies waiting already. They’re made once your account is ready.', 429);
   }
   await db
     .prepare(

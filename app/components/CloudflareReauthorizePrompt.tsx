@@ -20,7 +20,7 @@ function reauthorizeCloudflareMessage(blocked = OPEN_WORKSPACE): string {
 
 /** What it says to a team member who isn't an admin, so can't. */
 function askAdminToReauthorizeMessage(blocked = OPEN_WORKSPACE): string {
-  return `CloudChef needs a few more Cloudflare permissions before it can ${blocked}. Ask the space's admin to reauthorize Cloudflare.`;
+  return `CloudChef needs a few more Cloudflare permissions before it can ${blocked}. Ask the account's admin to reauthorize Cloudflare.`;
 }
 
 export const REAUTHORIZE_CLOUDFLARE_MESSAGE = reauthorizeCloudflareMessage();

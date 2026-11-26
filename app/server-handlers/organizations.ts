@@ -130,7 +130,7 @@ export function updateMemberAction({
 
 export function renameOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, renameSchema, 'Give the space a name.');
+    const body = await readJsonRequest(request, renameSchema, 'Give it a name.');
     if ('response' in body) {
       return body.response;
     }
@@ -167,7 +167,7 @@ export function deleteOrganizationAction({
   return signedIn(request, env, async ({ session }) => {
     // Irreversible for everyone in it, so only from a fresh sign-in, as erasing an account is.
     if (!isRecentSignIn(session)) {
-      return reauthenticationRequired('Sign in again to confirm it is you, then delete the space.');
+      return reauthenticationRequired('Sign in again to confirm it is you, then delete it.');
     }
     const body = await readJsonRequest(request, deleteSchema, 'Choose a space.');
     if ('response' in body) {

@@ -366,7 +366,7 @@ export async function startCloudflareConnectionAction(args: {
     if (payload.organizationId) {
       const membership = signedIn ? await findMembership(args.env.DB, payload.organizationId, signedIn.user.id) : null;
       if (!isActiveAdmin(membership)) {
-        return Response.json({ error: "Only a space's admin can connect its Cloudflare account." }, { status: 403 });
+        return Response.json({ error: "Only an account's admin can connect its Cloudflare account." }, { status: 403 });
       }
     }
     const state = crypto.randomUUID();

@@ -263,7 +263,7 @@ export async function rejectApproval(
   const now = Date.now();
   const denied: CloudflareExecutionSafeOutcome = {
     status: 'denied',
-    summary: 'An admin of the space rejected this change.',
+    summary: 'An admin of the account rejected this change.',
   };
   const row = await db
     .prepare(

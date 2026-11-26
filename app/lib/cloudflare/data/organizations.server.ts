@@ -75,7 +75,7 @@ export async function ensurePersonalSpace(db: D1Database, userId: string): Promi
   ]);
   const made = await findPersonalSpace(db, userId);
   if (!made) {
-    throw new Error('The space could not be made.');
+    throw new Error('The account could not be made.');
   }
   return made;
 }
@@ -102,7 +102,7 @@ export async function prepareOrganizationDeletion(
 ): Promise<void> {
   const membership = await findMembership(db, args.orgId, args.actorId);
   if (!membership) {
-    throw new OrganizationError('That space no longer exists, or you are not in it.', 404);
+    throw new OrganizationError('That account no longer exists, or you are not in it.', 404);
   }
   const { results } = await db
     .prepare('SELECT user_id FROM organization_members WHERE org_id = ? ORDER BY joined_at')
@@ -111,7 +111,7 @@ export async function prepareOrganizationDeletion(
   const memberIds = results.map((row) => row.user_id);
   const soleMember = memberIds.length === 1 && memberIds[0] === args.actorId;
   if (!soleMember && !isActiveAdmin(membership)) {
-    throw new OrganizationError("Only a space's admin can delete it.", 403);
+    throw new OrganizationError("Only an account's admin can delete it.", 403);
   }
 }
 
@@ -141,7 +141,7 @@ export async function organizationWorkspaceOwners(
 export async function requireAdmin(db: D1Database, orgId: string, userId: string): Promise<Membership> {
   const membership = await findMembership(db, orgId, userId);
   if (!membership || !isActiveAdmin(membership)) {
-    throw new OrganizationError("Only a space's admin can do that.", 403);
+    throw new OrganizationError("Only an account's admin can do that.", 403);
   }
   return membership;
 }
@@ -157,7 +157,7 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
        JOIN organizations ON organizations.id = members.org_id
        LEFT JOIN cloudflare_connections AS connections ON connections.org_id = members.org_id
        WHERE members.user_id = ?1
-       -- The space made for them first, then the rest by name.
+       -- The account made for them first, then the rest by name.
        ORDER BY owner_user_id IS ?1 DESC, organizations.name, organizations.id`,
     )
     .bind(userId)
@@ -270,14 +270,14 @@ export async function updateMember(
       .first<{ count: number }>();
     if ((others?.count ?? 0) === 0) {
       throw new OrganizationError(
-        `You're the only one in ${target.orgName}, so leaving deletes the space.`,
+        `You're the only one in ${target.orgName}, so leaving deletes it.`,
         409,
         'sole_member',
       );
     }
     if (madeForThem) {
       throw new OrganizationError(
-        'This space builds in your own Cloudflare account, so you stay in it. To end it, delete it.',
+        'This account builds in your own Cloudflare account, so you stay in it. To end it, delete it.',
         409,
       );
     }
@@ -338,6 +338,6 @@ export async function updateMember(
       : [membershipWrite],
   );
   if (losesAdmin && (result?.meta.changes ?? 0) === 0) {
-    throw new OrganizationError('Make someone else an admin first: a space always needs one.', 409);
+    throw new OrganizationError('Make someone else an admin first: an account always needs one.', 409);
   }
 }

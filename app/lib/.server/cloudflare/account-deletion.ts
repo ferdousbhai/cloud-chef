@@ -44,7 +44,7 @@ export async function eraseControlPlaneAccount(args: { env: Env; userId: string 
   // workspaces and the teams only they belonged to are gone, and a retry then picks up from there.
   if ((await organizationsNeedingAnotherAdmin(db, args.userId)).length > 0) {
     throw new OrganizationAdminRequiredError(
-      'Make someone else an admin of your space first, or remove the people you added to its projects.',
+      'Make someone else an admin of your account first, or remove the people you added to its projects.',
     );
   }
   // While each team's authorization still works: nothing reaches those workspaces once it's revoked.
@@ -206,7 +206,7 @@ async function teamsWithWorkspaces(
        FROM user_computer_runtimes AS runtimes
        JOIN cloudflare_connections AS connections ON connections.id = runtimes.connection_id
        JOIN organizations ON organizations.id = connections.org_id
-       -- The space made for them builds in their own Cloudflare account, where what they built stays theirs.
+       -- The account made for them builds in their own Cloudflare account, where what they built stays theirs.
        WHERE runtimes.user_id = ?1 AND organizations.personal_user_id IS NOT ?1
        ORDER BY organizations.name`,
     )
@@ -295,7 +295,7 @@ async function leaveOrganizations(db: D1Database, userId: string): Promise<void>
     .first<{ remaining: number }>();
   if ((remaining?.remaining ?? 0) > 0) {
     // The write above deleted all of them or none: here, none.
-    throw new OrganizationAdminRequiredError('Make someone else an admin of your space first.');
+    throw new OrganizationAdminRequiredError('Make someone else an admin of your account first.');
   }
 }
 

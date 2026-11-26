@@ -26,7 +26,7 @@ export function gitHubReturnMessageText(code: string): string | null {
 
 /** Where a person gives CloudChef's GitHub App another account or repository, said in errors that need it. */
 export const GITHUB_ACCESS_FIX =
-  "give CloudChef's GitHub App access from Import from GitHub on the home page (only an admin of the space can do this)";
+  "give CloudChef's GitHub App access from Import from GitHub on the home page (only an admin of the account can do this)";
 
 /** The same, said inside the import dialog, whose button just below gives the App access. */
 export const IMPORT_DIALOG_ACCESS_FIX = "use the GitHub button below to give CloudChef's GitHub App access to it";

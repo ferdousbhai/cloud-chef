@@ -101,8 +101,8 @@ function CopyWhenReadyDialog({ project, onClose }: { project: { id: string; name
         <div className="grid gap-2 text-sm text-content-secondary">
           <p>
             CloudChef makes <span className="font-medium text-content-primary">{name.trim() || project.name}</span> for
-            you as soon as you have a space to build in. Connect a Cloudflare account to get one; your copy is made when
-            you come back.
+            you as soon as you have an account to build in. Connect a Cloudflare account to get one; your copy is made
+            when you come back.
           </p>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
@@ -120,7 +120,7 @@ function CopyWhenReadyDialog({ project, onClose }: { project: { id: string; name
     <Modal onClose={onClose} title="Make a copy" description={project.name}>
       <form className="grid gap-3 text-sm" onSubmit={(event) => void submit(event)}>
         <p className="text-content-secondary">
-          You don’t have a space to build in yet. CloudChef can keep your copy waiting and make it, with all its
+          You don’t have an account to build in yet. CloudChef can keep your copy waiting and make it, with all its
           history, as soon as you have one.
         </p>
         <label className="grid gap-1">

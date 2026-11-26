@@ -83,7 +83,7 @@ export async function requireProjectScope(
     : await findCloudflareConnectionForPerson(db, userId);
   if (connection?.status !== 'active') {
     throw new OrganizationError(
-      orgId ? "Connect the space's Cloudflare account first." : 'Connect your Cloudflare account first.',
+      orgId ? 'Connect its Cloudflare account first.' : 'Connect your Cloudflare account first.',
       409,
     );
   }

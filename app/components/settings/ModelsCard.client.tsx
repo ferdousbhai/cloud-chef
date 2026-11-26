@@ -435,7 +435,7 @@ function workspaceLabel(context: CloudflareAuthSession['context']): string | nul
   if (!context) {
     return null;
   }
-  const name = context.solo ? 'your space' : context.orgName;
+  const name = context.solo ? 'your account' : context.orgName;
   return context.accountName ? `${name} (Cloudflare account ${context.accountName})` : name;
 }
 

@@ -539,7 +539,7 @@ export function useConversationAgentChat(args: {
       filedApprovalsRef.current.delete(approvalId);
     }
     sendMessage({
-      text: 'An admin of the space decided the Cloudflare change I asked for; its result is in that command. Continue from it.',
+      text: 'An admin of the account decided the Cloudflare change I asked for; its result is in that command. Continue from it.',
     }).catch((error: Error) => logger.warn('Unable to continue after a team admin decided', error));
   }, [messages, status, sendMessage]);
 

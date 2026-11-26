@@ -238,7 +238,7 @@ describe('the people in a space', () => {
     expect(grants()).toEqual(before);
 
     // The only admin leaving is refused, and keeps their workspace.
-    await expect(remove(env.DB, admin.userId, admin.userId)).rejects.toThrow('a space always needs one');
+    await expect(remove(env.DB, admin.userId, admin.userId)).rejects.toThrow('an account always needs one');
     expect(grants()).toEqual(before);
 
     await remove(env.DB, admin.userId, sam.userId);
@@ -312,7 +312,7 @@ describe('a team’s name and deletion', () => {
     expect(refused.status).toBe(401);
     await expect(refused.json()).resolves.toEqual({
       code: 'reauthentication_required',
-      error: 'Sign in again to confirm it is you, then delete the space.',
+      error: 'Sign in again to confirm it is you, then delete it.',
     });
     expect({ deleted, revoked }).toEqual({ deleted: [], revoked: [] });
     expect(database.prepare('SELECT COUNT(*) AS n FROM organizations').get()).toEqual({ n: 1 });
@@ -420,7 +420,7 @@ describe('a team’s name and deletion', () => {
     });
     expect(left.status).toBe(409);
     expect(await left.json()).toEqual({
-      error: "You're the only one in Acme, so leaving deletes the space.",
+      error: "You're the only one in Acme, so leaving deletes it.",
       code: 'sole_member',
     });
     expect(database.prepare('SELECT COUNT(*) AS count FROM organizations').get()).toEqual({ count: 1 });

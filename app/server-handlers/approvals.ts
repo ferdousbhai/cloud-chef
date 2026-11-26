@@ -113,7 +113,7 @@ async function send(env: Env, connectionId: string, request: CloudflareApiReques
   });
   const connection = await findActiveCloudflareConnection(env.DB, connectionId);
   if (!connection?.credentialHandle) {
-    return failure('The space’s Cloudflare account isn’t connected now, so nothing was sent.');
+    return failure('Its Cloudflare account isn’t connected now, so nothing was sent.');
   }
   let checked: CloudflareApiRequest;
   try {
@@ -126,7 +126,7 @@ async function send(env: Env, connectionId: string, request: CloudflareApiReques
     return await client.send(checked, new AbortController().signal);
   } catch {
     // The authorization is read before anything is sent, and the client answers a send it lost track of itself.
-    return failure('The space’s Cloudflare authorization couldn’t be read, so nothing was sent.');
+    return failure('Its Cloudflare authorization couldn’t be read, so nothing was sent.');
   }
 }
 
@@ -194,7 +194,7 @@ export async function runtimeFileApprovalAction(args: { request: Request; env: E
   const { body, identity, connection } = authenticated;
   const membership = await findMembership(args.env.DB, connection.orgId, identity.userId);
   if (!membership) {
-    return json({ error: 'Only a space’s members file changes for its admins.' }, 403);
+    return json({ error: 'Only someone added to an account files changes for its admins.' }, 403);
   }
   if (isActiveAdmin(membership)) {
     // Whoever runs the space's account changes it themselves: there is nobody for them to ask.

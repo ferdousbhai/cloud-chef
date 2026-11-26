@@ -88,7 +88,7 @@ function withContext(
     }
     const canManage = await canManageModels(env.DB, session.user.id, connection);
     if (manage && !canManage) {
-      return Response.json({ error: "Only the space's admins can change its models." }, { status: 403 });
+      return Response.json({ error: "Only the account's admins can change its models." }, { status: 403 });
     }
     if (manage === 'keys' && missingCoreOAuthScopes(connection.grantedOAuthScopes).length > 0) {
       return reauthorizationRequired();

@@ -27,7 +27,7 @@ const MAX_TARGET_REQUEST_BYTES = 8 * 1024;
 const PROJECT = z.string().uuid();
 
 const NO_POST =
-  'This project has no post to put a clip on: only a public project that has been published has one, and only its author or a space’s admin can add a clip.';
+  'This project has no post to put a clip on: only a public project that has been published has one, and only its author or an account’s admin can add a clip.';
 
 function json<Answer>(body: Answer, status = 200): Response {
   return Response.json(body, { status, headers: { 'Cache-Control': 'no-store' } });

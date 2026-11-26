@@ -6,7 +6,7 @@ import { Loading } from '~/components/Loading';
 import { createPrivatePageHead } from '~/lib/social-meta';
 
 export const Route = createFileRoute('/approvals')({
-  head: () => createPrivatePageHead('Approvals | CloudChef', 'What people in your spaces asked an admin for.'),
+  head: () => createPrivatePageHead('Approvals | CloudChef', 'What people in your accounts asked an admin for.'),
   component: ApprovalsPage,
 });
 

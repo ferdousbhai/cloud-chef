@@ -244,20 +244,20 @@ function OrganizationRow({
             ) : null}
             {admin ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
-                <MenuItem action={() => setRenaming(true)}>Rename space</MenuItem>
+                <MenuItem action={() => setRenaming(true)}>Rename</MenuItem>
                 {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
                 {connection?.active ? (
                   <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
                 ) : null}
                 <MenuSeparator />
                 <MenuItem danger action={() => setDialog('delete')}>
-                  Delete space
+                  Delete
                 </MenuItem>
               </MoreMenu>
             ) : myUserId ? (
               <MoreMenu title={`More for ${organization.orgName}`}>
                 <MenuItem danger action={() => setDialog('leave')}>
-                  Leave space
+                  Leave
                 </MenuItem>
               </MoreMenu>
             ) : null}
@@ -361,7 +361,7 @@ function LeaveOrganization({
       <DeleteTeam
         orgId={orgId}
         orgName={orgName}
-        intro={`You're the only one in ${orgName}, so leaving deletes the space.`}
+        intro={`You're the only one in ${orgName}, so leaving deletes it.`}
         onCancel={onCancel}
       />
     );
@@ -476,9 +476,7 @@ function DeleteTeam({
             ]
           : []),
         ...(outcome.cloudflareAuthorizationKept
-          ? [
-              'CloudChef kept its access to the Cloudflare account, because someone still builds in it outside this space.',
-            ]
+          ? ['CloudChef kept its access to the Cloudflare account, because someone still builds in it outside it.']
           : []),
       ].join(' ');
       try {
@@ -491,7 +489,7 @@ function DeleteTeam({
       if (deleteError instanceof RequestError && deleteError.code === 'reauthentication_required') {
         setReauthenticate(true);
       } else {
-        setFeedback(errorFeedback(messageOf(deleteError, 'Unable to delete the space.')));
+        setFeedback(errorFeedback(messageOf(deleteError, 'Unable to delete it.')));
       }
       setDeleting(false);
     }
@@ -503,7 +501,7 @@ function DeleteTeam({
         <p>
           Everyone&apos;s workspace in its Cloudflare account, with their chats and project files there, is deleted. Its
           members, projects and usage are removed from CloudChef, and CloudChef&apos;s access to the Cloudflare account
-          is revoked, unless someone still builds in it outside this space. This can&apos;t be undone.
+          is revoked, unless someone still builds in it outside it. This can&apos;t be undone.
         </p>
         <p>
           What stays: each project&apos;s code and history, deployed apps with their databases and storage, and AI
@@ -653,7 +651,7 @@ function MemberRow({
           </MenuItem>
           <MenuSeparator />
           <MenuItem danger action={() => setConfirming('remove')}>
-            {self ? 'Leave space' : 'Remove from space'}
+            {self ? 'Leave' : 'Remove'}
           </MenuItem>
         </MoreMenu>
       )}
@@ -668,7 +666,7 @@ function MemberRow({
             <p>
               {confirming === 'remove'
                 ? `Their workspace in ${orgName}'s Cloudflare account, with their chats and project files there, is deleted.`
-                : 'You lose admin access to this space until another admin gives it back.'}
+                : 'You lose admin access to this account until another admin gives it back.'}
             </p>
             {reauthenticate ? (
               <ReauthenticatePrompt

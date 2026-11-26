@@ -110,7 +110,7 @@ export function OrgProjectsSection({
               Import from GitHub
             </Button>
           ) : null}
-          <MoreMenu title="GitHub for this space">
+          <MoreMenu title="GitHub for this account">
             {github.length === 0 ? (
               <MenuItem action={connect}>Connect GitHub</MenuItem>
             ) : (
@@ -127,7 +127,7 @@ export function OrgProjectsSection({
         </span>
       </div>
       {workingHere ? null : (
-        <p className="text-xs text-content-tertiary">To import a project from GitHub, switch to this space first.</p>
+        <p className="text-xs text-content-tertiary">To import a project from GitHub, switch to this account first.</p>
       )}
       {projects.length > 0 ? (
         <ul className="grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
