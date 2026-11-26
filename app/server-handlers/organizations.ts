@@ -8,7 +8,6 @@ import {
   listOrganizations,
   organizationWorkspaceOwners,
   prepareOrganizationDeletion,
-  renameOrganization,
   updateMember,
 } from '~/lib/cloudflare/data/organizations.server';
 import {
@@ -30,11 +29,6 @@ const CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\u2028\u2029]/gu;
 /** A web address, or anything an email client may turn into a link, inside a name. */
 const LINK_LIKE = /(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S*|\S*@\S+|\S*\w\.[a-z]{2,}\S*/gi;
 
-/** A team's name: one line, without control characters. */
-const teamNameSchema = z
-  .string()
-  .transform((name) => name.replace(CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim())
-  .pipe(z.string().min(1).max(80));
 const contextSchema = z.strictObject({ connectionId: z.string().min(1).max(128) });
 const memberSchema = z.strictObject({
   orgId: z.string().uuid(),
@@ -43,7 +37,6 @@ const memberSchema = z.strictObject({
   /** On removal, also delete their workspace (chats, project files) from the organization's account. */
   deleteWorkspace: z.boolean().default(true),
 });
-const renameSchema = z.strictObject({ orgId: z.string().uuid(), name: teamNameSchema });
 const deleteSchema = z.strictObject({ orgId: z.string().uuid() });
 /** How many members' workspaces a team's deletion deletes at once. */
 const WORKSPACE_DELETION_CONCURRENCY = 4;
@@ -128,18 +121,6 @@ export function updateMemberAction({
   });
 }
 
-export function renameOrganizationAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, renameSchema, 'Give it a name.');
-    if ('response' in body) {
-      return body.response;
-    }
-    await renameOrganization(env.DB, { ...body.data, actorId: session.user.id });
-    return new Response(null, { status: 204 });
-  });
-}
-
-/** Revokes a Cloudflare grant with Cloudflare; false when it could not be (the admin revokes it there). */
 async function revokeCloudflareGrant(env: Env, credentialHandle: string): Promise<boolean> {
   return D1CloudflareCredentialVault.fromEnv(env).revokeOAuthCredential(credentialHandle);
 }

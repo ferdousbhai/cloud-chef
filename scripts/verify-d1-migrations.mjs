@@ -98,6 +98,7 @@ const migrationPolicies = [
       '0079_drop_project_shares.sql': '91fba1cacbf69aadbd4e3f03536e3972453d99d4cbd5006f2431b41c109ba673',
       '0080_drop_space_invites.sql': 'b79894b9cba07ec36bb4682659bb89cc3b132b04cc150db3c6e346284558c8d4',
       '0081_one_space_per_account.sql': '40089c58e37dbc01772ee0b7905722414b51488224e2ce66e1eac7dad6605e9b',
+      '0082_accounts_by_name.sql': 'd8db948d1cb2d781063180420309b52ea6d87b0b6f2297c7eed78c1d9fa49455',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this

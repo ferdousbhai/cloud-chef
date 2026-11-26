@@ -12,7 +12,6 @@ import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import {
   deleteOrganizationAction,
   listOrganizationsAction,
-  renameOrganizationAction,
   switchContextAction,
   updateMemberAction,
 } from './organizations';
@@ -287,20 +286,6 @@ describe('a team’s name and deletion', () => {
     });
     return { response, deleted, revoked };
   }
-
-  it('is renamed by an admin, and by nobody else', async () => {
-    const { database, env, admin, sam, orgId } = await team();
-    const rename = (cookie: string, name: string) =>
-      renameOrganizationAction({ request: post(cookie, '/api/organizations/rename', { orgId, name }), env });
-
-    expect((await rename(sam.cookie, 'Sam’s')).status).toBe(403);
-    expect((await rename(admin.cookie, '   ')).status).toBe(400);
-    expect((await rename(admin.cookie, '  Acme Labs ')).status).toBe(204);
-    expect(database.prepare('SELECT name FROM organizations').all()).toEqual([{ name: 'Acme Labs' }]);
-    // A name is one line, without control characters, as when a team is created.
-    expect((await rename(admin.cookie, 'Acme\r\nLabs\u0000')).status).toBe(204);
-    expect(database.prepare('SELECT name FROM organizations').all()).toEqual([{ name: 'Acme Labs' }]);
-  });
 
   it('is deleted only from a sign-in within the last few minutes, as an account is erased', async () => {
     const { database, env, admin, orgId } = await team();

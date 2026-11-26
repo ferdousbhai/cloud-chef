@@ -62,7 +62,6 @@ import {
 } from './server-handlers/email-auth';
 import {
   listOrganizationsAction,
-  renameOrganizationAction,
   deleteOrganizationAction,
   switchContextAction,
   updateMemberAction,
@@ -143,6 +142,7 @@ import { runShowcaseJobs, type ShowcaseJob } from './lib/.server/showcase/jobs';
 import { PROJECT_PRESENCE_ROUTE, projectPresenceAction } from './server-handlers/project-presence';
 import { pruneProjectVisitsBestEffort } from './lib/cloudflare/data/project-presence.server';
 import { pruneCloudflareAuthDataBestEffort } from './lib/cloudflare/data/cloudflare-auth-retention.server';
+import { retireEmptySpacesBestEffort } from './lib/.server/cloudflare/retire-spaces';
 import { sweepUserWorkspaceRuntimeUpgradesBestEffort } from './lib/.server/cloudflare/user-workspace-runtime-upgrade-sweep';
 import { CSP_NONCE_REQUEST_HEADER } from './lib/csp-nonce';
 import { sha256Hex } from './lib/hex-digest';
@@ -261,7 +261,6 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     [GITHUB_RETURN_PATH]: ['GET', completeGitHubInstallAction],
     '/api/organizations': ['GET', listOrganizationsAction],
     '/api/organizations/member': ['POST', updateMemberAction],
-    '/api/organizations/rename': ['POST', renameOrganizationAction],
     '/api/organizations/delete': ['POST', deleteOrganizationAction],
     '/api/context': ['POST', switchContextAction],
     [GOOGLE_RETURN_PATH]: ['GET', completeGoogleSignInAction],
@@ -373,6 +372,7 @@ export default {
         sweepUserWorkspaceRuntimeUpgradesBestEffort(env, controller.scheduledTime),
         deleteGoneMediaBestEffort(env),
         pruneProjectVisitsBestEffort(env.DB, controller.scheduledTime),
+        retireEmptySpacesBestEffort(env),
       ]),
     );
   },

@@ -96,15 +96,15 @@ async function render(element: ReactElement) {
 
 const text = () => document.body.textContent ?? '';
 
-describe('the spaces a person builds in, in Settings', () => {
-  it('lists the one made for them as Personal while they are alone in it, beside the ones they were added to', async () => {
+describe('the people on a person’s projects, in Settings', () => {
+  it('lists their own account as theirs, beside the ones they were added to', async () => {
     solo = true;
     organizations = [ownSpace([]), studio];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Studio'));
     const headings = Array.from(document.querySelectorAll('h3'), (heading) => heading.textContent);
-    expect(headings).toEqual(['Personal', 'Studio']);
+    expect(headings).toEqual(['Your account', 'Studio']);
     expect(text()).toContain('Sam’s account');
     expect(text()).not.toContain('team');
   });
@@ -119,13 +119,13 @@ describe('the spaces a person builds in, in Settings', () => {
     expect(document.querySelector('ul')?.hidden).toBe(true);
   });
 
-  it('goes by its name once someone has joined, and lists them, its owner unchanged', async () => {
+  it('stays theirs once someone has joined, and lists them, its owner unchanged', async () => {
     solo = false;
     organizations = [ownSpace([gia])];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Gia'));
-    expect(document.querySelector('h3')?.textContent).toBe('Sam’s space');
+    expect(document.querySelector('h3')?.textContent).toBe('Your account');
     expect(text()).toContain('Owner');
     expect(text()).not.toContain('Only you so far.');
     expect(document.querySelector('ul')?.hidden).toBe(false);

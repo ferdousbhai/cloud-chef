@@ -206,7 +206,7 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
   const accounts = await Promise.all(
     contexts.map(async (context) => {
       const projects = await listAccessibleProjects(env.DB, context.connectionId, userId);
-      const account = workspaceName(context, contexts);
+      const account = workspaceName(context);
       return Promise.all(
         projects.map(async (project) => {
           const publish =
@@ -556,9 +556,9 @@ export async function commandLineCreateProjectAction({
   }
   const wanted = url.searchParams.get('account') ?? PERSONAL_WORKSPACE_NAME;
   const contexts = await listWorkspaceContexts(env.DB, userId);
-  const context = contexts.find((option) => workspaceName(option, contexts) === wanted);
+  const context = contexts.find((option) => workspaceName(option) === wanted);
   if (!context) {
-    const names = contexts.map((option) => workspaceName(option, contexts));
+    const names = contexts.map((option) => workspaceName(option));
     return Response.json({ error: `No account named ${wanted}. Yours: ${names.join(', ')}.` }, { status: 404 });
   }
   const runtime = await runtimeFor(request, env, userId, context.connectionId);
@@ -952,9 +952,9 @@ export async function commandLineCopyProjectAction({
 /** The account the person calls `name`: Personal, or one of their teams by its name. */
 async function accountNamed(env: Env, userId: string, name: string) {
   const contexts = await listWorkspaceContexts(env.DB, userId);
-  const context = contexts.find((option) => workspaceName(option, contexts) === name);
+  const context = contexts.find((option) => workspaceName(option) === name);
   if (!context) {
-    const names = contexts.map((option) => workspaceName(option, contexts));
+    const names = contexts.map((option) => workspaceName(option));
     return { error: `No account named ${name}. Yours: ${names.join(', ')}.` };
   }
   return context;

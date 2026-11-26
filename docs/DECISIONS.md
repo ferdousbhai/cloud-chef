@@ -134,3 +134,9 @@ person's own account, and a shared project opens in its owner's), Settings lists
 who is on it as faces, and migration 0081 folds a space made beside a person's own, in the same Cloudflare account,
 into their own. Chats are kept per workspace, so those of a folded space's projects stay with the old space until
 it is deleted; the projects' code and history are untouched.
+
+The same day the owner had the leftovers go too, not be deleted by hand: scheduled maintenance removes a space made
+beside a person's own once it has no project, with its people's workspaces (`retire-spaces.ts`); an account is no
+longer renamed, a person's own is "Your account" to them and "<first name>’s account" to the people on its
+projects (migration 0082), and ending it is "Disconnect Cloudflare". `organizations` and `organization_members`
+stay as the record of each connected account and who works in it; only their names say space.

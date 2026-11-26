@@ -435,7 +435,7 @@ function workspaceLabel(context: CloudflareAuthSession['context']): string | nul
   if (!context) {
     return null;
   }
-  const name = context.solo ? 'your account' : context.orgName;
+  const name = context.personal ? 'your account' : context.orgName;
   return context.accountName ? `${name} (Cloudflare account ${context.accountName})` : name;
 }
 
@@ -466,8 +466,8 @@ function ReauthorizeForKeys() {
     <div className="mt-3 grid justify-items-start gap-2 text-sm text-content-secondary">
       <p className="flex flex-wrap items-center gap-2">
         <StatusBadge tone="warning">Needs permission</StatusBadge>
-        Reauthorize {space && !space.solo ? `${space.orgName}'s Cloudflare account` : 'Cloudflare'} once to manage AI
-        Gateway keys.
+        Reauthorize {space && !space.personal ? `${space.orgName}'s Cloudflare account` : 'Cloudflare'} once to manage
+        AI Gateway keys.
       </p>
       <Button size="sm" variant="primary" loading={reauthorizing} onClick={() => void reauthorize()}>
         Reauthorize Cloudflare

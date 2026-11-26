@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { MenuItem, MenuSeparator } from '@ui/Menu';
 import { Modal } from '@ui/Modal';
-import { TextInput } from '@ui/TextInput';
-import { authClient, createCloudflareReturnURL, refreshSession, signInWithCloudflare } from '~/lib/auth-client';
-import { workspaceName } from '~/lib/workspace-name';
+import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
-import { getJson, messageOf, noContentSchema, postJson, RequestError, runRequest } from '~/lib/json-request';
+import { getJson, messageOf, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
 import { MoreMenu, SettingsCard, StatusBadge } from './SettingsLayout';
@@ -153,7 +151,7 @@ export function OrganizationsCard() {
             key={organization.orgId}
             organization={organization}
             // What they call it and the connection to open: the session lists the spaces they may build in now.
-            name={nameAmong(session?.contexts ?? [], organization)}
+            name={organization.orgName}
             myUserId={session?.user.id ?? null}
             onChanged={reload}
           />
@@ -161,15 +159,6 @@ export function OrganizationsCard() {
       </div>
     </SettingsCard>
   );
-}
-
-/** What the person calls a space, as the switcher does: Personal while it is theirs alone, else its name. */
-function nameAmong(
-  contexts: readonly { orgId: string; orgName: string; solo: boolean }[],
-  space: Organization,
-): string {
-  const context = contexts.find((option) => option.orgId === space.orgId);
-  return context ? workspaceName(context, contexts) : space.orgName;
 }
 
 function OrganizationRow({
@@ -186,7 +175,6 @@ function OrganizationRow({
 }) {
   const [peopleFeedback, setPeopleFeedback] = useState<Feedback>(null);
   const [connectFeedback, setConnectFeedback] = useState<Feedback>(null);
-  const [renaming, setRenaming] = useState(false);
   const [dialog, setDialog] = useState<'delete' | 'leave' | null>(null);
   const admin = organization.role === 'admin' && organization.pausedAt === null;
   const connection = organization.connection;
@@ -209,61 +197,46 @@ function OrganizationRow({
 
   return (
     <div className="min-w-0 rounded-md border border-bolt-elements-borderColor p-3 sm:p-4">
-      {renaming ? (
-        <RenameTeam
-          orgId={organization.orgId}
-          orgName={organization.orgName}
-          onDone={async (renamed) => {
-            setRenaming(false);
-            if (renamed) {
-              // The workspace switcher reads team names from the session.
-              await Promise.all([onChanged(), refreshSession()]);
-            }
-          }}
-        />
-      ) : (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <h3 className="min-w-0 truncate font-medium" title={organization.orgName}>
-            {name}
-          </h3>
-          <StatusBadge tone={organization.pausedAt ? 'warning' : 'neutral'}>
-            {organization.pausedAt ? 'Paused' : organization.role !== 'admin' ? 'Member' : mine ? 'Yours' : 'Admin'}
-          </StatusBadge>
-          {connection === null ? (
-            <StatusBadge tone="warning">No Cloudflare account</StatusBadge>
-          ) : connection.active ? (
-            <StatusBadge tone="success">{connection.accountName ?? 'Cloudflare connected'}</StatusBadge>
-          ) : (
-            <StatusBadge tone="warning">Cloudflare needs reconnecting</StatusBadge>
-          )}
-          <span className="ml-auto flex items-center gap-1">
-            {admin && !connection?.active ? (
-              <Button size="xs" variant="primary" onClick={connectCloudflare}>
-                Connect Cloudflare
-              </Button>
-            ) : null}
-            {admin ? (
-              <MoreMenu title={`More for ${organization.orgName}`}>
-                <MenuItem action={() => setRenaming(true)}>Rename</MenuItem>
-                {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
-                {connection?.active ? (
-                  <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
-                ) : null}
-                <MenuSeparator />
-                <MenuItem danger action={() => setDialog('delete')}>
-                  Delete
-                </MenuItem>
-              </MoreMenu>
-            ) : myUserId ? (
-              <MoreMenu title={`More for ${organization.orgName}`}>
-                <MenuItem danger action={() => setDialog('leave')}>
-                  Leave
-                </MenuItem>
-              </MoreMenu>
-            ) : null}
-          </span>
-        </div>
-      )}
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <h3 className="min-w-0 truncate font-medium" title={organization.orgName}>
+          {mine ? 'Your account' : name}
+        </h3>
+        <StatusBadge tone={organization.pausedAt ? 'warning' : 'neutral'}>
+          {organization.pausedAt ? 'Paused' : organization.role !== 'admin' ? 'Member' : mine ? 'Yours' : 'Admin'}
+        </StatusBadge>
+        {connection === null ? (
+          <StatusBadge tone="warning">No Cloudflare account</StatusBadge>
+        ) : connection.active ? (
+          <StatusBadge tone="success">{connection.accountName ?? 'Cloudflare connected'}</StatusBadge>
+        ) : (
+          <StatusBadge tone="warning">Cloudflare needs reconnecting</StatusBadge>
+        )}
+        <span className="ml-auto flex items-center gap-1">
+          {admin && !connection?.active ? (
+            <Button size="xs" variant="primary" onClick={connectCloudflare}>
+              Connect Cloudflare
+            </Button>
+          ) : null}
+          {admin ? (
+            <MoreMenu title={`More for ${organization.orgName}`}>
+              {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
+              {connection?.active ? (
+                <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
+              ) : null}
+              <MenuSeparator />
+              <MenuItem danger action={() => setDialog('delete')}>
+                {mine ? 'Disconnect Cloudflare' : 'Delete'}
+              </MenuItem>
+            </MoreMenu>
+          ) : myUserId ? (
+            <MoreMenu title={`More for ${organization.orgName}`}>
+              <MenuItem danger action={() => setDialog('leave')}>
+                Leave
+              </MenuItem>
+            </MoreMenu>
+          ) : null}
+        </span>
+      </div>
       <FeedbackLine feedback={connectFeedback} />
       {admin ? (
         <>
@@ -384,55 +357,6 @@ function LeaveOrganization({
         </div>
       </div>
     </Modal>
-  );
-}
-
-/** An admin renaming their team, in place of its heading. */
-function RenameTeam({
-  orgId,
-  orgName,
-  onDone,
-}: {
-  orgId: string;
-  orgName: string;
-  onDone: (renamed: boolean) => Promise<void>;
-}) {
-  const [name, setName] = useState(orgName);
-  const [saving, setSaving] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>(null);
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setFeedback(null);
-    try {
-      await postJson('/api/organizations/rename', { orgId, name: name.trim() }, noContentSchema);
-      await onDone(true);
-    } catch (renameError) {
-      setFeedback(errorFeedback(messageOf(renameError, 'That name could not be saved.')));
-      setSaving(false);
-    }
-  };
-  return (
-    <form className="grid min-w-0 gap-1" onSubmit={(event) => void save(event)}>
-      <div className="flex flex-wrap items-center gap-2">
-        <TextInput
-          required
-          autoFocus
-          maxLength={80}
-          aria-label={`New name for ${orgName}`}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="min-w-0 flex-1"
-        />
-        <Button size="xs" variant="subtle" disabled={saving} onClick={() => void onDone(false)}>
-          Cancel
-        </Button>
-        <Button type="submit" size="xs" variant="neutral" loading={saving} disabled={name.trim().length === 0}>
-          Save
-        </Button>
-      </div>
-      <FeedbackLine feedback={feedback} className="" />
-    </form>
   );
 }
 

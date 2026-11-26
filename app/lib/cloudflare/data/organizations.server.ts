@@ -80,18 +80,6 @@ export async function ensurePersonalSpace(db: D1Database, userId: string): Promi
   return made;
 }
 
-/** An admin renames their team. */
-export async function renameOrganization(
-  db: D1Database,
-  args: { orgId: string; actorId: string; name: string },
-): Promise<void> {
-  await requireAdmin(db, args.orgId, args.actorId);
-  await db
-    .prepare('UPDATE organizations SET name = ?, updated_at = ? WHERE id = ?')
-    .bind(args.name, Date.now(), args.orgId)
-    .run();
-}
-
 /**
  * Who may delete a team: an active admin, or its only member (leaving would leave nobody). Changes
  * nothing.

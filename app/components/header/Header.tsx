@@ -49,7 +49,7 @@ export function Header() {
   useWebMcpTools(
     context
       ? {
-          account: workspaceName(context, session?.contexts ?? []),
+          account: workspaceName(context),
           mayStartProjects: context.draftsAllowed,
         }
       : null,
