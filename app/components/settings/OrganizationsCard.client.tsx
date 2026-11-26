@@ -5,7 +5,8 @@ import { MenuItem, MenuSeparator } from '@ui/Menu';
 import { Modal } from '@ui/Modal';
 import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
-import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
+import { OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
+import { Avatar } from '~/components/showcase/Avatar';
 import { getJson, messageOf, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
 import { gitHubReturnMessageText } from '~/lib/github-return-messages';
@@ -22,6 +23,7 @@ const organizationsSchema = z.object({
       // Who runs the Cloudflare account it builds in: the space, with one of its own, or CloudChef.
       // The person it was made for (their own Cloudflare account), who stays its admin.
       ownerUserId: z.string().nullable(),
+      owner: z.object({ name: z.string(), image: z.string().nullable() }).nullable().catch(null),
       connection: z.object({ accountName: z.string().nullable(), active: z.boolean() }).nullable(),
       members: z
         .array(
@@ -29,6 +31,7 @@ const organizationsSchema = z.object({
             userId: z.string(),
             name: z.string(),
             email: z.string(),
+            image: z.string().nullable().catch(null),
             role: roleSchema,
             pausedAt: z.number().nullable(),
             usage: z.object({ turns: z.number(), inputTokens: z.number(), outputTokens: z.number() }),
@@ -60,8 +63,10 @@ type OrgProject = Organization['projects'][number];
 const MEMBER_PROJECTS_SHOWN = 3;
 
 /**
- * Spaces: every place this person builds, each with its Cloudflare account, the people in it and its projects.
- * People come into one by having a project shared with them; whoever runs it may make one of them an admin.
+ * People: who works on this person's projects, as faces with what each may do, and whose projects this person was
+ * added to. Nothing here names an account: the Cloudflare account their projects build in is one quiet line below
+ * the people, and their projects follow it. Someone joins by having a project shared with them; whoever's projects
+ * they are may let one of them do everything.
  */
 export function OrganizationsCard() {
   const { data: session } = authClient.useSession();
@@ -124,11 +129,7 @@ export function OrganizationsCard() {
   }, [organizations]);
 
   return (
-    <SettingsCard
-      id="organizations"
-      title="People"
-      description="Who works on your projects, in your Cloudflare account."
-    >
+    <SettingsCard id="organizations" title="People" description="Who works on your projects, and whose you work on.">
       <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
       {githubMessage ? (
         <p className="mt-3 text-sm text-content-secondary" role="status">
@@ -179,11 +180,8 @@ function OrganizationRow({
   const admin = organization.role === 'admin' && organization.pausedAt === null;
   const connection = organization.connection;
   const projects = organization.projects;
-  const people = organization.members?.length ?? 0;
   // Made for this person: it is theirs, whoever else is in it.
   const mine = myUserId !== null && organization.ownerUserId === myUserId;
-  // Alone in it: there are no people to list yet.
-  const alone = admin && people <= 1;
 
   const connectCloudflare = () =>
     void runRequest(
@@ -195,80 +193,59 @@ function OrganizationRow({
       (message) => setConnectFeedback(errorFeedback(message)),
     );
 
+  const others = (organization.members ?? []).filter((member) => member.userId !== myUserId);
+  const cloudflare = (
+    <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+      <span className="text-content-secondary">Cloudflare</span>
+      {connection === null ? (
+        <StatusBadge tone="warning">Not connected</StatusBadge>
+      ) : connection.active ? (
+        <StatusBadge tone="success">{connection.accountName ?? 'Connected'}</StatusBadge>
+      ) : (
+        <StatusBadge tone="warning">Needs reconnecting</StatusBadge>
+      )}
+      <span className="ml-auto flex items-center gap-1">
+        {!connection?.active ? (
+          <Button size="xs" variant="primary" onClick={connectCloudflare}>
+            Connect Cloudflare
+          </Button>
+        ) : null}
+        <MoreMenu title="More for Cloudflare">
+          {/* Reconnecting is how CloudChef is given permissions it later needs. */}
+          {connection?.active ? <MenuItem action={connectCloudflare}>Reconnect</MenuItem> : null}
+          <MenuSeparator />
+          <MenuItem danger action={() => setDialog('delete')}>
+            {mine ? 'Disconnect Cloudflare' : 'Delete'}
+          </MenuItem>
+        </MoreMenu>
+      </span>
+    </div>
+  );
   return (
-    <div className="min-w-0 rounded-md border border-bolt-elements-borderColor p-3 sm:p-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h3 className="min-w-0 truncate font-medium" title={organization.orgName}>
-          {mine ? 'Your account' : name}
-        </h3>
-        <StatusBadge tone={organization.pausedAt ? 'warning' : 'neutral'}>
-          {organization.pausedAt ? 'Paused' : organization.role !== 'admin' ? 'Member' : mine ? 'Yours' : 'Admin'}
-        </StatusBadge>
-        {connection === null ? (
-          <StatusBadge tone="warning">No Cloudflare account</StatusBadge>
-        ) : connection.active ? (
-          <StatusBadge tone="success">{connection.accountName ?? 'Cloudflare connected'}</StatusBadge>
-        ) : (
-          <StatusBadge tone="warning">Cloudflare needs reconnecting</StatusBadge>
-        )}
-        <span className="ml-auto flex items-center gap-1">
-          {admin && !connection?.active ? (
-            <Button size="xs" variant="primary" onClick={connectCloudflare}>
-              Connect Cloudflare
-            </Button>
-          ) : null}
-          {admin ? (
-            <MoreMenu title={`More for ${organization.orgName}`}>
-              {/* Reconnecting is how an admin grants permissions CloudChef later needs. */}
-              {connection?.active ? (
-                <MenuItem action={connectCloudflare}>Reconnect its Cloudflare account</MenuItem>
-              ) : null}
-              <MenuSeparator />
-              <MenuItem danger action={() => setDialog('delete')}>
-                {mine ? 'Disconnect Cloudflare' : 'Delete'}
-              </MenuItem>
-            </MoreMenu>
-          ) : myUserId ? (
-            <MoreMenu title={`More for ${organization.orgName}`}>
-              <MenuItem danger action={() => setDialog('leave')}>
-                Leave
-              </MenuItem>
-            </MoreMenu>
-          ) : null}
-        </span>
-      </div>
-      <FeedbackLine feedback={connectFeedback} />
+    <div className="min-w-0">
       {admin ? (
         <>
-          <div className="mt-4 grid min-w-0 gap-2 text-sm">
-            <h4 className="font-medium">
-              People <span className="font-normal text-content-tertiary">{people}</span>
-            </h4>
-            {alone ? (
-              <p className="text-xs text-content-tertiary">
-                Only you so far. To work on a project with someone, share it with them from its menu.
-              </p>
-            ) : null}
-            <ul
-              hidden={alone}
-              className="grid min-w-0 divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor"
-            >
-              {organization.members?.map((member) => (
+          {others.length === 0 ? (
+            <p className="text-sm text-content-secondary">
+              Nobody else yet. To work on a project with someone, share it with them from its menu.
+            </p>
+          ) : (
+            <ul className="grid min-w-0 divide-y divide-bolt-elements-borderColor">
+              {others.map((member) => (
                 <MemberRow
                   key={member.userId}
                   orgId={organization.orgId}
-                  orgName={organization.orgName}
                   member={member}
                   projects={projects}
-                  self={member.userId === myUserId}
-                  owner={member.userId === organization.ownerUserId}
                   onChanged={onChanged}
                   onFeedback={setPeopleFeedback}
                 />
               ))}
             </ul>
-            <FeedbackLine feedback={peopleFeedback} className="" />
-          </div>
+          )}
+          <FeedbackLine feedback={peopleFeedback} className="" />
+          <div className="mt-5 border-t border-bolt-elements-borderColor pt-4">{cloudflare}</div>
+          <FeedbackLine feedback={connectFeedback} />
           <OrgProjectsSection
             orgId={organization.orgId}
             github={organization.github}
@@ -278,7 +255,25 @@ function OrganizationRow({
           />
         </>
       ) : (
-        <MyOrgProjects projects={projects} />
+        <div className="flex min-w-0 flex-wrap items-center gap-3 border-t border-bolt-elements-borderColor pt-4">
+          <Avatar name={organization.owner?.name ?? name} image={organization.owner?.image ?? null} size={32} />
+          <div className="min-w-0 flex-1 basis-48 text-sm">
+            <p className="truncate">
+              {organization.owner?.name ?? name}
+              {organization.pausedAt ? <span className="text-content-tertiary"> · paused</span> : null}
+            </p>
+            <p className="text-xs text-content-tertiary wrap-anywhere">
+              {projects.length > 0
+                ? `Shared ${projects.map((project) => project.name).join(', ')} with you`
+                : 'Nothing shared with you now'}
+            </p>
+          </div>
+          {myUserId ? (
+            <Button size="xs" variant="subtle" onClick={() => setDialog('leave')}>
+              Leave
+            </Button>
+          ) : null}
+        </div>
       )}
       {dialog === 'delete' ? (
         <DeleteTeam orgId={organization.orgId} orgName={organization.orgName} onCancel={() => setDialog(null)} />
@@ -462,26 +457,18 @@ function compactCount(count: number): string {
 /** A member in an admin's view: their role, projects and this month's use, and what the admin can change. */
 function MemberRow({
   orgId,
-  orgName,
   member,
   projects,
-  self,
-  owner,
   onChanged,
   onFeedback,
 }: {
   orgId: string;
-  orgName: string;
   member: Member;
   projects: OrgProject[];
-  /** The admin's own row: no pausing themselves, a confirmed step down, and removal is leaving. */
-  self: boolean;
-  /** The person the space was made for: they stay its admin, so nothing about them changes here. */
-  owner: boolean;
   onChanged: () => Promise<void>;
   onFeedback: (feedback: Feedback) => void;
 }) {
-  const [confirming, setConfirming] = useState<'remove' | 'make_member' | null>(null);
+  const [confirming, setConfirming] = useState(false);
   // One change at a time: a second click while one is in flight would repeat it.
   const [busy, setBusy] = useState(false);
   // Removing someone deletes their workspace, so it asks for a sign-in within the last few minutes, as
@@ -489,7 +476,7 @@ function MemberRow({
   const [reauthenticate, setReauthenticate] = useState(false);
   const who = member.name || member.email;
   const cancel = () => {
-    setConfirming(null);
+    setConfirming(false);
     setReauthenticate(false);
   };
   const act = async (action: MemberAction) => {
@@ -518,79 +505,68 @@ function MemberRow({
         return;
       }
     }
-    setConfirming(null);
+    setConfirming(false);
     await onChanged();
     setBusy(false);
   };
   const tokens = member.usage.inputTokens + member.usage.outputTokens;
-  const theirProjects = projects.filter((project) => project.access.some((grant) => grant.userId === member.userId));
-  const projectsLine =
-    member.role === 'admin'
-      ? 'all projects'
-      : theirProjects.length === 0
-        ? 'no projects'
-        : `${theirProjects
-            .slice(0, MEMBER_PROJECTS_SHOWN)
-            .map((project) => project.name)
-            .join(', ')}${
-            theirProjects.length > MEMBER_PROJECTS_SHOWN
-              ? ` and ${theirProjects.length - MEMBER_PROJECTS_SHOWN} more`
-              : ''
-          }`;
+  const everything = member.role === 'admin';
+  const theirs = projects.flatMap((project) => {
+    const grant = project.access.find(({ userId }) => userId === member.userId);
+    return grant ? [{ id: project.id, name: project.name, role: grant.role }] : [];
+  });
   return (
-    <li className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+    <li className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 py-3">
+      <Avatar name={who} image={member.image} size={36} />
       <div className="min-w-0 flex-1 basis-48">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="min-w-0 truncate" title={member.email}>
-            {member.name || member.email}
-            {self ? <span className="text-content-tertiary"> (you)</span> : null}
-          </span>
+        <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+          <span className="min-w-0 truncate">{who}</span>
           {member.pausedAt ? <StatusBadge tone="warning">Paused</StatusBadge> : null}
-          {member.role === 'admin' ? <StatusBadge>{owner ? 'Owner' : 'Admin'}</StatusBadge> : null}
-        </div>
-        <p
-          className="text-xs text-content-tertiary sm:truncate"
-          title={member.role === 'member' ? theirProjects.map((project) => project.name).join(', ') : undefined}
-        >
+        </p>
+        <p className="mt-1 flex min-w-0 flex-wrap gap-1 text-xs">
+          {everything ? (
+            <span className="rounded-full bg-bolt-elements-background-depth-3 px-2 py-0.5 text-content-secondary">
+              Can do everything
+            </span>
+          ) : theirs.length === 0 ? (
+            <span className="text-content-tertiary">On no project now</span>
+          ) : (
+            theirs.slice(0, MEMBER_PROJECTS_SHOWN).map((project) => (
+              <span
+                key={project.id}
+                className="max-w-full truncate rounded-full bg-bolt-elements-background-depth-3 px-2 py-0.5 text-content-secondary"
+              >
+                {project.name} · {project.role === 'edit' ? 'can edit' : 'can view'}
+              </span>
+            ))
+          )}
+          {!everything && theirs.length > MEMBER_PROJECTS_SHOWN ? (
+            <span className="px-1 py-0.5 text-content-tertiary">+{theirs.length - MEMBER_PROJECTS_SHOWN} more</span>
+          ) : null}
+        </p>
+        <p className="mt-1 truncate text-xs text-content-tertiary" title={member.email}>
           {member.name ? `${member.email} · ` : ''}
-          {projects.length > 0 ? `${projectsLine} · ` : ''}
           {member.usage.turns} {member.usage.turns === 1 ? 'turn' : 'turns'}, {compactCount(tokens)} tokens this month
         </p>
       </div>
-      {owner ? null : (
-        <MoreMenu title={`Manage ${who}`}>
-          {self ? null : (
-            <MenuItem action={() => void act(member.pausedAt ? 'resume' : 'pause')}>
-              {member.pausedAt ? 'Resume' : 'Pause'}
-            </MenuItem>
-          )}
-          <MenuItem
-            action={() =>
-              member.role === 'admin' && self
-                ? setConfirming('make_member')
-                : void act(member.role === 'admin' ? 'make_member' : 'make_admin')
-            }
-          >
-            {member.role === 'admin' ? 'Make member' : 'Make admin'}
-          </MenuItem>
-          <MenuSeparator />
-          <MenuItem danger action={() => setConfirming('remove')}>
-            {self ? 'Leave' : 'Remove'}
-          </MenuItem>
-        </MoreMenu>
-      )}
-      {self && confirming === 'remove' ? (
-        <LeaveOrganization orgId={orgId} orgName={orgName} myUserId={member.userId} onCancel={cancel} />
-      ) : confirming ? (
-        <Modal
-          title={confirming === 'remove' ? `Remove ${who}?` : 'Make yourself a member?'}
-          onClose={busy ? undefined : cancel}
-        >
+      <MoreMenu title={`Manage ${who}`}>
+        <MenuItem action={() => void act(member.pausedAt ? 'resume' : 'pause')}>
+          {member.pausedAt ? 'Resume' : 'Pause'}
+        </MenuItem>
+        <MenuItem action={() => void act(everything ? 'make_member' : 'make_admin')}>
+          {everything ? 'Limit to their projects' : 'Let them do everything'}
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem danger action={() => setConfirming(true)}>
+          Remove
+        </MenuItem>
+      </MoreMenu>
+      {confirming ? (
+        <Modal title={`Remove ${who}?`} onClose={busy ? undefined : cancel}>
           <div className="grid gap-3 text-sm text-content-secondary">
             <p>
-              {confirming === 'remove'
-                ? `Their workspace in ${orgName}'s Cloudflare account, with their chats and project files there, is deleted.`
-                : 'You lose admin access to this account until another admin gives it back.'}
+              They come off every project of yours, and their workspace in your Cloudflare account, with their chats and
+              project files there, is deleted.
             </p>
             {reauthenticate ? (
               <ReauthenticatePrompt
@@ -603,8 +579,8 @@ function MemberRow({
               <Button size="sm" variant="neutral" disabled={busy} onClick={cancel}>
                 Cancel
               </Button>
-              <Button size="sm" variant="danger" loading={busy} onClick={() => void act(confirming)}>
-                {confirming === 'remove' ? 'Remove and delete their workspace' : 'Make me a member'}
+              <Button size="sm" variant="danger" loading={busy} onClick={() => void act('remove')}>
+                Remove and delete their workspace
               </Button>
             </div>
           </div>

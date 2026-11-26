@@ -1,3 +1,4 @@
+import { shownName } from '~/lib/shown-name';
 import { spaceNameFor } from '~/lib/workspace-name';
 import {
   draftsAllowed,
@@ -22,6 +23,7 @@ type OrganizationMember = {
   userId: string;
   name: string;
   email: string;
+  image: string | null;
   role: OrganizationRole;
   joinedAt: number;
   pausedAt: number | null;
@@ -32,6 +34,8 @@ type OrganizationMember = {
 type OrganizationSummary = Membership & {
   /** The person it was made for (their own Cloudflare account), who stays its admin. */
   ownerUserId: string | null;
+  /** That person, as someone added to their projects is shown them: by name and face, never by address. */
+  owner: { name: string; image: string | null } | null;
   /** The space's Cloudflare account, once an admin has connected it. */
   connection: { accountName: string | null; active: boolean } | null;
   /** Only an admin sees who else is in the space. */
@@ -140,9 +144,11 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
     .prepare(
       `SELECT members.org_id, organizations.name AS org_name, members.role, members.paused_at,
               connections.account_name, connections.status AS connection_status,
-              organizations.personal_user_id AS owner_user_id
+              organizations.personal_user_id AS owner_user_id, owners.name AS owner_name,
+              owners.username AS owner_username, owners.image AS owner_image
        FROM organization_members AS members
        JOIN organizations ON organizations.id = members.org_id
+       LEFT JOIN "user" AS owners ON owners.id = organizations.personal_user_id
        LEFT JOIN cloudflare_connections AS connections ON connections.org_id = members.org_id
        WHERE members.user_id = ?1
        -- The account made for them first, then the rest by name.
@@ -157,6 +163,9 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
       account_name: string | null;
       connection_status: string | null;
       owner_user_id: string | null;
+      owner_name: string | null;
+      owner_username: string | null;
+      owner_image: string | null;
     }>();
   const now = Date.now();
   return Promise.all(
@@ -169,6 +178,9 @@ export async function listOrganizations(db: D1Database, userId: string): Promise
         pausedAt: row.paused_at,
         draftsAllowed: draftsAllowed(row.role),
         ownerUserId: row.owner_user_id,
+        owner: row.owner_user_id
+          ? { name: shownName(row.owner_name ?? row.owner_username ?? ''), image: row.owner_image }
+          : null,
         connection:
           row.connection_status === null
             ? null
@@ -183,7 +195,8 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
   const monthStart = `${new Date(now).toISOString().slice(0, 7)}-01`;
   const { results } = await db
     .prepare(
-      `SELECT members.user_id, users.name, users.email, members.role, members.joined_at, members.paused_at,
+      `SELECT members.user_id, users.name, users.email, users.image, members.role, members.joined_at,
+              members.paused_at,
               COALESCE(SUM(usage.turns), 0) AS turns,
               COALESCE(SUM(usage.input_tokens), 0) AS input_tokens,
               COALESCE(SUM(usage.output_tokens), 0) AS output_tokens
@@ -200,6 +213,7 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
       user_id: string;
       name: string;
       email: string;
+      image: string | null;
       role: OrganizationRole;
       joined_at: number;
       paused_at: number | null;
@@ -211,6 +225,7 @@ async function listMembers(db: D1Database, orgId: string, now: number): Promise<
     userId: row.user_id,
     name: row.name,
     email: row.email,
+    image: row.image,
     role: row.role,
     joinedAt: row.joined_at,
     pausedAt: row.paused_at,

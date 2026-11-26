@@ -103,11 +103,9 @@ export function CloudflareCard({ initialError = null }: { initialError?: string 
           {loading ? 'Checking…' : connection || organization ? (accountName ?? 'Cloudflare account') : 'None yet'}
         </span>
         {loading ? null : connection ? (
-          <StatusBadge tone="success">
-            {organization && !admin ? `Managed by ${organization.orgName}` : 'Connected'}
-          </StatusBadge>
+          <StatusBadge tone="success">{organization && !admin ? organization.orgName : 'Connected'}</StatusBadge>
         ) : organization ? (
-          <StatusBadge>{`Managed by ${organization.orgName}`}</StatusBadge>
+          <StatusBadge>{organization.orgName}</StatusBadge>
         ) : (
           <StatusBadge tone="warning">Not connected</StatusBadge>
         )}

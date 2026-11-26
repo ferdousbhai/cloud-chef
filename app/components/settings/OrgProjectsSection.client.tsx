@@ -257,12 +257,3 @@ function WorkersBuildsInstruction() {
     </p>
   );
 }
-
-/** A member's list of the projects they were given in an organization. */
-export function MyOrgProjects({ projects }: { projects: OrgProject[] }) {
-  return projects.length > 0 ? (
-    <p className="mt-2 text-sm text-content-secondary wrap-anywhere">
-      Your projects: {projects.map((project) => project.name).join(', ')}
-    </p>
-  ) : null;
-}

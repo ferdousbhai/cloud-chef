@@ -12,6 +12,19 @@ const usage = { turns: 0, inputTokens: 0, outputTokens: 0 };
 const sam = { userId: 'user-1', name: 'Sam', email: 'sam@example.com', pausedAt: null, usage };
 const gia = { ...sam, userId: 'user-2', name: 'Gia', email: 'gia@example.com', role: 'member' };
 
+const emptyAccess: { userId: string; role: string }[] = [];
+const shop = {
+  id: 'project-1',
+  name: 'Shop',
+  repo: 't-shop',
+  createdFrom: 'chat',
+  deploysWith: 'cloudchef',
+  importRepoFullName: null,
+  access: emptyAccess,
+};
+
+const noProjects: (typeof shop)[] = [];
+
 /** Sam's own space, with the people given beside Sam. */
 function ownSpace(others: (typeof gia)[]) {
   return {
@@ -23,7 +36,7 @@ function ownSpace(others: (typeof gia)[]) {
     connection: { accountName: 'Sam’s account', active: true },
     members: [{ ...sam, role: 'admin' }, ...others],
     github: [],
-    projects: [],
+    projects: noProjects,
   };
 }
 
@@ -37,7 +50,7 @@ const studio = {
   members: null,
 };
 
-let organizations: (ReturnType<typeof ownSpace> | typeof studio)[] = [];
+let organizations: (ReturnType<typeof ownSpace> | (typeof studio & { owner?: { name: string; image: null } }))[] = [];
 /** Whether the session says Sam is alone in their space. */
 let solo = true;
 let root: Root | undefined;
@@ -97,37 +110,46 @@ async function render(element: ReactElement) {
 const text = () => document.body.textContent ?? '';
 
 describe('the people on a person’s projects, in Settings', () => {
-  it('lists their own account as theirs, beside the ones they were added to', async () => {
+  it('names no account: their own shows its people and Cloudflare, another’s shows whose projects they are on', async () => {
     solo = true;
-    organizations = [ownSpace([]), studio];
+    organizations = [ownSpace([]), { ...studio, owner: { name: 'Ada', image: null }, projects: [shop] }];
     await render(<OrganizationsCard />);
 
-    await vi.waitFor(() => expect(text()).toContain('Studio'));
-    const headings = Array.from(document.querySelectorAll('h3'), (heading) => heading.textContent);
-    expect(headings).toEqual(['Your account', 'Studio']);
-    expect(text()).toContain('Sam’s account');
+    await vi.waitFor(() => expect(text()).toContain('Ada'));
+    expect(document.querySelectorAll('h3')).toHaveLength(0);
+    expect(text()).not.toContain('Sam’s space');
+    expect(text()).not.toContain('Studio');
+    expect(text()).toContain('Shared Shop with you');
+    expect(text()).toContain('CloudflareSam’s account');
     expect(text()).not.toContain('team');
   });
 
-  it('says, alone in it, that sharing a project is how someone joins, with no list of people', async () => {
+  it('says, with nobody else on their projects, that sharing a project is how someone joins', async () => {
     solo = true;
     organizations = [ownSpace([])];
     await render(<OrganizationsCard />);
 
-    await vi.waitFor(() => expect(text()).toContain('Only you so far.'));
+    await vi.waitFor(() => expect(text()).toContain('Nobody else yet.'));
     expect(text()).toContain('share it with them from its menu');
-    expect(document.querySelector('ul')?.hidden).toBe(true);
+    expect(document.querySelector('ul')).toBeNull();
+    // Never their own row: they know they are there.
+    expect(text()).not.toContain('sam@example.com');
   });
 
-  it('stays theirs once someone has joined, and lists them, its owner unchanged', async () => {
+  it('lists the people on their projects by face and name, with what each may do in plain words', async () => {
     solo = false;
-    organizations = [ownSpace([gia])];
+    organizations = [
+      {
+        ...ownSpace([gia, { ...gia, userId: 'user-3', name: 'Kim', email: 'kim@example.com', role: 'admin' }]),
+        projects: [{ ...shop, access: [{ userId: 'user-2', role: 'view' }] }],
+      },
+    ];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Gia'));
-    expect(document.querySelector('h3')?.textContent).toBe('Your account');
-    expect(text()).toContain('Owner');
-    expect(text()).not.toContain('Only you so far.');
-    expect(document.querySelector('ul')?.hidden).toBe(false);
+    expect(text()).toContain('Shop · can view');
+    expect(text()).toContain('Can do everything');
+    expect(text()).not.toContain('Admin');
+    expect(document.querySelectorAll('[aria-label^="Manage "], [title^="Manage "]').length).toBe(2);
   });
 });
