@@ -5,7 +5,7 @@ import { MenuItem, MenuSeparator } from '@ui/Menu';
 import { Modal } from '@ui/Modal';
 import { authClient, createCloudflareReturnURL, signInWithCloudflare } from '~/lib/auth-client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
-import { OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
+import { GitHubConnection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
 import { Avatar } from '~/components/showcase/Avatar';
 import { getJson, messageOf, postJson, RequestError, runRequest } from '~/lib/json-request';
 import { ReauthenticatePrompt } from './ReauthenticatePrompt';
@@ -162,6 +162,14 @@ export function OrganizationsCard() {
   );
 }
 
+/**
+ * What the Cloudflare line calls the connected account: the name it has there, unless that is the one Cloudflare
+ * makes from an email address, which says nothing the person doesn't know and shows an address on the page.
+ */
+function accountLabel(accountName: string | null): string {
+  return accountName && !accountName.includes('@') ? accountName : 'Connected';
+}
+
 function OrganizationRow({
   organization,
   name,
@@ -200,7 +208,7 @@ function OrganizationRow({
       {connection === null ? (
         <StatusBadge tone="warning">Not connected</StatusBadge>
       ) : connection.active ? (
-        <StatusBadge tone="success">{connection.accountName ?? 'Connected'}</StatusBadge>
+        <StatusBadge tone="success">{accountLabel(connection.accountName)}</StatusBadge>
       ) : (
         <StatusBadge tone="warning">Needs reconnecting</StatusBadge>
       )}
@@ -246,13 +254,7 @@ function OrganizationRow({
           <FeedbackLine feedback={peopleFeedback} className="" />
           <div className="mt-5 border-t border-bolt-elements-borderColor pt-4">{cloudflare}</div>
           <FeedbackLine feedback={connectFeedback} />
-          <OrgProjectsSection
-            orgId={organization.orgId}
-            github={organization.github}
-            projects={projects}
-            members={organization.members ?? []}
-            onChanged={onChanged}
-          />
+          <GitHubConnection orgId={organization.orgId} github={organization.github} onChanged={onChanged} />
         </>
       ) : (
         <div className="flex min-w-0 flex-wrap items-center gap-3 border-t border-bolt-elements-borderColor pt-4">

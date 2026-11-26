@@ -886,42 +886,6 @@ export async function listMainChanges(
   }));
 }
 
-/** Gives a team member a role on one project, changes it, or (null) withdraws it. */
-export async function setProjectAccess(
-  db: D1Database,
-  args: { orgId: string; actorId: string; projectId: string; userId: string; role: ProjectRole | null },
-): Promise<void> {
-  await requireAdmin(db, args.orgId, args.actorId);
-  const project = await db
-    .prepare('SELECT id FROM org_projects WHERE id = ? AND org_id = ?')
-    .bind(args.projectId, args.orgId)
-    .first<{ id: string }>();
-  if (!project) {
-    throw new OrganizationError('That project is not in this space.', 404);
-  }
-  if (args.role === null) {
-    await db
-      .prepare('DELETE FROM org_project_access WHERE project_id = ? AND user_id = ?')
-      .bind(args.projectId, args.userId)
-      .run();
-    return;
-  }
-  // Granted only while they are a member, in the one statement, so a removal racing it leaves no grant
-  // behind. A grant they had keeps when it was first given.
-  const granted = await db
-    .prepare(
-      `INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
-       SELECT ?1, ?2, ?3, ?4, ?5
-       WHERE EXISTS (SELECT 1 FROM organization_members WHERE org_id = ?6 AND user_id = ?2)
-       ON CONFLICT(project_id, user_id) DO UPDATE SET role = excluded.role, granted_by = excluded.granted_by`,
-    )
-    .bind(args.projectId, args.userId, args.role, args.actorId, Date.now(), args.orgId)
-    .run();
-  if (granted.meta.changes === 0) {
-    throw new OrganizationError('That person is not in this space.', 404);
-  }
-}
-
 /**
  * Records the Artifacts repository an imported project now lives in. The same repository again is a
  * no-op; a different one than already recorded is refused (false).

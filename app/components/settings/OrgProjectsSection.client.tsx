@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { ChevronDownIcon } from '@radix-ui/react-icons';
 import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { ConfirmationDialog } from '@ui/ConfirmationDialog';
@@ -8,13 +7,10 @@ import { authClient } from '~/lib/auth-client';
 import { projectRoleSchema } from '~/lib/cloudflare/org-projects.client';
 import { ImportFromGitHubDialog } from '~/components/projects/ImportFromGitHubDialog.client';
 import { IMPORT_RETURN_PARAM, isImportReturn } from '~/lib/github-app.client';
-import { ProjectAccessList, type ProjectMember } from '~/components/projects/ProjectAccessList.client';
 import { openProjectWorkspace } from '~/lib/cloudflare/projects.client';
-import { deleteProject, loadDeletionPreview } from '~/lib/cloudflare/org-projects.client';
-import { DeleteProjectDialog } from '~/components/projects/DeleteProjectDialog.client';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { noContentSchema, postJson, runRequest } from '~/lib/json-request';
-import { MoreMenu } from './SettingsLayout';
+import { MoreMenu, StatusBadge } from './SettingsLayout';
 
 /** The GitHub accounts CloudChef's App is installed on for the team: imports read from all of them. */
 export const orgGitHubSchema = z.array(
@@ -32,28 +28,20 @@ export const orgProjectSchema = z.object({
   importRepoFullName: z.string().nullable(),
   access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),
 });
-/** Where an admin connects a team project's repository to Workers Builds, which then deploys it. */
-const WORKERS_BUILDS_CREATE_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages/create';
-
-type OrgProject = z.infer<typeof orgProjectSchema>;
-
 const installStartedSchema = z.object({ installUrl: z.string() });
 
 /**
- * An admin's view of a team's projects: each one's repository and who may view or edit it, and the GitHub
- * accounts CloudChef's App reads when importing.
+ * GitHub, as a place projects are imported from: one line naming the GitHub accounts CloudChef's App reads, with
+ * importing, adding one and disconnecting behind it. Projects themselves, and who is on each, are on the projects
+ * home and in each project's sharing, not here.
  */
-export function OrgProjectsSection({
+export function GitHubConnection({
   orgId,
   github,
-  projects,
-  members,
   onChanged,
 }: {
   orgId: string;
   github: z.infer<typeof orgGitHubSchema>;
-  projects: OrgProject[];
-  members: ProjectMember[];
   onChanged: () => Promise<void>;
 }) {
   const [disconnecting, setDisconnecting] = useState<z.infer<typeof orgGitHubSchema>[number] | null>(null);
@@ -99,18 +87,25 @@ export function OrgProjectsSection({
     }, onError);
 
   return (
-    <div className="mt-5 grid min-w-0 gap-2 text-sm">
+    <div className="mt-3 grid min-w-0 gap-2 text-sm">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <h4 className="mr-auto font-medium">
-          Projects <span className="font-normal text-content-tertiary">{projects.length}</span>
-        </h4>
-        <span className="flex items-center gap-1">
+        <span className="text-content-secondary">GitHub</span>
+        {github.length === 0 ? (
+          <StatusBadge>Not connected</StatusBadge>
+        ) : (
+          github.map((account) => (
+            <StatusBadge key={account.installationId} tone="success">
+              {account.accountLogin}
+            </StatusBadge>
+          ))
+        )}
+        <span className="ml-auto flex items-center gap-1">
           {workingHere ? (
             <Button size="xs" variant="neutral" onClick={() => setImporting(true)}>
               Import from GitHub
             </Button>
           ) : null}
-          <MoreMenu title="GitHub for this account">
+          <MoreMenu title="More for GitHub">
             {github.length === 0 ? (
               <MenuItem action={connect}>Connect GitHub</MenuItem>
             ) : (
@@ -126,23 +121,6 @@ export function OrgProjectsSection({
           </MoreMenu>
         </span>
       </div>
-      {workingHere ? null : (
-        <p className="text-xs text-content-tertiary">To import a project from GitHub, switch to this account first.</p>
-      )}
-      {projects.length > 0 ? (
-        <ul className="grid divide-y divide-bolt-elements-borderColor rounded-md border border-bolt-elements-borderColor">
-          {projects.map((project) => (
-            <ProjectRow
-              key={project.id}
-              orgId={orgId}
-              project={project}
-              members={members}
-              onChanged={onChanged}
-              onError={onError}
-            />
-          ))}
-        </ul>
-      ) : null}
       <FeedbackLine feedback={feedback} className="" />
       {importing ? (
         <ImportFromGitHubDialog
@@ -161,99 +139,5 @@ export function OrgProjectsSection({
         />
       ) : null}
     </div>
-  );
-}
-
-function ProjectRow({
-  orgId,
-  project,
-  members,
-  onChanged,
-  onError,
-}: {
-  orgId: string;
-  project: OrgProject;
-  members: ProjectMember[];
-  onChanged: () => Promise<void>;
-  onError: (message: string | null) => void;
-}) {
-  const [deleting, setDeleting] = useState(false);
-  const source = projectSource(project);
-  return (
-    <li className="min-w-0 px-3 py-2">
-      <details className="group min-w-0">
-        <summary className="flex min-w-0 cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 [&::-webkit-details-marker]:hidden">
-          <span className="min-w-0 flex-1 basis-40">
-            <span className="block truncate text-content-primary">{project.name}</span>
-            {source ? <span className="block truncate text-xs text-content-tertiary">{source}</span> : null}
-          </span>
-          <span className="text-xs text-content-secondary">
-            {project.access.length === 0
-              ? 'Admins only'
-              : `${project.access.length} ${project.access.length === 1 ? 'member' : 'members'}`}
-          </span>
-          <ChevronDownIcon aria-hidden className="text-content-tertiary transition-transform group-open:rotate-180" />
-        </summary>
-        <div className="mt-3 grid min-w-0 gap-3 border-t border-bolt-elements-borderColor pt-3">
-          <ProjectAccessList
-            orgId={orgId}
-            project={project}
-            members={members}
-            access={project.access}
-            onChanged={onChanged}
-            onError={onError}
-          />
-          {project.deploysWith === 'workers_builds' && project.createdFrom !== 'github' ? (
-            <WorkersBuildsInstruction />
-          ) : null}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button
-              size="xs"
-              variant="subtle"
-              className="text-content-error!"
-              aria-label={`Delete ${project.name}`}
-              onClick={() => setDeleting(true)}
-            >
-              Delete
-            </Button>
-          </div>
-        </div>
-      </details>
-      {deleting ? (
-        <DeleteProjectDialog
-          name={project.name}
-          preview={() => loadDeletionPreview(project.id)}
-          onDelete={() => deleteProject(project.id, project.name)}
-          onDeleted={() => {
-            setDeleting(false);
-            void onChanged();
-          }}
-          onClose={() => setDeleting(false)}
-        />
-      ) : null}
-    </li>
-  );
-}
-
-/** Where a project's code came from, while that still matters: an import not yet made. */
-function projectSource(project: OrgProject): string | null {
-  return project.importRepoFullName && project.repo === null
-    ? `imports from github.com/${project.importRepoFullName} when first opened`
-    : null;
-}
-
-/**
- * How an admin has Workers Builds deploy a project that didn't come from GitHub (a ZIP upload, say), so has no
- * Worker building it yet: the dashboard does it, once.
- */
-function WorkersBuildsInstruction() {
-  return (
-    <p className="text-xs text-content-secondary">
-      To put it live, connect it in{' '}
-      <a className="underline" href={WORKERS_BUILDS_CREATE_URL} target="_blank" rel="noopener noreferrer">
-        Workers Builds
-      </a>
-      : Workers &amp; Pages, Create, Continue with Artifacts, then the <code>cloudchef</code> namespace.
-    </p>
   );
 }

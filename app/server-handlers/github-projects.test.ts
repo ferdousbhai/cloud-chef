@@ -20,7 +20,7 @@ import {
   startGitHubAccountReuseAction,
   startGitHubInstallAction,
 } from './github-projects';
-import { listMyProjectsAction, registerGitHubImport, setProjectAccessAction } from './projects';
+import { listMyProjectsAction, registerGitHubImport } from './projects';
 import { answeringOrganizationErrors } from './signed-in';
 import { requireProjectScope } from '~/lib/cloudflare/data/org-projects.server';
 
@@ -739,8 +739,17 @@ const register = (
   });
 
 describe('projects', () => {
-  const giveRole = (env: Env, cookie: string, body: Record<string, string | null>) =>
-    setProjectAccessAction({ request: post(cookie, '/api/organizations/projects/access', body), env });
+  /** What sharing a project leaves someone with on it (`project-shares.test.ts`), or nothing (null). */
+  const giveRole = async (env: Env, grant: { projectId: string; userId: string; role: 'view' | 'edit' | null }) => {
+    await env.DB.prepare('DELETE FROM org_project_access WHERE project_id = ? AND user_id = ?')
+      .bind(grant.projectId, grant.userId)
+      .run();
+    if (grant.role) {
+      await env.DB.prepare('INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES (?, ?, ?, 1)')
+        .bind(grant.projectId, grant.userId, grant.role)
+        .run();
+    }
+  };
 
   it('imports repositories the installation reaches, and gives members the projects and roles admins choose', async () => {
     const { database, env, orgId, admin, member, app } = await setup();
@@ -768,12 +777,10 @@ describe('projects', () => {
     // Admins own every project; a member has none until given one.
     expect(await myProjects(env, admin.cookie)).toEqual(['ada/site: edit', 'ada/blog: edit']);
     expect(await myProjects(env, member.cookie)).toEqual([]);
-    const role = (cookie: string, value: 'view' | 'edit' | null) =>
-      giveRole(env, cookie, { orgId, projectId, userId: member.userId, role: value });
-    expect((await role(admin.cookie, 'view')).status).toBe(204);
+    const role = (value: 'view' | 'edit' | null) => giveRole(env, { projectId, userId: member.userId, role: value });
+    await role('view');
     expect(await myProjects(env, member.cookie)).toEqual(['ada/site: view']);
-    expect((await role(member.cookie, 'edit')).status).toBe(403);
-    expect((await role(admin.cookie, 'edit')).status).toBe(204);
+    await role('edit');
     expect(await myProjects(env, member.cookie)).toEqual(['ada/site: edit']);
 
     // The admin's team view lists who may view or edit each project.
@@ -804,7 +811,7 @@ describe('projects', () => {
       access: [{ userId: member.userId, role: 'edit' }],
     });
 
-    expect((await role(admin.cookie, null)).status).toBe(204);
+    await role(null);
     expect(await myProjects(env, member.cookie)).toEqual([]);
   });
 
@@ -842,7 +849,7 @@ describe('projects', () => {
     await install(env, app, admin.cookie, orgId);
     const imported = await register(env, admin.userId, { orgId, url: repositoryUrl(11), name: 'Site' }, app);
     const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
-    await giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: 'edit' });
+    await giveRole(env, { projectId, userId: member.userId, role: 'edit' });
 
     database.prepare('UPDATE organization_members SET paused_at = 1 WHERE user_id = ?').run(member.userId);
     expect(await myProjects(env, member.cookie)).toEqual([]);
@@ -860,42 +867,6 @@ describe('projects', () => {
     });
     expect(removed.status).toBe(200);
     expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM org_project_access').first()).toEqual({ n: 0 });
-  });
-
-  it('grants no project to a member removed while the grant was being made', async () => {
-    const { database, env, orgId, admin, member, app } = await setup();
-    await install(env, app, admin.cookie, orgId);
-    const imported = await register(env, admin.userId, { orgId, url: repositoryUrl(11), name: 'Site' }, app);
-    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
-    // Another admin's removal lands just before the grant is written.
-    const racing = withStatementHook(env.DB, (query) => {
-      if (query.includes('INSERT INTO org_project_access')) {
-        database.prepare('DELETE FROM organization_members WHERE user_id = ?').run(member.userId);
-      }
-    });
-    const grant = await giveRole(envWith({ ...env, DB: racing }), admin.cookie, {
-      orgId,
-      projectId,
-      userId: member.userId,
-      role: 'edit',
-    });
-    expect(grant.status).toBe(404);
-    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM org_project_access').first()).toEqual({ n: 0 });
-  });
-
-  it('keeps when a grant was first given when its role changes', async () => {
-    const { database, env, orgId, admin, member, app } = await setup();
-    await install(env, app, admin.cookie, orgId);
-    const imported = await register(env, admin.userId, { orgId, url: repositoryUrl(11), name: 'Site' }, app);
-    const { projectId } = z.object({ projectId: z.string() }).parse(await imported.json());
-    const role = (value: 'view' | 'edit') =>
-      giveRole(env, admin.cookie, { orgId, projectId, userId: member.userId, role: value });
-    expect((await role('edit')).status).toBe(204);
-    database.prepare('UPDATE org_project_access SET granted_at = 1').run();
-    expect((await role('view')).status).toBe(204);
-    expect(database.prepare('SELECT user_id, role, granted_at FROM org_project_access').all()).toEqual([
-      { user_id: member.userId, role: 'view', granted_at: 1 },
-    ]);
   });
 
   it("imports a public repository by its address, for a person's own projects, with no GitHub App", async () => {

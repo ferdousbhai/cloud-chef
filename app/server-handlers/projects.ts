@@ -1,5 +1,4 @@
 import { GITHUB_UNREACHABLE, IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
-import { z } from 'zod';
 import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
 import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
@@ -18,7 +17,6 @@ import {
   type PublishOutcome,
   type PublishState,
 } from '~/lib/.server/cloudflare/workers-builds';
-import { readJsonRequest } from '~/lib/.server/request-guards';
 import {
   findAccessibleProject,
   importProject,
@@ -27,7 +25,6 @@ import {
   listMainChanges,
   recordWorkersBuildsScriptTag,
   requireManagedProject,
-  setProjectAccess,
   type Project,
   type ProjectScope,
 } from '~/lib/cloudflare/data/org-projects.server';
@@ -42,13 +39,6 @@ import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.ser
  * imported from: a public repository by its address, a private one through CloudChef's GitHub App. The
  * first person to open an imported project imports it, in their workspace runtime.
  */
-const accessSchema = z.strictObject({
-  orgId: z.string().uuid(),
-  projectId: z.string().uuid(),
-  userId: z.string().min(1).max(128),
-  role: z.enum(['view', 'edit']).nullable(),
-});
-
 /** The projects this person may view or edit in the account they are working in now, with their role. */
 export function listMyProjectsAction({
   request,
@@ -234,18 +224,6 @@ export async function registerGitHubImport(
   const name = request.name || source.fullName.split('/')[1];
   const projectId = await importProject(env.DB, { scope, actorId: args.actorId, name, source });
   return { projectId };
-}
-
-/** Gives a team member a role on a project (view or edit), or (null) takes it away. */
-export function setProjectAccessAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const body = await readJsonRequest(request, accessSchema, 'Choose a project, a member and a role.');
-    if ('response' in body) {
-      return body.response;
-    }
-    await setProjectAccess(env.DB, { ...body.data, actorId: session.user.id });
-    return new Response(null, { status: 204 });
-  });
 }
 
 /** The route of a request about one project's Workers Builds. */

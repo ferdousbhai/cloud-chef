@@ -31,7 +31,7 @@ function TermsPage() {
         <ul>
           <li>at least 18</li>
           <li>able to form a binding agreement</li>
-          <li>authorized to act for any space or Cloudflare account you use</li>
+          <li>authorized to act for any Cloudflare account you connect</li>
         </ul>
       </TrustSection>
       <TrustSection title="Public-beta service, availability, and costs">
@@ -60,11 +60,11 @@ function TermsPage() {
           access secure.
         </p>
         <p>
-          A space&apos;s admin who connects its Cloudflare account authorizes CloudChef to act in that account for
-          everyone a project there is shared with, and the space is responsible for the charges they incur there.
-          Members build and deploy in that account under its administrators&apos; control. Projects are kept in that
-          account&apos;s Cloudflare Artifacts. Whoever installs CloudChef&apos;s GitHub App authorizes CloudChef to read
-          the repositories they choose, only to import them as projects; CloudChef never writes to GitHub.
+          Whoever connects a Cloudflare account authorizes CloudChef to act in that account for everyone a project there
+          is shared with, and is responsible for the charges they incur there. People added to a project build and
+          publish in that account under its owner&apos;s control. Projects are kept in that account&apos;s Cloudflare
+          Artifacts. Whoever installs CloudChef&apos;s GitHub App authorizes CloudChef to read the repositories they
+          choose, only to import them as projects; CloudChef never writes to GitHub.
         </p>
       </TrustSection>
       <TrustSection title="Your inputs and generated output">
@@ -129,9 +129,9 @@ function TermsPage() {
           the project private takes it off for good.
         </p>
         <p>
-          When you mention @cloudchef in a comment, CloudChef works on it in your own space, with your model and usage,
-          and posts its answer in that thread for anyone to read, shown as CloudChef&apos;s and naming you as the one
-          who asked. It changes the project only if you can edit it.
+          When you mention @cloudchef in a comment, CloudChef works on it in your own Cloudflare account, with your
+          model and usage, and posts its answer in that thread for anyone to read, shown as CloudChef&apos;s and naming
+          you as the one who asked. It changes the project only if you can edit it.
         </p>
         <p>
           Post only what you have the right to share. Posts, captions and comments must follow the acceptable use rules

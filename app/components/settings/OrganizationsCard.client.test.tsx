@@ -126,10 +126,13 @@ describe('the people on a person’s projects, in Settings', () => {
 
   it('says, with nobody else on their projects, that sharing a project is how someone joins', async () => {
     solo = true;
-    organizations = [ownSpace([])];
+    organizations = [{ ...ownSpace([]), connection: { accountName: 'Sam@example.com’s Account', active: true } }];
     await render(<OrganizationsCard />);
 
     await vi.waitFor(() => expect(text()).toContain('Nobody else yet.'));
+    // A Cloudflare account named after an address is only said to be connected.
+    expect(text()).toContain('CloudflareConnected');
+    expect(text().toLowerCase()).not.toContain('sam@example.com');
     expect(text()).toContain('share it with them from its menu');
     expect(document.querySelector('ul')).toBeNull();
     // Never their own row: they know they are there.
