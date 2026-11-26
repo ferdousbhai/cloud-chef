@@ -23,7 +23,10 @@ What exists to build on:
 
 ## Settled by the owner
 
-1. Showcase pages and posts are public on the web: no sign-in to view. Following, liking and the feed need sign-in.
+1. Showcase pages and posts are public on the web: no sign-in to view. Following and liking need sign-in. There is
+   no separate feed page (owner, 2026-11-26): Explore is the one place to look, someone who follows people can
+   narrow it to them, and following tells you when that person posts something new. Once there are enough posts,
+   Explore's order can favour the people a person follows.
    Reporting and takedown therefore ship in the first release.
 2. Screenshots and videos are stored in CloudChef's own storage (an R2 bucket bound to the control plane), with the
    account-boundary invariant amended for showcase media only (wording below).
@@ -287,7 +290,6 @@ sidebar.
 | -------------------- | --------- | -------------------------------------------------------------------------------------------------------------- |
 | `/<username>`        | anyone    | The person's page: name, bio, Follow, a grid of their visible posts (screenshot or video poster, newest first) |
 | `/<username>/<slug>` | anyone    | The post: media, caption, Open site, Make a copy, like, Report; for the project's members, its project page    |
-| `/feed`              | signed in | Posts from people you follow, newest first; empty state links to Explore                                       |
 | `/explore`           | anyone    | Everyone's visible posts, newest first (replacing today's public-projects list)                                |
 | `/notifications`     | signed in | The list above                                                                                                 |
 | `/reports`           | operator  | Moderation                                                                                                     |
@@ -318,7 +320,7 @@ Surfaces:
 
 - New: `app/lib/cloudflare/data/posts.server.ts` (posts, media, follows, likes, feed), `app/server-handlers/showcase.ts`
   (routes' data, uploads, reports), `app/lib/.server/showcase/screenshot.ts` (Browser Rendering, queue consumer),
-  routes `app/routes/$username.tsx`, `app/routes/$username.$slug.tsx`, `app/routes/feed.tsx`,
+  routes `app/routes/$username.tsx`, `app/routes/$username.$slug.tsx`,
   `app/routes/notifications.tsx`, `app/routes/reports.tsx`, components under `app/components/showcase/`.
 - `cloudflare.config.ts`: `SHOWCASE_MEDIA` R2 bucket, `BROWSER` Browser Rendering binding, a `SHOWCASE_SCREENSHOTS`
   queue and its consumer, `SHOWCASE_REPORT_RATE_LIMITER`, `OPERATOR_USER_IDS`.

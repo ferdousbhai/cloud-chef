@@ -8,7 +8,7 @@ import { Button, buttonClassNames } from '@ui/Button';
 import { Link } from '@tanstack/react-router';
 import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
-import { CheckCircledIcon, GlobeIcon, HomeIcon, PersonIcon, PlusIcon } from '@radix-ui/react-icons';
+import { CheckCircledIcon, GlobeIcon, PersonIcon, PlusIcon } from '@radix-ui/react-icons';
 import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
 import { useStore } from '@nanostores/react';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
@@ -201,16 +201,6 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
           ))}
         </div>
         <nav aria-label="More" className="shrink-0 space-y-1 border-t px-3 py-3">
-          <LinkButton
-            variant="subtle"
-            size="xs"
-            className="w-full justify-start"
-            to="/feed"
-            onClick={onClose}
-            icon={<HomeIcon />}
-          >
-            Feed
-          </LinkButton>
           <LinkButton
             variant="subtle"
             size="xs"

@@ -108,7 +108,8 @@ export type NotificationView = {
     | 'comment_replied'
     | 'comment_mentioned'
     | 'thread_closed'
-    | 'change_suggested';
+    | 'change_suggested'
+    | 'followed_posted';
   actor: ShowcaseAuthor | null;
   /** For grouped likes: how many others liked it that day. */
   others: number;
@@ -145,6 +146,8 @@ export const REPORT_REASON_LABELS = {
 export const CAPTION_MAX = 2000;
 export const BIO_MAX = 300;
 export const COMMENT_MAX = 1000;
+/** A reply by CloudChef is shown whole up to this length: an answer often takes more room than a comment. */
+export const AGENT_REPLY_MAX = 20_000;
 
 /** "3 likes", "1 like". */
 export function countLabel(count: number, one: string, many = `${one}s`): string {

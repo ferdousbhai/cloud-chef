@@ -94,16 +94,11 @@ export function Header() {
             )}
             nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
           />
-          {/* What other people made, a click from anywhere; on a phone, and beside a project's name, the menu has them. */}
+          {/* What other people made, a click from anywhere; on a phone, and beside a project's name, the menu has it. */}
           <nav
             aria-label="Discover"
             className={classNames('hidden items-center gap-1', chat.started ? 'lg:flex' : 'sm:flex')}
           >
-            {user ? (
-              <LinkButton variant="subtle" size="xs" to="/feed">
-                Feed
-              </LinkButton>
-            ) : null}
             <LinkButton variant="subtle" size="xs" to="/explore">
               Explore
             </LinkButton>

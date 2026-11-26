@@ -310,7 +310,6 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/showcase/viewer': ['GET', showcase.viewerAction],
     '/api/showcase/explore': ['GET', showcase.explorePageAction],
     '/api/showcase/person': ['GET', showcase.personPageAction],
-    '/api/showcase/feed': ['GET', showcase.feedAction],
     '/api/showcase/threads': ['GET', showcase.threadsAction],
     '/api/showcase/post': ['GET', showcase.postByAddressAction],
     '/api/showcase/threads/replies': ['GET', showcase.repliesAction],

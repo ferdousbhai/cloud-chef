@@ -1,4 +1,4 @@
-import { fileReport, recordPublication, replaceScreenshot } from '~/lib/cloudflare/data/posts.server';
+import { announcePost, fileReport, recordPublication, replaceScreenshot } from '~/lib/cloudflare/data/posts.server';
 import type { ProductionPublish } from '~/lib/cloudflare/data/org-projects.server';
 import { classifyMedia, takeScreenshot } from './screenshot';
 import { mediaKey } from './media';
@@ -28,7 +28,7 @@ function sendJob(env: PostingEnv, job: ShowcaseJob, delaySeconds?: number): Prom
 /**
  * A project's production publish, as `recordProductionPublish` answers it the first time a commit of main is recorded
  * live: a public project's post is made or updated (`recordPublication`), on the page of whoever pushed the commit
- * (else the project's author), and a new screenshot taken. A private project's post, seen only by the people who may
+ * (else the project's author), a new screenshot taken, and the people who follow its author told of a new post. A private project's post, seen only by the people who may
  * view the project, has no picture: whether its site may run in the post is asked at once. Called with that function's
  * non-null answer, from both places it is recorded (CloudChef's builder reporting a deploy, and a Workers Builds
  * status read). Asking again about a commit the post already shows changes nothing. Never throws: the publish has
@@ -60,6 +60,10 @@ export async function projectPublished(
       commit: publish.commit,
       siteUrl: outcome.siteUrl,
     });
+    if (outcome.visible) {
+      // The people who follow its author hear of a post once, the first time anyone may see it.
+      await announcePost(env.DB, outcome.postId);
+    }
   } catch (error) {
     console.error('[Showcase] Unable to post a publish', error instanceof Error ? error.message : 'not an Error');
   }

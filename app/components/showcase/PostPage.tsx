@@ -8,6 +8,7 @@ import { Avatar } from './Avatar';
 import { Caption } from './Caption';
 import { CommentForm, ThreadList, useThreads } from './Comments';
 import { CopiesDialog } from './CopiesDialog';
+import { FollowButton } from './FollowButton';
 import { useCopyFromPost } from './CopyFromPost';
 import { PostActions } from './PostActions';
 import { PostMedia } from './PostMedia';
@@ -23,7 +24,7 @@ import { ShowcaseViewerProvider, useShowcaseViewer } from './ViewerContext';
  */
 export function PostPage({ post, isPrivate = false }: { post: PostView; isPrivate?: boolean }) {
   return (
-    <ShowcaseViewerProvider postIds={[post.id]}>
+    <ShowcaseViewerProvider postIds={[post.id]} person={post.author.username}>
       <PostPageContent initial={post} isPrivate={isPrivate} />
     </ShowcaseViewerProvider>
   );
@@ -65,6 +66,7 @@ function PostPageContent({ initial, isPrivate }: { initial: PostView; isPrivate:
       >
         <header className="flex items-center gap-2.5 px-3 py-2.5 md:hidden">
           <AuthorLine post={post} />
+          <FollowAuthor post={post} />
           {menu}
         </header>
         <div className="flex items-center justify-center bg-[#0c0d12] md:h-full">
@@ -73,6 +75,7 @@ function PostPageContent({ initial, isPrivate }: { initial: PostView; isPrivate:
         <div className="flex min-h-0 flex-col md:border-l md:border-bolt-elements-borderColor">
           <header className="hidden items-center gap-2.5 border-b border-bolt-elements-borderColor px-4 py-3 md:flex">
             <AuthorLine post={post} />
+            <FollowAuthor post={post} />
             {menu}
           </header>
           <div className="order-2 grid gap-1 px-3 pt-1.5 md:order-3 md:border-t md:border-bolt-elements-borderColor md:px-4 md:pt-2">
@@ -200,6 +203,12 @@ function AuthorLine({ post }: { post: PostView }) {
       </span>
     </PersonLink>
   );
+}
+
+/** Follow beside the author's name, once the page knows who is looking: never on someone's own post. */
+function FollowAuthor({ post }: { post: PostView }) {
+  const { viewer } = useShowcaseViewer();
+  return viewer ? <FollowButton person={post.author} size="xs" /> : null;
 }
 
 /**

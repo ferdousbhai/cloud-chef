@@ -8,9 +8,10 @@ import {
   decideReports,
   deletePost,
   fileReport,
+  followsAnyone,
   followsPerson,
   listExplorePosts,
-  listFeedPosts,
+  listFollowedPosts,
   listFollowPeople,
   listLikers,
   listNotifications,
@@ -144,8 +145,8 @@ function cursorFrom(url: URL): ShowcaseCursor | null {
 
 /**
  * `GET /api/showcase/viewer?posts=<ids>&person=<username>`: what the signed-in person sees differently on a page:
- * who they are, which of its posts they liked and manage, and whether they follow the person whose page it is. A
- * visitor gets `signedIn: false`.
+ * who they are, which of its posts they liked and manage, whether they follow the person whose page or post it is,
+ * and whether they follow anyone at all. A visitor gets `signedIn: false`.
  */
 export const viewerAction: Handler = ({ request, env }) =>
   answering(async () => {
@@ -159,11 +160,12 @@ export const viewerAction: Handler = ({ request, env }) =>
       .filter((id) => ID.safeParse(id).success)
       .slice(0, 100);
     const person = USERNAME.safeParse(url.searchParams.get('person'));
-    const [posts, following, unread] = await Promise.all([
+    const [posts, following, followsSomeone, unread] = await Promise.all([
       viewerStateOfPosts(env.DB, session.user.id, postIds),
       person.success && person.data !== session.user.username
         ? followsPerson(env.DB, session.user.id, person.data)
         : Promise.resolve(null),
+      followsAnyone(env.DB, session.user.id),
       unreadNotifications(env.DB, session.user.id),
     ]);
     return json({
@@ -177,13 +179,24 @@ export const viewerAction: Handler = ({ request, env }) =>
       liked: posts.liked,
       managed: posts.managed,
       following,
+      followsAnyone: followsSomeone,
       unread,
     });
   });
 
-/** `GET /api/showcase/explore?before=&beforeId=`: the next page of Explore, for anyone. */
-export const explorePageAction: Handler = async ({ request, env }) =>
-  json(await listExplorePosts(env.DB, cursorFrom(new URL(request.url))));
+/**
+ * `GET /api/showcase/explore?before=&beforeId=`: the next page of Explore, for anyone. With `following=1`, only the
+ * posts of the people the signed-in person follows.
+ */
+export const explorePageAction: Handler = async ({ request, env }) => {
+  const url = new URL(request.url);
+  if (url.searchParams.get('following') !== '1') {
+    return json(await listExplorePosts(env.DB, cursorFrom(url)));
+  }
+  return signedInShowcase(request, env, async ({ session }) =>
+    json(await listFollowedPosts(env.DB, session.user.id, cursorFrom(url))),
+  );
+};
 
 /** `GET /api/showcase/person?username=&before=&beforeId=`: the next page of a person's posts, for anyone. */
 export const personPageAction: Handler = async ({ request, env }) => {
@@ -193,12 +206,6 @@ export const personPageAction: Handler = async ({ request, env }) => {
     ? json(await listPersonPosts(env.DB, username.data, cursorFrom(url)))
     : json({ error: 'Name a person.' }, 400);
 };
-
-/** `GET /api/showcase/feed?before=&beforeId=`: posts from the people the signed-in person follows. */
-export const feedAction: Handler = ({ request, env }) =>
-  signedInShowcase(request, env, async ({ session }) =>
-    json(await listFeedPosts(env.DB, session.user.id, cursorFrom(new URL(request.url)))),
-  );
 
 /**
  * For someone who can edit the project, reading its threads: the previews Workers Builds has built of the changes

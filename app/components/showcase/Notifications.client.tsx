@@ -4,7 +4,10 @@ import { timeAgo, type NotificationView } from '~/lib/showcase';
 import { classNames } from '~/utils/classNames';
 import { Avatar } from './Avatar';
 
-/** `/notifications`: who followed, liked, commented on or copied the person's work, and anything taken down. */
+/**
+ * `/notifications`: who followed, liked, commented on or copied the person's work, what the people they follow
+ * posted, and anything taken down.
+ */
 export function Notifications() {
   const [items, setItems] = useState<NotificationView[] | null>(null);
   const [error, setError] = useState(false);
@@ -164,6 +167,12 @@ function describe(item: NotificationView): ReactNode {
             : item.detail === 'not_planned'
               ? 'was closed: not planned.'
               : 'was closed as the same as another.'}
+        </>
+      );
+    case 'followed_posted':
+      return (
+        <>
+          <Person actor={item.actor} /> posted <Project item={item} />.
         </>
       );
     case 'change_suggested':

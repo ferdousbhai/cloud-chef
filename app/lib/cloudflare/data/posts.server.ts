@@ -8,10 +8,10 @@ import { findAccessibleProject } from './org-projects.server';
  * project, no team name.
  */
 
-/** A post moves back to the top of feeds on a publish at most this often. */
+/** A post moves back to the top of Explore on a publish at most this often. */
 export const POST_MOVE_INTERVAL_MS = 24 * 60 * 60_000;
-/** A new account's posts reach its followers' feeds once it is this old (its own page shows them at once). */
-const NEW_ACCOUNT_FEED_DELAY_MS = 24 * 60 * 60_000;
+/** A new account's posts reach the people who follow it once it is this old (its own page shows them at once). */
+const NEW_ACCOUNT_REACH_DELAY_MS = 24 * 60 * 60_000;
 /** Open reports from this many different people hold a post or comment until an operator decides. */
 export const REPORTS_TO_HOLD = 3;
 /** Posts an operator removed before a person's page is paused for review. */
@@ -241,10 +241,10 @@ export async function listExplorePosts(
 }
 
 /**
- * The feed: visible posts of the people `userId` follows, newest first. A new account's posts join feeds once it is
- * a day old, which keeps accounts made to spam out of them.
+ * Explore, only the people `userId` follows: their visible posts, newest first. A new account's posts are left out
+ * until it is a day old, which keeps accounts made to spam out of it.
  */
-export async function listFeedPosts(
+export async function listFollowedPosts(
   db: D1Database,
   userId: string,
   cursor?: ShowcaseCursor | null,
@@ -258,7 +258,7 @@ export async function listFeedPosts(
        WHERE ${PUBLIC} AND ${beforeCursor('?2', '?3')} AND authors.createdAt < ?5
        ORDER BY posts.shown_at DESC, posts.id DESC LIMIT ?4`,
     )
-    .bind(userId, shownAt, id, PAGE_SIZE, now - NEW_ACCOUNT_FEED_DELAY_MS)
+    .bind(userId, shownAt, id, PAGE_SIZE, now - NEW_ACCOUNT_REACH_DELAY_MS)
     .all<PostRow>();
   return { posts: results.map(toPostView), next: cursorOf(results, PAGE_SIZE) };
 }
@@ -403,6 +403,18 @@ export async function viewerStateOfPosts(
   return { liked: liked.results.map((row) => row.post_id), managed: managed.results.map((row) => row.id) };
 }
 
+/** Whether `userId` follows anyone with a public page: Explore offers "Following" only then. */
+export async function followsAnyone(db: D1Database, userId: string): Promise<boolean> {
+  const row = await db
+    .prepare(
+      `SELECT 1 AS yes FROM follows JOIN "user" AS people ON people.id = follows.followee_id
+       WHERE follows.follower_id = ? AND ${hasPublicPage('people')} LIMIT 1`,
+    )
+    .bind(userId)
+    .first<{ yes: number }>();
+  return row !== null;
+}
+
 /** Whether `userId` follows the person `username`. */
 export async function followsPerson(db: D1Database, userId: string, username: string): Promise<boolean> {
   const row = await db
@@ -434,7 +446,7 @@ export type PublicationOutcome =
 /**
  * Records that main's `commit` of a project went live at `siteUrl` (or its recorded live address). Every project
  * posts; a private project's post is seen only by the people who may view the project (`findPostFacts`). No post yet: one is made, on the page of whoever pushed the commit (else `by`, else the project's
- * author). A post already there shows the new commit; a visible one moves back to the top of feeds when it last
+ * author). A post already there shows the new commit; a visible one moves back to the top of Explore when it last
  * moved more than a day ago. A post its author hid, or one held after reports, stays hidden; one hidden because the
  * project went private shows again, since the project is public once more. A post an operator removed stays removed.
  * Asking again about the commit it already shows changes nothing, so a build's status read many times posts once.
@@ -503,7 +515,7 @@ export async function recordPublication(
 
 /**
  * A project made private: its post stays, for the people who may view the project, and leaves its author's page and
- * feeds (a private project's post is never public); its media is deleted, since CloudChef keeps pictures only of
+ * Explore (a private project's post is never public); its media is deleted, since CloudChef keeps pictures only of
  * public sites. Whether there was a post.
  */
 export async function forgetMediaOfPrivateProject(db: D1Database, projectId: string): Promise<boolean> {
@@ -713,7 +725,7 @@ export async function findManagedPostOfProject(
 /**
  * A clip its author approved in the chat, replacing the post's clip before it (whose objects are deleted with their
  * rows). Only someone who manages the post, while it isn't removed and its project is public. A new clip moves a
- * visible post back to the top of feeds when it last moved more than a day ago, as a publish does.
+ * visible post back to the top of Explore when it last moved more than a day ago, as a publish does.
  */
 export async function replaceReel(
   db: D1Database,
@@ -816,6 +828,36 @@ function notify(
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(crypto.randomUUID(), args.userId, args.kind, args.actorId, args.postId, args.detail ?? null, Date.now());
+}
+
+/**
+ * Tells the people who follow a post's author that it is there, once: the first time anyone may see it (a public
+ * project's visible post), whichever publish that is. A new account's followers aren't told in its first day, as
+ * its posts aren't in their Explore either; such a post is announced by a later publish. Answers how many were told.
+ */
+export async function announcePost(db: D1Database, postId: string, now = Date.now()): Promise<number> {
+  const claimed = await db
+    .prepare(
+      `UPDATE posts SET announced_at = ?2
+       WHERE id = ?1 AND announced_at IS NULL AND id IN (
+         SELECT posts.id FROM ${POST_FROM} WHERE posts.id = ?1 AND ${PUBLIC} AND authors.createdAt < ?3
+       )`,
+    )
+    .bind(postId, now, now - NEW_ACCOUNT_REACH_DELAY_MS)
+    .run();
+  if (claimed.meta.changes !== 1) {
+    return 0;
+  }
+  const told = await db
+    .prepare(
+      `INSERT INTO notifications (id, user_id, kind, actor_id, post_id, created_at)
+       SELECT lower(hex(randomblob(16))), follows.follower_id, 'followed_posted', posts.author_id, posts.id, ?2
+       FROM posts JOIN follows ON follows.followee_id = posts.author_id
+       WHERE posts.id = ?1 AND follows.follower_id <> posts.author_id`,
+    )
+    .bind(postId, now)
+    .run();
+  return told.meta.changes;
 }
 
 /** Follows or stops following the person `username`. Answers whether `userId` follows them now, and their count. */
@@ -1361,7 +1403,7 @@ export async function listOpenReports(db: D1Database): Promise<ReportedItem[]> {
          authors.email AS author_email, authors.showcase_paused_at,
          (SELECT media.id FROM post_media AS media WHERE media.post_id = posts.id AND media.kind = 'screenshot')
            AS screenshot_id,
-         comments.body AS comment_body, comments.status AS comment_status,
+         COALESCE(comments.long_body, comments.body) AS comment_body, comments.status AS comment_status,
          commenters.username AS commenter_username, commenters.name AS commenter_name
        FROM post_reports AS reports
        JOIN posts ON posts.id = reports.post_id
@@ -1560,7 +1602,9 @@ export async function decideReports(
       : null;
     await db.batch([
       closeReports,
-      db.prepare(`UPDATE post_comments SET status = 'removed', body = '-' WHERE id = ?`).bind(args.commentId),
+      db
+        .prepare(`UPDATE post_comments SET status = 'removed', body = '-', long_body = NULL WHERE id = ?`)
+        .bind(args.commentId),
       recount,
       ...(tell ? [tell] : []),
     ]);
@@ -1639,7 +1683,7 @@ export async function exportShowcase(db: D1Database, userId: string) {
       .all<ExportedPostRow>(),
     db
       .prepare(
-        'SELECT id, post_id, body, status, created_at FROM post_comments WHERE author_id = ? ORDER BY created_at LIMIT 200',
+        'SELECT id, post_id, COALESCE(long_body, body) AS body, status, created_at FROM post_comments WHERE author_id = ? ORDER BY created_at LIMIT 200',
       )
       .bind(userId)
       .all(),

@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root';
 import { Route as IndexRouteImport } from './routes/index';
 import { Route as ApprovalsRouteImport } from './routes/approvals';
 import { Route as ExploreRouteImport } from './routes/explore';
-import { Route as FeedRouteImport } from './routes/feed';
 import { Route as MoveRouteImport } from './routes/move';
 import { Route as NotificationsRouteImport } from './routes/notifications';
 import { Route as PrivacyRouteImport } from './routes/privacy';
@@ -44,11 +43,6 @@ const ApprovalsRoute = ApprovalsRouteImport.update({
 const ExploreRoute = ExploreRouteImport.update({
   id: '/explore',
   path: '/explore',
-  getParentRoute: () => rootRouteImport,
-} as any);
-const FeedRoute = FeedRouteImport.update({
-  id: '/feed',
-  path: '/feed',
   getParentRoute: () => rootRouteImport,
 } as any);
 const MoveRoute = MoveRouteImport.update({
@@ -141,7 +135,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute;
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
-  '/feed': typeof FeedRoute;
   '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
@@ -164,7 +157,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute;
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
-  '/feed': typeof FeedRoute;
   '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
@@ -188,7 +180,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute;
   '/approvals': typeof ApprovalsRoute;
   '/explore': typeof ExploreRoute;
-  '/feed': typeof FeedRoute;
   '/move': typeof MoveRoute;
   '/notifications': typeof NotificationsRoute;
   '/privacy': typeof PrivacyRoute;
@@ -213,7 +204,6 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/explore'
-    | '/feed'
     | '/move'
     | '/notifications'
     | '/privacy'
@@ -236,7 +226,6 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/explore'
-    | '/feed'
     | '/move'
     | '/notifications'
     | '/privacy'
@@ -259,7 +248,6 @@ export interface FileRouteTypes {
     | '/'
     | '/approvals'
     | '/explore'
-    | '/feed'
     | '/move'
     | '/notifications'
     | '/privacy'
@@ -283,7 +271,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute;
   ApprovalsRoute: typeof ApprovalsRoute;
   ExploreRoute: typeof ExploreRoute;
-  FeedRoute: typeof FeedRoute;
   MoveRoute: typeof MoveRoute;
   NotificationsRoute: typeof NotificationsRoute;
   PrivacyRoute: typeof PrivacyRoute;
@@ -324,13 +311,6 @@ declare module '@tanstack/react-router' {
       path: '/explore';
       fullPath: '/explore';
       preLoaderRoute: typeof ExploreRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    '/feed': {
-      id: '/feed';
-      path: '/feed';
-      fullPath: '/feed';
-      preLoaderRoute: typeof FeedRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     '/move': {
@@ -459,7 +439,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApprovalsRoute: ApprovalsRoute,
   ExploreRoute: ExploreRoute,
-  FeedRoute: FeedRoute,
   MoveRoute: MoveRoute,
   NotificationsRoute: NotificationsRoute,
   PrivacyRoute: PrivacyRoute,

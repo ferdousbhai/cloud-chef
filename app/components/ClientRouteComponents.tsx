@@ -38,7 +38,6 @@ const LazyExistingChat = lazy(() =>
 const LazySettingsContent = lazy(() =>
   import('~/components/SettingsContent.client').then((mod) => ({ default: mod.SettingsContent })),
 );
-const LazyFeed = lazy(() => import('~/components/showcase/Feed.client').then((mod) => ({ default: mod.Feed })));
 const LazyNotifications = lazy(() =>
   import('~/components/showcase/Notifications.client').then((mod) => ({ default: mod.Notifications })),
 );
@@ -56,7 +55,6 @@ const getClientHeader = createClientOnlyFn(() => LazyHeader);
 const getClientHomepage = createClientOnlyFn(() => LazyHomepage);
 const getClientExistingChat = createClientOnlyFn(() => LazyExistingChat);
 const getClientSettingsContent = createClientOnlyFn(() => LazySettingsContent);
-const getClientFeed = createClientOnlyFn(() => LazyFeed);
 const getClientNotifications = createClientOnlyFn(() => LazyNotifications);
 const getClientReports = createClientOnlyFn(() => LazyReports);
 const getClientApprovals = createClientOnlyFn(() => LazyApprovals);
@@ -78,7 +76,6 @@ export const ClientSettingsContent = createClientComponent<{ authorizationError?
   getClientSettingsContent,
   <Loading message="Loading settings…" />,
 );
-export const ClientFeed = createClientComponent<EmptyProps>(getClientFeed, <Loading message="Loading your feed…" />);
 export const ClientNotifications = createClientComponent<EmptyProps>(
   getClientNotifications,
   <Loading message="Loading notifications…" />,

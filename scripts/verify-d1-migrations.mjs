@@ -99,6 +99,7 @@ const migrationPolicies = [
       '0080_drop_space_invites.sql': 'b79894b9cba07ec36bb4682659bb89cc3b132b04cc150db3c6e346284558c8d4',
       '0081_one_space_per_account.sql': '40089c58e37dbc01772ee0b7905722414b51488224e2ce66e1eac7dad6605e9b',
       '0082_accounts_by_name.sql': 'd8db948d1cb2d781063180420309b52ea6d87b0b6f2297c7eed78c1d9fa49455',
+      '0083_followed_posts_and_whole_replies.sql': '9251a1ccd2d8085b9f18754faec1121a6f92ee3ec86581bc180b8273605a02ac',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -177,6 +178,10 @@ const migrationPolicies = [
       '0080_drop_space_invites.sql',
       // Drops only space_merges, a working table it makes itself to pair each space with the one it folds into.
       '0081_one_space_per_account.sql',
+      // Notifications gain the kind 'followed_posted': a CHECK can't be changed in place, so the table is rebuilt
+      // with every row copied, as in 0063; nothing references it. Every existing post is marked as already
+      // announced (whole-table UPDATE of a new column), which is additive.
+      '0083_followed_posts_and_whole_replies.sql',
     ],
   },
   {

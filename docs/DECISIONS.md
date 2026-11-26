@@ -140,3 +140,12 @@ beside a person's own once it has no project, with its people's workspaces (`ret
 longer renamed, a person's own is "Your account" to them and "<first name>’s account" to the people on its
 projects (migration 0082), and ending it is "Disconnect Cloudflare". `organizations` and `organization_members`
 stay as the record of each connected account and who works in it; only their names say space.
+
+## No feed page
+
+Owner, 2026-11-26: `/feed` (posts of the people you follow) is removed. It was Explore with a filter, and empty for
+everyone who follows nobody. Explore is the one place to look; "Following" narrows it for someone who follows
+people, Follow is beside the author's name on a post, and a follower is told once when someone they follow posts
+(`announcePost`). When there are enough posts that newest-first no longer serves, Explore's order favours the people
+a person follows; a second page does not come back. Search and suggested people wait until Explore is too long to
+scroll.

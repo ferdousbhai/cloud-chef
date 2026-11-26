@@ -4,9 +4,10 @@ import { EyeNoneIcon, EyeOpenIcon } from '@radix-ui/react-icons';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
 import { messageOf } from '~/lib/json-request';
-import { loadHiddenPosts, loadPersonPage, setBio, setFollowing, setPostShown } from '~/lib/showcase-api';
+import { loadHiddenPosts, loadPersonPage, setBio, setPostShown } from '~/lib/showcase-api';
 import { BIO_MAX, countLabel, type PostView, type PublicPerson, type ShowcaseCursor } from '~/lib/showcase';
 import { Avatar } from './Avatar';
+import { FollowButton } from './FollowButton';
 import { FollowListDialog } from './FollowListDialog';
 import { PostGrid } from './PostGrid';
 import { ShowcaseViewerProvider, useShowcaseViewer } from './ViewerContext';
@@ -152,36 +153,6 @@ function CountButton({ own, onClick, children }: { own: boolean; onClick: () => 
     </button>
   ) : (
     <>{children}</>
-  );
-}
-
-function FollowButton({ person, onCount }: { person: PublicPerson; onCount: (followers: number) => void }) {
-  const { viewer, signedIn } = useShowcaseViewer();
-  // What the viewer said, until a follow here changes it.
-  const [following, setFollowingState] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  const isFollowing = following ?? (viewer?.signedIn === true && viewer.following === true);
-  const toggle = () =>
-    signedIn(`Sign in to follow ${person.name}.`, () => {
-      setBusy(true);
-      setFollowing(person.username, !isFollowing)
-        .then((answer) => {
-          setFollowingState(answer.following);
-          onCount(answer.followers);
-        })
-        .catch((error) => toast.error(messageOf(error, 'That didn’t go through. Try again.')))
-        .finally(() => setBusy(false));
-    });
-  return (
-    <Button
-      size="sm"
-      variant={isFollowing ? 'neutral' : 'primary'}
-      loading={busy}
-      onClick={toggle}
-      className="min-w-24"
-    >
-      {isFollowing ? 'Following' : 'Follow'}
-    </Button>
   );
 }
 

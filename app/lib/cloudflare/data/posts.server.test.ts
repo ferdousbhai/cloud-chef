@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { controlPlaneDatabase } from '~/test/control-plane-d1';
 import {
   POST_MOVE_INTERVAL_MS,
+  announcePost,
+  followsAnyone,
   REPORTS_TO_HOLD,
   decideReports,
   deletePost,
@@ -11,7 +13,7 @@ import {
   findPostByAddress,
   forgetMediaOfPrivateProject,
   listExplorePosts,
-  listFeedPosts,
+  listFollowedPosts,
   listFollowPeople,
   listNotifications,
   mediaToServe,
@@ -241,17 +243,19 @@ describe('people’s pages', () => {
   });
 });
 
-describe('follows, likes and the feed', () => {
-  it('fills a follower’s feed, and tells the author once of a follow, a like and a copy', async () => {
+describe('follows and likes', () => {
+  it('shows a follower what the people they follow made, and tells the author once of a follow, a like and a copy', async () => {
     const { database, db } = seeded();
     await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
     const postId = postOf(database, 'recipes')!.id;
 
-    expect((await listFeedPosts(db, 'ben')).posts).toEqual([]);
+    expect((await listFollowedPosts(db, 'ben')).posts).toEqual([]);
+    expect(await followsAnyone(db, 'ben')).toBe(false);
     await setFollowing(db, { userId: 'ben', username: 'sara', follow: true });
+    expect(await followsAnyone(db, 'ben')).toBe(true);
     await setFollowing(db, { userId: 'ben', username: 'sara', follow: false });
     await setFollowing(db, { userId: 'ben', username: 'sara', follow: true });
-    expect((await listFeedPosts(db, 'ben')).posts.map((post) => post.id)).toEqual([postId]);
+    expect((await listFollowedPosts(db, 'ben')).posts.map((post) => post.id)).toEqual([postId]);
 
     expect(await setLiked(db, { userId: 'ben', postId, like: true })).toEqual({ liked: true, likeCount: 1 });
     expect(await setLiked(db, { userId: 'ben', postId, like: true })).toEqual({ liked: true, likeCount: 1 });
@@ -269,13 +273,42 @@ describe('follows, likes and the feed', () => {
     );
   });
 
-  it('keeps a new account’s posts out of feeds for its first day', async () => {
+  it('tells the people who follow someone of a new post, once, and never of a private one', async () => {
+    const { database, db } = seeded();
+    await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
+    const first = postOf(database, 'recipes')!.id;
+    await setFollowing(db, { userId: 'ben', username: 'sara', follow: true });
+    const told = async () =>
+      (await listNotifications(db, 'ben')).map((item) => [item.kind, item.actor?.name, item.projectName]);
+
+    // Ben followed after it was first seen; a post announces once, whoever follows later.
+    expect(await announcePost(db, first)).toBe(1);
+    expect(await announcePost(db, first)).toBe(0);
+    expect(await told()).toEqual([['followed_posted', 'Sara', 'Recipe Box']]);
+
+    await recordPublication(db, { projectId: 'diary', commit: COMMIT_A, by: 'sara', siteUrl: null });
+    const diary = postOf(database, 'diary')!.id;
+    expect(await announcePost(db, diary)).toBe(0);
+    // Made public, its next publish announces it.
+    database.exec(`UPDATE org_projects SET visibility = 'public' WHERE id = 'diary'`);
+    expect(await announcePost(db, diary)).toBe(1);
+    expect(await told()).toEqual([
+      ['followed_posted', 'Sara', 'Diary'],
+      ['followed_posted', 'Sara', 'Recipe Box'],
+    ]);
+    expect(await listNotifications(db, 'sara')).toHaveLength(1);
+  });
+
+  it('keeps a new account’s posts from the people who follow it for its first day', async () => {
     const { database, db } = seeded();
     database.exec(`UPDATE "user" SET createdAt = ${Date.now()} WHERE id = 'sara'`);
     await recordPublication(db, { projectId: 'recipes', commit: COMMIT_A, by: 'sara', siteUrl: null });
     await setFollowing(db, { userId: 'ben', username: 'sara', follow: true });
-    expect((await listFeedPosts(db, 'ben')).posts).toEqual([]);
+    expect((await listFollowedPosts(db, 'ben')).posts).toEqual([]);
     expect((await listExplorePosts(db)).posts).toHaveLength(1);
+    expect(await announcePost(db, postOf(database, 'recipes')!.id)).toBe(0);
+    database.exec(`UPDATE "user" SET createdAt = ${Date.now() - 2 * DAY} WHERE id = 'sara'`);
+    expect(await announcePost(db, postOf(database, 'recipes')!.id)).toBe(1);
   });
 });
 

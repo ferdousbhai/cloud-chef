@@ -6,7 +6,7 @@ import {
   addReply,
   closeThread,
   closeThreadsWentLive,
-  cutToComment,
+  cutToLength,
   deleteComment,
   listCopies,
   listReplies,
@@ -183,13 +183,25 @@ describe('a change going live', () => {
 });
 
 describe('CloudChef and copies', () => {
-  it('posts CloudChef’s answer as a reply, cut to a comment’s length', async () => {
-    const { db, postId } = await seeded();
+  it('posts CloudChef’s answer as a reply, whole even when it is longer than a comment', async () => {
+    const { database, db, postId } = await seeded();
     const thread = await startThread(db, { userId: 'ben', postId, body: '@cloudchef how does it save recipes?' });
-    const reply = await addAgentReply(db, { threadId: thread.id, askerId: 'ben', body: 'x'.repeat(1500) });
+    const answer = 'It keeps each recipe in a table. '.repeat(50).trim();
+    const reply = await addAgentReply(db, { threadId: thread.id, askerId: 'ben', body: answer });
     expect(reply?.byAgent).toBe(true);
-    expect(reply?.body).toHaveLength(1000);
-    expect(reply?.body.endsWith('…')).toBe(true);
+    expect(reply?.body).toBe(answer);
+    expect((await listReplies(db, thread.id)).map((comment) => comment.body)).toEqual([answer]);
+    // Its start, a comment long, is kept too: what a list or a notification quotes.
+    const kept = database.prepare('SELECT body FROM post_comments WHERE id = ?').get(reply!.id);
+    const start = String(kept?.body);
+    expect(start.length).toBeLessThanOrEqual(1000);
+    expect(start.endsWith('table.…')).toBe(true);
+
+    const short = await addAgentReply(db, { threadId: thread.id, askerId: 'ben', body: 'In a table.' });
+    expect(short?.body).toBe('In a table.');
+    const endless = await addAgentReply(db, { threadId: thread.id, askerId: 'ben', body: 'x'.repeat(30_000) });
+    expect(endless?.body).toHaveLength(20_000);
+    expect(endless?.body.endsWith('…')).toBe(true);
   });
 
   it('lists public copies and takes a suggestion only from the copy’s maker', async () => {
@@ -270,13 +282,13 @@ describe('openThreadsOfProjects', () => {
   });
 });
 
-describe('cutToComment', () => {
-  it('ends a reply too long for a comment at its last sentence that fits', () => {
+describe('cutToLength', () => {
+  it('ends a text too long for its room at its last sentence that fits', () => {
     const sentence = 'This sentence is exactly fifty characters long ok. ';
-    const cut = cutToComment(sentence.repeat(30));
+    const cut = cutToLength(sentence.repeat(30), 1000);
     expect(cut.length).toBeLessThanOrEqual(1000);
     expect(cut.endsWith('ok.…')).toBe(true);
-    const words = cutToComment('word '.repeat(400));
+    const words = cutToLength('word '.repeat(400), 1000);
     expect(words.endsWith('word…')).toBe(true);
   });
 });

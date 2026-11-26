@@ -1,5 +1,5 @@
 import type { CloseReason, NotificationView, PostComment, PostThread, ThreadState } from '~/lib/showcase';
-import { COMMENT_MAX } from '~/lib/showcase';
+import { AGENT_REPLY_MAX, COMMENT_MAX } from '~/lib/showcase';
 import { findAccessibleProject } from './org-projects.server';
 import { MENTION_STALE_MS } from './thread-runs.server';
 import {
@@ -74,7 +74,8 @@ type CommentRow = {
   image: string | null;
 };
 
-const COMMENT_COLUMNS = `comments.id, comments.body, comments.created_at, comments.author_id, comments.by_agent,
+/** A reply by CloudChef longer than a comment is read whole (`long_body`). */
+const COMMENT_COLUMNS = `comments.id, COALESCE(comments.long_body, comments.body) AS body, comments.created_at, comments.author_id, comments.by_agent,
   people.username, people.name, people.image`;
 
 /** A comment anyone may see: visible, by someone whose page isn't paused. */
@@ -547,6 +548,8 @@ async function insertReply(
     thread: NonNullable<Awaited<ReturnType<typeof threadFacts>>>;
     authorId: string;
     body: string;
+    /** The whole reply, when it is CloudChef's and longer than a comment: `body` is then its start. */
+    longBody?: string | null;
     byAgent: boolean;
     now: number;
   },
@@ -590,10 +593,21 @@ async function insertReply(
   await db.batch([
     db
       .prepare(
-        `INSERT INTO post_comments (id, post_id, author_id, body, status, created_at, parent_id, commit_sha, by_agent)
-         VALUES (?, ?, ?, ?, 'visible', ?, ?, ?, ?)`,
+        `INSERT INTO post_comments (id, post_id, author_id, body, long_body, status, created_at, parent_id, commit_sha,
+           by_agent)
+         VALUES (?, ?, ?, ?, ?, 'visible', ?, ?, ?, ?)`,
       )
-      .bind(id, thread.post.id, args.authorId, args.body, now, thread.id, thread.post.commitSha, args.byAgent ? 1 : 0),
+      .bind(
+        id,
+        thread.post.id,
+        args.authorId,
+        args.body,
+        args.longBody ?? null,
+        now,
+        thread.id,
+        thread.post.commitSha,
+        args.byAgent ? 1 : 0,
+      ),
     db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').bind(thread.post.id),
     db.prepare('UPDATE post_comments SET active_at = ? WHERE id = ?').bind(now, thread.id),
     ...(args.byAgent ? [] : [follow(db, thread.id, args.authorId, now)]),
@@ -633,8 +647,10 @@ export async function addReply(
 }
 
 /**
- * CloudChef's answer to `askerId`'s `@cloudchef` in a thread: the run's final message, cut to a comment's length. It
- * isn't counted in the asker's daily limit and is posted even in a locked thread, since the asker asked there.
+ * CloudChef's answer to `askerId`'s `@cloudchef` in a thread: the run's final message, whole. One longer than a
+ * comment is kept beside its start (`long_body`), which is what a notification quotes; only one longer than
+ * `AGENT_REPLY_MAX` is cut. It isn't counted in the asker's daily limit and is posted even in a locked thread, since
+ * the asker asked there.
  */
 export async function addAgentReply(
   db: D1Database,
@@ -645,22 +661,32 @@ export async function addAgentReply(
     return null;
   }
   const trimmed = args.body.trim() || 'CloudChef had nothing to add.';
-  const body = trimmed.length > COMMENT_MAX ? cutToComment(trimmed) : trimmed;
+  const whole = trimmed.length > AGENT_REPLY_MAX ? cutToLength(trimmed, AGENT_REPLY_MAX) : trimmed;
+  const long = whole.length > COMMENT_MAX;
   const now = args.now ?? Date.now();
-  return readComment(db, await insertReply(db, { thread, authorId: args.askerId, body, byAgent: true, now }));
+  return readComment(
+    db,
+    await insertReply(db, {
+      thread,
+      authorId: args.askerId,
+      body: long ? cutToLength(whole, COMMENT_MAX) : whole,
+      longBody: long ? whole : null,
+      byAgent: true,
+      now,
+    }),
+  );
 }
 
 /**
- * A reply longer than a comment, cut to fit with "…": at its last paragraph or sentence that fits, when that keeps
- * most of it, else at the last word, else where the room ends.
+ * A text longer than `max`, cut to fit with "…": at its last paragraph or sentence that fits, when that keeps most
+ * of it, else at the last word, else where the room ends.
  */
-export function cutToComment(text: string): string {
-  const room = text.slice(0, COMMENT_MAX - 1);
+export function cutToLength(text: string, max: number): string {
+  const room = text.slice(0, max - 1);
   const ends = [room.lastIndexOf('\n\n'), ...[...room.matchAll(/[.!?](?=\s)/g)].map((end) => (end.index ?? 0) + 1)];
   const sentence = Math.max(...ends);
   const word = room.lastIndexOf(' ');
-  const cut =
-    sentence >= COMMENT_MAX * 0.6 ? room.slice(0, sentence) : word >= COMMENT_MAX * 0.6 ? room.slice(0, word) : room;
+  const cut = sentence >= max * 0.6 ? room.slice(0, sentence) : word >= max * 0.6 ? room.slice(0, word) : room;
   return `${cut.trimEnd()}…`;
 }
 

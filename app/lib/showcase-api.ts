@@ -34,6 +34,7 @@ const viewerSchema = z.union([
     liked: z.array(z.string()),
     managed: z.array(z.string()),
     following: z.boolean().nullable(),
+    followsAnyone: z.boolean(),
     unread: z.number(),
   }),
 ]);
@@ -42,8 +43,8 @@ export type Viewer = z.infer<typeof viewerSchema>;
 
 /**
  * What the person looking sees differently on a public page: null while it loads (the page shows as a visitor sees
- * it meanwhile), then whether they're signed in, which posts they liked and manage, and whether they follow the
- * page's person. `refresh` reads it again, after signing in elsewhere or a change.
+ * it meanwhile), then whether they're signed in, which posts they liked and manage, whether they follow the
+ * page's person, and whether they follow anyone. `refresh` reads it again, after signing in elsewhere or a change.
  */
 export function useViewer(postIds: readonly string[], person?: string) {
   const [viewer, setViewer] = useState<Viewer | null>(null);
@@ -76,12 +77,14 @@ function cursorQuery(cursor: ShowcaseCursor | null): string {
   return cursor ? `before=${cursor.shownAt}&beforeId=${encodeURIComponent(cursor.id)}` : '';
 }
 
-export function loadFeedPage(cursor: ShowcaseCursor | null, signal?: AbortSignal) {
-  return getJson(`/api/showcase/feed?${cursorQuery(cursor)}`, postsPageSchema, undefined, signal);
-}
-
-export function loadExplorePage(cursor: ShowcaseCursor | null) {
-  return getJson(`/api/showcase/explore?${cursorQuery(cursor)}`, postsPageSchema);
+/** A page of Explore: everyone's posts, or with `following` only those of the people the person follows. */
+export function loadExplorePage(cursor: ShowcaseCursor | null, following = false, signal?: AbortSignal) {
+  return getJson(
+    `/api/showcase/explore?${following ? 'following=1&' : ''}${cursorQuery(cursor)}`,
+    postsPageSchema,
+    undefined,
+    signal,
+  );
 }
 
 export function loadPersonPage(username: string, cursor: ShowcaseCursor | null) {
