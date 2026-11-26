@@ -23,6 +23,7 @@ import { ConfirmationDialog } from '@ui/ConfirmationDialog';
 import { Menu, MenuItem } from '@ui/Menu';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
 import { authClient, workInAccount } from '~/lib/auth-client';
+import { switchAccount } from '~/lib/account-actions.client';
 import {
   deleteProject,
   loadDeletionPreview,
@@ -82,6 +83,15 @@ type OpenDialog =
 export function ProjectsHome() {
   const { data: session } = authClient.useSession();
   const context = session?.context ?? null;
+  // Home is the person's own account. Opening a project shared with them leaves the session working in its owner's;
+  // coming back here returns it, so their own projects and the prompt for a new one are what they find.
+  const own = session?.contexts.find((option) => option.personal) ?? null;
+  const elsewhere = context !== null && own !== null && context.connectionId !== own.connectionId;
+  useEffect(() => {
+    if (elsewhere && own) {
+      void switchAccount(own.connectionId);
+    }
+  }, [elsewhere, own]);
   // A space with other people in it; alone in theirs, its projects are simply the person's own.
   const team = context && !context.solo ? context : null;
   // Only whoever runs a space imports, since its projects are theirs to add.
@@ -622,6 +632,12 @@ function ConnectionProjectCard({
       subtitle={project.fullName}
       isPublic={project.visibility === 'public'}
       badge={badge ?? undefined}
+      people={project.people}
+      onPeople={
+        project.canManage
+          ? () => onDialog({ kind: 'share', project: { id: project.id, name: project.name } })
+          : undefined
+      }
       deploy={deploy}
       note={connection.openFailure?.id === project.id ? connection.openFailure.message : null}
       openThreads={
@@ -806,6 +822,7 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
               subtitle={project.ownerName ? `Shared by ${project.ownerName}` : null}
               isPublic={project.visibility === 'public'}
               badge={canEdit ? 'Can edit' : 'Can view'}
+              people={project.people}
               note={openFailure?.id === project.id ? openFailure.message : null}
               primary={
                 <Button

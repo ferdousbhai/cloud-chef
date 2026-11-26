@@ -28,6 +28,14 @@ export type ProjectDeploymentState = ProjectDeployment['state'];
 const projectVisibilitySchema = z.enum(['private', 'public']);
 export type ProjectVisibility = z.infer<typeof projectVisibilitySchema>;
 
+/** Someone on a project, as its card shows them: never their email address. */
+export const projectPersonSchema = z.object({
+  userId: z.string(),
+  name: z.string(),
+  image: z.string().nullable(),
+  role: z.enum(['owner', 'view', 'edit']),
+});
+
 const teamProjectsSchema = z.object({
   projects: z.array(
     z.object({
@@ -54,9 +62,13 @@ const teamProjectsSchema = z.object({
       visibility: projectVisibilitySchema.nullish(),
       /** Whether this person may make it public or private: a personal project's owner, or a team admin. */
       canManage: z.boolean().nullish(),
+      /** Everyone on it, whoever runs it first. */
+      people: z.array(projectPersonSchema).optional().catch(undefined),
     }),
   ),
 });
+
+export type ProjectPerson = z.infer<typeof projectPersonSchema>;
 
 export type TeamProject = z.infer<typeof teamProjectsSchema>['projects'][number];
 

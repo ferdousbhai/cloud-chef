@@ -97,6 +97,7 @@ const migrationPolicies = [
       '0078_shared_into_the_owners_account.sql': 'e54ef6ca5d5f90dbe3d1496ebf97835561f7267690e18262619ec93b6da4e470',
       '0079_drop_project_shares.sql': '91fba1cacbf69aadbd4e3f03536e3972453d99d4cbd5006f2431b41c109ba673',
       '0080_drop_space_invites.sql': 'b79894b9cba07ec36bb4682659bb89cc3b132b04cc150db3c6e346284558c8d4',
+      '0081_one_space_per_account.sql': '40089c58e37dbc01772ee0b7905722414b51488224e2ce66e1eac7dad6605e9b',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -173,6 +174,8 @@ const migrationPolicies = [
       '0079_drop_project_shares.sql',
       // Space invites and the counts that limited them: the release before this one names neither table.
       '0080_drop_space_invites.sql',
+      // Drops only space_merges, a working table it makes itself to pair each space with the one it folds into.
+      '0081_one_space_per_account.sql',
     ],
   },
   {

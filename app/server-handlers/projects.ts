@@ -31,6 +31,7 @@ import {
   type Project,
   type ProjectScope,
 } from '~/lib/cloudflare/data/org-projects.server';
+import { listProjectPeople } from '~/lib/cloudflare/data/project-shares.server';
 import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { installedRepositories } from './github-projects';
 import { signedIn } from './signed-in';
@@ -84,6 +85,10 @@ export function listMyProjectsAction({
       env.DB,
       projects.map((project) => project.id),
     );
+    const people = await listProjectPeople(
+      env.DB,
+      projects.map((project) => project.id),
+    );
     return Response.json(
       {
         projects: projects.map(
@@ -99,6 +104,7 @@ export function listMyProjectsAction({
               visibility: rest.visibility,
               // Whoever runs the space may change who can see it.
               canManage: session.context?.role === 'admin',
+              people: people.get(id) ?? [],
               importRepoFullName: importSource?.fullName ?? null,
               // When it was added, as a person's own app is dated by when it was made.
               createdAt: new Date(createdAt).toISOString(),

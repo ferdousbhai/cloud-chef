@@ -306,6 +306,72 @@ describe('CloudChef control-plane D1 schema', () => {
     ]);
   });
 
+  test("folds a space made beside a person's own, in the same Cloudflare account, into their own", () => {
+    const db = new DatabaseSync(':memory:');
+    db.exec('PRAGMA foreign_keys = ON');
+    const migrations = readdirSync('migrations')
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+    const folded = migrations.indexOf('0081_one_space_per_account.sql');
+    for (const migration of migrations.slice(0, folded)) {
+      db.exec(readFileSync(`migrations/${migration}`, 'utf8'));
+    }
+    // Ada's own space, and two she made beside it: Sites in the same Cloudflare account, with Sam added to one of
+    // its two projects and Kim its other admin, and Client in another account.
+    db.exec(`
+      INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt) VALUES
+        ('ada', 'Ada', 'ada@example.com', 1, 1, 1), ('sam', 'Sam', 'sam@example.com', 1, 1, 1),
+        ('kim', 'Kim', 'kim@example.com', 1, 1, 1);
+      INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
+        VALUES ('ada-own', 'ada', 'account-ada', 'active', 1, 1);
+      INSERT INTO organizations (id, name, created_by, created_at, updated_at) VALUES
+        ('sites', 'Sites', 'ada', 2, 2), ('client', 'Client', 'ada', 2, 2);
+      INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at) VALUES
+        ('sites-connection', 'sites', 'account-ada', 'active', 2, 2),
+        ('client-connection', 'client', 'account-client', 'active', 2, 2);
+      INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
+        ('sites', 'ada', 'admin', 2), ('sites', 'kim', 'admin', 3), ('sites', 'sam', 'member', 4),
+        ('client', 'ada', 'admin', 2);
+      INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with,
+        created_by, created_at) VALUES
+        ('mine', 'ada-own', 'ada-own', 'Mine', 'mine', 't-mine', 'chat', 'cloudchef', 'ada', 1),
+        ('shop', 'sites-connection', 'sites', 'Shop', 'shop', 't-shop', 'chat', 'cloudchef', 'ada', 2),
+        ('blog', 'sites-connection', 'sites', 'Blog', 'blog', 't-blog', 'chat', 'cloudchef', 'ada', 2),
+        ('theirs', 'client-connection', 'client', 'Theirs', 'theirs', 't-theirs', 'chat', 'cloudchef', 'ada', 2);
+      INSERT INTO org_project_access (project_id, user_id, role, granted_by, granted_at)
+        VALUES ('shop', 'sam', 'view', 'ada', 4);
+    `);
+
+    db.exec(readFileSync(`migrations/${migrations[folded]}`, 'utf8'));
+
+    expect(db.prepare('SELECT id, connection_id, org_id FROM org_projects ORDER BY id').all()).toEqual([
+      { id: 'blog', connection_id: 'ada-own', org_id: 'ada-own' },
+      { id: 'mine', connection_id: 'ada-own', org_id: 'ada-own' },
+      { id: 'shop', connection_id: 'ada-own', org_id: 'ada-own' },
+      { id: 'theirs', connection_id: 'client-connection', org_id: 'client' },
+    ]);
+    // Its people are people of her space now: nobody but her runs it, and each keeps what they had on each project.
+    expect(
+      db.prepare(`SELECT user_id, role FROM organization_members WHERE org_id = 'ada-own' ORDER BY user_id`).all(),
+    ).toEqual([
+      { user_id: 'ada', role: 'admin' },
+      { user_id: 'kim', role: 'member' },
+      { user_id: 'sam', role: 'member' },
+    ]);
+    expect(
+      db.prepare('SELECT project_id, user_id, role FROM org_project_access ORDER BY user_id, project_id').all(),
+    ).toEqual([
+      { project_id: 'blog', user_id: 'kim', role: 'edit' },
+      { project_id: 'shop', user_id: 'kim', role: 'edit' },
+      { project_id: 'shop', user_id: 'sam', role: 'view' },
+    ]);
+    // The emptied space is left for her to delete, which removes its people's workspaces from the account.
+    expect(db.prepare(`SELECT COUNT(*) AS people FROM organization_members WHERE org_id = 'sites'`).get()).toEqual({
+      people: 3,
+    });
+    expect(tableNames(db)).not.toContain('space_merges');
+  });
+
   test('ends with only the current control-plane and Computer locator schema', () => {
     const db = new DatabaseSync(':memory:');
     db.exec('PRAGMA foreign_keys = ON');

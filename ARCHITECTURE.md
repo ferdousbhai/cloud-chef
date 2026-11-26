@@ -163,8 +163,12 @@ connection that was one person's own into such a space, keeping its id, and its 
 the old way by the release before into one as it lands. Sign-in is separate from connecting: Google or an emailed one-time link signs anyone in,
 making an account for an address CloudChef hasn't seen (an account first made with a Cloudflare login still signs in
 with it), and the person then chooses a username (`/<username>`) before anything else. A session works in one
-context, a connection the person may use, chosen with the workspace switcher; a tab names the context it opened in
-on each runtime-session request and reloads if another tab switched the session. Signed in with no context, the
+context, a connection the person may use, which nobody chooses by hand: the projects home works in the person's own
+account (it returns the session there, `ProjectsHome`), and opening a project shared with them moves the session to
+its owner's. A tab names the context it opened in on each runtime-session request and reloads if another tab
+switched the session. Migration 0081 folded each space made beside a person's own, in the same Cloudflare account,
+into their own. A project's card shows who is on it as faces, whoever runs it first
+(`listProjectPeople`, `ProjectPeople`), once someone else is. Signed in with no context, the
 person is asked where their apps should live (`ChooseSpace` in `app/components/SignInPrompt.tsx`): their own
 Cloudflare account, connected there after a short list of what happens on Cloudflare's site; or someone else's
 account, reached by a project its owner shares with them. It's asked when they try to build, and the account menu offers it

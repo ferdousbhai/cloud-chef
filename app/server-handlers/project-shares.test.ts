@@ -8,7 +8,11 @@ import { deriveUserWorkspaceRuntimeSecret } from '~/lib/.server/cloudflare/user-
 import { createAuthSession, getAuthSession } from '~/lib/.server/auth';
 import { listWorkspaceContexts } from '~/lib/cloudflare/data/organization-access.server';
 import { findAccessibleProject } from '~/lib/cloudflare/data/org-projects.server';
-import { acceptInvitationsForUser, PROJECT_INVITATION_TTL_MS } from '~/lib/cloudflare/data/project-shares.server';
+import {
+  acceptInvitationsForUser,
+  listProjectPeople,
+  PROJECT_INVITATION_TTL_MS,
+} from '~/lib/cloudflare/data/project-shares.server';
 import { readSharedCapabilitySubject } from '~/lib/.server/cloudflare/shared-project';
 import { controlPlaneDatabase, createProvenEmailUser, envWith } from '~/test/control-plane-d1';
 import {
@@ -221,6 +225,18 @@ describe('sharing a project', () => {
       expect.objectContaining({ name: 'Recipe Box', role: 'view', ownerName: 'ada', connectionId: 'ada-own' }),
     ]);
     expect(await findAccessibleProject(db, RECIPES, cy.userId)).toMatchObject({ role: 'view' });
+    // Its card shows who is on it, whoever runs it first, by name and never by address.
+    expect(await listProjectPeople(db, [RECIPES])).toEqual(
+      new Map([
+        [
+          RECIPES,
+          [
+            { userId: ada.userId, name: 'ada', image: null, role: 'owner' },
+            { userId: cy.userId, name: 'cy', image: null, role: 'view' },
+          ],
+        ],
+      ]),
+    );
   });
 
   it('refuses anyone who doesn’t run the project, even someone it is shared with to edit', async () => {

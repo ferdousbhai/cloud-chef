@@ -11,6 +11,7 @@ import {
   acceptInvitation,
   acceptInvitationsForUser,
   describeInvitation,
+  listProjectPeople,
   projectSharing,
   ProjectShareError,
   renewInvitation,
@@ -158,6 +159,10 @@ export function sharedWithMeAction({ request, env }: { request: Request; env: En
   return signedIn(request, env, async ({ session }) => {
     await acceptInvitationsForUser(env.DB, session.user.id);
     const shared = await listSharedProjects(env.DB, session.user.id, session.context?.connectionId ?? null);
+    const people = await listProjectPeople(
+      env.DB,
+      shared.map((project) => project.id),
+    );
     return Response.json(
       {
         projects: shared.map((project) => ({
@@ -172,6 +177,7 @@ export function sharedWithMeAction({ request, env }: { request: Request; env: En
           fullName: project.fullName,
           visibility: project.visibility,
           sharedAt: new Date(project.sharedAt).toISOString(),
+          people: people.get(project.id) ?? [],
         })),
       },
       { headers: NO_STORE },

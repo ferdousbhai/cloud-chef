@@ -5,7 +5,6 @@ import { MenuItem, MenuSeparator } from '@ui/Menu';
 import { Modal } from '@ui/Modal';
 import { TextInput } from '@ui/TextInput';
 import { authClient, createCloudflareReturnURL, refreshSession, signInWithCloudflare } from '~/lib/auth-client';
-import { switchAccount } from '~/lib/account-actions.client';
 import { workspaceName } from '~/lib/workspace-name';
 import { errorFeedback, FeedbackLine, type Feedback } from './Feedback';
 import { MyOrgProjects, OrgProjectsSection, orgGitHubSchema, orgProjectSchema } from './OrgProjectsSection.client';
@@ -127,7 +126,11 @@ export function OrganizationsCard() {
   }, [organizations]);
 
   return (
-    <SettingsCard id="organizations" title="Spaces" description="Where you build, and who builds there with you.">
+    <SettingsCard
+      id="organizations"
+      title="People"
+      description="Who works on your projects, in your Cloudflare account."
+    >
       <FeedbackLine feedback={errorFeedback(error)} className="mt-3" />
       {githubMessage ? (
         <p className="mt-3 text-sm text-content-secondary" role="status">
@@ -151,8 +154,6 @@ export function OrganizationsCard() {
             organization={organization}
             // What they call it and the connection to open: the session lists the spaces they may build in now.
             name={nameAmong(session?.contexts ?? [], organization)}
-            connectionId={session?.contexts.find((option) => option.orgId === organization.orgId)?.connectionId ?? null}
-            current={session?.context?.orgId === organization.orgId}
             myUserId={session?.user.id ?? null}
             onChanged={reload}
           />
@@ -171,35 +172,15 @@ function nameAmong(
   return context ? workspaceName(context, contexts) : space.orgName;
 }
 
-/** Opens another account to build in; a refusal is shown as a toast, since the page stays. */
-function OpenButton({ connectionId }: { connectionId: string }) {
-  const [opening, setOpening] = useState(false);
-  const open = async () => {
-    setOpening(true);
-    if (await switchAccount(connectionId)) {
-      setOpening(false);
-    }
-  };
-  return (
-    <Button size="xs" variant="neutral" loading={opening} onClick={() => void open()}>
-      Open
-    </Button>
-  );
-}
-
 function OrganizationRow({
   organization,
   name,
-  connectionId,
-  current,
   myUserId,
   onChanged,
 }: {
   organization: Organization;
   /** What this person calls it: Personal while it is theirs alone. */
   name: string;
-  connectionId: string | null;
-  current: boolean;
   myUserId: string | null;
   onChanged: () => Promise<void>;
 }) {
@@ -256,11 +237,6 @@ function OrganizationRow({
             <StatusBadge tone="warning">Cloudflare needs reconnecting</StatusBadge>
           )}
           <span className="ml-auto flex items-center gap-1">
-            {current ? (
-              <StatusBadge>Open now</StatusBadge>
-            ) : connectionId ? (
-              <OpenButton connectionId={connectionId} />
-            ) : null}
             {admin && !connection?.active ? (
               <Button size="xs" variant="primary" onClick={connectCloudflare}>
                 Connect Cloudflare

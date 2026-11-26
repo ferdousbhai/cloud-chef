@@ -103,6 +103,55 @@ export async function projectSharing(
   };
 }
 
+/** Someone on a project, as its card shows them. */
+export type ProjectPerson = Pick<SharingPerson, 'userId' | 'name' | 'image' | 'role'>;
+
+/**
+ * Everyone on each of `projectIds`, whoever runs it first, then the people added in the order they were: what the
+ * faces on a project's card show. Someone paused is left out, as they are from its sharing.
+ */
+export async function listProjectPeople(
+  db: D1Database,
+  projectIds: readonly string[],
+): Promise<Map<string, ProjectPerson[]>> {
+  const people = new Map<string, ProjectPerson[]>();
+  if (projectIds.length === 0) {
+    return people;
+  }
+  const { results } = await db
+    .prepare(
+      `SELECT projects.id AS project_id, person.id, person.name, person.username, person.image, members.role,
+         access.role AS given
+       FROM org_projects AS projects
+       JOIN organization_members AS members ON members.org_id = projects.org_id AND members.paused_at IS NULL
+       LEFT JOIN org_project_access AS access ON access.project_id = projects.id AND access.user_id = members.user_id
+       JOIN "user" AS person ON person.id = members.user_id
+       WHERE projects.id IN (SELECT value FROM json_each(?1)) AND (members.role = 'admin' OR access.role IS NOT NULL)
+       ORDER BY projects.id, members.role = 'admin' DESC, COALESCE(access.granted_at, members.joined_at)`,
+    )
+    .bind(JSON.stringify(projectIds))
+    .all<{
+      project_id: string;
+      id: string;
+      name: string | null;
+      username: string | null;
+      image: string | null;
+      role: 'admin' | 'member';
+      given: ProjectRole | null;
+    }>();
+  for (const row of results) {
+    const listed = people.get(row.project_id) ?? [];
+    listed.push({
+      userId: row.id,
+      name: shownName(row.name ?? row.username ?? ''),
+      image: row.image,
+      role: row.role === 'admin' ? 'owner' : (row.given ?? 'view'),
+    });
+    people.set(row.project_id, listed);
+  }
+  return people;
+}
+
 /** What sharing did: shared with a person at once (to tell them), or invited an address (to email the link to). */
 export type ShareOutcome =
   | { kind: 'shared'; userId: string; email: string | null; name: string }

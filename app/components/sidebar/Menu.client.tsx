@@ -10,7 +10,6 @@ import { LinkButton } from '~/components/ui/LinkButton';
 import { TextInput } from '@ui/TextInput';
 import { CheckCircledIcon, GlobeIcon, HomeIcon, PersonIcon, PlusIcon } from '@radix-ui/react-icons';
 import { ProjectItem, useEditableProjects, useOpenProject } from './ProjectItem.client';
-import { WorkspaceSwitcher } from '~/components/header/WorkspaceSwitcher';
 import { useStore } from '@nanostores/react';
 import { userWorkspacePreparingStore, userWorkspaceUpgradingStore } from '~/lib/cloudflare/runtime-session';
 import { workspacePreparingMessage } from '~/components/WorkspacePreparing';
@@ -128,8 +127,6 @@ export const Menu = memo(({ isOpen, waitingApprovals, onClose }: MenuProps) => {
       <div aria-hidden className="h-(--header-height) shrink-0 border-b" />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="min-w-0 space-y-3 px-4 pb-5 pt-4">
-          {/* The header has it beside the logo, except on a phone in a project. */}
-          <WorkspaceSwitcher className="w-full justify-between! min-[480px]:hidden!" />
           {draftsAllowed ? (
             <LinkButton
               className="min-h-11 w-full min-w-0 max-w-full overflow-hidden rounded-lg px-4 no-underline"

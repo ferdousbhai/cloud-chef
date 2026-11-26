@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getJson, postJson } from '~/lib/json-request';
-import { projectRoleSchema, type ProjectRole } from './org-projects.client';
+import { projectPersonSchema, projectRoleSchema, type ProjectRole } from './org-projects.client';
 
 /**
  * Sharing a project as a document is shared: a username or an email address, and Can view or Can edit. Whoever runs
@@ -79,6 +79,7 @@ const sharedWithMeSchema = z.object({
       fullName: z.string().nullish(),
       visibility: z.enum(['private', 'public']).nullish(),
       sharedAt: z.iso.datetime(),
+      people: z.array(projectPersonSchema).optional().catch(undefined),
     }),
   ),
 });

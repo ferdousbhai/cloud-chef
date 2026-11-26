@@ -128,3 +128,9 @@ there are carry on); the space invite, its `/join` page and "may start apps of t
 space's admins start projects in it; and there is no third level beside view and edit: someone trusted with the
 account comes in through a project and is made an admin in Settings. Not covered: a project Workers Builds
 publishes, which the collaborator rule above doesn't hold.
+
+On 2026-11-26 the owner had the rest of the space idea removed from what people see: no switcher (home is the
+person's own account, and a shared project opens in its owner's), Settings lists People, each project's card shows
+who is on it as faces, and migration 0081 folds a space made beside a person's own, in the same Cloudflare account,
+into their own. Chats are kept per workspace, so those of a folded space's projects stay with the old space until
+it is deleted; the projects' code and history are untouched.

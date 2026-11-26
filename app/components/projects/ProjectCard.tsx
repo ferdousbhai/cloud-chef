@@ -6,6 +6,8 @@ import { Menu } from '@ui/Menu';
 import { Spinner } from '@ui/Spinner';
 import { ProjectTitle } from '~/components/ProjectTitle';
 import type { ProjectDeployment, ProjectDeploymentState } from '~/lib/cloudflare/org-projects.client';
+import type { ProjectPerson } from '~/lib/cloudflare/org-projects.client';
+import { ProjectPeople } from './ProjectPeople';
 import { SiteThumbnail } from './SiteThumbnail.client';
 
 /** How a project CloudChef publishes itself is doing: its newest publish, and what can be done about it. */
@@ -46,6 +48,8 @@ export function ProjectCard({
   deploy,
   note,
   openThreads,
+  people = [],
+  onPeople,
   primary,
   menuItems,
 }: {
@@ -68,6 +72,10 @@ export function ProjectCard({
   note?: string | null;
   /** Open comment threads on the project's post, linking to them. */
   openThreads?: { count: number; href: string } | null;
+  /** Everyone on the project, whoever runs it first: shown as faces once someone else is on it. */
+  people?: readonly ProjectPerson[];
+  /** Opens the project's sharing from those faces, for whoever runs it. */
+  onPeople?: () => void;
   /** The main action: Edit, or Open for a project the person may only view. */
   primary: ReactNode;
   menuItems: ReactNode;
@@ -111,6 +119,7 @@ export function ProjectCard({
               <ProjectTitle>{title}</ProjectTitle>
             </h3>
             {isPublic ? <PublicBadge /> : null}
+            <ProjectPeople project={title} people={people} onManage={onPeople} />
           </div>
           {subtitle ? (
             <p className="truncate text-xs text-content-secondary" title={subtitle}>
