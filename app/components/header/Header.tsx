@@ -8,6 +8,7 @@ import { Menu as MenuComponent, MenuItem as MenuItemComponent, MenuSeparator } f
 import { authClient } from '~/lib/auth-client';
 import { logOut } from '~/lib/account-actions.client';
 import { BrandLink } from '~/components/BrandLink';
+import { LinkButton } from '~/components/ui/LinkButton';
 import { useNavigate } from '@tanstack/react-router';
 import { classNames } from '~/utils/classNames';
 import { ChooseUsernamePrompt } from '~/components/settings/UsernameForm';
@@ -93,6 +94,20 @@ export function Header() {
             )}
             nameClassName="cloudchef-brand-name font-display text-lg font-bold leading-none text-content-primary"
           />
+          {/* What other people made, a click from anywhere; on a phone, and beside a project's name, the menu has them. */}
+          <nav
+            aria-label="Discover"
+            className={classNames('hidden items-center gap-1', chat.started ? 'lg:flex' : 'sm:flex')}
+          >
+            {user ? (
+              <LinkButton variant="subtle" size="xs" to="/feed">
+                Feed
+              </LinkButton>
+            ) : null}
+            <LinkButton variant="subtle" size="xs" to="/explore">
+              Explore
+            </LinkButton>
+          </nav>
         </div>
         <div className="flex min-w-0 flex-1 items-center gap-1 px-2 sm:px-4">
           {chat.started && (
@@ -106,6 +121,12 @@ export function Header() {
           <Suspense fallback={null}>
             <HeaderActionButtons />
           </Suspense>
+          {waitingApprovals > 0 ? (
+            // Only while something waits for them: a change someone on their projects asked for.
+            <LinkButton variant="neutral" size="xs" to="/approvals" className="shrink-0">
+              {waitingApprovals} to approve
+            </LinkButton>
+          ) : null}
           {user && (
             <MenuComponent
               buttonProps={{
