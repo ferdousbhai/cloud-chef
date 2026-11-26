@@ -165,6 +165,7 @@ describe("a project's record of what went live", () => {
       listWorkerScripts: async () => [],
       latestWorkersBuilds: async () => new Map(),
       listWorkersBuildTriggers: async () => [],
+      cancelWorkersBuild: async () => undefined,
       listWorkerPreviews: async () => [],
       workerAddresses: async () => ({ customDomains: [], workersDevUrl: null }),
     };

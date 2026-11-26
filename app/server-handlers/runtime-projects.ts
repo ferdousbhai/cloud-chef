@@ -14,6 +14,7 @@ import {
   type ProjectBuildStatus,
   type OpenWorkersBuildsAccountApi,
   type WorkersBuildsAccountApi,
+  cancelSupersededMainBuilds,
 } from '~/lib/.server/cloudflare/workers-builds';
 import {
   abandonImport,
@@ -41,7 +42,7 @@ import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/pro
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
 import { projectPublished } from '~/lib/.server/showcase/jobs';
-import { closeThreadsThatWentLive } from './threads-went-live';
+import { closeThreadsThatWentLive, commitsInHistory } from './threads-went-live';
 
 /**
  * A member's workspace runtime working on a project kept in Artifacts. The runtime reads and writes the
@@ -464,12 +465,16 @@ const mainPushedSchema = z.strictObject({
  * runtime straight to Artifacts and Workers Builds reads main from there, so this is the only way the team learns who
  * published. Kept only for someone who may edit the project.
  */
-export async function runtimeMainPushedAction(args: { request: Request; env: Env }): Promise<Response> {
+export async function runtimeMainPushedAction(args: {
+  request: Request;
+  env: Env;
+  openAccount?: OpenWorkersBuildsAccountApi;
+}): Promise<Response> {
   const opened = await openProject(args, mainPushedSchema);
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, identity } = opened;
+  const { project, body, identity, connection } = opened;
   if (project.role !== 'edit') {
     return json({ error: 'You can view this project but not change it.' }, 403);
   }
@@ -480,7 +485,48 @@ export async function runtimeMainPushedAction(args: { request: Request; env: Env
     newCommit: body.newCommit,
     pushedAt: Date.now(),
   });
+  if (project.deploysWith === 'workers_builds') {
+    await cancelOlderPublishes(args, connection, project, body.newCommit, identity.userId);
+  }
   return json({ recorded: true }, 200);
+}
+
+/**
+ * Workers Builds may build two pushes of main at once, and whichever finishes last goes live: the builds still going
+ * for older commits are cancelled, so the newest push wins (`cancelSupersededMainBuilds`). CloudChef's own deploys
+ * already stop once a newer commit exists. Never fails the report: at worst an older build still finishes.
+ */
+async function cancelOlderPublishes(
+  args: { request: Request; env: Env; openAccount?: OpenWorkersBuildsAccountApi },
+  connection: CloudflareConnection,
+  project: Project,
+  newCommit: string,
+  userId: string,
+): Promise<void> {
+  try {
+    const api = await (args.openAccount ?? openWorkersBuildsAccountApi)(args.env, connection);
+    const worker = await recordProjectWorker(args.env.DB, api, project, (found) => productionOrigins(api, found));
+    if (!worker) {
+      return;
+    }
+    const cancelled = await cancelSupersededMainBuilds(api, project, worker, newCommit, (commits) =>
+      commitsInHistory(
+        args.request,
+        args.env,
+        { projectId: project.id, connectionId: project.connectionId, commit: newCommit, reportedBy: userId },
+        commits,
+      ),
+    );
+    if (cancelled.length > 0) {
+      console.info({ event: 'workers_builds_superseded', projectId: project.id, cancelled: cancelled.length });
+    }
+  } catch (error) {
+    console.warn({
+      event: 'workers_builds_supersede_failed',
+      projectId: project.id,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /** What Workers Builds reports for a commit of the project: none yet, queued, building, succeeded or failed. */

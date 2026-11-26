@@ -27,8 +27,9 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   'aig.write',
   'secrets-store.write',
   // What Workers Builds reports for a project: which Worker builds its repository, each commit's build,
-  // and its Previews; and removing the triggers that build a project when it is deleted (deleting its Worker
-  // isn't documented to remove them). CloudChef changes a project's builds in no other way.
+  // and its Previews; removing the triggers that build a project when it is deleted (deleting its Worker
+  // isn't documented to remove them); and cancelling main's builds of older commits once a newer one is pushed,
+  // so the newest goes live. CloudChef changes a project's builds in no other way.
   'workers-ci.read',
   'workers-ci.write',
   // Giving a project's site a domain of the account's own (Workers Custom Domains), which the agent asks for and an

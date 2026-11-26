@@ -300,6 +300,8 @@ const workersBuildTriggerSchema = z.looseObject({
   root_directory: z.string().nullish(),
   branch_includes: z.array(z.string()).nullish(),
   branch_excludes: z.array(z.string()).nullish(),
+  path_includes: z.array(z.string()).nullish(),
+  path_excludes: z.array(z.string()).nullish(),
   repo_connection: repoConnectionSchema.nullish(),
 });
 
@@ -329,6 +331,9 @@ export type WorkersBuildTrigger = {
   rootDirectory: string | null;
   branchIncludes: string[];
   branchExcludes: string[];
+  /** Build watch paths: a push changing none of these files (or only excluded ones) builds nothing. */
+  pathIncludes: string[];
+  pathExcludes: string[];
   repository: WorkersBuildRepository | null;
 };
 
@@ -367,6 +372,8 @@ function workersBuildTrigger(value: z.infer<typeof workersBuildTriggerSchema>): 
     rootDirectory: value.root_directory ?? null,
     branchIncludes: value.branch_includes ?? [],
     branchExcludes: value.branch_excludes ?? [],
+    pathIncludes: value.path_includes ?? [],
+    pathExcludes: value.path_excludes ?? [],
     repository: workersBuildRepository(value.repo_connection),
   };
 }
@@ -1620,6 +1627,12 @@ export class UserCloudflareAccountApi {
       throw new CloudflareAccountApiError('Workers Builds returned invalid builds.');
     }
     return listed.data.map(workersBuild);
+  }
+
+  /** Cancel a build that is waiting or running. One that has already stopped is left as it ended. */
+  async cancelWorkersBuild(buildId: string): Promise<void> {
+    requireProviderResourceId(buildId);
+    await this.call<unknown>(`/builds/builds/${encodeURIComponent(buildId)}/cancel`, { method: 'PUT' });
   }
 
   /** A Worker's Workers Builds triggers: which repository and branches build it, and how. */

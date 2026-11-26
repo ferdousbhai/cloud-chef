@@ -121,8 +121,7 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       workspaceRefs: workspaceRefsPrefix(workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
-        await recordMainPush(env, teamProject, update);
-        await publishPush(env, deployed, update);
+        await recordAndPublishPush(env, this.ctx, teamProject, deployed, update);
       },
       recordBase: (base) => workspace.setGitBase(base),
       recordMainFetched: (commit) => workspace.setMainFetched(commit),
@@ -147,6 +146,26 @@ async function recordMainPush(env: GitProxyEnv, orgProjectId: string | null, upd
   await reportMainPushed(env, identity, report)
     .catch(() => reportMainPushed(env, identity, report))
     .catch((error: Error) => console.warn({ event: 'main_push_not_recorded', orgProjectId, message: error.message }));
+}
+
+/**
+ * A push that went in: told to the control plane, then built when CloudChef deploys the project. For a project
+ * Workers Builds deploys, which builds the push by itself, the telling (which also cancels its builds of older
+ * commits) goes on without the push waiting for it.
+ */
+async function recordAndPublishPush(
+  env: GitProxyEnv,
+  ctx: Pick<ExecutionContext, 'waitUntil'>,
+  orgProjectId: string | null,
+  deployed: { orgProjectId: string } | null,
+  update: RefUpdate,
+): Promise<void> {
+  if (!deployed) {
+    ctx.waitUntil(recordMainPush(env, orgProjectId, update));
+    return;
+  }
+  await recordMainPush(env, orgProjectId, update);
+  await publishPush(env, deployed, update);
 }
 
 /** A branch pushed to a project CloudChef deploys itself is built: main to go live, another for a preview. */
@@ -223,10 +242,7 @@ export async function handleCommandLineGit(
     mainHead: (repo) => repositories.head(repo),
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
-    recordPush: async (update) => {
-      await recordMainPush(env, orgProjectId, update);
-      await publishPush(env, deployed, update);
-    },
+    recordPush: (update) => recordAndPublishPush(env, ctx, orgProjectId, deployed, update),
     recordBase: async () => undefined,
     recordMainFetched: async () => undefined,
     fetch: (input, init) => fetch(input, init),

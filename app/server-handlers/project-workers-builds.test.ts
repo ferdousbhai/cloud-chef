@@ -22,9 +22,12 @@ function workersBuilds(repository: WorkersBuildRepository) {
         rootDirectory: '/',
         branchIncludes: ['master'],
         branchExcludes: [],
+        pathIncludes: [],
+        pathExcludes: [],
         repository,
       },
     ],
+    cancelWorkersBuild: async () => undefined,
     listWorkerPreviews: async () => [],
     workerAddresses: async () => ({ customDomains: [], workersDevUrl: null }),
   };

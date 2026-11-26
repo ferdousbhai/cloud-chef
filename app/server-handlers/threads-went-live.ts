@@ -27,7 +27,7 @@ export async function closeThreadsThatWentLive(
     const live = new Set(waiting.filter((fix) => fix.fixCommit === publish.commit).map((fix) => fix.fixCommit));
     const others = [...new Set(waiting.map((fix) => fix.fixCommit).filter((fix) => !live.has(fix)))];
     if (others.length > 0) {
-      for (const commit of await liveAmong(request, env, publish, others)) {
+      for (const commit of await commitsInHistory(request, env, publish, others)) {
         live.add(commit);
       }
     }
@@ -40,8 +40,11 @@ export async function closeThreadsThatWentLive(
   }
 }
 
-/** Which of `candidates` the published commit has in its history, as a runtime in the project's account reads it. */
-async function liveAmong(
+/**
+ * Which of `candidates` `commit` has in its history, as a runtime in the project's account reads it; none when it
+ * can't be asked in time.
+ */
+export async function commitsInHistory(
   request: Request,
   env: Env,
   publish: { projectId: string; connectionId: string; commit: string; reportedBy: string },

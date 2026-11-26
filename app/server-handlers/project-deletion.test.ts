@@ -68,6 +68,8 @@ function account(options: { failOn?: string } = {}) {
             rootDirectory: null,
             branchIncludes: [],
             branchExcludes: [],
+            pathIncludes: [],
+            pathExcludes: [],
             repository: null,
           }))
         : [],

@@ -295,6 +295,7 @@ function workersBuilds(
       return options.builds ?? [];
     },
     listWorkersBuildTriggers: async () => [],
+    cancelWorkersBuild: async () => undefined,
     listWorkerPreviews: async () => [
       { names: ['cloudchef/sara-a-key'], urls: ['https://cloudchef-sara-a-key-blog.team.workers.dev'] },
     ],

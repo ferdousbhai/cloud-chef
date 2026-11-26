@@ -26,6 +26,7 @@ export type WorkersBuildsAccountApi = Pick<
   | 'latestWorkersBuilds'
   | 'listWorkersBuilds'
   | 'listWorkersBuildTriggers'
+  | 'cancelWorkersBuild'
   | 'listWorkerPreviews'
   | 'workerAddresses'
 >;
@@ -200,6 +201,63 @@ function buildState(build: WorkersBuild): ProjectBuildStatus['state'] {
     default:
       return 'building';
   }
+}
+
+/** Watch paths that leave out no push: none, or every file. */
+function watchesEveryPush(trigger: Pick<WorkersBuildTrigger, 'pathIncludes' | 'pathExcludes'>): boolean {
+  return trigger.pathExcludes.length === 0 && trigger.pathIncludes.every((path) => path === '*');
+}
+
+/**
+ * Main moved to `newCommit`: the builds of main still waiting or running for an older commit are cancelled, so
+ * only the newest publish goes live, whichever build would finish last (one deploy at a time, the newest winning,
+ * as a CI concurrency group with cancel-in-progress does). "Older" is the project's own history, asked through
+ * `inHistory` (which of these commits `newCommit` holds), never the order reports arrive in, so a newer push's build
+ * is never cancelled by a late report of an older one. Only builds from the project's Artifacts repository are
+ * considered, and nothing is cancelled when a trigger has watch paths, since the newer push might build nothing.
+ * Returns the builds cancelled.
+ */
+export async function cancelSupersededMainBuilds(
+  api: Pick<WorkersBuildsAccountApi, 'listWorkersBuildTriggers' | 'listWorkersBuilds' | 'cancelWorkersBuild'>,
+  project: Pick<Project, 'repo' | 'importSource'>,
+  worker: ProjectWorker,
+  newCommit: string,
+  inHistory: (commits: string[]) => Promise<string[]>,
+): Promise<string[]> {
+  const triggers = (await api.listWorkersBuildTriggers(worker.tag)).filter(
+    (trigger) => projectRepositoryKind(trigger.repository, project) === 'artifacts',
+  );
+  if (triggers.length === 0 || !triggers.every(watchesEveryPush)) {
+    return [];
+  }
+  const unfinished = (await api.listWorkersBuilds(worker.tag, BUILDS_SEARCHED)).filter((build) => {
+    const state = buildState(build);
+    return (
+      build.branch === PRODUCTION_BRANCH &&
+      build.commit !== null &&
+      build.commit !== newCommit &&
+      (state === 'queued' || state === 'building') &&
+      projectRepositoryKind(build.repository, project) === 'artifacts'
+    );
+  });
+  if (unfinished.length === 0) {
+    return [];
+  }
+  const older = new Set(await inHistory([...new Set(unfinished.map((build) => build.commit!))]));
+  const cancelled: string[] = [];
+  for (const build of unfinished.filter((candidate) => older.has(candidate.commit!))) {
+    try {
+      await api.cancelWorkersBuild(build.id);
+      cancelled.push(build.id);
+    } catch (error) {
+      // One that stopped meanwhile can't be cancelled, and the rest still are.
+      console.warn({
+        event: 'workers_build_not_cancelled',
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return cancelled;
 }
 
 /** A build's page in Cloudflare's dashboard. */
