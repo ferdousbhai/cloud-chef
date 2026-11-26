@@ -20,7 +20,7 @@ function PrivacyPage() {
   return (
     <TrustPage
       title={TRUST_PAGE_HEADINGS.privacy}
-      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you build in: your own, or your space’s; the browser keeps only rebuildable in-memory views."
+      summary="CloudChef’s own account stores only the records needed to authenticate you, connect Cloudflare, locate your user-owned runtime, and operate the service, plus narrow product telemetry if you opt in. Project and conversation data stays in the Cloudflare account you build in: your own, or that of someone who shared a project with you; the browser keeps only rebuildable in-memory views."
     >
       <TrustSection title="What CloudChef stores in its own account">
         <p>The operator control plane stores:</p>
