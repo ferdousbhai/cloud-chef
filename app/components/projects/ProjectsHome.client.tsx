@@ -31,6 +31,7 @@ import {
   openTeamProject,
   setProjectVisibility,
   type ProjectVisibility,
+  type ProjectPerson,
   type TeamProject,
 } from '~/lib/cloudflare/org-projects.client';
 import {
@@ -571,6 +572,7 @@ function ConnectionProjectCard({
   connection: ConnectionProjects;
   onDialog: (dialog: OpenDialog) => void;
 }) {
+  const othersOn = useOthersOn();
   const ref = { orgProjectId: project.id };
   const deployment = project.deployment ?? null;
   const wantedWorker = deployment?.state === 'succeeded' ? deployment.wantedWorkerName : null;
@@ -632,7 +634,7 @@ function ConnectionProjectCard({
       subtitle={project.fullName}
       isPublic={project.visibility === 'public'}
       badge={badge ?? undefined}
-      people={project.people}
+      people={othersOn(project.people)}
       onPeople={
         project.canManage
           ? () => onDialog({ kind: 'share', project: { id: project.id, name: project.name } })
@@ -773,6 +775,7 @@ function TeamProjects({
  * theirs until they offer them and someone who can edit the project accepts. Shown only when there are some.
  */
 function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void }) {
+  const othersOn = useOthersOn();
   const [shared, setShared] = useState<SharedWithMe | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [openFailure, setOpenFailure] = useState<{ id: string; message: string } | null>(null);
@@ -822,7 +825,7 @@ function SharedWithYou({ onDialog }: { onDialog: (dialog: OpenDialog) => void })
               subtitle={project.ownerName ? `Shared by ${project.ownerName}` : null}
               isPublic={project.visibility === 'public'}
               badge={canEdit ? 'Can edit' : 'Can view'}
-              people={project.people}
+              people={othersOn(project.people)}
               note={openFailure?.id === project.id ? openFailure.message : null}
               primary={
                 <Button
@@ -901,6 +904,12 @@ function announceFinishedPublishes(
 /** A project CloudChef builds and publishes itself, rather than Workers Builds. */
 function isCloudChef(project: TeamProject): boolean {
   return project.deploysWith === 'cloudchef';
+}
+
+/** The people on a project besides the person looking, who knows they are on it: the faces its card shows. */
+function useOthersOn(): (people: readonly ProjectPerson[] | undefined) => ProjectPerson[] {
+  const me = authClient.useSession().data?.user.id ?? null;
+  return (people) => (people ?? []).filter((person) => person.userId !== me);
 }
 
 function SectionHeading({ id, action, children }: { id: string; action: ReactNode; children: string }) {

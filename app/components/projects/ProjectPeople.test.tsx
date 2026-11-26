@@ -27,8 +27,8 @@ afterEach(() => {
 });
 
 describe('the faces on a project’s card', () => {
-  it('shows none for a project only its owner is on', async () => {
-    const card = await render([person('Ada', 'owner')]);
+  it('shows none for a project nobody else is on', async () => {
+    const card = await render([]);
     expect(card.textContent).toBe('');
     expect(card.querySelector('[role="img"], button')).toBeNull();
   });
@@ -44,7 +44,7 @@ describe('the faces on a project’s card', () => {
     ]);
     const faces = card.querySelector('[role="img"]');
     expect(faces?.getAttribute('aria-label')).toBe(
-      'On Recipe Box: Ada (owner), Bo (can edit), Cy (can view), Dee (can edit), Eli (can edit), Fay (can edit)',
+      'Also on Recipe Box: Ada (owner), Bo (can edit), Cy (can view), Dee (can edit), Eli (can edit), Fay (can edit)',
     );
     expect(Array.from(card.querySelectorAll('[title]'), (face) => face.getAttribute('title'))).toEqual([
       'Ada · owner',

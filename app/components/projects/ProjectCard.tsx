@@ -72,7 +72,7 @@ export function ProjectCard({
   note?: string | null;
   /** Open comment threads on the project's post, linking to them. */
   openThreads?: { count: number; href: string } | null;
-  /** Everyone on the project, whoever runs it first: shown as faces once someone else is on it. */
+  /** Everyone else on the project, whoever runs it first: shown as faces. */
   people?: readonly ProjectPerson[];
   /** Opens the project's sharing from those faces, for whoever runs it. */
   onPeople?: () => void;
