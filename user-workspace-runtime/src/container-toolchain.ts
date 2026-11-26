@@ -134,6 +134,7 @@ export function containerToolchainBootstrapCommand(accountId: string): string {
     ...[
       [GIT_WRAPPER, gitWrapperScript()],
       [GIT_SETUP, gitSetupScript()],
+      [GIT_SAVE, gitSaveScript()],
       [`${GIT_HOOKS}/pre-commit`, gitPreCommitHook()],
       [`${GIT_HOOKS}/pre-push`, gitPrePushHook()],
       ...GIT_SAVE_HOOKS.map((hook) => [`${GIT_HOOKS}/${hook}`, gitSaveHook()]),
@@ -311,27 +312,38 @@ export function gitPreCommitHook(): string {
 /** The hooks after which the branches are saved: whatever moves a branch or the branch checked out. */
 export const GIT_SAVE_HOOKS = ['post-commit', 'post-rewrite', 'post-merge', 'post-checkout'] as const;
 
+/** The save, a script of its own so the runtime can run it too: before it stops a container, and waiting for it. */
+export const GIT_SAVE = `${GIT_ROOT}/save`;
+
 /**
  * Saves every branch to the workspace's own refs in the project's repository (a branch deleted here goes
  * there too), then tells the git proxy the branch and commit checked out, so git in the next container
- * has its commits back, pushed or not. It runs in the background, one save at a time, and never fails or
- * slows what ran it; a save that fails is made whole by the next one. The pre-push hook checks it as any push.
+ * has its commits back, pushed or not. One save runs at a time. It succeeds with nothing to do when the
+ * container has no history yet, and fails, saying why, when the branches could not be saved.
  */
-export function gitSaveHook(): string {
+export function gitSaveScript(): string {
   const real = shellQuote(REAL_GIT);
   return [
     '#!/bin/sh',
+    `[ -f ${shellQuote(`${GIT_DIR}/HEAD`)} ] || exit 0`,
+    `export GIT_DIR=${shellQuote(GIT_DIR)} GIT_WORK_TREE=${shellQuote(WORK_DIR)}`,
     `saved="$(${real} config --get cloudchef.saved || true)"`,
     '[ -n "$saved" ] || exit 0',
-    '(',
-    '  flock 8',
-    `  ${real} push -q --force --prune origin "refs/heads/*:$saved/*" || exit 0`,
-    `  branch="$(${real} symbolic-ref -q --short HEAD)" && commit="$(${real} rev-parse -q --verify HEAD)" || exit 0`,
-    `  curl -fsS -o /dev/null -X POST --data-binary "$branch $commit" ${shellQuote(`http://${GIT_PROXY_HOST}${GIT_BASE_PATH}`)} || true`,
-    `) 8>${shellQuote(`${GIT_ROOT}/.save-lock`)} </dev/null >/dev/null 2>&1 &`,
-    'exit 0',
+    `exec 8>${shellQuote(`${GIT_ROOT}/.save-lock`)}`,
+    'flock 8',
+    `${real} push -q --force --prune origin "refs/heads/*:$saved/*" </dev/null || exit 1`,
+    `branch="$(${real} symbolic-ref -q --short HEAD)" && commit="$(${real} rev-parse -q --verify HEAD)" || exit 0`,
+    `curl -fsS -o /dev/null -X POST --data-binary "$branch $commit" ${shellQuote(`http://${GIT_PROXY_HOST}${GIT_BASE_PATH}`)} || true`,
     '',
   ].join('\n');
+}
+
+/**
+ * Runs the save in the background, so it never fails or slows what ran it. A save that fails here is made
+ * whole by the next one, and the runtime saves once more before it stops the container.
+ */
+export function gitSaveHook(): string {
+  return ['#!/bin/sh', `${shellQuote(GIT_SAVE)} </dev/null >/dev/null 2>&1 &`, 'exit 0', ''].join('\n');
 }
 
 /**

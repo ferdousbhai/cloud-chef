@@ -13,6 +13,7 @@ import {
   gitPreCommitHook,
   gitPrePushHook,
   gitSaveHook,
+  gitSaveScript,
   gitSetupScript,
   gitWrapperScript,
 } from './container-toolchain';
@@ -71,6 +72,7 @@ beforeEach(() => {
   mkdirSync(join(root, 'git', 'hooks'));
   write(join(root, 'git', 'hooks', 'pre-commit'), at(gitPreCommitHook()), true);
   write(join(root, 'git', 'hooks', 'pre-push'), at(gitPrePushHook()), true);
+  write(join(root, 'git', 'save'), at(gitSaveScript()), true);
   for (const hook of GIT_SAVE_HOOKS) {
     write(join(root, 'git', 'hooks', hook), at(gitSaveHook()), true);
   }
@@ -448,5 +450,32 @@ describe.skipIf(!hasTools)("the workspace container's git", { timeout: 30_000 },
     expect(commit.stderr).toBe('');
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(run(wrapped, ['log', '-1', '--format=%s'], project).stdout).toBe('Add b');
+  });
+
+  it("saves a commit whose save failed when the runtime saves again before stopping the container, and says when it can't", async () => {
+    const { base } = remoteAheadOfWorkspace();
+    answerWith(base);
+    write(join(root, 'git', 'setup'), at(gitSetupScript()), true);
+    const project = join(root, 'project');
+    const wrapped = join(root, 'bin', 'git');
+    const save = join(root, 'git', 'save');
+    // No history set up in this container yet: nothing to save.
+    expect(run(save, [], project).status).toBe(0);
+    run(wrapped, ['status'], project);
+    // The repository can't be reached while the commit's own save runs.
+    const remote = join(root, 'remote.git');
+    const away = join(root, 'remote-away.git');
+    execFileSync('mv', [remote, away]);
+    run(wrapped, ['add', 'b.txt'], project);
+    expect(run(wrapped, ['commit', '-q', '-m', 'Add b'], project).status).toBe(0);
+    const commit = run(wrapped, ['rev-parse', 'HEAD'], project).stdout;
+    const failed = run(save, [], project);
+    expect(failed.status).not.toBe(0);
+    expect(failed.stderr).not.toBe('');
+    // Once it can be reached again, the save before a stop keeps the commit.
+    execFileSync('mv', [away, remote]);
+    expect(run(save, [], project).status).toBe(0);
+    expect(remoteRef(`${SAVED}/main`)).toBe(commit);
+    expect(readFileSync(join(root, 'base'), 'utf8')).toBe(`main ${commit}\n`);
   });
 });

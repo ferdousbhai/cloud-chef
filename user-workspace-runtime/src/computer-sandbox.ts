@@ -14,6 +14,7 @@ import {
   CONTAINER_CONNECT_TIMEOUT_MS,
   CONTAINER_TOOLCHAIN_BOOTSTRAP_TIMEOUT_MS,
   containerToolchainBootstrapCommand,
+  GIT_SAVE,
   runIdempotentBootstrapStage,
 } from './container-toolchain';
 import { type ScheduledCallbackPayload, ScheduledCallbacks } from './scheduled-callbacks';
@@ -37,8 +38,15 @@ export const WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS = 5 * 60_000;
 export const WORKSPACE_CONTAINER_KEEP_ALIVE_TIMEOUT_MS = 60 * 60_000;
 /** This object's own scheduled callback: the check that stops a container nothing has used for its window. */
 const IDLE_CONTAINER_CHECK = 'stopIdleContainer';
-/** How soon the check runs again after a stop that failed. */
+/** How soon the check runs again after a stop, or the save before it, that failed. */
 const IDLE_CONTAINER_RETRY_MS = 60_000;
+/** How long the save before a stop may take. */
+const SAVE_BEFORE_STOP_TIMEOUT_MS = 60_000;
+/**
+ * Saves before a stop that may fail before the container is stopped anyway: the files are kept in the durable VFS
+ * whatever happens, so a repository that stays unreachable costs only commits not yet saved, never the work.
+ */
+const SAVE_BEFORE_STOP_ATTEMPTS = 3;
 
 /**
  * Whether a running container has gone unused for its window, or how long until it could have.
@@ -140,6 +148,8 @@ export abstract class ComputerSandboxBase<
   #keepAlive = false;
   /** When the container was last used. In memory: a restarted object starts the window again. */
   #lastContainerUse = Date.now();
+  /** Saves before a stop that failed in a row, for the container running now. */
+  #failedSavesBeforeStop = 0;
 
   constructor(ctx: DurableObjectState<{}>, env: Env) {
     super(ctx, env);
@@ -433,6 +443,7 @@ export abstract class ComputerSandboxBase<
       Date.now(),
     );
     this.#runtimeId = runtimeId;
+    this.#failedSavesBeforeStop = 0;
     this.noteContainerUse();
     await this.applyInactivityTimeout();
     await this.scheduleIdleContainerCheck(WORKSPACE_CONTAINER_IDLE_TIMEOUT_MS);
@@ -492,6 +503,22 @@ export abstract class ComputerSandboxBase<
       await this.scheduleIdleContainerCheck(check.checkInMs);
       return;
     }
+    const saveError = await this.saveBranchesBeforeStop();
+    if (saveError) {
+      this.#failedSavesBeforeStop += 1;
+      const retrying = this.#failedSavesBeforeStop < SAVE_BEFORE_STOP_ATTEMPTS;
+      console.warn({
+        event: 'workspace_git_save_failed',
+        attempt: this.#failedSavesBeforeStop,
+        retrying,
+        error: saveError.slice(0, 500),
+      });
+      if (retrying) {
+        await this.scheduleIdleContainerCheck(IDLE_CONTAINER_RETRY_MS);
+        return;
+      }
+    }
+    this.#failedSavesBeforeStop = 0;
     console.info({ event: 'workspace_container_idle_stop', idleMs: check.idleMs, keepAlive: this.#keepAlive });
     try {
       await this.destroy();
@@ -500,6 +527,29 @@ export abstract class ComputerSandboxBase<
         error: error instanceof Error ? error.message : String(error),
       });
       await this.scheduleIdleContainerCheck(IDLE_CONTAINER_RETRY_MS);
+    }
+  }
+
+  /**
+   * Saves the branches once more before the container's disk, and the history on it, goes: the save a commit
+   * started may have failed, and nothing else would try again. Not a use of the container. Why it failed, or null.
+   */
+  private async saveBranchesBeforeStop(): Promise<string | null> {
+    const container = this.ctx.container;
+    if (!container?.running) {
+      return null;
+    }
+    try {
+      const process = await container.exec([GIT_SAVE], {
+        stdout: 'ignore',
+        stderr: 'pipe',
+        env: CONTAINER_COMMAND_ENV,
+        signal: AbortSignal.timeout(SAVE_BEFORE_STOP_TIMEOUT_MS),
+      });
+      const [code, stderr] = await Promise.all([process.exitCode, new Response(process.stderr).text()]);
+      return code === 0 ? null : `exit ${code}: ${stderr.trim()}`;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
     }
   }
 }
