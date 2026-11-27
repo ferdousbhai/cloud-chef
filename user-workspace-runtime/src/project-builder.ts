@@ -55,7 +55,7 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
-import { cfConvertCommand, cfProjectDeploy } from './cf-project-build';
+import { cfConvertCommand, cfProjectDeploy, forgetBuildOutputMarker } from './cf-project-build';
 import { lookedUpField, sentPastRefusals } from './resource-lookup';
 import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
@@ -667,7 +667,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     if (plan.app) {
       // An app's Wrangler config is CloudChef's, written once its resources are made; the build left only the Worker.
       const built = await this.command(
-        `rm -rf ${WORK_DIR}/.wrangler/deploy && test -f ${shellQuote(`${WORK_DIR}/${APP_BUILT_WORKER_MODULE}`)}`,
+        `rm -rf ${WORK_DIR}/.wrangler/deploy && ${forgetBuildOutputMarker()} && test -f ${shellQuote(`${WORK_DIR}/${APP_BUILT_WORKER_MODULE}`)}`,
         SHORT_TIMEOUT_MS,
       ).then(
         () => true,
@@ -720,7 +720,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     await this.confinePaths(target, wranglerConfigSchema.parse(deploy.config));
     const encoded = base64(new TextEncoder().encode(JSON.stringify(deploy.config)));
     await this.command(
-      `printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)} && rm -rf ${WORK_DIR}/.wrangler/deploy`,
+      `printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)} && rm -rf ${WORK_DIR}/.wrangler/deploy && ${forgetBuildOutputMarker()}`,
       SHORT_TIMEOUT_MS,
     );
     for (const note of deploy.notes) {

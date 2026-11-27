@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { CF_CONFIG_VERSION, cfConvertCommand, cfProjectDeploy } from './cf-project-build';
+import { existsSync } from 'node:fs';
+import { CF_CONFIG_VERSION, cfConvertCommand, cfProjectDeploy, forgetBuildOutputMarker } from './cf-project-build';
 
 /**
  * The convert step runs for real, with the system's shell and node and the repository's own copy of Cloudflare's
@@ -126,6 +127,15 @@ describe("a cf project's deploy", () => {
     write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
     write('.cloudflare/output/v0/workers/other/worker.config.json', '{}');
     expect(convert()).toMatchObject({ stage: 'config', reason: expect.stringContaining('more than one Worker') });
+  });
+
+  it("removes the marker Wrangler refuses to deploy beside, and nothing else of the build's", () => {
+    write('.cloudflare/output/v0/config.json', '{}');
+    write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
+    const ran = spawnSync('bash', ['-c', forgetBuildOutputMarker().replaceAll("'/work/", `'${root}/`)]);
+    expect(ran.status).toBe(0);
+    expect(existsSync(join(root, '.cloudflare/output/v0/config.json'))).toBe(false);
+    expect(existsSync(join(root, `${WORKER_DIR}/worker.config.json`))).toBe(true);
   });
 
   it('leaves a folder of migrations unapplied when the project has several databases', () => {

@@ -26,6 +26,15 @@ const BUILT_OUTPUT_DIR = BUILT_WORKERS_DIR.slice(0, BUILT_WORKERS_DIR.lastIndexO
 const BUILT_BUNDLE_DIR = CF_BUILT_WORKER_MODULE.slice(0, CF_BUILT_WORKER_MODULE.lastIndexOf('/'));
 
 /**
+ * Removes the file that marks a folder as Build Output. Wrangler refuses to deploy beside it, lest its own config
+ * name another Worker than the one `cf` built; the config CloudChef's Wrangler deploys with is made from that very
+ * output (or, for a CloudChef app, by CloudChef), so there is no other to disagree with.
+ */
+export function forgetBuildOutputMarker(): string {
+  return `rm -f ${shellQuote(`${WORK_DIR}/${BUILT_OUTPUT_DIR}/config.json`)}`;
+}
+
+/**
  * Reads the built Worker's settings and prints them as a Wrangler config (`{ config, mainModule }`), or why they
  * can't be read (`{ error }`). Only JSON is read: nothing of the project is imported or run. Arguments: the
  * converter's module, the built `worker.config.json`.
