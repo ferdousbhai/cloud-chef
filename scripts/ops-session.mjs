@@ -13,7 +13,7 @@
  * - AI Gateway logs filed under the chat (`metadata.chat`): every model request, and the conversation
  *   as the latest request and response carried it (user messages, assistant text, tool calls and errors)
  * - for a chat on a project: its Artifacts repository (or the GitHub repository it is still to be imported
- *   from), and the latest Workers Builds builds of its Worker
+ *   from), and its latest publishes and previews
  *
  * Everything goes through the operator's existing `cf` login. Every D1 statement is a `SELECT`, and every
  * `cf` command is on a read-only allowlist. No secret is read or printed; conversation content appears
@@ -35,8 +35,7 @@ const DEFAULT_WINDOW_MS = DAY;
 const MAX_WINDOW_MS = 7 * DAY;
 const CHATS_PER_WORKSPACE = 5;
 const USAGE_DAYS = 14;
-/** How many of a project Worker's latest builds are read, and of those, how many shown. */
-const BUILDS_READ = 25;
+/** How many of a project's latest publishes and previews are shown. */
 const BUILDS_SHOWN = 8;
 
 /**
@@ -520,7 +519,7 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
 
   let project = null;
   if (chat.org_project_id) {
-    project = await readProject({ cf, controlPlaneDatabaseId, projectId: chat.org_project_id, accountId, note });
+    project = await readProject({ cf, controlPlaneDatabaseId, projectId: chat.org_project_id, note });
   }
 
   return {
@@ -545,12 +544,12 @@ export async function collectSession(target, { cf, controlPlaneDatabaseId, now =
 /** What a project was made from (`org_projects.created_from`), in words. */
 const CREATED_FROM = { github: 'imported from GitHub', zip: 'uploaded as a ZIP', draft: 'an approved draft' };
 
-async function readProject({ cf, controlPlaneDatabaseId, projectId, accountId, note }) {
+async function readProject({ cf, controlPlaneDatabaseId, projectId, note }) {
   const project = (
     await select(
       cf,
       controlPlaneDatabaseId,
-      `SELECT id, name, created_from, artifact_repo, import_repo_full_name, import_branch, workers_builds_script_tag
+      `SELECT id, name, created_from, artifact_repo, import_repo_full_name, import_branch
        FROM org_projects WHERE id = ?1`,
       [projectId],
     )
@@ -558,35 +557,28 @@ async function readProject({ cf, controlPlaneDatabaseId, projectId, accountId, n
   if (!project) {
     return { project: null };
   }
-  if (!project.workers_builds_script_tag) {
-    return { project, builds: null };
-  }
-  // The latest builds of every branch: main is production, and the agent names its preview branches itself.
+  // Its latest publishes and previews, of every branch: main is production, and the agent names its preview
+  // branches itself.
   const builds = note(
-    `Workers Builds for ${project.name}`,
-    await attemptRead(async () => {
-      const rows = await cf(
-        [
-          'builds',
-          'list',
-          '--external-script-id',
-          project.workers_builds_script_tag,
-          '--per-page',
-          String(BUILDS_READ),
-        ],
-        { accountId },
-      );
-      return (Array.isArray(rows) ? rows : [])
-        .map((row) => ({
-          branch: String(row.build_trigger_metadata?.branch ?? ''),
-          commit: String(row.build_trigger_metadata?.commit_hash ?? ''),
-          status: row.status ?? null,
-          outcome: row.build_outcome ?? null,
-          at: row.created_on ?? null,
-          message: bounded(String(row.build_trigger_metadata?.commit_message ?? '').split('\n')[0], 120),
-        }))
-        .slice(0, BUILDS_SHOWN);
-    }),
+    `Publishes of ${project.name}`,
+    await attemptRead(async () =>
+      (
+        await select(
+          cf,
+          controlPlaneDatabaseId,
+          `SELECT branch, commit_sha, kind, state, failure_stage, reason, updated_at
+           FROM project_deployments WHERE project_id = ?1 ORDER BY updated_at DESC LIMIT ${BUILDS_SHOWN}`,
+          [projectId],
+        )
+      ).map((row) => ({
+        branch: String(row.branch ?? ''),
+        commit: String(row.commit_sha ?? ''),
+        kind: String(row.kind ?? ''),
+        state: String(row.state ?? ''),
+        at: time(row.updated_at),
+        reason: bounded(String(row.reason ?? ''), 160),
+      })),
+    ),
   );
   return { project, builds };
 }
@@ -687,12 +679,9 @@ export function renderSession(session) {
         : `not imported yet (from ${project.import_repo_full_name ?? 'unknown'} ${project.import_branch ?? ''})`.trimEnd();
       const source = CREATED_FROM[project.created_from] ?? `made from ${project.created_from ?? 'unknown'}`;
       push(`Project ${project.name} (${source}): ${repository}`);
-      if (!project.workers_builds_script_tag) {
-        push('  no Workers Builds Worker found for it yet');
-      }
       for (const build of builds ?? []) {
         push(
-          `  ${build.commit.slice(0, 7)} ${build.at} ${build.branch}: ${build.outcome ?? build.status} ${build.message}`,
+          `  ${build.commit.slice(0, 7)} ${build.at} ${build.kind} ${build.branch}: ${build.state} ${build.reason}`.trimEnd(),
         );
       }
       push('');
@@ -708,8 +697,7 @@ const USAGE = `Usage: pnpm run ops:session -- <chat id | user email | user id> [
 
 Reconstructs a member's most recent session (or the named chat) from production, read-only:
 control-plane D1, the workspace's own D1, the workspace Worker's Workers Logs, AI Gateway logs
-filed under the chat, and, for a project, its repository and its Worker's latest Workers Builds
-builds of its branches.
+filed under the chat, and, for a project, its repository and its latest publishes and previews.
 Reads through the operator's own cf login.
 
   --json   emit the structured session instead of the terminal one

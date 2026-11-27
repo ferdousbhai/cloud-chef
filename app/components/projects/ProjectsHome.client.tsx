@@ -458,7 +458,7 @@ function useConnectionProjects(
   }, [publicIds]);
 
   // While any project is being published, the list is asked for again until none is.
-  const publishing = projects?.some((project) => isCloudChef(project) && deployInProgress(project.deployment?.state));
+  const publishing = projects?.some((project) => deployInProgress(project.deployment?.state));
   useEffect(() => {
     if (!publishing) {
       return undefined;
@@ -576,9 +576,8 @@ function ConnectionProjectCard({
   const ref = { orgProjectId: project.id };
   const deployment = project.deployment ?? null;
   const wantedWorker = deployment?.state === 'succeeded' ? deployment.wantedWorkerName : null;
-  const deploy: CardDeploy | undefined = !isCloudChef(project)
-    ? undefined
-    : deployment && wantedWorker && wantedWorker !== deployment.workerName
+  const deploy: CardDeploy =
+    deployment && wantedWorker && wantedWorker !== deployment.workerName
       ? {
           state: deployment.state,
           reason: deployment.reason ?? null,
@@ -899,11 +898,6 @@ function announceFinishedPublishes(
       });
     }
   }
-}
-
-/** A project CloudChef builds and publishes itself, rather than Workers Builds. */
-function isCloudChef(project: TeamProject): boolean {
-  return project.deploysWith === 'cloudchef';
 }
 
 /** The people on a project besides the person looking, who knows they are on it: the faces its card shows. */

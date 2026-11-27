@@ -118,9 +118,8 @@ async function world() {
   const cy = await person('cy@example.com', 'cy', false);
   database
     .prepare(
-      `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, visibility,
-         created_by, site_url, created_at) VALUES (?, 'ada-own', 'Recipe Box', 'recipe-box', 't-recipes', 'chat',
-         'cloudchef', 'public', ?, 'https://recipes.example.workers.dev', 1)`,
+      `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, visibility,
+         created_by, site_url, created_at) VALUES (?, 'ada-own', 'Recipe Box', 'recipe-box', 't-recipes', 'chat', 'public', ?, 'https://recipes.example.workers.dev', 1)`,
     )
     .run(RECIPES, ada.userId);
   await recordPublication(db, { projectId: RECIPES, commit: LIVE, by: ada.userId, siteUrl: null });

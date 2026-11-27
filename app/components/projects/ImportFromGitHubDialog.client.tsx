@@ -3,7 +3,6 @@ import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
 import { Spinner } from '@ui/Spinner';
 import { TextInput } from '@ui/TextInput';
-import type { ProjectImportResult } from '~/lib/cloudflare/data-api';
 import { importProject } from '~/lib/cloudflare/projects.client';
 import {
   gitHubRepositoryName,
@@ -16,14 +15,11 @@ import {
 } from '~/lib/github-app.client';
 import { messageOf, RequestError } from '~/lib/json-request';
 
-type Step =
-  | { kind: 'form' }
-  | { kind: 'importing'; repository: string }
-  | { kind: 'imported'; repository: string; result: ProjectImportResult };
+type Step = { kind: 'form' } | { kind: 'importing'; repository: string };
 
 /**
  * Imports a GitHub repository, with its full history, as a project in the account the person is working in
- * (theirs, or the team's). A public repository imports from its address; a private one needs CloudChef's
+ * (theirs, or that of whoever shared a project with them). A public repository imports from its address; a private one needs CloudChef's
  * GitHub App (CloudChef Import) installed on its account first, or, when the App is already on the person's own
  * GitHub account from another of their accounts, GitHub's confirmation that it's them to connect it here too.
  */
@@ -85,11 +81,7 @@ export function ImportFromGitHubDialog({
         url: `https://github.com/${repository}`,
         name: name.trim() || undefined,
       });
-      if (result.workersBuildsFromGitHub) {
-        setStep({ kind: 'imported', repository, result });
-      } else {
-        onOpenProject(result.initialId);
-      }
+      onOpenProject(result.initialId);
     } catch (cause) {
       setError(messageOf(cause, 'The repository could not be imported. Try again.'));
       setStep({ kind: 'form' });
@@ -130,16 +122,6 @@ export function ImportFromGitHubDialog({
           </p>
         </div>
       </Modal>
-    );
-  }
-
-  if (step.kind === 'imported') {
-    return (
-      <ImportedProject
-        repository={step.repository}
-        onOpen={() => onOpenProject(step.result.initialId)}
-        onClose={onClose}
-      />
     );
   }
 
@@ -268,43 +250,6 @@ export function ImportFromGitHubDialog({
           </Button>
         </div>
       </form>
-    </Modal>
-  );
-}
-
-/**
- * After an import whose repository a Worker in the account is still built from by Workers Builds: CloudChef publishes
- * the project itself, and only the person can disconnect that repository from the Worker.
- */
-function ImportedProject({
-  repository,
-  onOpen,
-  onClose,
-}: {
-  repository: string;
-  onOpen: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <Modal onClose={onClose} title="Imported">
-      <div className="grid gap-3 text-sm text-content-secondary">
-        <p>{repository} is now a CloudChef project, with its history.</p>
-        <p>
-          Its site still goes live from GitHub too. To publish it only from CloudChef, open its Worker in the Cloudflare
-          dashboard, then Settings, then Builds, and disconnect the repository.{' '}
-          <a
-            className="underline"
-            href="https://dash.cloudflare.com/?to=/:account/workers-and-pages"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Open the Cloudflare dashboard
-          </a>
-        </p>
-        <div className="flex justify-end">
-          <Button onClick={onOpen}>Open project</Button>
-        </div>
-      </div>
     </Modal>
   );
 }

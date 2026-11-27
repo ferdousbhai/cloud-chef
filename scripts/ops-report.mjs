@@ -372,8 +372,7 @@ export const MOVE_REQUESTS_STATEMENT = `SELECT users.email AS email, requests.si
 
 export const PROJECTS_STATEMENT = `SELECT projects.name AS name, organizations.name AS organization, owners.email AS owner,
     projects.artifact_repo AS artifact_repo,
-    projects.import_repo_full_name AS import_repo_full_name,
-    projects.workers_builds_script_tag AS workers_builds_script_tag
+    projects.import_repo_full_name AS import_repo_full_name
   FROM org_projects AS projects
   LEFT JOIN organizations ON organizations.id = projects.org_id
   LEFT JOIN "user" AS owners ON owners.id = organizations.personal_user_id
@@ -892,7 +891,6 @@ function buildProjectsCheck(projects) {
     owner: row.organization ? String(row.organization) : row.owner ? String(row.owner) : null,
     repository: row.artifact_repo ? String(row.artifact_repo) : null,
     importFrom: row.artifact_repo ? null : (row.import_repo_full_name ?? null),
-    workersBuildsScriptTag: row.workers_builds_script_tag ?? null,
   }));
   const waiting = entries.filter((entry) => entry.repository === null).length;
   const sentence =

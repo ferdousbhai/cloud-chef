@@ -1,16 +1,7 @@
 import { GITHUB_UNREACHABLE, IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-return-messages';
 import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
-import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import {
-  foldPublishes,
-  mainBuilds,
-  openWorkersBuildsAccountApi,
-  recordProjectWorker,
-  type OpenWorkersBuildsAccountApi,
-  type PublishOutcome,
-  type PublishState,
-} from '~/lib/.server/cloudflare/workers-builds';
+import { foldPublishes, type PublishOutcome, type PublishState } from '~/lib/.server/cloudflare/publish-states';
 import {
   findAccessibleProject,
   importProject,
@@ -31,34 +22,21 @@ import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.ser
  * first person to open an imported project imports it, in their workspace runtime.
  */
 /** The projects this person may view or edit in the account they are working in now, with their role. */
-export function listMyProjectsAction({
-  request,
-  env,
-  openAccount = openWorkersBuildsAccountApi,
-}: {
-  request: Request;
-  env: Env;
-  openAccount?: OpenWorkersBuildsAccountApi;
-}): Promise<Response> {
+export function listMyProjectsAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const projects = session.context
       ? await listAccessibleProjects(env.DB, session.context.connectionId, session.user.id)
       : [];
-    if (session.context) {
-      await findMissingSites(env, openAccount, session.context.connectionId, projects);
-    }
-    // What the card says of a project CloudChef deploys: its newest deploy of main, however it went.
+    // What the card says of a project: its newest deploy of main, however it went.
     const deployments = new Map(
       await Promise.all(
-        projects
-          .filter((project) => project.deploysWith === 'cloudchef')
-          .map(
-            async (project) =>
-              [
-                project.id,
-                (await latestDeployments(env.DB, project.id)).find((row) => row.kind === 'production') ?? null,
-              ] as const,
-          ),
+        projects.map(
+          async (project) =>
+            [
+              project.id,
+              (await latestDeployments(env.DB, project.id)).find((row) => row.kind === 'production') ?? null,
+            ] as const,
+        ),
       ),
     );
     // Who last changed what each one publishes, as the team's runtimes reported their pushes of main.
@@ -72,83 +50,44 @@ export function listMyProjectsAction({
     );
     return Response.json(
       {
-        projects: projects.map(
-          ({ id, name, repo, role, importSource, siteUrl, siteFrameable, deploysWith, createdAt, ...rest }) => {
-            const deployment = deployments.get(id);
-            const change = changes.get(id);
-            return {
-              id,
-              name,
-              repo,
-              role,
-              fullName: rest.fullName,
-              visibility: rest.visibility,
-              // Whoever runs the space may change who can see it.
-              canManage: session.context?.role === 'admin',
-              people: people.get(id) ?? [],
-              importRepoFullName: importSource?.fullName ?? null,
-              // When it was added, as a person's own app is dated by when it was made.
-              createdAt: new Date(createdAt).toISOString(),
-              siteUrl,
-              siteFrameable,
-              deploysWith,
-              lastChange: change ? { by: change.by, at: new Date(change.at).toISOString() } : null,
-              deployment: deployment
-                ? {
-                    id: deployment.id,
-                    state: deployment.state,
-                    failureStage: deployment.failureStage,
-                    reason: deployment.reason,
-                    workerName: deployment.workerName,
-                    wantedWorkerName: deployment.wantedWorkerName,
-                    step: deployment.step,
-                    stepStartedAt: deployment.stepStartedAt,
-                    updatedAt: deployment.updatedAt,
-                  }
-                : null,
-            };
-          },
-        ),
+        projects: projects.map(({ id, name, repo, role, importSource, siteUrl, siteFrameable, createdAt, ...rest }) => {
+          const deployment = deployments.get(id);
+          const change = changes.get(id);
+          return {
+            id,
+            name,
+            repo,
+            role,
+            fullName: rest.fullName,
+            visibility: rest.visibility,
+            // Whoever runs the space may change who can see it.
+            canManage: session.context?.role === 'admin',
+            people: people.get(id) ?? [],
+            importRepoFullName: importSource?.fullName ?? null,
+            // When it was added, as a person's own app is dated by when it was made.
+            createdAt: new Date(createdAt).toISOString(),
+            siteUrl,
+            siteFrameable,
+            lastChange: change ? { by: change.by, at: new Date(change.at).toISOString() } : null,
+            deployment: deployment
+              ? {
+                  id: deployment.id,
+                  state: deployment.state,
+                  failureStage: deployment.failureStage,
+                  reason: deployment.reason,
+                  workerName: deployment.workerName,
+                  wantedWorkerName: deployment.wantedWorkerName,
+                  step: deployment.step,
+                  stepStartedAt: deployment.stepStartedAt,
+                  updatedAt: deployment.updatedAt,
+                }
+              : null,
+          };
+        }),
       },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   });
-}
-
-/** How long the list waits for live addresses it doesn't know yet; past it, they are looked for next time. */
-const SITE_LOOKUP_MS = 4_000;
-
-/**
- * Looks up the live address of projects that have code but no known address yet, so the projects home
- * shows a published site before anyone has opened a chat on it. Best effort, and bounded in time.
- */
-async function findMissingSites(
-  env: Env,
-  openAccount: OpenWorkersBuildsAccountApi,
-  connectionId: string,
-  projects: Project[],
-): Promise<void> {
-  // A project CloudChef deploys itself records its site when it deploys; only Workers Builds' are looked up.
-  const missing = projects.filter(
-    (project) =>
-      project.deploysWith === 'workers_builds' &&
-      project.repo !== null &&
-      (!project.siteUrl || project.siteFrameable === null),
-  );
-  if (missing.length === 0) {
-    return;
-  }
-  const lookup = (async () => {
-    const connection = await findActiveCloudflareConnection(env.DB, connectionId);
-    if (!connection) {
-      return;
-    }
-    const api = await openAccount(env, connection);
-    await Promise.all(missing.map((project) => recordProjectWorker(env.DB, api, project).catch(() => null)));
-  })().catch((error: Error) => {
-    console.warn({ event: 'project_sites_unreadable', message: error.message });
-  });
-  await Promise.race([lookup, new Promise((resolve) => setTimeout(resolve, SITE_LOOKUP_MS))]);
 }
 
 /** What an import names: a repository by its address, and optionally the project's name. */
@@ -239,15 +178,7 @@ export const PROJECT_MAIN_CHANGES_ROUTE = '/api/projects/:projectId/main-changes
  * also says what became of main's recent commits where that is known (`publishes`, by commit): which one is live,
  * which were before it, and which are publishing or didn't go live.
  */
-export function listProjectMainChangesAction({
-  request,
-  env,
-  openAccount = openWorkersBuildsAccountApi,
-}: {
-  request: Request;
-  env: Env;
-  openAccount?: OpenWorkersBuildsAccountApi;
-}): Promise<Response> {
+export function listProjectMainChangesAction({ request, env }: { request: Request; env: Env }): Promise<Response> {
   return signedIn(request, env, async ({ session }) => {
     const url = new URL(request.url);
     const projectId = projectIdOfPath(url.pathname) ?? '';
@@ -263,7 +194,7 @@ export function listProjectMainChangesAction({
         limit: Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50,
         before: firstPage ? null : before,
       }),
-      firstPage ? mainPublishStates(env, openAccount, project) : new Map<string, PublishState>(),
+      firstPage ? mainPublishStates(env, project) : new Map<string, PublishState>(),
     ]);
     return Response.json(
       { changes, publishes: Object.fromEntries(publishes) },
@@ -272,32 +203,15 @@ export function listProjectMainChangesAction({
   });
 }
 
-/**
- * What became of main's recent commits: CloudChef's own publishes of a project it deploys, or what Workers Builds
- * reports for the project's Worker once it is known. Best effort: none when Workers Builds can't be read.
- */
-async function mainPublishStates(
-  env: Env,
-  openAccount: OpenWorkersBuildsAccountApi,
-  project: Project,
-): Promise<Map<string, PublishState>> {
+/** What became of main's recent commits: the project's publishes. Best effort: none when they can't be read. */
+async function mainPublishStates(env: Env, project: Project): Promise<Map<string, PublishState>> {
   try {
-    if (project.deploysWith === 'cloudchef') {
-      const deployments = (await latestDeployments(env.DB, project.id, 20)).filter(
-        (deployment) => deployment.kind === 'production',
-      );
-      return foldPublishes(
-        deployments.map((deployment) => ({ commit: deployment.commit, outcome: deploymentOutcome(deployment.state) })),
-      );
-    }
-    const connection = project.workersBuildsScriptTag
-      ? await findActiveCloudflareConnection(env.DB, project.connectionId)
-      : null;
-    if (!connection || !project.workersBuildsScriptTag) {
-      return new Map();
-    }
-    const api = await openAccount(env, connection);
-    return foldPublishes(await mainBuilds(api, project.workersBuildsScriptTag));
+    const deployments = (await latestDeployments(env.DB, project.id, 20)).filter(
+      (deployment) => deployment.kind === 'production',
+    );
+    return foldPublishes(
+      deployments.map((deployment) => ({ commit: deployment.commit, outcome: deploymentOutcome(deployment.state) })),
+    );
   } catch (error) {
     console.warn({
       event: 'project_publishes_unreadable',

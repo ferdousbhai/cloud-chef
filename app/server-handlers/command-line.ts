@@ -210,9 +210,7 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
       return Promise.all(
         projects.map(async (project) => {
           const publish =
-            project.deploysWith === 'cloudchef'
-              ? ((await latestDeployments(env.DB, project.id)).find((row) => row.kind === 'production') ?? null)
-              : null;
+            (await latestDeployments(env.DB, project.id)).find((row) => row.kind === 'production') ?? null;
           return {
             id: project.id,
             kind: 'project' as const,
@@ -224,7 +222,6 @@ export async function commandLineProjectsAction({ request, env }: { request: Req
             visibility: project.visibility,
             defaultBranch: project.defaultBranch,
             siteUrl: project.siteUrl,
-            publishedBy: project.deploysWith === 'cloudchef' ? ('cloudchef' as const) : ('workers_builds' as const),
             lastPublish: publish && {
               id: publish.id,
               commit: publish.commit,

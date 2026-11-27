@@ -251,8 +251,8 @@ same answer carries the account's default model (`cloudflare_connections.default
 admins; everyone can still switch, and a saved choice the account no longer offers falls back to it.
 
 An organization's authorization reaches every workspace in its account, which is why only its admins get the
-account's direct reads through `cf` in a shared account (above). A member's changes go through the deployment pipeline
-or Workers Builds, which touch only their own resources.
+account's direct reads through `cf` in a shared account (above). A member's changes go through the deployment pipeline,
+which touches only the project's own resources.
 
 An organization keeps at least one active admin. Erasing a member's account never revokes the organization's
 authorization; erasing its last member removes the organization and revokes it.
@@ -287,21 +287,11 @@ each re-checks the member's role and that the project belongs to the connection 
 changes reach the repository as their agent pushes them with git: a branch it names for a preview, `main` to
 publish.
 
-A project is built and deployed by one of two builders, recorded as a plain fact (`org_projects.deploys_with`):
-CloudChef's own ProjectBuilder for a project made in a chat, uploaded as a ZIP or pushed from a computer
-(`cloudchef`, Deployment Boundary), or Workers Builds for one imported from GitHub (`workers_builds`). Workers
-Builds, connected to the repository, deploys `main` (the only production branch Artifacts supports) and builds other branches into Previews. The
-control plane reads what it reports with the connection's own authorization (`workers-ci.read`), never handing
-a team's token to a member (`app/lib/.server/cloudflare/workers-builds.ts`): the project's Worker is found by the
-repository its latest build came from (its Artifacts repository, or the GitHub one it was imported from, until
-its builds are switched) and remembered (`workers_builds_script_tag`). The one change CloudChef makes to a
-project's builds is removing its triggers when the project is deleted, before its Worker (`workers-ci.write`):
-Cloudflare doesn't document that deleting a Worker removes them, and keeps `cf builds workers delete` apart from
-the Worker's own deletion. A connection authorized before that scope is asked to reauthorize. `/runtime-projects/status` matches a
-commit to its build, and `/runtime-projects/site` reports the Worker's production and Preview origins, which each
-turn's context names so the agent knows where the live site is (it reads it with `curl`, like any address). Workers Builds' API names no Artifacts provider for a repository
-connection, so moving an imported project's builds from GitHub to Artifacts is done in Cloudflare's dashboard;
-`/api/projects/<id>/workers-builds/switch` says when it is done, and otherwise how.
+Every project is built and deployed by CloudChef's own ProjectBuilder (Deployment Boundary), whatever it was made
+from: a chat, a GitHub import, an uploaded ZIP or a push from a computer. A GitHub import is one-time: nothing reads
+GitHub or Workers Builds afterwards. `/runtime-projects/status` reports a commit's build from the control plane's
+record of the project's deployments, and `/runtime-projects/site` its live address and preview origins, which each
+turn's context names so the agent knows where the live site is (it reads it with `curl`, like any address).
 
 Only a space's admins start projects in it: an admin's new chat makes one. Anyone else there works on the projects
 shared with them, and their runtime is refused the account's Cloudflare token by the credential broker
@@ -385,8 +375,7 @@ moved (`runtime-projects/main-pushed`), and it keeps who pushed, when, and main'
 `project_main_pushes`, for a member who may edit the project. `listMainChanges` (and `GET /api/projects/<id>/main-changes`)
 reads a project's pushes and rewrites back, newest first. The projects home shows the newest push or rewrite on the
 project's card ("Updated 2 hours ago by Sara"); the History dialog names who published each version and, from
-the same route's `publishes` (CloudChef's own deployments of the project, or Workers Builds' latest builds of main for
-its recorded Worker, read with the connection's authorization), which version is live, publishing, or didn't publish.
+the same route's `publishes` (the project's deployments), which version is live, publishing, or didn't publish.
 Who has a project open is kept beside it, as metadata only (`project_visits`, `app/server-handlers/project-presence.ts`):
 a browser with a project open reports every 30 seconds (`POST /api/projects/<id>/presence`, with whether that person's
 agent is running a turn, which their browser already knows), someone is shown beside the project's name while their
@@ -593,7 +582,7 @@ and the lockfile; any other install that names a package must name one from the 
 validation and what to tell the user; the runtime neither validates on its behalf nor writes its final message.
 Deploying is not a model capability. The model publishes with git: a branch it pushes makes a preview, and a push of
 main goes live (Project Repositories); the project's builder takes the commit from the repository (Deployment
-Boundary, or Workers Builds). The agent follows the build of what a command pushed in the background and shows its
+Boundary). The agent follows the build of what a command pushed in the background and shows its
 result in that command's card, and the model reads it in that command's output at its next turn.
 
 ## Site Boundary
@@ -606,7 +595,7 @@ site or the newest preview beside the chat, which every starter app's `applicati
 
 ## Deployment Boundary
 
-A project CloudChef deploys itself (`deploys_with = 'cloudchef'`) is built and deployed by its ProjectBuilder
+A project is built and deployed by its ProjectBuilder
 (`user-workspace-runtime/src/project-builder.ts`): one Durable Object per project, in the runtime of the person whose
 push it is, with a container of its own. A pushed branch claims a deploy of its commit at the control plane
 (`runtime-projects/deployments/claim`, `app/server-handlers/runtime-deployments.ts`, recorded in

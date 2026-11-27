@@ -44,15 +44,13 @@ const teamProjectsSchema = z.object({
       role: projectRoleSchema,
       /** The project's Artifacts repository; null until the first person to open it has imported it. */
       repo: z.string().nullable(),
-      /** The live site's address, when Workers Builds has deployed it. */
+      /** The live site's address, once a publish has given it. */
       siteUrl: z.url({ protocol: /^https$/ }).nullish(),
       /** Whether the site lets CloudChef show it in a frame; unknown until checked. */
       siteFrameable: z.boolean().nullish(),
       /** When it was added to CloudChef. */
       createdAt: z.iso.datetime().nullish(),
-      /** Who builds and publishes it: Workers Builds (imported from GitHub), or CloudChef itself (uploaded). */
-      deploysWith: z.enum(['workers_builds', 'cloudchef']).nullish(),
-      /** For a project CloudChef publishes, its newest publish of main, however it went; null before the first. */
+      /** Its newest publish of main, however it went; null before the first. */
       deployment: deploymentSchema.nullish(),
       /** Who last changed what it publishes (pushed main) and when; `by` is null for someone no longer on CloudChef. */
       lastChange: z.object({ by: z.string().nullable(), at: z.iso.datetime() }).nullish(),
@@ -143,7 +141,6 @@ const deletionResourceSchema = z.object({
 const deletionPreviewSchema = z.object({
   sites: z.array(z.string()),
   workers: z.array(z.string()),
-  buildTriggers: z.array(z.string()),
   resources: z.array(deletionResourceSchema),
   kept: z.array(deletionResourceSchema.extend({ reason: z.string() })),
   repository: z.string().nullable(),

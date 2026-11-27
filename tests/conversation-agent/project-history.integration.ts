@@ -33,7 +33,6 @@ function editableProject() {
           repo: REPO,
           defaultBranch: 'main',
           role: 'edit',
-          deploysWith: 'cloudchef',
           createdFrom: 'chat',
         })
       : new Response('unavailable', { status: 503 }),

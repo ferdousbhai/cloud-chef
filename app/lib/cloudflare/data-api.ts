@@ -24,8 +24,6 @@ export type ProjectImportResult = {
   /** The imported project: a team project's id in a team, the new chat's initial id otherwise. */
   projectId: string;
   initialId: string;
-  /** Workers Builds already deploys this repository from GitHub, so it can switch to building from Artifacts. */
-  workersBuildsFromGitHub?: boolean;
 };
 
 export type ConversationSummary = {

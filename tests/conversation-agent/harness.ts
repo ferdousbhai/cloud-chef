@@ -528,7 +528,6 @@ export function chatProjectControlPlane() {
           repo: project.repo,
           defaultBranch: 'main',
           role: 'edit',
-          deploysWith: 'cloudchef',
           createdFrom: 'chat',
         });
       }

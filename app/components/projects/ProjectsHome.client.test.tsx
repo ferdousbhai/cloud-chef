@@ -300,14 +300,14 @@ describe('ProjectsHome', () => {
     context = teamAdmin;
     teamProjects = [
       uploaded({ state: 'building' }),
-      { id: 'project-2', name: 'Docs', role: 'edit', repo: 't-project-2', deploysWith: 'workers_builds' },
+      { id: 'project-2', name: 'Docs', role: 'edit', repo: 't-project-2' },
     ];
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await render('user-publishing');
     await vi.waitFor(() => card('Storefront'));
 
     expect(card('Storefront').textContent).toContain('Publishing…');
-    // A project Workers Builds publishes says nothing of CloudChef's publishing.
+    // A project nothing has published yet says so, and isn't shown publishing.
     expect(card('Docs').textContent).toContain('Not published yet');
     expect(card('Docs').textContent).not.toContain('Publishing');
 
@@ -615,14 +615,13 @@ describe('ProjectsHome', () => {
   });
 });
 
-/** A team project CloudChef publishes itself, with its newest publish. */
+/** A project with its newest publish. */
 function uploaded(deployment: Partial<NonNullable<TeamProject['deployment']>> | null): TeamProject {
   return {
     id: 'project-1',
     name: 'Storefront',
     role: 'edit',
     repo: 't-project-1',
-    deploysWith: 'cloudchef',
     deployment: deployment
       ? { id: 'deployment-1', state: 'queued', failureStage: null, reason: null, updatedAt: Date.now(), ...deployment }
       : null,

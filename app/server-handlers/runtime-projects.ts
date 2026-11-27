@@ -2,20 +2,7 @@ import { GITHUB_ACCESS_FIX, GITHUB_UNREACHABLE } from '~/lib/github-return-messa
 import { z } from 'zod';
 import { GitHubError } from '~/lib/.server/github/github-api';
 import { gitHubAppFromEnv, type GitHubApp } from '~/lib/.server/github/github-app';
-import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import type { CloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import {
-  findProjectWorker,
-  openWorkersBuildsAccountApi,
-  previewOrigins,
-  productionOrigins,
-  recordProjectWorker,
-  projectBuildStatus,
-  type ProjectBuildStatus,
-  type OpenWorkersBuildsAccountApi,
-  type WorkersBuildsAccountApi,
-  cancelSupersededMainBuilds,
-} from '~/lib/.server/cloudflare/workers-builds';
 import {
   abandonImport,
   addUploadedProject,
@@ -28,28 +15,23 @@ import {
   recordMainPush,
   removeProject,
   nameChatProject,
-  recordProductionPublish,
   requireProjectScope,
   type ProjectScope,
   type Project,
   type AccessibleProject,
 } from '~/lib/cloudflare/data/org-projects.server';
-import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
 import { findMembership } from '~/lib/cloudflare/data/organization-access.server';
 import { importedProjectRepo } from '~/lib/.server/cloudflare/project-repository';
 import { registerGitHubImport } from './projects';
 import { deploymentOfCommit, latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
 import { answeringOrganizationErrors } from './signed-in';
 import { readAuthenticatedRuntimeRequest } from './runtime-authentication';
-import { projectPublished } from '~/lib/.server/showcase/jobs';
-import { closeThreadsThatWentLive, commitsInHistory } from './threads-went-live';
 
 /**
  * A member's workspace runtime working on a project kept in Artifacts. The runtime reads and writes the
  * repository itself, through its Artifacts binding in the same account; it asks the control plane only
  * who may do what (checked on every call), for a one-repository GitHub token to import a project from,
- * and what Workers Builds reports, which needs the account's Cloudflare authorization the runtime never
- * holds for a team.
+ * and how its publishes went, which the control plane records.
  */
 const MAX_REQUEST_BYTES = 8 * 1024;
 const COMMIT = z.string().regex(/^[0-9a-f]{40}$/);
@@ -85,17 +67,12 @@ export async function runtimeOpenProjectAction(args: {
   request: Request;
   env: Env;
   app?: GitHubApp | null;
-  openAccount?: OpenWorkersBuildsAccountApi;
 }): Promise<Response> {
   const opened = await openProject(args, projectSchema);
   if (opened instanceof Response) {
     return opened;
   }
   const { project, identity, connection } = opened;
-  if (project.repo !== null && !project.siteUrl && project.deploysWith === 'workers_builds') {
-    // The projects home shows the live site from the first open, not only once the agent asks about a build.
-    await withWorkersBuilds(args, connection, project, async () => json(null, 200)).catch(() => undefined);
-  }
   const answer = {
     orgProjectId: project.id,
     name: project.name,
@@ -103,7 +80,8 @@ export async function runtimeOpenProjectAction(args: {
     defaultBranch: project.defaultBranch,
     role: project.role,
     member: await memberIdentity(args.env.DB, identity.userId),
-    deploysWith: project.deploysWith,
+    // Every project is published by CloudChef; said until no runtime that asks is left (the release after this one).
+    deploysWith: 'cloudchef' as const,
     createdFrom: project.createdFrom,
     // Added to someone else's project: what they publish is held to what it already has, and whose it is.
     addedTo: (await publishesAsCollaborator(args.env.DB, project, connection.orgId, [identity.userId]))
@@ -124,7 +102,7 @@ export async function runtimeOpenProjectAction(args: {
 type ImportSource = { url: string; branch: string; authorization: string | null };
 
 /** A GitHub import the runtime registered: the new project, and where to import it from. */
-type RegisteredImport = { projectId: string; importSource: ImportSource; workersBuildsFromGitHub: boolean };
+type RegisteredImport = { projectId: string; importSource: ImportSource };
 
 /**
  * Where a project still to be imported comes from: its GitHub address, and for a private repository a fresh
@@ -276,11 +254,7 @@ export async function runtimeRegisterImportAction(args: {
     if (importSource === null) {
       throw new Error('A project registered from GitHub always has a source.');
     }
-    const answer: RegisteredImport = {
-      projectId: project.id,
-      importSource,
-      workersBuildsFromGitHub: await buildsFromGitHub(args.env, connection, project),
-    };
+    const answer: RegisteredImport = { projectId: project.id, importSource };
     return json(answer, 201);
   });
 }
@@ -373,17 +347,6 @@ export async function runtimeRegisterUploadAction(args: { request: Request; env:
   });
 }
 
-/** Whether Workers Builds already deploys a Worker from this project's GitHub repository. */
-async function buildsFromGitHub(env: Env, connection: CloudflareConnection, project: Project): Promise<boolean> {
-  try {
-    const opened = await openWorkersBuildsAccountApi(env, connection);
-    return (await findProjectWorker(opened, project)) !== null;
-  } catch {
-    // Unknown is shown as no: the switch can still be offered from the project later.
-    return false;
-  }
-}
-
 /** Who a member is, as the commits made in their name and their branch name them. */
 export async function memberIdentity(db: D1Database, userId: string): Promise<{ name: string; email: string } | null> {
   const row = await db
@@ -462,19 +425,14 @@ const mainPushedSchema = z.strictObject({
 /**
  * `runtime-projects/main-pushed`: the runtime's person pushed the project's main, from `oldCommit` (null for its first
  * push) to `newCommit`, which their runtime's git proxy passed on to the repository. The push itself goes from the
- * runtime straight to Artifacts and Workers Builds reads main from there, so this is the only way the team learns who
- * published. Kept only for someone who may edit the project.
+ * runtime straight to Artifacts, so this is the only way CloudChef learns who published. Kept only for someone who may edit the project.
  */
-export async function runtimeMainPushedAction(args: {
-  request: Request;
-  env: Env;
-  openAccount?: OpenWorkersBuildsAccountApi;
-}): Promise<Response> {
+export async function runtimeMainPushedAction(args: { request: Request; env: Env }): Promise<Response> {
   const opened = await openProject(args, mainPushedSchema);
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, identity, connection } = opened;
+  const { project, body, identity } = opened;
   if (project.role !== 'edit') {
     return json({ error: 'You can view this project but not change it.' }, 403);
   }
@@ -485,169 +443,54 @@ export async function runtimeMainPushedAction(args: {
     newCommit: body.newCommit,
     pushedAt: Date.now(),
   });
-  if (project.deploysWith === 'workers_builds') {
-    await cancelOlderPublishes(args, project, body.newCommit, identity.userId, connection);
-  }
   return json({ recorded: true }, 200);
 }
 
-/** How long the push report gives the project's history, which decides what is older, to answer. */
-const SUPERSEDE_HISTORY_TIMEOUT_MS = 8_000;
-
-/**
- * Workers Builds skips a queued build a newer one supersedes, but may run two pushes of main at once (on a paid plan),
- * and whichever finishes last goes live: the builds still going for older commits are cancelled, so the newest push
- * wins (`cancelSupersededMainBuilds`). CloudChef's own deploys already stop once a newer commit exists. Never fails
- * the report: at worst an older build still finishes. Kept well inside the runtime's wait for the report, so it is
- * never sent again for want of an answer (which would record the push twice).
- */
-export async function cancelOlderPublishes(
-  args: { request: Request; env: Env; openAccount?: OpenWorkersBuildsAccountApi },
-  project: Project,
-  newCommit: string,
-  userId: string,
-  known?: CloudflareConnection,
-): Promise<void> {
-  try {
-    const connection = known ?? (await findActiveCloudflareConnection(args.env.DB, project.connectionId));
-    if (!connection) {
-      return;
-    }
-    const api = await (args.openAccount ?? openWorkersBuildsAccountApi)(args.env, connection);
-    const worker = await recordProjectWorker(args.env.DB, api, project, (found) => productionOrigins(api, found));
-    if (!worker) {
-      return;
-    }
-    const cancelled = await cancelSupersededMainBuilds(api, project, worker, newCommit, (commits) =>
-      commitsInHistory(
-        args.request,
-        args.env,
-        { projectId: project.id, connectionId: project.connectionId, commit: newCommit, reportedBy: userId },
-        commits,
-        SUPERSEDE_HISTORY_TIMEOUT_MS,
-      ),
-    );
-    if (cancelled.length > 0) {
-      console.info({ event: 'workers_builds_superseded', projectId: project.id, cancelled: cancelled.length });
-    }
-  } catch (error) {
-    console.warn({
-      event: 'workers_builds_supersede_failed',
-      projectId: project.id,
-      message: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-/** What Workers Builds reports for a commit of the project: none yet, queued, building, succeeded or failed. */
-export async function runtimeProjectStatusAction(args: {
-  request: Request;
-  env: Env;
-  openAccount?: OpenWorkersBuildsAccountApi;
-}): Promise<Response> {
+/** How the build and deploy of a commit of the project is going: none yet, queued, building, succeeded or failed. */
+export async function runtimeProjectStatusAction(args: { request: Request; env: Env }): Promise<Response> {
   const opened = await openProject(args, statusSchema);
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, body, identity, connection } = opened;
-  if (project.deploysWith === 'cloudchef') {
-    return json(await cloudchefBuildStatus(args.env.DB, project.id, body.commit), 200);
-  }
-  return withWorkersBuilds(args, connection, project, async (api, worker) => {
-    if (!worker) {
-      return json({ state: 'none' }, 200);
-    }
-    const status = await projectBuildStatus(api, { accountId: connection.accountId, worker, commit: body.commit });
-    // A production build of main's pushed commit is that push going live, recorded once; a public project's post
-    // is made or updated then (app/lib/.server/showcase/jobs.ts).
-    if (status.state === 'succeeded' && status.url) {
-      const publish = await recordProductionPublish(args.env.DB, {
-        projectId: project.id,
-        commit: body.commit,
-        siteUrl: null,
-        siteFrameable: null,
-        publishedAt: Date.now(),
-        deployedBy: 'workers_builds',
-      });
-      if (publish) {
-        await projectPublished(args.env, { ...publish, siteUrl: publish.siteUrl ?? status.url });
-        await closeThreadsThatWentLive(args.request, args.env, {
-          projectId: project.id,
-          connectionId: project.connectionId,
-          commit: publish.commit,
-          reportedBy: identity.userId,
-          at: publish.publishedAt,
-        });
-      }
-    }
-    return json(status, 200);
-  });
+  return json(await buildStatus(args.env.DB, opened.project.id, opened.body.commit), 200);
 }
 
 /**
- * The project's live site, for the model to read its content: the origins its Worker serves in production
- * and its Previews, as Cloudflare reports them; and for the workspace to show beside the chat, the live one
- * and whether it may be framed. Nothing the workspace says is trusted here: a workspace's own config could
- * name any address.
+ * The project's live site, for the model to read its content: the origins of its live address and its previews, as
+ * its publishes recorded them; and for the workspace to show beside the chat, the live one and whether it may be
+ * framed. Nothing the workspace says is trusted here: a workspace's own config could name any address.
  */
-export async function runtimeProjectSiteAction(args: {
-  request: Request;
-  env: Env;
-  openAccount?: OpenWorkersBuildsAccountApi;
-}): Promise<Response> {
+export async function runtimeProjectSiteAction(args: { request: Request; env: Env }): Promise<Response> {
   const opened = await openProject(args, projectSchema);
   if (opened instanceof Response) {
     return opened;
   }
-  const { project, connection } = opened;
-  if (project.deploysWith === 'cloudchef') {
-    const previews = (await latestDeployments(args.env.DB, project.id))
-      .filter((deployment) => deployment.kind === 'preview' && deployment.state === 'succeeded' && deployment.url)
-      .map((deployment) => new URL(deployment.url!).origin);
-    const live = project.siteUrl ? [new URL(project.siteUrl).origin] : [];
-    return json(
-      { origins: [...new Set([...live, ...previews])], live: project.siteUrl, frameable: project.siteFrameable },
-      200,
-    );
-  }
-  return withWorkersBuilds(args, connection, project, async (api, worker, readProduction) => {
-    if (!worker) {
-      return json({ origins: [], live: null, frameable: null }, 200);
-    }
-    const [production, previews] = await Promise.all([
-      readProduction(worker),
-      previewOrigins(api, worker).catch(() => []),
-    ]);
-    return json(
-      {
-        origins: [...new Set([...production, ...previews])],
-        live: project.siteUrl ?? production[0] ?? null,
-        frameable: project.siteFrameable,
-      },
-      200,
-    );
-  });
+  const { project } = opened;
+  const previews = (await latestDeployments(args.env.DB, project.id))
+    .filter((deployment) => deployment.kind === 'preview' && deployment.state === 'succeeded' && deployment.url)
+    .map((deployment) => new URL(deployment.url!).origin);
+  const live = project.siteUrl ? [new URL(project.siteUrl).origin] : [];
+  return json(
+    { origins: [...new Set([...live, ...previews])], live: project.siteUrl, frameable: project.siteFrameable },
+    200,
+  );
 }
 
-type ProjectWorker = NonNullable<Awaited<ReturnType<typeof findProjectWorker>>>;
-
 /**
- * A commit's build as CloudChef reports it for a project it deploys itself, in the words Workers Builds' status
- * uses, so the runtime's build watch follows both alike. `pipeline` and `reason` say whose build it is and why it
- * didn't go live.
+ * A commit's build and deploy as the runtime's build watch follows it. A deploy a newer commit superseded is
+ * `cancelled`; `reason` says why one didn't go live.
  */
-type CloudchefBuildStatus = {
-  state: string;
-  pipeline: 'cloudchef';
+type BuildStatus = {
+  state: 'none' | 'queued' | 'building' | 'succeeded' | 'failed' | 'cancelled';
   reason?: string;
   url?: string;
   previewUrl?: string;
 };
 
-async function cloudchefBuildStatus(db: D1Database, projectId: string, commit: string): Promise<CloudchefBuildStatus> {
+async function buildStatus(db: D1Database, projectId: string, commit: string): Promise<BuildStatus> {
   const deployment = await deploymentOfCommit(db, { projectId, commit });
   if (!deployment) {
-    return { state: 'none', pipeline: 'cloudchef' };
+    return { state: 'none' };
   }
   const state =
     deployment.state === 'succeeded'
@@ -658,11 +501,10 @@ async function cloudchefBuildStatus(db: D1Database, projectId: string, commit: s
           ? 'queued'
           : deployment.state === 'building' || deployment.state === 'deploying'
             ? 'building'
-            : 'none';
-  const status: CloudchefBuildStatus = {
-    state,
-    pipeline: 'cloudchef',
-  };
+            : deployment.state === 'superseded'
+              ? 'cancelled'
+              : 'none';
+  const status: BuildStatus = { state };
   if (deployment.reason) {
     status.reason = deployment.reason;
   }
@@ -672,59 +514,6 @@ async function cloudchefBuildStatus(db: D1Database, projectId: string, commit: s
     status.previewUrl = deployment.url;
   }
   return status;
-}
-
-/**
- * The project's Worker in Workers Builds (found once, then remembered), the account's API to ask about it,
- * and its production origins, read at most once per call. Cloudflare refusing answers 502 with what it said.
- */
-async function withWorkersBuilds(
-  args: { env: Env; openAccount?: OpenWorkersBuildsAccountApi },
-  connection: CloudflareConnection,
-  project: Project,
-  answer: (
-    api: WorkersBuildsAccountApi,
-    worker: ProjectWorker | null,
-    readProduction: (worker: ProjectWorker) => Promise<string[]>,
-  ) => Promise<Response>,
-): Promise<Response> {
-  try {
-    const api = await (args.openAccount ?? openWorkersBuildsAccountApi)(args.env, connection);
-    let production: Promise<string[]> | undefined;
-    const readProduction = (found: ProjectWorker) => (production ??= productionOrigins(api, found));
-    const worker = await recordProjectWorker(args.env.DB, api, project, readProduction);
-    return await answer(api, worker, readProduction);
-  } catch (error) {
-    if (error instanceof CloudflareAccountApiError) {
-      return json({ error: `Workers Builds could not be read: ${error.message}` }, 502);
-    }
-    throw error;
-  }
-}
-
-/**
- * How a Workers Builds project's own build of `commit` went, as its account reports it (a branch's with its Preview's
- * address); null when the account or Workers Builds can't be asked now.
- */
-export async function workersBuildOfCommit(
-  env: Env,
-  project: Project,
-  commit: string,
-): Promise<ProjectBuildStatus | null> {
-  const connection = await findActiveCloudflareConnection(env.DB, project.connectionId);
-  if (!connection) {
-    return null;
-  }
-  try {
-    const api = await openWorkersBuildsAccountApi(env, connection);
-    const worker = await recordProjectWorker(env.DB, api, project, (found) => productionOrigins(api, found));
-    return worker ? await projectBuildStatus(api, { accountId: connection.accountId, worker, commit }) : null;
-  } catch (error) {
-    if (error instanceof CloudflareAccountApiError) {
-      return null;
-    }
-    throw error;
-  }
 }
 
 /**

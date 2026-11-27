@@ -12,7 +12,7 @@ import type { ReelBundle } from '~/lib/reel';
 /**
  * A workspace runtime's side of working on a project the control plane keeps (a team's, or one imported
  * into a person's own account): the control plane says who may work on it and where its repository is, and
- * reports its builds and site from Workers Builds. The repository itself is this account's Artifacts, which
+ * reports its builds and site. The repository itself is this account's Artifacts, which
  * the runtime reads and writes directly (`project-repository.ts`).
  */
 const OPEN_TIMEOUT_MS = 60_000;
@@ -41,8 +41,6 @@ const openedProjectSchema = z.object({
   importSource: importSourceSchema.optional(),
   /** Who is asking, for the commits made in their name and their branch. */
   member: memberSchema.nullable().optional().catch(null),
-  /** Who builds and deploys it: Workers Builds, or CloudChef itself (an upload). */
-  deploysWith: z.enum(['workers_builds', 'cloudchef']).optional().catch(undefined),
   /** What it was made from: 'chat' for an app made in a chat, which the chat names. */
   createdFrom: z.string().nullable().optional().catch(null),
   /**
@@ -55,9 +53,10 @@ type OpenedProject = z.infer<typeof openedProjectSchema>;
 
 const buildStatusSchema = z.object({
   state: z.enum(['none', 'queued', 'building', 'succeeded', 'failed', 'cancelled']),
+  /** Why it didn't go live, when the build says. */
+  reason: z.string().nullable().optional(),
   url: z.string().nullable().optional(),
   previewUrl: z.string().nullable().optional(),
-  logUrl: z.string().nullable().optional(),
 });
 export type ProjectBuildStatus = z.infer<typeof buildStatusSchema>;
 
@@ -71,8 +70,6 @@ type ProjectSite = z.infer<typeof projectSiteSchema>;
 const registeredImportSchema = z.object({
   projectId: z.string().min(1),
   importSource: importSourceSchema,
-  /** Whether the project's site already builds in Workers Builds from the GitHub repository. */
-  workersBuildsFromGitHub: z.boolean().optional(),
 });
 
 const refusalSchema = z.object({ error: z.string(), code: z.string().optional() });
@@ -144,7 +141,7 @@ export async function deletableProjectRepository(
   return (await readAnswer(response, deletableSchema, 'CloudChef could not check the project.')).repo;
 }
 
-const mainRewriteSchema = z.object({ repo: z.string().min(1), deploysWith: z.enum(['workers_builds', 'cloudchef']) });
+const mainRewriteSchema = z.object({ repo: z.string().min(1) });
 
 /** Said when someone who doesn't run the project asks to replace its main. */
 export const MAIN_REWRITE_OWNER_ONLY =
@@ -349,7 +346,7 @@ export async function postReel(
   );
 }
 
-/** What Workers Builds reports for a commit of the project so far. */
+/** How the build and deploy of a commit of the project is going. */
 export async function projectBuildStatus(
   env: RuntimeEnv,
   identity: Identity,

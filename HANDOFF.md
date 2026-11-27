@@ -61,11 +61,11 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
    CloudChef's Wrangler); the two projects Workers Builds published were moved over (each onto its existing Worker,
    a preview first, then production, both checked live), and their Workers Builds triggers deleted; a new GitHub import is made with
    `deploys_with = 'cloudchef'`. No project has `deploys_with = 'workers_builds'` any more. Left:
-   - remove what only Workers Builds projects used, now dead code: the `workers_builds` side of `deploys_with` (the
-     column goes in a second release), `workers_builds_script_tag`, the linked-build watch
-     (`linked-project-build.ts`), `workers-builds.ts` with the supersede guard, the Workers Builds branch of offered
-     previews and of History's publish states, `buildsFromGitHub`, and the `workers-ci` scopes if nothing else needs
-     them;
+   - Workers Builds is removed from the code: the Worker lookup and builds reads, the supersede guard, the
+     `deploys_with` branching, and the import dialog's GitHub step. Left for the release after: dropping
+     `org_projects.deploys_with` and `workers_builds_script_tag` (nothing reads or writes them), and the
+     `deploysWith: 'cloudchef'` the control plane still says to runtimes in two answers. The `workers-ci` scopes stay
+     listed until grants are renewed without them (a scope a grant reports that isn't listed is refused);
    - not tried: a GitHub import from start to finish on CloudChef's builder. It publishes to a Worker named by its
      config, or to a suffixed name when that Worker exists, with the card's "use that Worker" to take it over;
    - a `cf` project whose build output is newer than `v0`, or that builds several Workers or a container, is refused

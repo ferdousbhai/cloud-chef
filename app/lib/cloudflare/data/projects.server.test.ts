@@ -80,7 +80,6 @@ function controlPlane(role: 'view' | 'edit', repo: string | null) {
       return Response.json({
         projectId: TEAM_PROJECT,
         importSource: { url: body.url, branch: 'main', authorization: null },
-        workersBuildsFromGitHub: true,
       });
     }
     if (url.endsWith('runtime-projects/imported')) {
@@ -174,7 +173,7 @@ describe('importing a repository', () => {
     const head = await artifacts.addSource('https://github.com/acme/site', { 'a.txt': 'a' });
     const calls = controlPlane('edit', null);
     const result = await importProject(env, { sessionId: OWNER, url: 'https://github.com/acme/site' }, store);
-    expect(result).toEqual({ projectId: TEAM_PROJECT, initialId: expect.any(String), workersBuildsFromGitHub: true });
+    expect(result).toEqual({ projectId: TEAM_PROJECT, initialId: expect.any(String) });
     expect(calls.map((call) => call.route)).toEqual(['runtime-projects/register-import', 'runtime-projects/imported']);
     expect(calls[0]?.body).toEqual({ url: 'https://github.com/acme/site', name: 'site' });
     expect(calls[1]?.body).toEqual({ orgProjectId: TEAM_PROJECT, repo: `t-${TEAM_PROJECT}`, commit: head });
@@ -588,9 +587,7 @@ describe('rewriting main', () => {
    * A project CloudChef deploys whose main has two commits, and a branch `slim` holding a history of its own (main's,
    * rewritten). The control plane answers whether this person runs the project with `owner`, and records what it's told.
    */
-  async function world(
-    owner: () => Response = () => Response.json({ repo: 't-storefront', deploysWith: 'cloudchef' }),
-  ) {
+  async function world(owner: () => Response = () => Response.json({ repo: 't-storefront' })) {
     const { env, artifacts, commit, store } = await setup();
     await commit('t-storefront', 'v1 and a song', 'First');
     const main = await commit('t-storefront', 'v2', 'Second');
@@ -644,7 +641,6 @@ describe('rewriting main', () => {
       oldCommit: main,
       newCommit: slim,
       rewritten: true,
-      publishedBy: 'cloudchef',
       recorded: true,
     });
     expect(await artifacts.head('t-storefront')).toBe(slim);
@@ -654,16 +650,6 @@ describe('rewriting main', () => {
     ]);
     expect(calls[1]?.body).toEqual({ orgProjectId: TEAM_PROJECT, branch: 'slim', oldCommit: main, newCommit: slim });
     expect(enqueued).toEqual([{ orgProjectId: TEAM_PROJECT, branch: 'main', commit: slim }]);
-  });
-
-  it('leaves the publish to Workers Builds for a project it builds', async () => {
-    const { artifacts, enqueued, rewrite, slim } = await world(() =>
-      Response.json({ repo: 't-storefront', deploysWith: 'workers_builds' }),
-    );
-
-    expect((await rewrite()).status).toBe(200);
-    expect(await artifacts.head('t-storefront')).toBe(slim);
-    expect(enqueued).toEqual([]);
   });
 
   it('is refused to someone who doesn’t run the project, and main stays', async () => {
@@ -767,7 +753,6 @@ describe('rewriting main', () => {
       oldCommit: main,
       newCommit: ahead,
       rewritten: false,
-      publishedBy: 'cloudchef',
       recorded: true,
     });
     expect(await artifacts.head('t-storefront')).toBe(ahead);

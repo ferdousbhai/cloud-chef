@@ -260,7 +260,6 @@ class FakeCloudChef {
         oldCommit: rewrite.expected ?? '',
         newCommit: rewrite.commit ?? '',
         rewritten,
-        publishedBy: 'cloudchef',
         recorded: true,
       });
     }

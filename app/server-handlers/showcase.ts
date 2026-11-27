@@ -46,8 +46,6 @@ import {
   mentionsCloudChef,
   offeredChange,
   offeredChangeNumber,
-  offeredChangesAwaitingPreview,
-  recordOfferedPreview,
   openThreadsOfProjects,
   reopenThread,
   setThreadFollowing,
@@ -62,7 +60,7 @@ import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor 
 import { SENDER } from './email-auth';
 import { copyProjectFor, forwardToProjectAccount } from './command-line';
 import { deploymentOfCommit } from '~/lib/cloudflare/data/project-deployments.server';
-import { cancelOlderPublishes, memberIdentity, workersBuildOfCommit } from './runtime-projects';
+import { memberIdentity } from './runtime-projects';
 import { findAccessibleProject, recordMainPush } from '~/lib/cloudflare/data/org-projects.server';
 import {
   SHARED_MERGE,
@@ -207,29 +205,6 @@ export const personPageAction: Handler = async ({ request, env }) => {
     : json({ error: 'Name a person.' }, 400);
 };
 
-/**
- * For someone who can edit the project, reading its threads: the previews Workers Builds has built of the changes
- * offered there, whose addresses only it knows, are asked for and kept, so each thread links its own. Nothing a page
- * view should fail on.
- */
-async function findOfferedPreviews(env: Env, postId: string, userId: string): Promise<void> {
-  try {
-    const awaiting = await offeredChangesAwaitingPreview(env.DB, postId);
-    const project = awaiting[0] ? await findAccessibleProject(env.DB, awaiting[0].projectId, userId) : null;
-    if (project?.role !== 'edit') {
-      return;
-    }
-    for (const change of awaiting) {
-      const build = await workersBuildOfCommit(env, project, change.commit);
-      if (build?.previewUrl) {
-        await recordOfferedPreview(env.DB, change.threadId, build.previewUrl);
-      }
-    }
-  } catch {
-    console.warn({ event: 'offered_previews_not_found' });
-  }
-}
-
 /** `GET /api/showcase/threads?postId=`: a post's comment threads, for anyone who may see it. */
 export const threadsAction: Handler = ({ request, env }) =>
   answering(async () => {
@@ -238,9 +213,6 @@ export const threadsAction: Handler = ({ request, env }) =>
       return json({ error: 'Name a post.' }, 400);
     }
     const session = await getAuthSession(env, request);
-    if (session) {
-      await findOfferedPreviews(env, postId.data, session.user.id);
-    }
     return json(await listThreads(env.DB, postId.data, session?.user.id ?? null));
   });
 
@@ -560,36 +532,17 @@ export const offeredChangeAction: Handler = ({ request, env }) =>
             state === 'conflict' ? { status: 'conflict', files: conflicts } : { status: state },
             change.offeredBy,
           );
-    // Its preview, the way to try it before deciding: started now if it wasn't, on a branch of its own. A project
-    // CloudChef deploys itself has it among its deployments; Workers Builds is asked about one it deploys, and the
-    // address it gives is kept for the thread to link.
-    const project = await findAccessibleProject(env.DB, change.projectId, session.user.id);
-    let built: 'none' | 'building' | 'succeeded' | 'failed' | 'unknown' = 'none';
-    if (project?.deploysWith === 'workers_builds') {
-      const build = await workersBuildOfCommit(env, project, change.commit);
-      built = !build
-        ? 'unknown'
-        : build.state === 'queued'
-          ? 'building'
-          : build.state === 'cancelled'
-            ? 'none'
-            : build.state === 'succeeded' && !build.previewUrl
-              ? 'unknown'
-              : build.state;
-      if (build?.previewUrl) {
-        await recordOfferedPreview(env.DB, change.threadId, build.previewUrl);
-      }
-    } else {
-      const preview = await deploymentOfCommit(env.DB, { projectId: change.projectId, commit: change.commit });
-      built =
-        preview?.kind !== 'preview'
-          ? 'none'
-          : preview.state === 'succeeded' || preview.state === 'failed'
-            ? preview.state
-            : preview.state === 'queued' || preview.state === 'building' || preview.state === 'deploying'
-              ? 'building'
-              : 'unknown';
-    }
+    // Its preview, the way to try it before deciding: started now if it wasn't, on a branch of its own, and found
+    // among the project's deployments.
+    const preview = await deploymentOfCommit(env.DB, { projectId: change.projectId, commit: change.commit });
+    let built: 'none' | 'building' | 'succeeded' | 'failed' | 'unknown' =
+      preview?.kind !== 'preview'
+        ? 'none'
+        : preview.state === 'succeeded' || preview.state === 'failed'
+          ? preview.state
+          : preview.state === 'queued' || preview.state === 'building' || preview.state === 'deploying'
+            ? 'building'
+            : 'unknown';
     if (state === 'ready' && built === 'none') {
       const started = await askProjectAccount(request, env, {
         projectId: change.projectId,
@@ -690,10 +643,6 @@ export const acceptChangeAction: Handler = ({ request, env }) =>
         newCommit: merged.data.to,
         pushedAt: Date.now(),
       });
-      const project = await findAccessibleProject(env.DB, change.projectId, userId);
-      if (project?.deploysWith === 'workers_builds') {
-        await cancelOlderPublishes({ request, env }, project, merged.data.to, userId);
-      }
     }
     await markThreadOnItsWay(env.DB, { userId, threadId: change.threadId, fixCommit });
     return json({ thread: await findThread(env.DB, change.threadId, userId) });

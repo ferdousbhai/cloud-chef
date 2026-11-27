@@ -1662,8 +1662,7 @@ export class ProjectWorkspace extends ComputerSandboxBase<RuntimeEnv> {
           if ((await this.checkpoint()).revision !== before.revision) {
             throw new Error('The project changed while validation was being isolated. Validate the new revision.');
           }
-          // Every project builds and deploys through its own pipeline (Workers Builds, or CloudChef's project
-          // builder), so it is validated with its own scripts.
+          // Every project is built with its own scripts when it is published, so it is validated with them.
           const checks = await this.runProjectScripts(isolatedRoot, cancellation, reportStage);
           liveness.observed();
           return await this.passedValidation({ before, startedAt, cancellation, checks });

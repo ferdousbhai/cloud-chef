@@ -141,7 +141,8 @@ export async function runtimeMainRewriteAction(args: { request: Request; env: En
   if (!project.repo) {
     return json({ error: 'This project has no code in CloudChef yet.' }, 409);
   }
-  return json({ repo: project.repo, deploysWith: project.deploysWith }, 200);
+  // `deploysWith` is said until no runtime that reads it is left (the release after this one).
+  return json({ repo: project.repo, deploysWith: 'cloudchef' as const }, 200);
 }
 
 /** A runtime reporting that its person replaced a project's main: who, when, from which branch, and from and to which commit. */

@@ -28,12 +28,12 @@ const watch: LinkedBuildWatch = {
 const pending: LinkedBuildStatus = {
   state: 'pending',
   previewUrl: null,
-  detailsUrl: null,
+  reason: null,
 };
 const built: LinkedBuildStatus = {
   state: 'success',
   previewUrl: 'https://abc-site.ada.workers.dev',
-  detailsUrl: 'https://dash.cloudflare.com/builds/1',
+  reason: null,
 };
 
 /** Runs a watch to its end on the fake clock. */
@@ -72,8 +72,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("a team project's publish", () => {
-  it('returns as soon as the commit is in, saying the pipeline is building and not to wait', () => {
+describe("a project's publish", () => {
+  it('returns as soon as the commit is in, saying it is being built and not to wait', () => {
     const result = linkedBuildStartedResult(watch);
     expect(result).toMatchObject({
       ok: true,
@@ -88,32 +88,37 @@ describe("a team project's publish", () => {
     expect(linkedBuildWatchSchema.parse(watch)).toEqual(watch);
   });
 
-  it("settles to the pipeline's result: the preview link, the failure's details, or that it ran out of time", () => {
+  it("settles to the build's result: the preview link, why it failed, that a newer one replaced it, or that it ran out of time", () => {
     expect(linkedBuildSettledResult(watch, built)).toMatchObject({
       ok: true,
-      summary:
-        'Committed on the branch cloudchef/sara-abc123; the pipeline built it. Preview: https://abc-site.ada.workers.dev',
-      data: { build: 'success', previewUrl: built.previewUrl, detailsUrl: built.detailsUrl },
+      summary: 'Committed on the branch cloudchef/sara-abc123; it was built. Preview: https://abc-site.ada.workers.dev',
+      data: { build: 'success', previewUrl: built.previewUrl, detailsUrl: null },
     });
     expect(linkedBuildSettledResult({ ...watch, live: true, where: 'merged into main' }, built).summary).toContain(
-      'built it and it is live',
+      'it was built and it is live',
     );
     const failed = linkedBuildSettledResult(watch, {
       state: 'failure',
       previewUrl: null,
-      detailsUrl: 'https://d/1',
+      reason: 'The build failed.',
     });
     expect(failed).toMatchObject({ ok: false, data: { build: 'failure' } });
-    expect(failed.summary).toContain('Details: https://d/1');
+    expect(failed.summary).toContain('did not succeed: The build failed.');
+    const replaced = linkedBuildSettledResult(
+      { ...watch, live: true },
+      { state: 'cancelled', previewUrl: null, reason: null },
+    );
+    expect(replaced).toMatchObject({ ok: true, data: { build: 'cancelled' } });
+    expect(replaced.summary).toContain('which includes this change, is published instead');
     expect(linkedBuildSettledResult(watch, pending)).toMatchObject({ ok: true, data: { build: 'timed_out' } });
-    expect(linkedBuildSettledResult(watch, pending).summary).toContain('still building it after 15 minutes');
+    expect(linkedBuildSettledResult(watch, pending).summary).toContain('still being built after 15 minutes');
     expect(
       linkedBuildSettledResult(watch, {
         state: 'none',
         previewUrl: null,
-        detailsUrl: null,
+        reason: 'package.json has no build script.',
       }).summary,
-    ).toContain('reported no build');
+    ).toContain('Nothing was built for it: package.json has no build script.');
   });
 
   it('reads the status until the build finishes, riding out an unreadable read', async () => {
@@ -145,7 +150,7 @@ describe("a team project's publish", () => {
     const failure: LinkedBuildStatus = {
       state: 'failure',
       previewUrl: null,
-      detailsUrl: 'https://d/1',
+      reason: null,
     };
     let polls = 0;
     const status = await watched({
@@ -262,31 +267,32 @@ describe("a team project's publish", () => {
     const cancelled = linkedBuildSettledResult(live, {
       state: 'failure',
       previewUrl: null,
-      detailsUrl: 'https://d/2',
+      reason: null,
     });
     expect(cancelled).toMatchObject({ ok: false, data: { build: 'failure' } });
     expect(cancelled.summary).toContain('did not succeed, so the change is not live');
     expect(linkedBuildUnfollowedResult(watch)).toMatchObject({ ok: true, data: { build: 'unfollowed' } });
   });
 
-  it("reads Workers Builds' states, linking production for a live publish and the preview otherwise", () => {
+  it("reads a build's states, linking production for a live publish and the preview otherwise", () => {
     const status = {
       state: 'succeeded' as const,
       url: 'https://site.example.com',
       previewUrl: 'https://abc-site.ada.workers.dev',
-      logUrl: 'https://dash.cloudflare.com/builds/1',
     };
     expect(linkedBuildStatus(status, true)).toEqual({
       state: 'success',
       previewUrl: 'https://site.example.com',
-      detailsUrl: 'https://dash.cloudflare.com/builds/1',
+      reason: null,
     });
     expect(linkedBuildStatus(status, false).previewUrl).toBe('https://abc-site.ada.workers.dev');
     expect(linkedBuildStatus({ state: 'queued' }, false)).toEqual({
       state: 'pending',
       previewUrl: null,
-      detailsUrl: null,
+      reason: null,
     });
+    expect(linkedBuildStatus({ state: 'cancelled' }, false).state).toBe('cancelled');
+    expect(linkedBuildStatus({ state: 'failed', reason: 'The build failed.' }, false).reason).toBe('The build failed.');
     expect(linkedBuildStatus({ state: 'building' }, false).state).toBe('pending');
     expect(linkedBuildStatus({ state: 'failed' }, false).state).toBe('failure');
     expect(linkedBuildStatus({ state: 'none' }, false).state).toBe('none');

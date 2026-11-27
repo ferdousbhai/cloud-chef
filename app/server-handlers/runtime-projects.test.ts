@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { teamFixture } from '~/test/project-fixture';
 import { GitHubApp } from '~/lib/.server/github/github-app';
 import { bytesToBase64 } from '~/lib/hex-digest';
-import type { WorkersBuildsAccountApi } from '~/lib/.server/cloudflare/workers-builds';
-import { CloudflareAccountApiError, type WorkersBuild } from '~/lib/.server/cloudflare/user-account-api';
 import {
   runtimeDeletedProjectsAction,
   runtimeOpenProjectAction,
@@ -16,7 +14,6 @@ import {
   runtimeProjectSiteAction,
   runtimeProjectStatusAction,
 } from './runtime-projects';
-import { listMyProjectsAction } from './projects';
 import {
   runtimeDeploymentClaimAction,
   runtimeDeploymentCredentialAction,
@@ -33,7 +30,6 @@ const BLOG = '22222222-2222-4222-8222-222222222222';
 const PROMOTED = '55555555-5555-4555-8555-555555555555';
 const OWN = '66666666-6666-4666-8666-666666666666';
 const COMMIT = 'a'.repeat(40);
-const TAG = 'f'.repeat(32);
 
 /** CloudChef's GitHub App, minting tokens from a GitHub that records what it was asked (or answers `status`). */
 async function gitHubApp(status = 201) {
@@ -120,7 +116,7 @@ describe('a runtime opening a project', () => {
       role: 'edit',
       addedTo: 'Sites',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
-      deploysWith: 'workers_builds',
+      deploysWith: 'cloudchef',
       createdFrom: 'github',
       importSource: {
         url: 'https://github.com/ada/site.git',
@@ -160,7 +156,7 @@ describe('a runtime opening a project', () => {
       role: 'view',
       addedTo: 'Sites',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
-      deploysWith: 'workers_builds',
+      deploysWith: 'cloudchef',
       createdFrom: 'github',
     });
     // Admins own every team project.
@@ -270,162 +266,62 @@ describe('a runtime recording an import', () => {
   });
 });
 
-/** Workers Builds in the team's account: the Workers there and what was built. */
-function workersBuilds(
-  options: { builds?: WorkersBuild[]; latest?: Map<string, WorkersBuild>; failing?: boolean } = {},
-) {
-  const calls: string[] = [];
-  const api: WorkersBuildsAccountApi = {
-    listWorkerScripts: async () => {
-      calls.push('scripts');
-      if (options.failing) {
-        throw new CloudflareAccountApiError('Authentication error');
-      }
-      return [
-        { tag: 'e'.repeat(32), name: 'other-site' },
-        { tag: TAG, name: 'blog' },
-      ];
-    },
-    latestWorkersBuilds: async (tags) => {
-      calls.push(`latest:${tags.length}`);
-      return options.latest ?? new Map();
-    },
-    listWorkersBuilds: async (tag) => {
-      calls.push(`builds:${tag}`);
-      return options.builds ?? [];
-    },
-    listWorkersBuildTriggers: async () => [],
-    cancelWorkersBuild: async () => undefined,
-    listWorkerPreviews: async () => [
-      { names: ['cloudchef/sara-a-key'], urls: ['https://cloudchef-sara-a-key-blog.team.workers.dev'] },
-    ],
-    workerAddresses: async () => ({
-      customDomains: ['blog.example.com'],
-      workersDevUrl: 'https://blog.team.workers.dev',
-    }),
-  };
-  return { api, calls, openAccount: async () => api };
-}
-
-function build(overrides: Partial<WorkersBuild>): WorkersBuild {
-  return {
-    id: 'build-1',
-    status: 'stopped',
-    outcome: 'success',
-    branch: 'main',
-    commit: COMMIT,
-    createdOn: null,
-    repository: {
-      provider: 'artifacts',
-      repoId: 'r',
-      repoName: `t-${BLOG}`,
-      accountId: null,
-      accountName: 'cloudchef',
-    },
-    ...overrides,
-  };
-}
-
 describe("a runtime asking about a project's builds and site", () => {
-  it("finds the project's Worker by its Artifacts repository, remembers it, and reports a commit's build", async () => {
+  it("reports a commit's build from the project's publishes, and its live and preview origins as the site", async () => {
     const { database, env, runtime } = await setup();
-    const latest = new Map([[TAG, build({})]]);
-    const status = async (commit: string, builds: WorkersBuild[]) => {
-      const fake = workersBuilds({ latest, builds });
-      const response = await runtimeProjectStatusAction({
-        request: await runtime('/api/cloudflare/runtime-projects/status', { orgProjectId: BLOG, commit }),
-        env,
-        openAccount: fake.openAccount,
-      });
-      return { body: await response.json(), calls: fake.calls };
-    };
-    const first = await status(COMMIT, [build({})]);
-    expect(first.body).toEqual({
+    const publish = (
+      id: string,
+      branch: string,
+      commit: string,
+      state: string,
+      more: { url?: string; reason?: string } = {},
+    ) =>
+      database
+        .prepare(
+          `INSERT INTO project_deployments (id, project_id, kind, branch, commit_sha, state, url, reason, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+        )
+        .run(
+          id,
+          BLOG,
+          branch === 'main' ? 'production' : 'preview',
+          branch,
+          commit,
+          state,
+          more.url ?? null,
+          more.reason ?? null,
+        );
+    const status = async (commit: string) =>
+      (
+        await runtimeProjectStatusAction({
+          request: await runtime('/api/cloudflare/runtime-projects/status', { orgProjectId: BLOG, commit }),
+          env,
+        })
+      ).json();
+    expect(await status(COMMIT)).toEqual({ state: 'none' });
+    publish('d1', 'main', COMMIT, 'building');
+    expect(await status(COMMIT)).toEqual({ state: 'building' });
+    publish('d2', 'main', 'b'.repeat(40), 'failed', { reason: 'The build failed.' });
+    expect(await status('b'.repeat(40))).toEqual({ state: 'failed', reason: 'The build failed.' });
+    // A deploy a newer commit superseded was replaced, not failed.
+    publish('d3', 'main', 'c'.repeat(40), 'superseded');
+    expect(await status('c'.repeat(40))).toEqual({ state: 'cancelled' });
+    publish('d4', 'idea', 'd'.repeat(40), 'succeeded', { url: 'https://idea-blog.team.workers.dev' });
+    expect(await status('d'.repeat(40))).toEqual({
       state: 'succeeded',
-      url: 'https://blog.example.com',
-      logUrl: `https://dash.cloudflare.com/account-team/workers/services/view/blog/production/builds/build-1`,
+      previewUrl: 'https://idea-blog.team.workers.dev',
     });
-    expect(first.calls).toEqual(['scripts', 'latest:2', `builds:${TAG}`]);
-    // The Worker and its live site, which the projects home shows, are remembered.
-    expect(
-      database.prepare('SELECT workers_builds_script_tag, site_url FROM org_projects WHERE id = ?').get(BLOG),
-    ).toEqual({ workers_builds_script_tag: TAG, site_url: 'https://blog.example.com' });
-    // Found once, the Worker is asked about directly.
-    expect((await status(COMMIT, [build({ status: 'running', outcome: null })])).calls).toEqual([
-      'scripts',
-      `builds:${TAG}`,
-    ]);
-    expect((await status(COMMIT, [build({ status: 'running', outcome: null })])).body).toMatchObject({
-      state: 'building',
-    });
-    expect((await status(COMMIT, [build({ status: 'queued', outcome: null })])).body).toMatchObject({
-      state: 'queued',
-    });
-    expect((await status(COMMIT, [build({ outcome: 'fail' })])).body).toMatchObject({ state: 'failed' });
-    expect((await status('b'.repeat(40), [build({})])).body).toEqual({ state: 'none' });
-    expect((await status(COMMIT, [build({ branch: 'cloudchef/sara-a-key' })])).body).toMatchObject({
-      state: 'succeeded',
-      previewUrl: 'https://cloudchef-sara-a-key-blog.team.workers.dev',
-    });
-  });
 
-  it('finds a Worker still built from the GitHub repository a project was imported from', async () => {
-    const { env, runtime } = await setup();
-    const latest = new Map([
-      [
-        TAG,
-        build({
-          repository: { provider: 'github', repoId: '11', repoName: 'site', accountId: '1', accountName: 'ada' },
-        }),
-      ],
-    ]);
-    const fake = workersBuilds({ latest, builds: [] });
-    const response = await runtimeProjectStatusAction({
-      request: await runtime('/api/cloudflare/runtime-projects/status', { orgProjectId: SITE, commit: COMMIT }),
-      env,
-      openAccount: fake.openAccount,
-    });
-    expect(await response.json()).toEqual({ state: 'none' });
-    expect(fake.calls).toContain(`builds:${TAG}`);
-  });
-
-  it("remembers an imported project's live site when it is opened", async () => {
-    const { database, env, runtime } = await setup();
-    database.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').run(TAG, BLOG);
-    const opened = await runtimeOpenProjectAction({
-      request: await runtime('/api/cloudflare/runtime-projects/open', { orgProjectId: BLOG }),
-      env,
-      openAccount: workersBuilds().openAccount,
-    });
-    expect(opened.status).toBe(200);
-    expect(database.prepare('SELECT site_url FROM org_projects WHERE id = ?').get(BLOG)).toEqual({
-      site_url: 'https://blog.example.com',
-    });
-  });
-
-  it('reports the production and Preview origins as the site, and what Cloudflare refused', async () => {
-    const { database, env, runtime } = await setup();
-    database.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').run(TAG, BLOG);
+    database.prepare("UPDATE org_projects SET site_url = 'https://blog.example.com' WHERE id = ?").run(BLOG);
     const site = await runtimeProjectSiteAction({
       request: await runtime('/api/cloudflare/runtime-projects/site', { orgProjectId: BLOG }),
       env,
-      openAccount: workersBuilds().openAccount,
     });
     expect(await site.json()).toEqual({
-      origins: [
-        'https://blog.example.com',
-        'https://blog.team.workers.dev',
-        'https://cloudchef-sara-a-key-blog.team.workers.dev',
-      ],
+      origins: ['https://blog.example.com', 'https://idea-blog.team.workers.dev'],
       live: 'https://blog.example.com',
-      frameable: false,
+      frameable: null,
     });
-    const refused = await runtimeProjectSiteAction({
-      request: await runtime('/api/cloudflare/runtime-projects/site', { orgProjectId: BLOG }),
-      env,
-      openAccount: workersBuilds({ failing: true }).openAccount,
-    });
-    expect(refused.status).toBe(502);
   });
 });
 
@@ -461,7 +357,6 @@ describe('a runtime importing a GitHub repository as a new project', () => {
     expect(answer).toEqual({
       projectId: expect.any(String),
       importSource: { url: 'https://github.com/ada/public.git', branch: 'trunk', authorization: null },
-      workersBuildsFromGitHub: false,
     });
     expect(
       database
@@ -595,9 +490,11 @@ describe('a runtime adding a project uploaded as a ZIP', () => {
     database.prepare(`UPDATE organization_members SET role = 'admin' WHERE user_id = ?`).run(sara.userId);
     const added = await register();
     expect(added.status).toBe(201);
-    expect(
-      database.prepare('SELECT org_id, created_from, deploys_with, slug FROM org_projects WHERE id = ?').get(UPLOADED),
-    ).toEqual({ org_id: expect.any(String), created_from: 'chat', deploys_with: 'cloudchef', slug: 'new-project' });
+    expect(database.prepare('SELECT org_id, created_from, slug FROM org_projects WHERE id = ?').get(UPLOADED)).toEqual({
+      org_id: expect.any(String),
+      created_from: 'chat',
+      slug: 'new-project',
+    });
     expect(
       database
         .prepare('SELECT role FROM org_project_access WHERE project_id = ? AND user_id = ?')
@@ -625,45 +522,14 @@ describe('a runtime adding a project uploaded as a ZIP', () => {
   });
 });
 
-describe('the projects home', () => {
-  it("finds a published project's live address the first time it lists it, and remembers it", async () => {
-    const { env, database, sara } = await setup();
-    database.exec(
-      `UPDATE org_projects SET artifact_repo = 'p-mine', workers_builds_script_tag = '${TAG}' WHERE id = '${OWN}'`,
-    );
-    const list = async (openAccount = workersBuilds().openAccount) => {
-      const response = await listMyProjectsAction({
-        request: new Request('https://cloudchef.build/api/org-projects', { headers: { cookie: sara.cookie } }),
-        env,
-        openAccount,
-      });
-      return z
-        .object({
-          projects: z.array(
-            z.object({ id: z.string(), siteUrl: z.string().nullable(), siteFrameable: z.boolean().nullable() }),
-          ),
-        })
-        .parse(await response.json())
-        .projects.find((project) => project.id === OWN);
-    };
-    expect(await list()).toEqual({ id: OWN, siteUrl: 'https://blog.example.com', siteFrameable: false });
-    // Remembered: a later list doesn't ask Cloudflare again.
-    expect(await list(workersBuilds({ failing: true }).openAccount)).toEqual({
-      id: OWN,
-      siteUrl: 'https://blog.example.com',
-      siteFrameable: false,
-    });
-  });
-});
-
-describe('a runtime deploying a project CloudChef deploys itself', () => {
+describe('a runtime deploying a project', () => {
   const UPLOAD = '77777777-7777-4777-8777-777777777777';
   async function uploaded() {
     const fixture = await setup();
     fixture.database.exec(`
-      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with, created_at)
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, created_at)
         VALUES ('${UPLOAD}', 'team-connection', '33333333-3333-4333-8333-333333333333', 'Glossary', 't-${UPLOAD}',
-          'zip', 'cloudchef', 1);
+          'zip', 1);
     `);
     fixture.database
       .prepare(`INSERT INTO org_project_access (project_id, user_id, role, granted_at) VALUES (?, ?, 'edit', 1)`)
@@ -713,10 +579,10 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
   it('stops a deploy whose Worker another project of the account publishes to, before anything is written', async () => {
     const { env, runtime, database } = await uploaded();
     database.exec(`
-      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from, deploys_with,
+      INSERT INTO org_projects (id, connection_id, org_id, name, artifact_repo, created_from,
         deploy_worker_name, created_at)
         VALUES ('44444444-4444-4444-8444-444444444444', 'team-connection', '33333333-3333-4333-8333-333333333333',
-          'Shop', 't-shop', 'zip', 'cloudchef', 'glossary', 1);
+          'Shop', 't-shop', 'zip', 'glossary', 1);
     `);
     const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
       orgProjectId: UPLOAD,
@@ -794,14 +660,13 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
         .get(UPLOAD),
     ).toEqual({ site_url: 'https://glossary.team.workers.dev', site_frameable: 0, deploy_worker_name: 'glossary' });
 
-    // The build watch reads CloudChef's own status, as it reads Workers Builds'.
+    // The build watch reads the same record.
     const status = await runtimeProjectStatusAction({
       request: await runtime('/api/cloudflare/runtime-projects/status', { orgProjectId: UPLOAD, commit: COMMIT }),
       env,
     });
     expect(await status.json()).toEqual({
       state: 'succeeded',
-      pipeline: 'cloudchef',
       url: 'https://glossary.team.workers.dev',
     });
   });
@@ -831,7 +696,7 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
     expect(await restrictedOf('5'.repeat(40))).toBe(false);
   });
 
-  it('hands out the account authorization only while its claimed deploy step runs, and never for Workers Builds projects', async () => {
+  it('hands out the account authorization only while its claimed deploy step runs, and never to someone who may only view', async () => {
     const { env, runtime } = await uploaded();
     const claimed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
       orgProjectId: UPLOAD,
@@ -874,11 +739,11 @@ describe('a runtime deploying a project CloudChef deploys itself', () => {
       ).status,
     ).toBe(503);
 
-    const workersBuilds = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
+    const viewed = await call(runtimeDeploymentClaimAction, runtime, env, 'claim', {
       orgProjectId: BLOG,
       branch: 'main',
       commit: COMMIT,
     });
-    expect(workersBuilds.status).toBe(403);
+    expect(viewed.status).toBe(403);
   });
 });

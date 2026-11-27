@@ -915,34 +915,6 @@ export async function offerChange(
   return { number: open.number, updated: true };
 }
 
-/** The preview of a thread's offered change, where Workers Builds built it, for the thread to link. */
-export async function recordOfferedPreview(db: D1Database, threadId: string, url: string): Promise<void> {
-  await db.prepare('UPDATE post_comments SET suggested_preview_url = ? WHERE id = ?').bind(url, threadId).run();
-}
-
-/**
- * A post's open offered changes whose preview has no address yet, on a project Workers Builds deploys: Workers Builds
- * is asked for each when someone who can edit the project reads the threads.
- */
-export async function offeredChangesAwaitingPreview(
-  db: D1Database,
-  postId: string,
-): Promise<{ threadId: string; projectId: string; commit: string }[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT comments.id, posts.project_id, comments.suggested_commit
-       FROM post_comments AS comments JOIN posts ON posts.id = comments.post_id
-       JOIN org_projects AS projects ON projects.id = posts.project_id
-       WHERE comments.post_id = ? AND comments.kind = 'suggestion' AND comments.state = 'open'
-         AND comments.suggested_project_id = posts.project_id AND comments.suggested_commit IS NOT NULL
-         AND comments.suggested_preview_url IS NULL AND projects.deploys_with = 'workers_builds'
-       ORDER BY comments.created_at DESC LIMIT 3`,
-    )
-    .bind(postId)
-    .all<{ id: string; project_id: string; suggested_commit: string }>();
-  return results.map((row) => ({ threadId: row.id, projectId: row.project_id, commit: row.suggested_commit }));
-}
-
 /**
  * Whether a thread offers a change made on the post's own project, with its number and project: for removing the branch its
  * preview was built from once the thread is closed.

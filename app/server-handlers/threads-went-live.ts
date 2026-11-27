@@ -27,7 +27,7 @@ export async function closeThreadsThatWentLive(
     const live = new Set(waiting.filter((fix) => fix.fixCommit === publish.commit).map((fix) => fix.fixCommit));
     const others = [...new Set(waiting.map((fix) => fix.fixCommit).filter((fix) => !live.has(fix)))];
     if (others.length > 0) {
-      for (const commit of await commitsInHistory(request, env, publish, others)) {
+      for (const commit of await liveAmong(request, env, publish, others)) {
         live.add(commit);
       }
     }
@@ -40,22 +40,18 @@ export async function closeThreadsThatWentLive(
   }
 }
 
-/**
- * Which of `candidates` `commit` has in its history, as a runtime in the project's account reads it; none when it
- * can't be asked in time.
- */
-export async function commitsInHistory(
+/** Which of `candidates` the published commit has in its history, as a runtime in the project's account reads it. */
+async function liveAmong(
   request: Request,
   env: Env,
   publish: { projectId: string; connectionId: string; commit: string; reportedBy: string },
   candidates: readonly string[],
-  timeoutMs = ANCESTORS_TIMEOUT_MS,
 ): Promise<string[]> {
   const url = new URL('/api/threads/went-live', request.url);
   url.search = new URLSearchParams({ commit: publish.commit, of: candidates.join(',') }).toString();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
+    timer = setTimeout(() => resolve(null), ANCESTORS_TIMEOUT_MS);
   });
   const asked = forwardToProjectAccount(new Request(url, { method: 'GET' }), env, {
     project: { id: publish.projectId, connectionId: publish.connectionId },

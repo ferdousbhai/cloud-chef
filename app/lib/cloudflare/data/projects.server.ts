@@ -236,9 +236,6 @@ export async function importProject(
     projectId: registered.projectId,
     initialId,
   };
-  if (registered.workersBuildsFromGitHub !== undefined) {
-    result.workersBuildsFromGitHub = registered.workersBuildsFromGitHub;
-  }
   return result;
 }
 
@@ -862,15 +859,12 @@ export async function userRuntimeRewriteMainAction(
         return false;
       },
     );
-    // Published as a push to main is: Workers Builds sees main move in the repository by itself; a project CloudChef
-    // deploys is built here.
-    if (target.deploysWith === 'cloudchef') {
-      await args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(orgProjectId))
-        .enqueue({ orgProjectId, branch: MAIN_BRANCH, commit })
-        .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
-    }
+    // Published as a push to main is: built here.
+    await args.env.PROJECT_BUILDER.get(args.env.PROJECT_BUILDER.idFromName(orgProjectId))
+      .enqueue({ orgProjectId, branch: MAIN_BRANCH, commit })
+      .catch((error: Error) => console.warn({ event: 'push_deploy_not_started', message: error.message }));
     return Response.json(
-      { oldCommit: expected, newCommit: commit, rewritten: !fastForward, publishedBy: target.deploysWith, recorded },
+      { oldCommit: expected, newCommit: commit, rewritten: !fastForward, recorded },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (error) {

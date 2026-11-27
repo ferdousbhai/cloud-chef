@@ -150,8 +150,8 @@ async function world() {
   const cy = await person('cy@example.com', 'cy');
   database
     .prepare(
-      `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
-         created_at) VALUES (?, 'ada-own', 'Recipe Box', 'recipe-box', 't-recipes', 'chat', 'cloudchef', ?, 1)`,
+      `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by,
+         created_at) VALUES (?, 'ada-own', 'Recipe Box', 'recipe-box', 't-recipes', 'chat', ?, 1)`,
     )
     .run(RECIPES, ada.userId);
   const sharing = `/api/projects/${RECIPES}/sharing`;
@@ -309,8 +309,8 @@ describe('sharing a project', () => {
     const notes = '66666666-6666-4666-8666-666666666666';
     database
       .prepare(
-        `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
-           created_at) VALUES (?, 'ada-own', 'Notes', 'notes', 't-notes', 'chat', 'cloudchef', ?, 1)`,
+        `INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by,
+           created_at) VALUES (?, 'ada-own', 'Notes', 'notes', 't-notes', 'chat', ?, 1)`,
       )
       .run(notes, ada.userId);
     await share(ada, 'bo', 'edit');

@@ -144,19 +144,4 @@ describe('ImportFromGitHubDialog', () => {
       'acme/private-site (private)',
     );
   });
-
-  it('says how to stop a site going live from GitHub too, when its Worker is still built from the repository', async () => {
-    imported = { projectId: 'project-1', initialId: 'chat-1', workersBuildsFromGitHub: true };
-    const onOpenProject = vi.fn();
-    await render(null, onOpenProject);
-
-    await typeAddress('github.com/acme/storefront');
-    await submit();
-    await vi.waitFor(() => expect(document.body.textContent).toContain('disconnect the repository'));
-    expect(onOpenProject).not.toHaveBeenCalled();
-    expect(document.querySelector('a[href^="https://dash.cloudflare.com/"]')).not.toBeNull();
-
-    await act(async () => buttonWithText('Open project')?.click());
-    expect(onOpenProject).toHaveBeenCalledWith('chat-1');
-  });
 });

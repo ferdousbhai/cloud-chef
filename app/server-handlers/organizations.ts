@@ -64,12 +64,11 @@ export function listOrganizationsAction({ request, env }: { request: Request; en
         return {
           ...organization,
           github,
-          projects: projects.map(({ id, name, repo, createdFrom, deploysWith, importSource, access }) => ({
+          projects: projects.map(({ id, name, repo, createdFrom, importSource, access }) => ({
             id,
             name,
             repo,
             createdFrom,
-            deploysWith,
             importRepoFullName: importSource?.fullName ?? null,
             access,
           })),

@@ -26,10 +26,9 @@ export const CORE_CLOUDFLARE_OAUTH_SCOPES = [
   // provider keys, and the Secrets Store secrets they are kept in.
   'aig.write',
   'secrets-store.write',
-  // What Workers Builds reports for a project: which Worker builds its repository, each commit's build,
-  // and its Previews; removing the triggers that build a project when it is deleted (deleting its Worker
-  // isn't documented to remove them); and cancelling main's builds of older commits once a newer one is pushed,
-  // so the newest goes live. CloudChef changes a project's builds in no other way.
+  // Workers Builds, which CloudChef no longer uses: every project is published by CloudChef's own builder. The two
+  // stay listed because every existing grant holds them, and a scope a grant reports that isn't listed here is
+  // refused as unknown (`parseReportedOAuthScopes`). They go once grants are renewed without them.
   'workers-ci.read',
   'workers-ci.write',
   // Giving a project's site a domain of the account's own (Workers Custom Domains), which the agent asks for and an

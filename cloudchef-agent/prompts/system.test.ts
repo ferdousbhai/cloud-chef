@@ -22,7 +22,7 @@ describe('builder system prompt', () => {
       expect(prompt).toContain('commit and push a branch of your own');
       expect(prompt).toContain('Pushing main puts the change live');
       expect(prompt).toContain('only when the person wants the change live');
-      expect(prompt).toContain('by CloudChef, or by Workers Builds for a project connected to it');
+      expect(prompt).toContain("deployed to production in the person's account by CloudChef");
       expect(prompt).not.toContain('when your turn ends');
       expect(prompt).not.toContain('publish_preview');
       expect(prompt).not.toContain('GitHub');

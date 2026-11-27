@@ -30,8 +30,7 @@ function sendJob(env: PostingEnv, job: ShowcaseJob, delaySeconds?: number): Prom
  * live: a public project's post is made or updated (`recordPublication`), on the page of whoever pushed the commit
  * (else the project's author), a new screenshot taken, and the people who follow its author told of a new post. A private project's post, seen only by the people who may
  * view the project, has no picture: whether its site may run in the post is asked at once. Called with that function's
- * non-null answer, from both places it is recorded (CloudChef's builder reporting a deploy, and a Workers Builds
- * status read). Asking again about a commit the post already shows changes nothing. Never throws: the publish has
+ * non-null answer, where it is recorded (the builder reporting a deploy). Asking again about a commit the post already shows changes nothing. Never throws: the publish has
  * succeeded whatever happens to its post.
  */
 export async function projectPublished(

@@ -7,7 +7,7 @@ import { isCloudChefToolResult } from 'cloudchef-agent/tool-result';
  * The result's `summary` is written for the model; everything a person reads comes from `data` here.
  */
 
-/** How long a pipeline gets to report a finished build before the watch gives up. */
+/** How long a build gets to end before the watch gives up. */
 export const LINKED_BUILD_WATCH_MS = 15 * 60_000;
 /**
  * A publish still `pending` this long after its commit is no longer being followed: the watch gives up
@@ -23,7 +23,7 @@ const linkedBuildStateSchema = z.enum([
   /** Stopped before it finished, usually because a newer version was pushed after it. */
   'cancelled',
   'timed_out',
-  /** CloudChef could not follow the pipeline (its watch could not start or read the build's status). */
+  /** CloudChef could not follow the build (its watch could not start or read the build's status). */
   'unfollowed',
 ]);
 
@@ -46,7 +46,7 @@ export type LinkedPublishView = {
   title: string;
   /** A sentence for the person, never the model's instructions. */
   detail: string;
-  /** The spinner shows only while the pipeline is building and still followed. */
+  /** The spinner shows only while the build is going and still followed. */
   building: boolean;
   /** When a building view stops being followed (epoch ms), so it can be shown again then; null otherwise. */
   followDeadline: number | null;
@@ -54,11 +54,8 @@ export type LinkedPublishView = {
   detailsUrl: string | null;
 };
 
-/**
- * Where a build's result can still be found when CloudChef can't say it: the project's Cloudflare dashboard,
- * for a team's project and a person's own alike.
- */
-const RESULT_IN_DASHBOARD = "The result is in the Cloudflare dashboard of the project's account.";
+/** Where a build's result can still be found when the chat can't say it: the project's card. */
+const RESULT_ON_CARD = "The project's card on the projects page shows how it went.";
 
 const webUrlSchema = z.url({ protocol: /^https?$/ });
 
@@ -106,7 +103,7 @@ function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
       }
       return unknown(
         committed,
-        `Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. ${RESULT_IN_DASHBOARD}`,
+        `Your change is saved. CloudChef stopped checking on the build, so it can't say whether it worked. ${RESULT_ON_CARD}`,
         links,
       );
     case 'success':
@@ -137,9 +134,8 @@ function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
     case 'none':
       return unknown(
         committed,
-        'Your change is saved, but Cloudflare reported no build for it. Workers Builds, the Cloudflare service that ' +
-          'builds and publishes this project, may have skipped it, or may not be set up for this project yet. ' +
-          "Whoever runs the project's Cloudflare account can check in its dashboard.",
+        "Your change is saved, but it couldn't be built, so nothing changed on the site. CloudChef can say why in " +
+          'the chat.',
         links,
       );
     case 'cancelled':
@@ -149,7 +145,7 @@ function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
         detail: data.live
           ? 'Your change is saved. A newer version was published right after it, and that one includes your change, ' +
             'so only the newer one is put live.'
-          : 'Your change is saved. Its preview was stopped, usually because a newer version was pushed after it.',
+          : 'Your change is saved. A newer version was sent right after it, so the preview is of that one.',
         building: false,
         followDeadline: null,
         ...links,
@@ -157,14 +153,14 @@ function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
     case 'timed_out':
       return unknown(
         committed,
-        `Your change is saved. The build was still running after 15 minutes, so CloudChef stopped checking. ${RESULT_IN_DASHBOARD}`,
+        `Your change is saved. The build was still running after 15 minutes, so CloudChef stopped checking. ${RESULT_ON_CARD}`,
         links,
       );
     case 'unfollowed':
     default:
       return unknown(
         committed,
-        `Your change is saved, but CloudChef couldn't check on the build. ${RESULT_IN_DASHBOARD}`,
+        `Your change is saved, but CloudChef couldn't check on the build. ${RESULT_ON_CARD}`,
         links,
       );
   }

@@ -91,6 +91,29 @@ function fakeProduction() {
       if (sql.includes('FROM conversations')) {
         return d1Rows([{ conversation_index: 0, agent_name: INITIAL, created_at: AT - 3_600_000, updated_at: AT }]);
       }
+      if (sql.includes('FROM project_deployments')) {
+        const at = Date.parse('2026-10-20T13:40:15Z');
+        return d1Rows([
+          {
+            branch: 'cloudchef/sara-b86c65-k3y4chat0001',
+            commit_sha: 'da130d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            kind: 'preview',
+            state: 'succeeded',
+            failure_stage: null,
+            reason: null,
+            updated_at: at,
+          },
+          {
+            branch: 'main',
+            commit_sha: 'b0b0b0baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            kind: 'production',
+            state: 'failed',
+            failure_stage: 'build',
+            reason: 'The build failed.',
+            updated_at: at,
+          },
+        ]);
+      }
       if (sql.includes('FROM org_projects')) {
         return d1Rows([
           {
@@ -100,23 +123,9 @@ function fakeProduction() {
             artifact_repo: 't-project-1',
             import_repo_full_name: 'acme/site',
             import_branch: 'master',
-            workers_builds_script_tag: 'f'.repeat(32),
           },
         ]);
       }
-    }
-    if (args.slice(0, 2).join(' ') === 'builds list') {
-      const build = (branch: string, commit: string, outcome: string) => ({
-        status: 'stopped',
-        build_outcome: outcome,
-        created_on: '2026-10-20T13:40:15Z',
-        build_trigger_metadata: { branch, commit_hash: commit, commit_message: 'Bold the intro\n\nbody' },
-      });
-      return [
-        build('cloudchef/sara-b86c65-k3y4chat0001', 'da130d3aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success'),
-        build('cloudchef/someone-else-1a2b3c', 'eeeeeee', 'fail'),
-        build('main', 'b0b0b0baaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'success'),
-      ];
     }
     if (command === 'ai-gateway logs list') {
       return [
@@ -238,7 +247,7 @@ describe('ops:session reads production without changing it', () => {
 });
 
 describe('ops:session reconstruction', () => {
-  it("puts a member's chat together from D1, Workers Logs, AI Gateway, and Workers Builds", async () => {
+  it("puts a member's chat together from D1, Workers Logs, AI Gateway, and the project's publishes", async () => {
     const production = fakeProduction();
 
     const session = await collectSession(parseTarget('sara@example.com'), {
@@ -274,12 +283,9 @@ describe('ops:session reconstruction', () => {
     expect(body).toMatchObject({ dry: true, view: 'events' });
     expect(body.timeframe.from).toBeLessThan(Date.parse('2026-10-20T12:59:00.000Z'));
     expect(body.timeframe.to).toBeGreaterThan(AT);
-    // The project's Worker's builds, read in the runtime's account: every branch, newest first.
-    const builds = production.calls.find((call) => call.args.slice(0, 2).join(' ') === 'builds list');
-    expect(builds).toMatchObject({ accountId: ACCOUNT });
+    // The project's publishes and previews, from the control plane's record: every branch, newest first.
     expect(session.project?.builds?.map((build: { branch: string }) => build.branch)).toEqual([
       'cloudchef/sara-b86c65-k3y4chat0001',
-      'cloudchef/someone-else-1a2b3c',
       'main',
     ]);
 
@@ -291,7 +297,8 @@ describe('ops:session reconstruction', () => {
     expect(text).toContain('[assistant] Done now.');
     expect(text).toContain('WARN log [ConversationAgent] Recovering interrupted CloudChef chat turn');
     expect(text).toContain('Project Site (imported from GitHub): Artifacts repository t-project-1');
-    expect(text).toContain('da130d3 2026-10-20T13:40:15Z cloudchef/sara-b86c65-k3y4chat0001: success Bold the intro');
+    expect(text).toContain('da130d3 2026-10-20T13:40:15Z preview cloudchef/sara-b86c65-k3y4chat0001: succeeded');
+    expect(text).toContain('b0b0b0b 2026-10-20T13:40:15Z production main: failed The build failed.');
     expect(text).not.toContain('system prompt');
   });
 

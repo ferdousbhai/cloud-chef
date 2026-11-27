@@ -152,8 +152,8 @@ describe('public projects', () => {
         ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 'ada'), ('bo', 'Bo', 'bo@example.com', 1, 1, 1, 'bo');
       INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
         VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
-      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
-        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by,
+        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'ada', 1);
     `);
     const env = envWith({ DB: db });
     const bo = (await createCommandLineToken(db, 'bo', 'Laptop')).token;
@@ -234,9 +234,9 @@ describe('public projects', () => {
         ('team', 'di', 'member', 1), ('team', 'cy', 'admin', 2);
       INSERT INTO cloudflare_connections (id, org_id, account_id, status, created_at, updated_at)
         VALUES ('team-connection', 'team', 'account', 'active', 1, 1);
-      INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with,
+      INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from,
         created_by, created_at, visibility)
-        VALUES ('${SITE}', 'team-connection', 'team', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1, 'public');
+        VALUES ('${SITE}', 'team-connection', 'team', 'Site', 'site', 't-site', 'zip', 'ada', 1, 'public');
       INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
         runtime_version, status, last_error, created_at, updated_at, protocol_version) VALUES
         ('di', 'team-connection', 1, 'di-worker', 'https://di-runtime.test', 'old', 'ready', NULL, 1, 1, ${USER_WORKSPACE_RUNTIME_PROTOCOL_VERSION}),
@@ -311,9 +311,9 @@ describe('copying a public project', () => {
         ('ada', 'Ada', 'ada@example.com', 1, 1, 1, 'ada'), ('bo', 'Bo', 'bo@example.com', 1, 1, 1, 'bo');
       INSERT INTO cloudflare_connections (id, user_id, account_id, status, connection_generation, created_at, updated_at)
         VALUES ('ada-own', 'ada', 'account-ada', 'active', 1, 1, 1), ('bo-own', 'bo', 'account-bo', 'active', 1, 1, 1);
-      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by,
         created_at, visibility)
-        VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1, 'public');
+        VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'ada', 1, 'public');
     `);
     const runtime = database.prepare(
       `INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
@@ -392,8 +392,8 @@ describe('a project’s publishes for the command line', () => {
         VALUES ('ada', 'Ada', 'ada@example.com', 1, 1, 1);
       INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
         VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
-      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
-        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by,
+        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'ada', 1);
     `);
     const claim = async (branch: string, now: number) =>
       (
@@ -466,8 +466,8 @@ describe('running a publish again from the command line', () => {
         VALUES ('ada', 'Ada', 'ada@example.com', 1, 1, 1);
       INSERT INTO cloudflare_connections (id, user_id, account_id, status, created_at, updated_at)
         VALUES ('ada-own', 'ada', 'account', 'active', 1, 1);
-      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, deploys_with, created_by,
-        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'cloudchef', 'ada', 1);
+      INSERT INTO org_projects (id, connection_id, name, slug, artifact_repo, created_from, created_by,
+        created_at) VALUES ('${SITE}', 'ada-own', 'Site', 'site', 't-site', 'zip', 'ada', 1);
     `);
     const publish = async (branch: string, commit: string, state: 'succeeded' | 'failed', now: number) => {
       const { deployment } = await claimDeployment(db, {

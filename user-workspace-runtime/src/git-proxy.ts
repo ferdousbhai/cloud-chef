@@ -59,8 +59,7 @@ async function gitRefusal(
   env: GitProxyEnv,
   target: GitWorkspaceRepository,
   write: boolean,
-  onProject: (project: { role: 'view' | 'edit'; deploysWith?: 'workers_builds' | 'cloudchef' }) => void = () =>
-    undefined,
+  onProject: (project: { role: 'view' | 'edit' }) => void = () => undefined,
 ): Promise<string | null> {
   const identity = runtimeConnectionIdentity(env);
   if (!identity) {
@@ -96,21 +95,18 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
     const repositories = new ProjectRepositories(this.env.ARTIFACTS);
     const workspaceId = this.ctx.props.workspaceId;
     const env = this.env;
-    // A project CloudChef deploys itself builds each branch pushed to it: main to go live, another for a preview.
-    let deployed: { orgProjectId: string } | null = null;
-    // The project the workspace works on, once its access is checked.
-    let teamProject: string | null = null;
+    // The project the workspace works on, once its access is checked. Each branch pushed to it is built: main to go
+    // live, another for a preview.
+    let project: { orgProjectId: string } | null = null;
     // Until the role is known, nothing but saved branches is pushed.
     let viewOnly = true;
     return handleGitProxyRequest(request, {
       repository: () => workspace.gitRepository(),
       author: () => commitAuthor(env),
       refusal: (target, write) =>
-        gitRefusal(env, target, write, (project) => {
-          viewOnly = project.role !== 'edit';
-          teamProject = target.orgProjectId;
-          deployed =
-            project.deploysWith === 'cloudchef' && target.orgProjectId ? { orgProjectId: target.orgProjectId } : null;
+        gitRefusal(env, target, write, (opened) => {
+          viewOnly = opened.role !== 'edit';
+          project = target.orgProjectId ? { orgProjectId: target.orgProjectId } : null;
         }),
       savedOnly: () => viewOnly,
       access: (repo, scope) => repositories.gitAccess(repo, scope),
@@ -121,7 +117,8 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
       workspaceRefs: workspaceRefsPrefix(workspaceId),
       recordPush: async (update) => {
         await workspace.recordGitPush(update);
-        await recordAndPublishPush(env, this.ctx, teamProject, deployed, update);
+        await recordMainPush(env, project?.orgProjectId ?? null, update);
+        await publishPush(env, project, update);
       },
       recordBase: (base) => workspace.setGitBase(base),
       recordMainFetched: (commit) => workspace.setMainFetched(commit),
@@ -132,9 +129,9 @@ export class GitProxy extends WorkerEntrypoint<GitProxyEnv, { workspaceId: strin
 }
 
 /**
- * A push to a project's main (a team's or a person's own, whoever publishes it) is told to the control plane, which
+ * A push to a project's main is told to the control plane, which
  * keeps who pushed it, from and to which commit, and when (`listMainChanges`): nothing else of it reaches CloudChef,
- * as the push goes straight to the repository and Workers Builds reads main from there. It is told again once if the first telling fails; one that still can't be told is logged, and the push
+ * as the push goes straight to the repository. It is told again once if the first telling fails; one that still can't be told is logged, and the push
  * stands.
  */
 async function recordMainPush(env: GitProxyEnv, orgProjectId: string | null, update: RefUpdate): Promise<void> {
@@ -148,27 +145,7 @@ async function recordMainPush(env: GitProxyEnv, orgProjectId: string | null, upd
     .catch((error: Error) => console.warn({ event: 'main_push_not_recorded', orgProjectId, message: error.message }));
 }
 
-/**
- * A push that went in: told to the control plane, then built when CloudChef deploys the project. For a project
- * Workers Builds deploys, which builds the push by itself, the telling (which also cancels its builds of older
- * commits) goes on without the push waiting for it.
- */
-async function recordAndPublishPush(
-  env: GitProxyEnv,
-  ctx: Pick<ExecutionContext, 'waitUntil'>,
-  orgProjectId: string | null,
-  deployed: { orgProjectId: string } | null,
-  update: RefUpdate,
-): Promise<void> {
-  if (!deployed) {
-    ctx.waitUntil(recordMainPush(env, orgProjectId, update));
-    return;
-  }
-  await recordMainPush(env, orgProjectId, update);
-  await publishPush(env, deployed, update);
-}
-
-/** A branch pushed to a project CloudChef deploys itself is built: main to go live, another for a preview. */
+/** A branch pushed to a project is built: main to go live, another for a preview. */
 async function publishPush(
   env: GitProxyEnv,
   project: { orgProjectId: string } | null,
@@ -192,7 +169,7 @@ async function publishPush(
 }
 
 /**
- * git on the person's own computer, for a team or uploaded project, as `/v1/git/<project id>/…` (CloudChef checked
+ * git on the person's own computer, as `/v1/git/<project id>/…` (CloudChef checked
  * their command-line token and sent it on): the same checks as git in a workspace, and its pushes publish the
  * same way. It has no workspace, so no saved branches of one.
  */
@@ -221,7 +198,6 @@ export async function handleCommandLineGit(
   }
   const target = { repo: project.repo, orgProjectId, base: { branch: project.defaultBranch, commit: null } };
   const repositories = new ProjectRepositories(env.ARTIFACTS);
-  const deployed = project.deploysWith === 'cloudchef' ? { orgProjectId } : null;
   const url = new URL(request.url);
   const forwarded = new Request(`http://${GIT_PROXY_HOST}/project.git/${rest}${url.search}`, request);
   return handleGitProxyRequest(forwarded, {
@@ -242,7 +218,10 @@ export async function handleCommandLineGit(
     mainHead: (repo) => repositories.head(repo),
     // Nothing is saved for a computer: no ref is one of its own.
     workspaceRefs: workspaceRefsPrefix(`command-line-${identity.userId}`),
-    recordPush: (update) => recordAndPublishPush(env, ctx, orgProjectId, deployed, update),
+    recordPush: async (update) => {
+      await recordMainPush(env, orgProjectId, update);
+      await publishPush(env, { orgProjectId }, update);
+    },
     recordBase: async () => undefined,
     recordMainFetched: async () => undefined,
     fetch: (input, init) => fetch(input, init),
@@ -321,7 +300,6 @@ export async function handleSharedProjectRequest(
       repo: project.repo,
       orgProjectId: shared.projectId,
       mayEdit: shared.role === 'edit',
-      deploysWith: project.deploysWith,
       acceptedBy: shared.userId,
     });
   }
@@ -335,7 +313,7 @@ export async function handleSharedProjectRequest(
     if (kept && commit) {
       await publishPush(
         env,
-        project.deploysWith === 'cloudchef' ? { orgProjectId: shared.projectId } : null,
+        { orgProjectId: shared.projectId },
         { ref: `refs/heads/${branch}`, oldOid: '0'.repeat(40), newOid: commit },
         // Its code is whoever offered it's, not the person whose reading of the thread built the preview.
         'offered',
@@ -404,7 +382,6 @@ async function mergeSuggestedChange(
     repo: string;
     orgProjectId: string;
     mayEdit: boolean;
-    deploysWith?: 'workers_builds' | 'cloudchef';
     /** Who accepted the change: main is published as theirs. */
     acceptedBy: string;
   },
@@ -427,7 +404,7 @@ async function mergeSuggestedChange(
     answer = { status: 'merged', ...result.merged };
     await publishPush(
       env,
-      project.deploysWith === 'cloudchef' ? { orgProjectId: project.orgProjectId } : null,
+      { orgProjectId: project.orgProjectId },
       { ref: 'refs/heads/main', oldOid: result.merged.from, newOid: result.merged.to },
       { pushedBy: project.acceptedBy },
     );

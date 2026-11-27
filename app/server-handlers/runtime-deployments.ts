@@ -78,9 +78,6 @@ async function openDeployableProject<T extends { orgProjectId: string }>(
   if (opened.project.role !== 'edit') {
     return json({ error: 'You can view this project but not publish it.' }, 403);
   }
-  if (opened.project.deploysWith !== 'cloudchef' || opened.project.workersBuildsScriptTag !== null) {
-    return json({ error: 'Workers Builds publishes this project, not CloudChef.', code: 'workers_builds' }, 409);
-  }
   if (opened.project.repo === null) {
     return json({ error: 'This project has no code yet.' }, 409);
   }
@@ -239,7 +236,6 @@ export async function runtimeDeploymentReportAction(args: { request: Request; en
       siteUrl: body.url ?? null,
       siteFrameable: body.url ? await siteAllowsFraming(body.url, CANONICAL_ORIGIN) : null,
       publishedAt: Date.now(),
-      deployedBy: 'cloudchef',
     });
     // A public project's post is made or updated with it (app/lib/.server/showcase/jobs.ts), and its threads waiting
     // for a change this commit holds close (threads-went-live.ts).

@@ -3,8 +3,6 @@ import { z } from 'zod';
 import { ORG, ORIGIN, teamFixture, type Body } from '~/test/project-fixture';
 import { recordMainPush } from '~/lib/cloudflare/data/org-projects.server';
 import { pruneProjectVisits } from '~/lib/cloudflare/data/project-presence.server';
-import type { WorkersBuild } from '~/lib/.server/cloudflare/user-account-api';
-import type { WorkersBuildsAccountApi } from '~/lib/.server/cloudflare/workers-builds';
 import { projectPresenceAction } from './project-presence';
 import { listProjectMainChangesAction } from './projects';
 
@@ -19,14 +17,12 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** The team's project Storefront, which Workers Builds publishes as the Worker tagged `storefront-tag`. */
+/** The project Storefront. */
 async function world() {
   const team = await teamFixture();
   team.database.exec(`
-    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with,
-        workers_builds_script_tag, created_at)
-      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip',
-        'workers_builds', 'storefront-tag', 1);
+    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, created_at)
+      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip', 1);
   `);
   const report = async (cookie: string, body: Body) => {
     const response = await projectPresenceAction({
@@ -140,51 +136,32 @@ describe('who has a project open', () => {
 });
 
 describe("a project's record of what went live", () => {
-  it('says which of main’s commits is live, which were, and which are publishing or failed, from Workers Builds', async () => {
-    const { env, admin } = await world();
-    const build = (commit: string, createdOn: string, status: string, outcome: string | null): WorkersBuild => ({
-      id: `${commit[0]}-${createdOn}`,
-      status,
-      outcome,
-      branch: 'main',
-      commit,
-      createdOn,
-      repository: null,
-    });
-    const asked: string[] = [];
-    const api: WorkersBuildsAccountApi = {
-      listWorkersBuilds: async (tag) => {
-        asked.push(tag);
-        return [
-          build(MAIN, '2026-10-01T00:00:00Z', 'stopped', 'success'),
-          build(LAST, '2026-10-03T00:00:00Z', 'running', null),
-          build(NEXT, '2026-10-02T00:00:00Z', 'stopped', 'success'),
-          { ...build('d'.repeat(40), '2026-10-04T00:00:00Z', 'stopped', 'success'), branch: 'preview' },
-        ];
-      },
-      listWorkerScripts: async () => [],
-      latestWorkersBuilds: async () => new Map(),
-      listWorkersBuildTriggers: async () => [],
-      cancelWorkersBuild: async () => undefined,
-      listWorkerPreviews: async () => [],
-      workerAddresses: async () => ({ customDomains: [], workersDevUrl: null }),
-    };
+  it('says which of main’s commits is live, which were, and which are publishing, from its publishes', async () => {
+    const { env, admin, database } = await world();
+    const publish = (id: string, branch: string, commit: string, state: string, at: number) =>
+      database
+        .prepare(
+          `INSERT INTO project_deployments (id, project_id, kind, branch, commit_sha, state, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, SITE, branch === 'main' ? 'production' : 'preview', branch, commit, state, at, at);
+    publish('d1', 'main', MAIN, 'succeeded', 1);
+    publish('d2', 'main', NEXT, 'succeeded', 2);
+    publish('d3', 'main', LAST, 'building', 3);
+    publish('d4', 'idea', 'd'.repeat(40), 'succeeded', 4);
     const read = (query = '') =>
       listProjectMainChangesAction({
         request: new Request(`${ORIGIN}/api/projects/${SITE}/main-changes${query}`, {
           headers: { cookie: admin.cookie },
         }),
         env,
-        openAccount: async () => api,
       }).then((response) => response.json());
 
     expect(await read()).toEqual({
       changes: [],
       publishes: { [LAST]: 'publishing', [NEXT]: 'live', [MAIN]: 'published' },
     });
-    expect(asked).toEqual(['storefront-tag']);
-    // A later page doesn't ask again.
+    // A later page says nothing of publishes again.
     expect(await read('?before=5')).toEqual({ changes: [], publishes: {} });
-    expect(asked).toHaveLength(1);
   });
 });

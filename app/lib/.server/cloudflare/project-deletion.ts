@@ -1,15 +1,11 @@
 import type { Project } from '~/lib/cloudflare/data/org-projects.server';
 import { isCloudChefResourceName } from './deploy-api-policy';
 import type { AccountQueue, UserCloudflareAccountApi, WorkerBinding } from './user-account-api';
-import { findProjectWorker } from './workers-builds';
 
 /** What deleting a project uses of the account API. */
 export type ProjectDeletionApi = Pick<
   UserCloudflareAccountApi,
   | 'listWorkerScripts'
-  | 'latestWorkersBuilds'
-  | 'listWorkersBuildTriggers'
-  | 'deleteWorkersBuildTrigger'
   | 'workerBindings'
   | 'd1DatabaseName'
   | 'kvNamespaceTitle'
@@ -41,11 +37,6 @@ type ProjectDeletionPlan = {
   sites: string[];
   /** The Workers its site runs on; each goes with its versions, previews and Durable Objects. */
   workers: string[];
-  /**
-   * The Workers Builds triggers that build it from its repository, removed before its Worker: deleting a Worker isn't
-   * documented to remove them. Empty for a project CloudChef publishes itself.
-   */
-  buildTriggers: string[];
   resources: DeletionResource[];
   kept: (DeletionResource & { reason: string })[];
   /** Its Artifacts repository, or null when it never had one. */
@@ -58,25 +49,17 @@ const SETTINGS_READ_CONCURRENCY = 6;
 const R2_EMPTYING_PASSES = 5;
 
 /**
- * What deleting `project` removes. Its Workers: the ones CloudChef published it to (`workerNames`), or the one
- * Workers Builds builds it into, with the triggers that build it. Then every D1 database, KV namespace, R2 bucket,
+ * What deleting `project` removes. Its Workers: the ones CloudChef published it to (`workerNames`). Then every D1 database, KV namespace, R2 bucket,
  * queue, Vectorize index and Hyperdrive config those Workers bind that no other Worker in the account binds (or, for
  * a queue, sends to or reads from); one another Worker uses, or one of CloudChef's own, is kept. Other kinds of
  * resource a binding can name are kept too: CloudChef doesn't delete them.
  */
 export async function planProjectDeletion(
   api: ProjectDeletionApi,
-  project: Pick<
-    Project,
-    'repo' | 'importSource' | 'workersBuildsScriptTag' | 'deploysWith' | 'deployWorkerName' | 'siteUrl'
-  >,
+  project: Pick<Project, 'repo' | 'deployWorkerName' | 'siteUrl'>,
   workerNames: readonly string[],
 ): Promise<ProjectDeletionPlan> {
-  const built = project.deploysWith === 'cloudchef' ? null : await findProjectWorker(api, project);
-  const named =
-    project.deploysWith === 'cloudchef'
-      ? [...workerNames, ...(project.deployWorkerName ? [project.deployWorkerName] : [])]
-      : [built?.name].filter((name) => name !== undefined);
+  const named = [...workerNames, ...(project.deployWorkerName ? [project.deployWorkerName] : [])];
   const workers: string[] = [];
   const bound = new Map<string, WorkerBinding>();
   for (const name of new Set(named)) {
@@ -115,14 +98,9 @@ export async function planProjectDeletion(
       resources.push(resource);
     }
   }
-  const buildTriggers =
-    built && workers.includes(built.name)
-      ? (await api.listWorkersBuildTriggers(built.tag)).map((trigger) => trigger.id)
-      : [];
   return {
     sites: project.siteUrl ? [project.siteUrl] : [],
     workers,
-    buildTriggers,
     resources,
     kept,
     repository: project.repo,
@@ -130,7 +108,7 @@ export async function planProjectDeletion(
 }
 
 /**
- * Deletes what `plan` lists, in order: its builds triggers (so nothing builds it again), its Workers (so nothing
+ * Deletes what `plan` lists, in order: its Workers (so nothing
  * serves or writes any more), then their resources, then the repository, then every member's workspace of it. A step already done counts as done, so
  * deleting again after a failure picks up where it stopped. Answers what was deleted, and the step that failed with why, or null.
  */
@@ -141,18 +119,6 @@ export async function deleteProjectResources(
   removeWorkspaces: () => Promise<void>,
 ): Promise<{ deleted: string[]; failed: { step: string; reason: string } | null }> {
   const steps: { label: string; run: () => Promise<void> }[] = [
-    ...(plan.buildTriggers.length > 0
-      ? [
-          {
-            label: `Automatic builds of ${plan.workers.join(', ')}`,
-            run: async () => {
-              for (const trigger of plan.buildTriggers) {
-                await api.deleteWorkersBuildTrigger(trigger);
-              }
-            },
-          },
-        ]
-      : []),
     ...plan.workers.map((name) => ({ label: `Worker ${name}`, run: () => api.deleteManagedWorker(name) })),
     ...plan.resources.map((resource) => ({ label: resourceLabel(resource), run: () => deleteResource(api, resource) })),
     ...(plan.repository ? [{ label: 'Code and its history', run: () => deleteRepository(plan.repository ?? '') }] : []),

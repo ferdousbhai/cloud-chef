@@ -398,8 +398,8 @@ export type ConversationAgentState = {
 };
 
 /**
- * What the browser shows of a team project: its name (`repository`), its repository (`repo`), and the
- * branch Workers Builds deploys.
+ * What the browser shows of a project: its name (`repository`), its repository (`repo`), and the branch that is
+ * published.
  */
 export type BuilderLinkedProjectSummary = {
   repository: string;
@@ -1926,8 +1926,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       }
       // A push that lands after the head is read claims its own commit, and wins over this one.
       const headReadAt = Date.now();
-      const head =
-        project.deploysWith === 'cloudchef' && project.repo ? await this.repositories().head(project.repo) : null;
+      const head = project.repo ? await this.repositories().head(project.repo) : null;
       if (head) {
         await this.env.PROJECT_BUILDER.get(this.env.PROJECT_BUILDER.idFromName(linked.orgProjectId)).enqueue({
           orgProjectId: linked.orgProjectId,
@@ -2385,7 +2384,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   }
 
   /**
-   * Follows the pipeline's build of a publish's commit, then puts its result in place of that publish's
+   * Follows the build of a publish's commit, then puts its result in place of that publish's
    * output. The output is saved with its turn's message when the turn ends, so the result waits for that.
    */
   private async runLinkedBuildWatch(watch: LinkedBuildWatch, signal?: AbortSignal): Promise<void> {

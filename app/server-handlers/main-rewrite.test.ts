@@ -49,7 +49,7 @@ async function world() {
     'fetch',
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       forwarded.push({ url: String(input), body: JSON.parse(String(init?.body ?? 'null')) });
-      return Response.json({ oldCommit: MAIN, newCommit: SLIM, publishedBy: 'cloudchef', recorded: true });
+      return Response.json({ oldCommit: MAIN, newCommit: SLIM, recorded: true });
     }),
   );
   const tokens = {
@@ -79,7 +79,7 @@ describe('rewriting main from the command line', () => {
     const answer = await rewrite(tokens.admin);
 
     expect(answer.status).toBe(200);
-    expect(await answer.json()).toEqual({ oldCommit: MAIN, newCommit: SLIM, publishedBy: 'cloudchef', recorded: true });
+    expect(await answer.json()).toEqual({ oldCommit: MAIN, newCommit: SLIM, recorded: true });
     expect(forwarded).toEqual([
       {
         url: 'https://ada.runtime.test/v1/projects/rewrite-main',
@@ -257,17 +257,13 @@ describe('a runtime telling of a push to main', () => {
       siteUrl: 'https://site.ada.workers.dev',
       siteFrameable: true,
       publishedAt: 40_000,
-      deployedBy: 'cloudchef' as const,
     };
     expect(await recordProductionPublish(env.DB, publish)).toEqual({ ...publish, pushedBy: admin.userId });
     expect(await recordProductionPublish(env.DB, publish)).toBeNull();
     expect(database.prepare('SELECT site_url FROM org_projects WHERE id = ?').get(SITE)).toEqual({
       site_url: 'https://site.ada.workers.dev',
     });
-    // A commit never pushed through CloudChef: CloudChef's own deploy of it counts, Workers Builds' status doesn't.
-    expect(
-      await recordProductionPublish(env.DB, { ...publish, commit: MAIN, deployedBy: 'workers_builds' }),
-    ).toBeNull();
+    // A commit never pushed through CloudChef (a project's first upload or copy) is recorded once too.
     expect(await recordProductionPublish(env.DB, { ...publish, commit: 'c'.repeat(40) })).toMatchObject({
       pushedBy: null,
     });

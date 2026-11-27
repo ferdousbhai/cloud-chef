@@ -1,5 +1,5 @@
 /**
- * The builds and deploys CloudChef runs itself for a project it deploys (`org_projects.deploys_with = 'cloudchef'`),
+ * The builds and deploys CloudChef runs for a project,
  * one row per branch and commit. A runtime claims a commit, reports each step, and holds a lease while it works: a
  * commit is built once, a newer one of the default branch supersedes the older still waiting or running, and only one
  * deploy of a project runs at a time.

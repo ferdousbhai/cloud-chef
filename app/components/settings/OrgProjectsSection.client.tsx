@@ -22,8 +22,6 @@ export const orgProjectSchema = z.object({
   /** The project's Artifacts repository; null until the first person to open it has imported it. */
   repo: z.string().nullable(),
   createdFrom: z.enum(['github', 'zip', 'copy', 'push', 'chat']),
-  /** Who publishes it: Workers Builds, which an admin connects, or CloudChef itself. */
-  deploysWith: z.enum(['workers_builds', 'cloudchef']),
   /** The GitHub repository it was imported from, for an imported project. */
   importRepoFullName: z.string().nullable(),
   access: z.array(z.object({ userId: z.string(), role: projectRoleSchema })),

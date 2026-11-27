@@ -68,7 +68,7 @@ Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, sc
   credential, beside the granted scopes), shared by every space building in that account;
 - spaces (organizations), their members, and daily per-member model usage (`organization_usage_daily`);
 - projects (each a connection's, personal or a team's): their Artifacts repository or the GitHub repository they
-  are imported from, the Worker Workers Builds builds them into, members' roles, their publishes, and GitHub
+  are imported from, the Worker they are published as, members' roles, their publishes, and GitHub
   App installations;
 - per-person settings such as AI Gateway content logging;
 - user workspace runtime discovery and upgrade state.
@@ -245,7 +245,7 @@ pnpm run ops:session -- <chat id | user email | user id>   # one member's recent
 `scripts/ops-session.mjs` reads, with `cf` only, what an operator otherwise gathers by hand when someone
 reports a problem: control-plane D1, the workspace's own D1 (found with `cf d1 list` in the runtime's account), dry-run
 Workers Logs queries for the workspace Worker, AI Gateway logs filed under the chat, and, for a project, its Artifacts
-repository (or the GitHub repository it is still to be imported from) and its Worker's latest Workers Builds builds of
+repository (or the GitHub repository it is still to be imported from) and its latest publishes and previews, of
 `main` and the member's branches (which one is the chat's isn't recorded). It refuses any `cf` command outside a read-only allowlist, and a source it cannot
 read is reported as unknown with the reason. Conversation content exists only for people who kept AI Gateway logging on.
 

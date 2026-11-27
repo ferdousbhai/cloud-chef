@@ -18,7 +18,6 @@ const shop = {
   name: 'Shop',
   repo: 't-shop',
   createdFrom: 'chat',
-  deploysWith: 'cloudchef',
   importRepoFullName: null,
   access: emptyAccess,
 };

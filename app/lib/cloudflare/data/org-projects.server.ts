@@ -41,13 +41,10 @@ export type Project = {
   createdFrom: ProjectCreatedFrom;
   /** The GitHub repository it was (or is still to be) imported from; null unless made from GitHub. */
   importSource: { repoId: number | null; fullName: string; branch: string } | null;
-  workersBuildsScriptTag: string | null;
-  /** The live site's address, once its Worker has been found. */
+  /** The live site's address, once a publish has given it. */
   siteUrl: string | null;
   /** Whether the live site lets CloudChef show it in a frame; null until checked. */
   siteFrameable: boolean | null;
-  /** Who builds and deploys it: Workers Builds watching its repository, or CloudChef itself (an upload). */
-  deploysWith: 'workers_builds' | 'cloudchef';
   /** The Worker CloudChef deploys it as, once known. */
   deployWorkerName: string | null;
   /** `<author's username>/<slug>`, its address (cloudchef.build/<fullName>.git); null until its author has a username. */
@@ -185,10 +182,8 @@ type ProjectRow = {
   import_repo_full_name: string | null;
   import_branch: string | null;
   artifact_repo: string | null;
-  workers_builds_script_tag: string | null;
   site_url: string | null;
   site_frameable: number | null;
-  deploys_with: 'workers_builds' | 'cloudchef';
   deploy_worker_name: string | null;
   default_branch: string;
   created_from: ProjectCreatedFrom;
@@ -201,9 +196,9 @@ type ProjectRow = {
 };
 
 const PROJECT_COLUMNS = `projects.id, projects.connection_id, projects.org_id, projects.name, projects.import_repo_id,
-  projects.import_repo_full_name, projects.import_branch, projects.artifact_repo, projects.workers_builds_script_tag,
+  projects.import_repo_full_name, projects.import_branch, projects.artifact_repo,
   projects.site_url, projects.site_frameable, projects.default_branch, projects.created_from,
-  projects.deploys_with, projects.deploy_worker_name, projects.slug, projects.visibility, projects.copied_from,
+  projects.deploy_worker_name, projects.slug, projects.visibility, projects.copied_from,
   projects.created_by, projects.created_at,
   (SELECT username FROM "user" WHERE "user".id = projects.created_by) AS owner_username`;
 
@@ -564,8 +559,8 @@ export async function importProject(
   const inserted = await db
     .prepare(
       `INSERT INTO org_projects (id, connection_id, org_id, name, slug, import_repo_id, import_repo_full_name,
-         import_branch, created_from, deploys_with, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'github', 'cloudchef', ?, ?)
+         import_branch, created_from, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'github', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(
@@ -607,8 +602,8 @@ export async function addUploadedProject(
   const inserted = await db
     .prepare(
       `INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, copied_from,
-         deploys_with, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'cloudchef', ?, ?)
+         created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(
@@ -751,14 +746,11 @@ export type ProductionPublish = {
   siteUrl: string | null;
   siteFrameable: boolean | null;
   publishedAt: number;
-  /** What deployed it: CloudChef's builder, or Workers Builds. */
-  deployedBy: 'cloudchef' | 'workers_builds';
 };
 
 /**
- * The one place a project's successful production publish is recorded, whoever deployed it: CloudChef's own
- * builder (its report that a deploy of main succeeded) or Workers Builds (a status read that finds main's pushed
- * commit built). It keeps the live site's address, and marks the push of that commit as published, once. Answers
+ * The one place a project's successful production publish is recorded: the builder's report that a deploy of main
+ * succeeded. It keeps the live site's address, and marks the push of that commit as published, once. Answers
  * the publish when this is the first time that commit was recorded live (so work hooked here, such as a public
  * project's showcase post, runs once per published commit), and null when it was already recorded.
  */
@@ -786,9 +778,9 @@ export async function recordProductionPublish(
     .prepare('SELECT 1 FROM project_main_pushes WHERE project_id = ? AND new_commit = ?')
     .bind(publish.projectId, publish.commit)
     .first();
-  // A commit with no push recorded (a project's first upload or copy) is recorded once, as CloudChef's builder
-  // reports each deploy's success once; Workers Builds' status is read again and again, so only a pushed commit counts.
-  return known || publish.deployedBy === 'workers_builds' ? null : { ...publish, pushedBy: null };
+  // A commit with no push recorded (a project's first upload or copy) is recorded once, as the builder reports each
+  // deploy's success once.
+  return known ? null : { ...publish, pushedBy: null };
 }
 
 /**
@@ -845,8 +837,7 @@ export type MainChange = {
 };
 
 /**
- * The project's changes of main, newest first: who pushed or rewrote it, from and to which commit, and when, whoever
- * publishes it (Workers Builds reads main by itself, so for its projects this is the only record of who published).
+ * The project's changes of main, newest first: who pushed or rewrote it, from and to which commit, and when.
  * At most `limit`; with `before` (ms), only changes made before that time, for the next page.
  */
 export async function listMainChanges(
@@ -930,8 +921,8 @@ export async function abandonImport(
   return remaining === null;
 }
 
-/** Remembers which Worker Workers Builds builds a project into, once found. */
-export async function recordProjectSiteUrl(
+/** Remembers a project's live address, and whether it may be shown in a frame. */
+async function recordProjectSiteUrl(
   db: D1Database,
   projectId: string,
   site: { url: string; frameable: boolean | null },
@@ -940,10 +931,6 @@ export async function recordProjectSiteUrl(
     .prepare('UPDATE org_projects SET site_url = ?, site_frameable = ? WHERE id = ?')
     .bind(site.url, site.frameable === null ? null : site.frameable ? 1 : 0, projectId)
     .run();
-}
-
-export async function recordWorkersBuildsScriptTag(db: D1Database, projectId: string, tag: string): Promise<void> {
-  await db.prepare('UPDATE org_projects SET workers_builds_script_tag = ? WHERE id = ?').bind(tag, projectId).run();
 }
 
 function toProject(row: ProjectRow): Project {
@@ -959,10 +946,8 @@ function toProject(row: ProjectRow): Project {
       row.import_repo_full_name !== null && row.import_branch !== null
         ? { repoId: row.import_repo_id, fullName: row.import_repo_full_name, branch: row.import_branch }
         : null,
-    workersBuildsScriptTag: row.workers_builds_script_tag,
     siteUrl: row.site_url,
     siteFrameable: row.site_frameable === null ? null : row.site_frameable === 1,
-    deploysWith: row.deploys_with,
     deployWorkerName: row.deploy_worker_name,
     fullName: row.owner_username && row.slug ? `${row.owner_username}/${row.slug}` : null,
     visibility: row.visibility,

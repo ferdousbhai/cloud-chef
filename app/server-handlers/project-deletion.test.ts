@@ -57,23 +57,6 @@ function account(options: { failOn?: string } = {}) {
       { tag: 'b'.repeat(32), name: 'other-site' },
       { tag: 'c'.repeat(32), name: 'cloudchef-workspace-1' },
     ],
-    latestWorkersBuilds: async () => new Map(),
-    listWorkersBuildTriggers: async (tag) =>
-      tag === 'a'.repeat(32)
-        ? ['trigger-main', 'trigger-previews'].map((id) => ({
-            id,
-            name: null,
-            buildCommand: null,
-            deployCommand: null,
-            rootDirectory: null,
-            branchIncludes: [],
-            branchExcludes: [],
-            pathIncludes: [],
-            pathExcludes: [],
-            repository: null,
-          }))
-        : [],
-    deleteWorkersBuildTrigger: async (id) => record(`trigger ${id}`),
     workerBindings: async (name) => bindings.get(name) ?? null,
     d1DatabaseName: async (id) => (id === 'db-1' ? 'shop-data' : null),
     kvNamespaceTitle: async (id) => (id === 'kv-1' ? 'shop-cache' : null),
@@ -99,17 +82,13 @@ function account(options: { failOn?: string } = {}) {
   return { api, calls };
 }
 
-async function world(
-  options: { failOn?: string; builtBy?: 'workers_builds'; scopes?: string[]; throughRuntimes?: boolean } = {},
-) {
+async function world(options: { failOn?: string; scopes?: string[]; throughRuntimes?: boolean } = {}) {
   const team = await teamFixture();
   team.database.exec(`
     INSERT INTO org_projects (
-      id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with, workers_builds_script_tag,
-      created_at
+      id, connection_id, org_id, name, slug, artifact_repo, created_from, created_at
     )
-      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip',
-        '${options.builtBy ?? 'cloudchef'}', ${options.builtBy ? `'${'a'.repeat(32)}'` : 'NULL'}, 1);
+      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip', 1);
     INSERT INTO project_deployments (id, project_id, kind, branch, commit_sha, state, worker_name, created_at, updated_at)
       VALUES ('d1', '${SITE}', 'production', 'main', '${'a'.repeat(40)}', 'succeeded', 'storefront', 1, 1),
              ('d2', '${SITE}', 'preview', 'idea', '${'b'.repeat(40)}', 'succeeded', 'storefront', 2, 2);
@@ -147,7 +126,6 @@ async function world(
 
 const planSchema = z.object({
   workers: z.array(z.string()),
-  buildTriggers: z.array(z.string()),
   resources: z.array(z.object({ kind: z.string(), name: z.string() })),
   kept: z.array(z.object({ kind: z.string(), id: z.string(), name: z.string(), reason: z.string() })),
   repository: z.string().nullable(),
@@ -221,28 +199,10 @@ describe('deleting a project', () => {
     expect(exists()).toBe(true);
   });
 
-  it('removes the triggers Workers Builds builds it with before its Worker', async () => {
-    const { admin, preview, remove, calls, exists } = await world({ builtBy: 'workers_builds' });
-
-    const plan = planSchema.parse(await (await preview(admin.cookie)).json());
-    expect(plan.workers).toEqual(['storefront']);
-    expect(plan.buildTriggers).toEqual(['trigger-main', 'trigger-previews']);
-
-    const answer = await remove(admin.cookie, 'Storefront');
-
-    expect(answer.status).toBe(200);
-    expect(calls.slice(0, 3)).toEqual(['trigger trigger-main', 'trigger trigger-previews', 'worker storefront']);
-    expect(z.object({ deleted: z.array(z.string()) }).parse(await answer.json()).deleted[0]).toBe(
-      'Automatic builds of storefront',
-    );
-    expect(exists()).toBe(false);
-  });
-
   it.each(['workers-ci.write', 'queues.write', 'vectorize.write', 'query-cache.write'])(
     'asks a connection authorized before CloudChef asked for %s to reauthorize, and reads or deletes nothing',
     async (scope) => {
       const { admin, preview, remove, calls, exists } = await world({
-        builtBy: 'workers_builds',
         scopes: CORE_CLOUDFLARE_OAUTH_SCOPES.filter((granted) => granted !== scope),
       });
       const code = z.object({ code: z.string() });
