@@ -3,7 +3,7 @@
 Kept current and committed; only the plan ahead. The repository is public: no names of people, their projects or
 spaces, no billing figures, and no unfixed security weaknesses here.
 
-Production: `13c28d60` (2026-11-27), confirmed at `/api/version`.
+Production: see `git log`; confirm at `/api/version` after each push.
 
 Goal: making your own software and sharing it is easy. Several people build one project together as easily as they edit
 a shared document, and each person has a public page of what they made. Each person keeps their own workspace; the
@@ -56,25 +56,24 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
    provider's keys are tried named-first then `default`, then Workers AI, remembered per chat for an hour
    (`ef8d9cce`). Not tried: a real refusal of a named key.
 
-4. **Every project publishes with CloudChef** (owner, 2026-11-27). Imports are made with
-   `deploys_with = 'workers_builds'` and CloudChef never connects their Worker, so an import publishes only once
-   someone follows the dashboard steps in the Imported dialog. The two Workers Builds projects in production were
-   switched that way and build from their Artifacts repositories, not GitHub. Plan, in order:
-   1. The builder learns `cf` projects (`cloudflare.config.ts`, no Wrangler config): build with the project's
-      `build` script (`cf build`, output in `.cloudflare/output/v1/`, which the builder must keep), deploy with
-      `cf deploy --prebuilt --mode production` through the deploy proxy (check every API call it makes against
-      `deployApiDecision`), and apply D1 migrations the way the project's `db:migrate` does. Both production projects
-      are `cf` projects; one also has a Wrangler config kept alongside.
-   2. Their live Workers already carry their custom domains, which the config also names: decide how a deploy that
-      keeps the same domains passes the "no domain or route changes" rule.
-   3. Their Workers Builds runs lint, typecheck and tests before building (`workers-builds:build`); CloudChef's
-      builder runs only `build`. Owner to decide whether that check moves into `build`, or goes.
-   4. New imports: `deploys_with = 'cloudchef'`, and an import whose config names a Worker already in the account
-      adopts it (recorded as `deploy_worker_name`) instead of deploying to a new suffixed name, so the site stays put.
-   5. Switch the two projects (record each live Worker's name first), try a publish and a preview of each, then
-      delete their Workers Builds triggers.
-   6. Remove Workers Builds from CloudChef: `deploys_with`, the linked-build watch, `workers-builds.ts`, the switch
-      action and the Imported dialog's steps, the supersede guard, and Workers Builds' branch of offered previews.
+4. **Every project publishes with CloudChef** (owner, 2026-11-27). Done: the builder publishes `cf` projects
+   (`cf-project-build.ts`: the build's settings converted by Cloudflare's `@cloudflare/config`, deployed by
+   CloudChef's Wrangler); the two projects Workers Builds published were moved over (each onto its existing Worker,
+   a preview first, then production, both checked live); a new GitHub import is made with
+   `deploys_with = 'cloudchef'`. No project has `deploys_with = 'workers_builds'` any more. Left:
+   - the moved projects' Workers Builds triggers are still in the account (two per Worker; a copy of their settings
+     is kept on the owner's machine, in the clone folder). Their build command no longer exists in the projects, so
+     each push of main leaves one failed Workers Builds build and nothing else. Delete them: the owner's to do or
+     approve (`cf builds triggers delete <id>`), since the permission system refused it as destructive;
+   - remove what only Workers Builds projects used, now dead code: the `workers_builds` side of `deploys_with` (the
+     column goes in a second release), `workers_builds_script_tag`, the linked-build watch
+     (`linked-project-build.ts`), `workers-builds.ts` with the supersede guard, the Workers Builds branch of offered
+     previews and of History's publish states, `buildsFromGitHub`, and the `workers-ci` scopes if nothing else needs
+     them;
+   - not tried: a GitHub import from start to finish on CloudChef's builder. It publishes to a Worker named by its
+     config, or to a suffixed name when that Worker exists, with the card's "use that Worker" to take it over;
+   - a `cf` project whose build output is newer than `v0`, or that builds several Workers or a container, is refused
+     with a reason; previews of a project with `previewUrls: false` upload a version but have no address.
 
 5. **Image check for showcase pictures**, deferred by the owner as issue #154; needed before sign-up is promoted, and
    reports cover it for now. Goes in `classifyMedia`: CloudChef's own Workers AI, a per-person daily cap.
@@ -94,9 +93,8 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
 - `cf` read and change through the proxy with the real CLI; WebMCP in a real browser.
 - "Someone you follow posted" (`announcePost`, from `projectPublished`): watch the first real public post by someone
   with followers; a new account's first-day post is announced only by a later publish.
-- Two publishes of a Workers Builds project close together: the older build is cancelled and its chat card says
-  "Replaced by a newer version" (`cancelSupersededMainBuilds`); and a commit whose save failed, saved before the
-  idle stop (`workspace_git_save_failed` in the account's own Workers Logs when it can't be).
+- A commit whose save failed, saved before the idle stop (`workspace_git_save_failed` in the account's own Workers
+  Logs when it can't be).
 - CloudChef's long thread replies: the next `@cloudchef` answer over 1,000 characters should show whole.
 
 ## Known gaps

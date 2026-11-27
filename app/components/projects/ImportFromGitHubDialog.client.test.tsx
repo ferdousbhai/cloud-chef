@@ -30,12 +30,6 @@ async function server(input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (url === '/api/organizations/github/reuse') {
     return Response.json({ authorizeUrl: '#github-authorize' }, { status: 201 });
   }
-  if (url === '/api/projects/project-1/workers-builds/switch') {
-    return Response.json({
-      instruction: 'Connect the repository in the dashboard.',
-      url: 'https://dash.cloudflare.com/',
-    });
-  }
   if (url === '/api/cloudflare/runtime-session') {
     return Response.json({ endpoint: RUNTIME, token: 'runtime-token', expiresAt: Date.now() + 3_600_000 });
   }
@@ -151,20 +145,16 @@ describe('ImportFromGitHubDialog', () => {
     );
   });
 
-  it('switches Workers Builds to the project repository when it built from GitHub', async () => {
+  it('says how to stop a site going live from GitHub too, when its Worker is still built from the repository', async () => {
     imported = { projectId: 'project-1', initialId: 'chat-1', workersBuildsFromGitHub: true };
     const onOpenProject = vi.fn();
     await render(null, onOpenProject);
 
     await typeAddress('github.com/acme/storefront');
     await submit();
-    await vi.waitFor(() => expect(buttonWithText('Go live from CloudChef')).toBeDefined());
+    await vi.waitFor(() => expect(document.body.textContent).toContain('disconnect the repository'));
     expect(onOpenProject).not.toHaveBeenCalled();
-
-    await act(async () => buttonWithText('Go live from CloudChef')?.click());
-
-    await vi.waitFor(() => expect(document.body.textContent).toContain('Connect the repository in the dashboard.'));
-    expect(document.querySelector('a[href="https://dash.cloudflare.com/"]')).not.toBeNull();
+    expect(document.querySelector('a[href^="https://dash.cloudflare.com/"]')).not.toBeNull();
 
     await act(async () => buttonWithText('Open project')?.click());
     expect(onOpenProject).toHaveBeenCalledWith('chat-1');

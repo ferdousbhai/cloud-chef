@@ -2,17 +2,11 @@ import { GITHUB_UNREACHABLE, IMPORT_DIALOG_ACCESS_FIX } from '~/lib/github-retur
 import type { GitHubApp } from '~/lib/.server/github/github-app';
 import { gitHubRepositoryFromUrl, publicRepositoryDefaultBranch } from '~/lib/.server/github/public-repository';
 import { findActiveCloudflareConnection } from '~/lib/.server/cloudflare/cloudflare-connection-repository';
-import { CloudflareAccountApiError } from '~/lib/.server/cloudflare/user-account-api';
 import {
-  ARTIFACTS_NAMESPACE,
-  findProjectWorker,
   foldPublishes,
   mainBuilds,
   openWorkersBuildsAccountApi,
-  PRODUCTION_BRANCH,
-  projectWorkersBuildsConnection,
   recordProjectWorker,
-  WORKERS_BUILDS_CONNECT_URL,
   type OpenWorkersBuildsAccountApi,
   type PublishOutcome,
   type PublishState,
@@ -23,13 +17,10 @@ import {
   latestMainChanges,
   listAccessibleProjects,
   listMainChanges,
-  recordWorkersBuildsScriptTag,
-  requireManagedProject,
   type Project,
   type ProjectScope,
 } from '~/lib/cloudflare/data/org-projects.server';
 import { listProjectPeople } from '~/lib/cloudflare/data/project-shares.server';
-import { OrganizationError } from '~/lib/cloudflare/data/organizations.server';
 import { installedRepositories } from './github-projects';
 import { signedIn } from './signed-in';
 import { latestDeployments } from '~/lib/cloudflare/data/project-deployments.server';
@@ -226,8 +217,6 @@ export async function registerGitHubImport(
   return { projectId };
 }
 
-/** The route of a request about one project's Workers Builds. */
-export const PROJECT_WORKERS_BUILDS_SWITCH_ROUTE = '/api/projects/:projectId/workers-builds/switch';
 const PROJECT_PATH = /^\/api\/projects\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/.+)$/;
 
 /** The route pattern of a path naming one project (`/api/projects/<id>/…`), or null for any other path. */
@@ -239,61 +228,6 @@ export function projectRoute(pathname: string): string | null {
 /** The project a path naming one (`/api/projects/<id>/…`) names, or null for any other path. */
 export function projectIdOfPath(pathname: string): string | null {
   return PROJECT_PATH.exec(pathname)?.[1] ?? null;
-}
-
-/**
- * Moves the project's Worker's builds to its Artifacts repository, for the person who runs the project (its
- * owner, or one of its team's admins). Workers Builds' API names no Artifacts provider for a repository
- * connection and can't change a trigger's repository, so CloudChef can't make the move itself: it answers
- * `{ switched: true }` once the Worker builds from Artifacts, and otherwise what to do in Cloudflare's
- * dashboard (`instruction`, at `url`), naming the Worker and repository it found.
- */
-export function switchProjectWorkersBuildsAction({
-  request,
-  env,
-  openAccount = openWorkersBuildsAccountApi,
-}: {
-  request: Request;
-  env: Env;
-  openAccount?: OpenWorkersBuildsAccountApi;
-}): Promise<Response> {
-  return signedIn(request, env, async ({ session }) => {
-    const projectId = projectIdOfPath(new URL(request.url).pathname) ?? '';
-    const project = await requireManagedProject(env.DB, session.user.id, projectId);
-    if (!project.repo) {
-      return Response.json(
-        {
-          instruction:
-            'Open the project once first: that brings its code into Artifacts. Then connect its Worker to the repository.',
-        },
-        { headers: { 'Cache-Control': 'private, no-store' } },
-      );
-    }
-    const connection = await findActiveCloudflareConnection(env.DB, project.connectionId);
-    if (!connection) {
-      throw new OrganizationError('Connect the Cloudflare account first.', 409);
-    }
-    try {
-      const api = await openAccount(env, connection);
-      const worker = await findProjectWorker(api, project);
-      if (worker && worker.tag !== project.workersBuildsScriptTag) {
-        await recordWorkersBuildsScriptTag(env.DB, project.id, worker.tag);
-      }
-      const builds = await projectWorkersBuildsConnection(api, project, worker);
-      if (builds.source === 'artifacts') {
-        return Response.json({ switched: true }, { headers: { 'Cache-Control': 'private, no-store' } });
-      }
-      return Response.json(
-        { instruction: switchInstruction(builds.worker?.name ?? null, project.repo), url: WORKERS_BUILDS_CONNECT_URL },
-        { headers: { 'Cache-Control': 'private, no-store' } },
-      );
-    } catch (error) {
-      if (error instanceof CloudflareAccountApiError) {
-        return Response.json({ error: `Workers Builds could not be read: ${error.message}` }, { status: 502 });
-      }
-      throw error;
-    }
-  });
 }
 
 /** The route of a project's record of who changed its main. */
@@ -387,14 +321,4 @@ function deploymentOutcome(state: string): PublishOutcome {
       // Superseded by a newer commit before it went live, or nothing to publish.
       return 'none';
   }
-}
-
-/** How to move a Worker's builds to the project's Artifacts repository in Cloudflare's dashboard. */
-function switchInstruction(workerName: string | null, repo: string): string {
-  const worker = workerName ? `the Worker ${workerName}` : "the project's Worker";
-  return (
-    `In Workers & Pages, open ${worker}, then Settings, then Builds. Disconnect the GitHub repository (the site ` +
-    `keeps serving), then connect the Artifacts namespace ${ARTIFACTS_NAMESPACE} and the repository ${repo}. Keep ` +
-    `the build and deploy commands; production deploys from ${PRODUCTION_BRANCH}. Turn on builds for Preview branches.`
-  );
 }

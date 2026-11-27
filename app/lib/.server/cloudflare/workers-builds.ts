@@ -40,13 +40,7 @@ export type OpenWorkersBuildsAccountApi = (
 export const openWorkersBuildsAccountApi: OpenWorkersBuildsAccountApi = openConnectionAccountApi;
 
 /** Artifacts' only production branch, which Workers Builds deploys to production. */
-export const PRODUCTION_BRANCH = 'main';
-
-/** The Artifacts namespace every CloudChef project's repository is in. */
-export const ARTIFACTS_NAMESPACE = 'cloudchef';
-
-/** Where an admin connects a Worker to an Artifacts repository. */
-export const WORKERS_BUILDS_CONNECT_URL = 'https://dash.cloudflare.com/?to=/:account/workers-and-pages';
+const PRODUCTION_BRANCH = 'main';
 
 type ProjectWorker = WorkerScriptSummary;
 
@@ -325,47 +319,6 @@ function originOf(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-/** Whether a Worker's builds come from the project's Artifacts repository, still from GitHub, or nothing. */
-type WorkersBuildsConnection = {
-  source: 'artifacts' | 'github' | 'none';
-  worker: ProjectWorker | null;
-  triggers: {
-    name: string | null;
-    branchIncludes: string[];
-    branchExcludes: string[];
-    buildCommand: string | null;
-    deployCommand: string | null;
-    rootDirectory: string | null;
-    source: 'artifacts' | 'github' | null;
-  }[];
-};
-
-/** How the project's Worker is built now, from its triggers. */
-export async function projectWorkersBuildsConnection(
-  api: WorkersBuildsAccountApi,
-  project: Pick<Project, 'repo' | 'importSource' | 'workersBuildsScriptTag'>,
-  worker: ProjectWorker | null,
-): Promise<WorkersBuildsConnection> {
-  if (!worker) {
-    return { source: 'none', worker: null, triggers: [] };
-  }
-  const triggers = (await api.listWorkersBuildTriggers(worker.tag)).map((trigger: WorkersBuildTrigger) => ({
-    name: trigger.name,
-    branchIncludes: trigger.branchIncludes,
-    branchExcludes: trigger.branchExcludes,
-    buildCommand: trigger.buildCommand,
-    deployCommand: trigger.deployCommand,
-    rootDirectory: trigger.rootDirectory,
-    source: projectRepositoryKind(trigger.repository, project),
-  }));
-  const source = triggers.some((trigger) => trigger.source === 'artifacts')
-    ? 'artifacts'
-    : triggers.some((trigger) => trigger.source === 'github')
-      ? 'github'
-      : 'none';
-  return { source, worker, triggers };
 }
 
 /**

@@ -564,8 +564,8 @@ export async function importProject(
   const inserted = await db
     .prepare(
       `INSERT INTO org_projects (id, connection_id, org_id, name, slug, import_repo_id, import_repo_full_name,
-         import_branch, created_from, created_by, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'github', ?, ?)
+         import_branch, created_from, deploys_with, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'github', 'cloudchef', ?, ?)
        ON CONFLICT DO NOTHING`,
     )
     .bind(

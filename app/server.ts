@@ -97,9 +97,7 @@ import {
   listMyProjectsAction,
   listProjectMainChangesAction,
   PROJECT_MAIN_CHANGES_ROUTE,
-  PROJECT_WORKERS_BUILDS_SWITCH_ROUTE,
   projectRoute,
-  switchProjectWorkersBuildsAction,
 } from './server-handlers/projects';
 import { deleteAccountAction } from './server-handlers/account-deletion';
 import { exportAccountAction } from './server-handlers/account-export';
@@ -219,7 +217,6 @@ const exactRoutes = new Map<string, readonly ['GET' | 'POST', RouteHandler]>(
     '/api/organizations/github/reuse': ['POST', startGitHubAccountReuseAction],
     '/api/organizations/github/disconnect': ['POST', disconnectGitHubAction],
     '/api/organizations/github/repositories': ['GET', listGitHubRepositoriesAction],
-    [PROJECT_WORKERS_BUILDS_SWITCH_ROUTE]: ['POST', switchProjectWorkersBuildsAction],
     [PROJECT_MAIN_CHANGES_ROUTE]: ['GET', listProjectMainChangesAction],
     [PROJECT_PRESENCE_ROUTE]: ['POST', projectPresenceAction],
     [PROJECT_SHARING_ROUTE]: ['GET', projectSharingAction],

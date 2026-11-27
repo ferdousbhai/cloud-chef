@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { z } from 'zod';
 import { Button } from '@ui/Button';
 import { Modal } from '@ui/Modal';
 import { Spinner } from '@ui/Spinner';
@@ -15,14 +14,7 @@ import {
   type GitHubAccountToReuse,
   type GitHubRepository,
 } from '~/lib/github-app.client';
-import { messageOf, postJson, RequestError } from '~/lib/json-request';
-
-/** What switching a project's Workers Builds to its Artifacts repository answered. */
-const switchedSchema = z.union([
-  z.object({ switched: z.literal(true) }),
-  // Cloudflare's API can't always make the change; the dashboard can, and the answer says how.
-  z.object({ instruction: z.string(), url: z.url({ protocol: /^https$/ }).optional() }),
-]);
+import { messageOf, RequestError } from '~/lib/json-request';
 
 type Step =
   | { kind: 'form' }
@@ -145,7 +137,6 @@ export function ImportFromGitHubDialog({
     return (
       <ImportedProject
         repository={step.repository}
-        result={step.result}
         onOpen={() => onOpenProject(step.result.initialId)}
         onClose={onClose}
       />
@@ -281,77 +272,35 @@ export function ImportFromGitHubDialog({
   );
 }
 
-/** After an import whose repository Workers Builds deploys from GitHub: offer to build it from Artifacts. */
+/**
+ * After an import whose repository a Worker in the account is still built from by Workers Builds: CloudChef publishes
+ * the project itself, and only the person can disconnect that repository from the Worker.
+ */
 function ImportedProject({
   repository,
-  result,
   onOpen,
   onClose,
 }: {
   repository: string;
-  result: ProjectImportResult;
   onOpen: () => void;
   onClose: () => void;
 }) {
-  const [switching, setSwitching] = useState(false);
-  const [answer, setAnswer] = useState<z.infer<typeof switchedSchema> | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const switchBuilds = async () => {
-    setSwitching(true);
-    setError(null);
-    try {
-      setAnswer(
-        await postJson(
-          `/api/projects/${encodeURIComponent(result.projectId)}/workers-builds/switch`,
-          {},
-          switchedSchema,
-        ),
-      );
-    } catch (cause) {
-      setError(messageOf(cause, "The site couldn't be switched to go live from CloudChef. Try again."));
-    } finally {
-      setSwitching(false);
-    }
-  };
-
   return (
     <Modal onClose={onClose} title="Imported">
       <div className="grid gap-3 text-sm text-content-secondary">
         <p>{repository} is now a CloudChef project, with its history.</p>
-        {answer === null ? (
-          <>
-            <p>
-              This site still goes live from GitHub. Switch it to go live from CloudChef, so the changes you publish
-              here reach it.
-            </p>
-            <Button
-              className="justify-self-start"
-              size="sm"
-              variant="neutral"
-              loading={switching}
-              onClick={() => void switchBuilds()}
-            >
-              Go live from CloudChef
-            </Button>
-          </>
-        ) : 'switched' in answer ? (
-          <p role="status">This site now goes live from CloudChef.</p>
-        ) : (
-          <p role="status" className="wrap-anywhere">
-            {answer.instruction}{' '}
-            {answer.url ? (
-              <a className="underline" href={answer.url} target="_blank" rel="noopener noreferrer">
-                Open the Cloudflare dashboard
-              </a>
-            ) : null}
-          </p>
-        )}
-        {error !== null ? (
-          <p role="alert" className="text-bolt-elements-icon-error wrap-anywhere">
-            {error}
-          </p>
-        ) : null}
+        <p>
+          Its site still goes live from GitHub too. To publish it only from CloudChef, open its Worker in the Cloudflare
+          dashboard, then Settings, then Builds, and disconnect the repository.{' '}
+          <a
+            className="underline"
+            href="https://dash.cloudflare.com/?to=/:account/workers-and-pages"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open the Cloudflare dashboard
+          </a>
+        </p>
         <div className="flex justify-end">
           <Button onClick={onOpen}>Open project</Button>
         </div>
