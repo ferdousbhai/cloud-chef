@@ -59,12 +59,8 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
 4. **Every project publishes with CloudChef** (owner, 2026-11-27). Done: the builder publishes `cf` projects
    (`cf-project-build.ts`: the build's settings converted by Cloudflare's `@cloudflare/config`, deployed by
    CloudChef's Wrangler); the two projects Workers Builds published were moved over (each onto its existing Worker,
-   a preview first, then production, both checked live); a new GitHub import is made with
+   a preview first, then production, both checked live), and their Workers Builds triggers deleted; a new GitHub import is made with
    `deploys_with = 'cloudchef'`. No project has `deploys_with = 'workers_builds'` any more. Left:
-   - the moved projects' Workers Builds triggers are still in the account (two per Worker; a copy of their settings
-     is kept on the owner's machine, in the clone folder). Their build command no longer exists in the projects, so
-     each push of main leaves one failed Workers Builds build and nothing else. Delete them: the owner's to do or
-     approve (`cf builds triggers delete <id>`), since the permission system refused it as destructive;
    - remove what only Workers Builds projects used, now dead code: the `workers_builds` side of `deploys_with` (the
      column goes in a second release), `workers_builds_script_tag`, the linked-build watch
      (`linked-project-build.ts`), `workers-builds.ts` with the supersede guard, the Workers Builds branch of offered
