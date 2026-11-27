@@ -56,13 +56,25 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
    provider's keys are tried named-first then `default`, then Workers AI, remembered per chat for an hour
    (`ef8d9cce`). Not tried: a real refusal of a named key.
 
-4. **How a GitHub import publishes** (owner's decision, open since 2026-11-27). An import is made with
-   `deploys_with = 'workers_builds'` and nothing changes it; CloudChef can't move a Worker's trigger to Artifacts
-   itself, so until someone follows the dashboard steps in the Imported dialog, the Worker keeps building from GitHub
-   (or nothing builds it), and pushes of main made in CloudChef never go live. The owner says building from GitHub is
-   not the intended workflow. Either imports publish with CloudChef's own builder, as uploads and pushes do, or the
-   project shows plainly that it isn't publishing until switched. The dialog also says "still goes live from GitHub"
-   when no Worker exists.
+4. **Every project publishes with CloudChef** (owner, 2026-11-27). Imports are made with
+   `deploys_with = 'workers_builds'` and CloudChef never connects their Worker, so an import publishes only once
+   someone follows the dashboard steps in the Imported dialog. The two Workers Builds projects in production were
+   switched that way and build from their Artifacts repositories, not GitHub. Plan, in order:
+   1. The builder learns `cf` projects (`cloudflare.config.ts`, no Wrangler config): build with the project's
+      `build` script (`cf build`, output in `.cloudflare/output/v1/`, which the builder must keep), deploy with
+      `cf deploy --prebuilt --mode production` through the deploy proxy (check every API call it makes against
+      `deployApiDecision`), and apply D1 migrations the way the project's `db:migrate` does. Both production projects
+      are `cf` projects; one also has a Wrangler config kept alongside.
+   2. Their live Workers already carry their custom domains, which the config also names: decide how a deploy that
+      keeps the same domains passes the "no domain or route changes" rule.
+   3. Their Workers Builds runs lint, typecheck and tests before building (`workers-builds:build`); CloudChef's
+      builder runs only `build`. Owner to decide whether that check moves into `build`, or goes.
+   4. New imports: `deploys_with = 'cloudchef'`, and an import whose config names a Worker already in the account
+      adopts it (recorded as `deploy_worker_name`) instead of deploying to a new suffixed name, so the site stays put.
+   5. Switch the two projects (record each live Worker's name first), try a publish and a preview of each, then
+      delete their Workers Builds triggers.
+   6. Remove Workers Builds from CloudChef: `deploys_with`, the linked-build watch, `workers-builds.ts`, the switch
+      action and the Imported dialog's steps, the supersede guard, and Workers Builds' branch of offered previews.
 
 5. **Image check for showcase pictures**, deferred by the owner as issue #154; needed before sign-up is promoted, and
    reports cover it for now. Goes in `classifyMedia`: CloudChef's own Workers AI, a per-person daily cap.
