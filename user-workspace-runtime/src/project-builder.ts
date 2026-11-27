@@ -55,6 +55,7 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
+import { cfConvertCommand, cfProjectDeploy } from './cf-project-build';
 import { lookedUpField, sentPastRefusals } from './resource-lookup';
 import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
@@ -220,6 +221,7 @@ const planSchema = z.looseObject({
   configFile: z.enum(['wrangler.json', 'wrangler.jsonc', 'wrangler.toml']).nullable(),
   workerName: z.string(),
   migrations: z.array(z.object({ binding: z.string(), databaseName: z.string() })),
+  cfProject: z.literal(true).optional(),
   app: z
     .object({
       type: z.enum(['web_app', 'worker']),
@@ -676,6 +678,10 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       }
       return;
     }
+    if (plan.cfProject) {
+      await this.sealCfProject(job, plan);
+      return;
+    }
     const source = await this.effectiveConfigPath(plan);
     const text = (await this.command(`cat ${shellQuote(source)}`, SHORT_TIMEOUT_MS)).stdout;
     const config = readWranglerConfig(source, text);
@@ -692,6 +698,38 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     );
     this.ctx.storage.sql.exec(
       'UPDATE builder_jobs SET deploy_config = ? WHERE deployment_id = ?',
+      target,
+      job.deploymentId,
+    );
+  }
+
+  /**
+   * A `cf` project's build left its Worker and settings as Build Output: they become the Wrangler config the deploy
+   * uses (`cfProjectDeploy`), and the plan learns the Worker's name and the database its migrations apply to.
+   */
+  private async sealCfProject(job: Job, plan: DeployablePlan): Promise<void> {
+    const converted = await this.command(cfConvertCommand(), SHORT_TIMEOUT_MS * 2).catch((error: Error) => {
+      this.appendLog(job, failedCommandLog(error));
+      throw new StepFailure('config', 'CloudChef couldn’t read the settings the build left for its Worker.');
+    });
+    const deploy = cfProjectDeploy(converted.stdout);
+    if ('reason' in deploy) {
+      throw new StepFailure(deploy.stage, deploy.reason);
+    }
+    const target = `${WORK_DIR}/${DEPLOY_CONFIG_NAME}`;
+    await this.confinePaths(target, wranglerConfigSchema.parse(deploy.config));
+    const encoded = base64(new TextEncoder().encode(JSON.stringify(deploy.config)));
+    await this.command(
+      `printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)} && rm -rf ${WORK_DIR}/.wrangler/deploy`,
+      SHORT_TIMEOUT_MS,
+    );
+    for (const note of deploy.notes) {
+      this.appendLog(job, `\n${note}\n`);
+    }
+    const settled: DeployablePlan = { ...plan, workerName: deploy.workerName, migrations: deploy.migrations };
+    this.ctx.storage.sql.exec(
+      'UPDATE builder_jobs SET plan = ?, deploy_config = ? WHERE deployment_id = ?',
+      JSON.stringify(settled),
       target,
       job.deploymentId,
     );
@@ -1068,7 +1106,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       const name = BUILD_PLAN_FILES.find((planFile) => planFile === file.path);
       if (name) {
         // Lockfiles only need to be there; the rest are read.
-        contents[name] = /lock|yarnrc/.test(name)
+        contents[name] = /lock|yarnrc|cloudflare\.config/.test(name)
           ? ''
           : new TextDecoder().decode(await repositories.readBlob(job.repo, file.oid));
       }

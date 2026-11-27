@@ -15,6 +15,10 @@ export const BUILD_PLAN_FILES = [
   'wrangler.jsonc',
   'wrangler.toml',
   'cloudflare.project.json',
+  'cloudflare.config.ts',
+  'cloudflare.config.mts',
+  'cloudflare.config.js',
+  'cloudflare.config.mjs',
   'package-lock.json',
   'npm-shrinkwrap.json',
   'pnpm-lock.yaml',
@@ -38,7 +42,10 @@ export type BuildPlan =
       configBuild: string | null;
       /** The project's Wrangler config; none for a CloudChef app, whose config CloudChef writes. */
       configFile: 'wrangler.json' | 'wrangler.jsonc' | 'wrangler.toml' | null;
-      /** The Worker the config names (for a CloudChef app, the project's name in addresses). */
+      /**
+       * The Worker the config names (for a CloudChef app, the project's name in addresses). Empty for a `cf` project
+       * until its build is done: its config is code, read only as the settings its build leaves.
+       */
       workerName: string;
       /** The D1 bindings with migrations, applied with Wrangler before the new code goes live. */
       migrations: { binding: string; databaseName: string }[];
@@ -47,6 +54,12 @@ export type BuildPlan =
        * whose resources, migrations and Wrangler config CloudChef makes itself (`app-build.ts`).
        */
       app?: DeploymentProjectProfile;
+      /**
+       * A project configured for the `cf` CLI (a `cloudflare.config.ts` and no Wrangler config): its `build` script
+       * runs `cf build`, and the Worker's name, settings and migrations are read from what that leaves
+       * (`cf-project-build.ts`).
+       */
+      cfProject?: true;
     }
   | { deployable: false; reason: string };
 
@@ -82,12 +95,15 @@ const WORKER_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
  */
 export function buildPlan(files: Partial<Record<BuildPlanFile, string>>): BuildPlan {
   const configFile = (['wrangler.jsonc', 'wrangler.json', 'wrangler.toml'] as const).find((name) => files[name]);
+  if (files['package.json'] !== undefined && !configFile && CF_CONFIG_FILES.some((name) => files[name] !== undefined)) {
+    return cfBuildPlan(files);
+  }
   if (files['package.json'] === undefined || !configFile) {
     return {
       deployable: false,
       reason:
-        'This project has no package.json and Wrangler config (wrangler.jsonc, wrangler.json or wrangler.toml) at ' +
-        'its top level, so CloudChef can’t tell how to build and publish it.',
+        'This project has no package.json and Cloudflare config (cloudflare.config.ts, or wrangler.jsonc, ' +
+        'wrangler.json or wrangler.toml) at its top level, so CloudChef can’t tell how to build and publish it.',
     };
   }
   let config: z.infer<typeof wranglerSchema>;
@@ -119,6 +135,44 @@ export function buildPlan(files: Partial<Record<BuildPlanFile, string>>): BuildP
     migrations: (config.d1_databases ?? [])
       .filter((database) => database.database_name)
       .map((database) => ({ binding: database.binding, databaseName: database.database_name! })),
+  };
+}
+
+const CF_CONFIG_FILES = [
+  'cloudflare.config.ts',
+  'cloudflare.config.mts',
+  'cloudflare.config.js',
+  'cloudflare.config.mjs',
+] as const;
+
+/**
+ * The plan for a commit of a `cf` project: it installs as any project does and builds with its `build` script, which
+ * must run `cf build`; the rest is read from what the build leaves. A Wrangler config beside it wins, as before.
+ */
+function cfBuildPlan(files: Partial<Record<BuildPlanFile, string>>): BuildPlan {
+  let manifest: z.infer<typeof packageSchema>;
+  try {
+    manifest = packageSchema.parse(JSON.parse(files['package.json'] ?? ''));
+  } catch {
+    return { deployable: false, reason: 'CloudChef couldn’t read package.json.' };
+  }
+  if (!manifest.scripts?.build) {
+    return {
+      deployable: false,
+      reason: 'package.json has no build script (one that runs cf build), so CloudChef can’t build this project.',
+    };
+  }
+  const packageManager = chosenPackageManager(files, manifest.packageManager);
+  return {
+    deployable: true,
+    packageManager,
+    install: installCommand(packageManager, files),
+    build: `${packageManager} run build`,
+    configBuild: null,
+    configFile: null,
+    workerName: '',
+    migrations: [],
+    cfProject: true,
   };
 }
 

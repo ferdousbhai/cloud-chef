@@ -66,6 +66,35 @@ describe("an uploaded project's build plan", () => {
     expect(buildPlan({ 'package.json': PACKAGE, 'wrangler.json': '{ not json' })).toMatchObject({ deployable: false });
   });
 
+  it('builds a cf project with its build script, and reads the rest from what the build leaves', () => {
+    const files = {
+      'package.json': JSON.stringify({ packageManager: 'pnpm@10.27.0', scripts: { build: 'cf build' } }),
+      'pnpm-lock.yaml': '',
+      'cloudflare.config.ts': '',
+    };
+    expect(buildPlan(files)).toEqual({
+      deployable: true,
+      packageManager: 'pnpm',
+      install: 'pnpm install --frozen-lockfile',
+      build: 'pnpm run build',
+      configBuild: null,
+      configFile: null,
+      workerName: '',
+      migrations: [],
+      cfProject: true,
+    });
+    expect(buildPlan({ ...files, 'package.json': '{}' })).toMatchObject({
+      deployable: false,
+      reason: expect.stringContaining('no build script'),
+    });
+    // A Wrangler config beside it decides, as it did before cf projects were built.
+    expect(buildPlan({ ...files, 'wrangler.jsonc': '{ "name": "site" }' })).toMatchObject({
+      deployable: true,
+      configFile: 'wrangler.jsonc',
+      workerName: 'site',
+    });
+  });
+
   it('leaves comment marks inside strings alone', () => {
     expect(JSON.parse(withoutJsonComments('{"url": "https://example.com/*x*/" // c\n}'))).toEqual({
       url: 'https://example.com/*x*/',
