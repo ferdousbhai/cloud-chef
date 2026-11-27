@@ -100,6 +100,8 @@ const migrationPolicies = [
       '0081_one_space_per_account.sql': '40089c58e37dbc01772ee0b7905722414b51488224e2ce66e1eac7dad6605e9b',
       '0082_accounts_by_name.sql': 'd8db948d1cb2d781063180420309b52ea6d87b0b6f2297c7eed78c1d9fa49455',
       '0083_followed_posts_and_whole_replies.sql': '9251a1ccd2d8085b9f18754faec1121a6f92ee3ec86581bc180b8273605a02ac',
+      '0084_every_project_published_by_cloudchef.sql':
+        '96d0279ad239e64875a32429c907b6b050d820b34569e3de17c3a504a8c1838f',
     },
     contractAllowlist: [
       // Explicit pre-launch clean break: the Computer locator replaced this
@@ -182,6 +184,10 @@ const migrationPolicies = [
       // with every row copied, as in 0063; nothing references it. Every existing post is marked as already
       // announced (whole-table UPDATE of a new column), which is additive.
       '0083_followed_posts_and_whole_replies.sql',
+      // Every project is published by CloudChef's own builder: which builder a project has, and the Worker
+      // Workers Builds built it into, are no longer recorded. The release before this one stopped naming both
+      // columns, so nothing reads or writes them.
+      '0084_every_project_published_by_cloudchef.sql',
     ],
   },
   {

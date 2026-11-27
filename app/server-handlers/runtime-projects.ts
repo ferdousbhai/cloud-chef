@@ -80,8 +80,6 @@ export async function runtimeOpenProjectAction(args: {
     defaultBranch: project.defaultBranch,
     role: project.role,
     member: await memberIdentity(args.env.DB, identity.userId),
-    // Every project is published by CloudChef; said until no runtime that asks is left (the release after this one).
-    deploysWith: 'cloudchef' as const,
     createdFrom: project.createdFrom,
     // Added to someone else's project: what they publish is held to what it already has, and whose it is.
     addedTo: (await publishesAsCollaborator(args.env.DB, project, connection.orgId, [identity.userId]))

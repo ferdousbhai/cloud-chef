@@ -29,8 +29,8 @@ afterEach(() => {
 async function world() {
   const team = await teamFixture();
   team.database.exec(`
-    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with, created_at)
-      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip', 'cloudchef', 1);
+    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, created_at)
+      VALUES ('${SITE}', 'team-connection', '${ORG}', 'Storefront', 'storefront', 't-storefront', 'zip', 1);
   `);
   team.database
     .prepare(
@@ -131,7 +131,7 @@ describe('a runtime rewriting main', () => {
     const refused = await asked(sara.userId);
     expect(refused.status).toBe(403);
     expect(await refused.json()).toEqual({ error: OWNER_ONLY });
-    expect(await (await asked(admin.userId)).json()).toEqual({ repo: 't-storefront', deploysWith: 'cloudchef' });
+    expect(await (await asked(admin.userId)).json()).toEqual({ repo: 't-storefront' });
 
     expect((await told(sara.userId)).status).toBe(403);
     expect(rewrites()).toEqual([]);

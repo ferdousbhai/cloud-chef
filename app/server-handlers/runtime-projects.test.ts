@@ -116,7 +116,6 @@ describe('a runtime opening a project', () => {
       role: 'edit',
       addedTo: 'Sites',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
-      deploysWith: 'cloudchef',
       createdFrom: 'github',
       importSource: {
         url: 'https://github.com/ada/site.git',
@@ -156,7 +155,6 @@ describe('a runtime opening a project', () => {
       role: 'view',
       addedTo: 'Sites',
       member: { name: 'sara.a', email: 'sara.a@example.com' },
-      deploysWith: 'cloudchef',
       createdFrom: 'github',
     });
     // Admins own every team project.

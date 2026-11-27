@@ -23,10 +23,10 @@ function world() {
       ('kept-connection', 'kept', 'account-ada', 'active', 3, 3);
     INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES
       ('old', 'ada', 'admin', 2), ('old', 'sam', 'member', 3), ('kept', 'ada', 'admin', 3);
-    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from, deploys_with,
+    INSERT INTO org_projects (id, connection_id, org_id, name, slug, artifact_repo, created_from,
       created_by, created_at) VALUES
-      ('mine', 'ada-own', 'ada-own', 'Mine', 'mine', 't-mine', 'chat', 'cloudchef', 'ada', 1),
-      ('theirs', 'kept-connection', 'kept', 'Theirs', 'theirs', 't-theirs', 'chat', 'cloudchef', 'ada', 3);
+      ('mine', 'ada-own', 'ada-own', 'Mine', 'mine', 't-mine', 'chat', 'ada', 1),
+      ('theirs', 'kept-connection', 'kept', 'Theirs', 'theirs', 't-theirs', 'chat', 'ada', 3);
     INSERT INTO user_computer_runtimes (user_id, connection_id, connection_generation, worker_name, endpoint,
       runtime_version, status, created_at, updated_at) VALUES
       ('ada', 'old-connection', 1, 'ada-old', 'https://ada-old.example', 'sha', 'ready', 1, 1),
