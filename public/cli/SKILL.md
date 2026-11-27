@@ -14,7 +14,7 @@ CloudChef keeps each project as a git repository and publishes it to the project
   `https://cloudchef.build/ferdous/alberta-plan-glossary.git`.
 - `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), whether it is public
   or private, last publish, site.
-- `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudflare/ferdous/alberta-plan-glossary`
+- `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudchef.build/ferdous/alberta-plan-glossary`
   (change the folder with `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Just the
   name works too when only one of your projects has it.
 - Git signs in through `cloudchef` (set up by `cloudchef auth login`), so plain `git pull` and `git push` work.

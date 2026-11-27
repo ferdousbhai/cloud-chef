@@ -601,7 +601,7 @@ describe('cloudchef repo', { timeout: 30_000 }, () => {
 
     expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
     const cloned = await cli(home, ['repo', 'clone', 'maria/recipes']);
-    const target = join(home, 'cloudflare/maria/recipes');
+    const target = join(home, 'cloudchef.build/maria/recipes');
     expect(cloned.stdout).toContain(`Cloned maria/recipes into ${target}`);
     expect(git(target, 'remote', 'get-url', 'origin').trim()).toBe(`${fake.host}/maria/recipes.git`);
     // Inside its clone, the public project is the default PROJECT.
@@ -812,14 +812,14 @@ describe('cloudchef repo', { timeout: 30_000 }, () => {
     expect(named.code).toBe(0);
     expect(named.stdout).toContain('Created sara/my-recipes\n');
     expect(fake.copies.at(-1)).toEqual({ project: 'proj-recipes', name: 'My recipes', account: "Sara's sites" });
-    expect(existsSync(join(home, 'cloudflare'))).toBe(false);
+    expect(existsSync(join(home, 'cloudchef.build'))).toBe(false);
 
     expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
     const cloned = await cli(home, ['repo', 'fork', 'maria/recipes', '--clone']);
     expect(cloned.stderr).not.toContain('cloudchef:');
     expect(cloned.code).toBe(0);
     expect(fake.copies.at(-1)).toEqual({ project: 'proj-recipes' });
-    const target = join(home, 'cloudflare/sara/recipes');
+    const target = join(home, 'cloudchef.build/sara/recipes');
     expect(cloned.stdout).toContain('Created sara/recipes\n');
     expect(cloned.stdout).toContain(`Cloned sara/recipes into ${target}`);
     expect(readFileSync(join(target, 'index.html'), 'utf8')).toBe('<h1>alpha</h1>\n');
@@ -872,11 +872,11 @@ describe('cloudchef repo', { timeout: 30_000 }, () => {
     expect(missing.stderr).toContain('No project "gamma"');
   });
 
-  it('clones into ~/cloudflare/<owner>/<name> by default, and the clone names its project', async () => {
+  it('clones into ~/cloudchef.build/<owner>/<name> by default, and the clone names its project', async () => {
     const home = makeHome();
     expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
     const result = await cli(home, ['repo', 'clone', 'sara/alpha']);
-    const target = join(home, 'cloudflare/sara/alpha');
+    const target = join(home, 'cloudchef.build/sara/alpha');
     expect(result.stderr).not.toContain('cloudchef:');
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(`Cloned sara/alpha into ${target}`);
@@ -889,7 +889,7 @@ describe('cloudchef repo', { timeout: 30_000 }, () => {
 
     // Without a full name: the old address, in <account>/<name> made folder-safe; its clone is recognised too.
     const legacy = await cli(home, ['repo', 'clone', 'proj-old']);
-    const legacyTarget = join(home, 'cloudflare/sara-s-sites/old-site');
+    const legacyTarget = join(home, 'cloudchef.build/sara-s-sites/old-site');
     expect(legacy.stdout).toContain(`Cloned proj-old into ${legacyTarget}`);
     expect(git(legacyTarget, 'remote', 'get-url', 'origin').trim()).toBe(`${fake.host}/git/proj-old.git`);
     expect((await cli(home, ['repo', 'view'], { cwd: legacyTarget })).stdout).toMatch(/id:\s+proj-old/);
@@ -898,7 +898,7 @@ describe('cloudchef repo', { timeout: 30_000 }, () => {
   it('clones under the configured clone-dir, which CLOUDCHEF_CLONE_DIR and DIR override', async () => {
     const home = makeHome();
     expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
-    expect((await cli(home, ['config', 'get', 'clone-dir'])).stdout).toBe('~/cloudflare\n');
+    expect((await cli(home, ['config', 'get', 'clone-dir'])).stdout).toBe('~/cloudchef.build\n');
     expect((await cli(home, ['config', 'set', 'clone-dir', '~/work'])).code).toBe(0);
     expect(readFileSync(join(home, '.config/cloudchef/config'), 'utf8')).toBe('clone-dir=~/work\n');
     expect((await cli(home, ['config', 'list'])).stdout).toBe('clone-dir=~/work\n');
@@ -1109,7 +1109,7 @@ describe('cloudchef run', { timeout: 30_000 }, () => {
     const home = makeHome();
     expect((await cli(home, ['auth', 'setup-git'])).code).toBe(0);
     expect((await cli(home, ['repo', 'clone', 'ferdous/alberta-plan-glossary'])).code).toBe(0);
-    const clone = join(home, 'cloudflare/ferdous/alberta-plan-glossary');
+    const clone = join(home, 'cloudchef.build/ferdous/alberta-plan-glossary');
     const browse = () => cli(home, ['browse', '--no-browser'], { cwd: clone });
 
     // The project has no site yet, so main opens the projects page.

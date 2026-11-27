@@ -10,7 +10,7 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/cloudchef"
 TOKEN_FILE="$CONFIG_DIR/token"
 CONFIG_FILE="$CONFIG_DIR/config"
 # shellcheck disable=SC2088 # kept literal: it is shown to people and expanded where it is used
-DEFAULT_CLONE_DIR="~/cloudflare"
+DEFAULT_CLONE_DIR="~/cloudchef.build"
 TAB="$(printf '\t')"
 NL='
 '
@@ -617,7 +617,7 @@ EOF
 Usage: cloudchef repo clone PROJECT [DIR] [-- GIT_FLAGS]
 
 Clones a project. Without DIR it goes to <clone-dir>/<owner>/<name>, where clone-dir is
-\$CLOUDCHEF_CLONE_DIR, else \`cloudchef config get clone-dir\`, else ~/cloudflare.
+\$CLOUDCHEF_CLONE_DIR, else \`cloudchef config get clone-dir\`, else ~/cloudchef.build.
 Now: $(clone_base)
 
 Example: cloudchef repo clone ferdous/alberta-plan-glossary
@@ -669,7 +669,7 @@ Usage: cloudchef config <get|set|list>
   list           Print every setting
 
 Settings (kept in $CONFIG_FILE):
-  clone-dir  Where repo clone puts projects (default ~/cloudflare); CLOUDCHEF_CLONE_DIR overrides it
+  clone-dir  Where repo clone puts projects (default ~/cloudchef.build); CLOUDCHEF_CLONE_DIR overrides it
 EOF
       ;;
     skill | "skill install")
@@ -1580,7 +1580,7 @@ CloudChef keeps each project as a git repository and publishes it to the project
   `https://cloudchef.build/ferdous/alberta-plan-glossary.git`.
 - `cloudchef repo list` lists the projects you can use: name, account, your role (view or edit), whether it is public
   or private, last publish, site.
-- `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudflare/ferdous/alberta-plan-glossary`
+- `cloudchef repo clone ferdous/alberta-plan-glossary` clones one into `~/cloudchef.build/ferdous/alberta-plan-glossary`
   (change the folder with `cloudchef config set clone-dir PATH`, or pass a folder as the second argument). Just the
   name works too when only one of your projects has it.
 - Git signs in through `cloudchef` (set up by `cloudchef auth login`), so plain `git pull` and `git push` work.
