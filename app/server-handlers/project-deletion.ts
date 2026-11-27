@@ -241,7 +241,7 @@ export async function runtimeDeletableProjectAction(args: { request: Request; en
     return json({ repo: project.repo }, 200);
   } catch (error) {
     if (error instanceof OrganizationError) {
-      return json({ error: 'Only the project’s owner, or one of its team’s admins, can delete it.' }, 403);
+      return json({ error: 'Only the project’s owner, or an admin of its Cloudflare account, can delete it.' }, 403);
     }
     throw error;
   }

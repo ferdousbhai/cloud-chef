@@ -239,6 +239,8 @@ export abstract class ComputerSandboxBase<
    */
   protected noteContainerUse(): void {
     this.#lastContainerUse = Date.now();
+    // A use starts the next idle window's saves over.
+    this.#failedSavesBeforeStop = 0;
   }
 
   createComputerWorkspaceOptions(): WorkspaceOptions {
@@ -519,7 +521,13 @@ export abstract class ComputerSandboxBase<
       }
     }
     this.#failedSavesBeforeStop = 0;
-    console.info({ event: 'workspace_container_idle_stop', idleMs: check.idleMs, keepAlive: this.#keepAlive });
+    // The save took time, and the container may have been used meanwhile: it is stopped only if still idle.
+    const after = idleContainerCheck({ now: Date.now(), lastUse: this.#lastContainerUse, keepAlive: this.#keepAlive });
+    if (!after.stop) {
+      await this.scheduleIdleContainerCheck(after.checkInMs);
+      return;
+    }
+    console.info({ event: 'workspace_container_idle_stop', idleMs: after.idleMs, keepAlive: this.#keepAlive });
     try {
       await this.destroy();
     } catch (error) {

@@ -208,7 +208,7 @@ function TeamChangeContents({ change }: { change: unknown }) {
             <CloudflareRequestLine request={filed.request} />
             <p className="text-xs leading-5 text-content-secondary">{filed.riskNote}</p>
             <p className="text-content-primary" role="status">
-              Waiting for a team admin to approve it.
+              Waiting for the account’s admin to approve it.
             </p>
           </>
         ) : final ? (

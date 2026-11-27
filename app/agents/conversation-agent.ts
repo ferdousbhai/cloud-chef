@@ -275,7 +275,7 @@ const WORKSPACE_CHANGE_REFUSAL = 'This workspace can’t change the Cloudflare a
  */
 const CLOUDFLARE_CHANGE_WAITER_TIMEOUT_MS = 15_000;
 const TEAM_APPROVAL_NOTE =
-  'This changes the team’s Cloudflare account. One of the team’s admins approves or rejects it on their Approvals ' +
+  'This changes someone else’s Cloudflare account. One of its admins approves or rejects it on their Approvals ' +
   'page; approving sends this exact request once.';
 /** The changes a command filed for the team's admins, in its output: each one waiting, or what they decided. */
 const commandChangesSchema = z.looseObject({ cloudflareChanges: z.array(z.unknown()) });
@@ -2534,7 +2534,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
   protected async requireModelAccess(): Promise<{ contentLogging: boolean }> {
     const access = await modelRequestAccess(this.env);
     if (!access.allowed) {
-      throw new AgentRefusal("You no longer have access to this team's account.", 403);
+      throw new AgentRefusal('You no longer have access to this Cloudflare account.', 403);
     }
     return { contentLogging: access.contentLogging };
   }
@@ -2756,7 +2756,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       riskNote: filed.warning ? `${filed.warning} ${TEAM_APPROVAL_NOTE}` : TEAM_APPROVAL_NOTE,
       expiresAt: filed.expiresAt,
       note:
-        'Filed for the team’s admins, who approve or reject it on their Approvals page; CloudChef then sends it once. ' +
+        'Filed for the account’s admins, who approve or reject it on their Approvals page; CloudChef then sends it once. ' +
         'Its result replaces this one when they decide.',
     });
     this.filedCloudflareChanges.set(toolCallId, changes);
@@ -2818,7 +2818,7 @@ export class ConversationAgent extends Agent<Env, ConversationAgentState, Conver
       accountId: identity.accountId,
       proposalSha256: requestSha256,
       status: final,
-      outcome: outcome ?? { status: 'denied', summary: 'No team admin decided before the request expired.' },
+      outcome: outcome ?? { status: 'denied', summary: 'No admin of the account decided before the request expired.' },
     };
     const messages = replaceToolCallPart(await this.chat.messages(), toolCallId, (part, invocation) => {
       if (invocation.toolName !== 'exec' || invocation.state !== 'output-available' || !isRecord(invocation.output)) {

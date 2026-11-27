@@ -28,7 +28,7 @@ export const TEAM_FILED_ANSWER: CloudflareChangeAnswer = {
   kind: 'answer',
   status: 202,
   body: cloudflareApiErrorBody(
-    'Not changed yet: this was sent to the team’s admins to approve. CloudChef makes the change once one of ' +
+    'Not changed yet: this was sent to the account’s admins to approve. CloudChef makes the change once one of ' +
       'them approves it.',
   ),
 };
@@ -56,7 +56,8 @@ export async function fileTeamCloudflareChange(
         kind: 'answer',
         status: answer.status === 403 ? 403 : 502,
         body: cloudflareApiErrorBody(
-          refusalSchema.safeParse(body).data?.error ?? 'The change couldn’t be sent to the team’s admins. Try again.',
+          refusalSchema.safeParse(body).data?.error ??
+            'The change couldn’t be sent to the account’s admins. Try again.',
         ),
       },
     };

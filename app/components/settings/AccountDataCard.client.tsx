@@ -205,11 +205,10 @@ export function AccountDataCard() {
               Your identity and email and your AI request logs setting; your own Cloudflare connection (its permissions,
               default model, and which models the picker offers) and when CloudChef stored and last renewed its access
               to that Cloudflare account, which everyone building there shares, so someone else may have given it; your
-              workspaces; the accounts you are in, your model use there, and the projects you were given; your team
-              project requests (asking for a draft to become a team project), with which saved version of it was sent;
-              GitHub connections you started; emailed sign-in links; and sign-in and authorization session records.
-              Secrets are left out: CloudChef&apos;s stored keys to Cloudflare, sign-in tokens, and the codes used to
-              check sign-in links and invitations.
+              workspaces; the accounts you are in, your model use there, and the projects you were given; GitHub
+              connections you started; emailed sign-in links; and sign-in and authorization session records. Secrets are
+              left out: CloudChef&apos;s stored keys to Cloudflare, sign-in tokens, and the codes used to check sign-in
+              links and invitations.
             </p>
             <p className="mt-2">
               Chats, transcripts, project files, and deployment records are not included. They live in the Cloudflare
@@ -288,8 +287,8 @@ export function AccountDataCard() {
                 : revoked === null
                   ? ''
                   : 'the encrypted credentials it no longer uses, '}
-              your Cloudflare connection details, team memberships, and the addresses of your workspaces from its own
-              database.
+              your Cloudflare connection details, the accounts you were added to, and the addresses of your workspaces
+              from its own database.
             </p>
             {workspacesLeftIn.length > 0 ? (
               <p className="text-bolt-elements-icon-error">
@@ -350,8 +349,9 @@ export function AccountDataCard() {
                 Afterwards CloudChef can&apos;t clean up for you.
               </li>
               <li>
-                In a team, you leave it and your workspace there (your chats and project files) is deleted. Apps you
-                deployed there stay with its admins. If you&apos;re its only admin, make someone else an admin first.
+                In someone else&apos;s Cloudflare account, you leave it and your workspace there (your chats and project
+                files) is deleted. Apps you deployed there stay with its admins. If you&apos;re its only admin, make
+                someone else an admin first.
               </li>
               <li>Browser data is not cleared.</li>
             </ul>
@@ -364,7 +364,7 @@ export function AccountDataCard() {
               />
               <span>
                 I understand this is irreversible, and that apps and resources deployed to Cloudflare are retained: in
-                my own account they remain my responsibility, and in a team&apos;s account its admins&apos;.
+                my own account they remain my responsibility, and in someone else&apos;s account its admins&apos;.
               </span>
             </label>
             <label className="grid gap-1">

@@ -62,7 +62,7 @@ import { BIO_MAX, CAPTION_MAX, COMMENT_MAX, REPORT_REASONS, type ShowcaseCursor 
 import { SENDER } from './email-auth';
 import { copyProjectFor, forwardToProjectAccount } from './command-line';
 import { deploymentOfCommit } from '~/lib/cloudflare/data/project-deployments.server';
-import { memberIdentity, workersBuildOfCommit } from './runtime-projects';
+import { cancelOlderPublishes, memberIdentity, workersBuildOfCommit } from './runtime-projects';
 import { findAccessibleProject, recordMainPush } from '~/lib/cloudflare/data/org-projects.server';
 import {
   SHARED_MERGE,
@@ -571,9 +571,11 @@ export const offeredChangeAction: Handler = ({ request, env }) =>
         ? 'unknown'
         : build.state === 'queued'
           ? 'building'
-          : build.state === 'succeeded' && !build.previewUrl
-            ? 'unknown'
-            : build.state;
+          : build.state === 'cancelled'
+            ? 'none'
+            : build.state === 'succeeded' && !build.previewUrl
+              ? 'unknown'
+              : build.state;
       if (build?.previewUrl) {
         await recordOfferedPreview(env.DB, change.threadId, build.previewUrl);
       }
@@ -688,6 +690,10 @@ export const acceptChangeAction: Handler = ({ request, env }) =>
         newCommit: merged.data.to,
         pushedAt: Date.now(),
       });
+      const project = await findAccessibleProject(env.DB, change.projectId, userId);
+      if (project?.deploysWith === 'workers_builds') {
+        await cancelOlderPublishes({ request, env }, project, merged.data.to, userId);
+      }
     }
     await markThreadOnItsWay(env.DB, { userId, threadId: change.threadId, fixCommit });
     return json({ thread: await findThread(env.DB, change.threadId, userId) });

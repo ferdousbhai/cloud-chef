@@ -110,7 +110,9 @@ describe('Approvals', () => {
     listed = { admin: false, waiting: [], decided: [] };
     await render();
     await vi.waitFor(() =>
-      expect(document.body.textContent).toContain('You’re not an admin of any team, so nothing waits for you here.'),
+      expect(document.body.textContent).toContain(
+        'Nobody else works in a Cloudflare account you’re an admin of, so nothing waits for you here.',
+      ),
     );
   });
 });

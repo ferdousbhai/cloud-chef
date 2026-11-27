@@ -54,7 +54,7 @@ const openedProjectSchema = z.object({
 type OpenedProject = z.infer<typeof openedProjectSchema>;
 
 const buildStatusSchema = z.object({
-  state: z.enum(['none', 'queued', 'building', 'succeeded', 'failed']),
+  state: z.enum(['none', 'queued', 'building', 'succeeded', 'failed', 'cancelled']),
   url: z.string().nullable().optional(),
   previewUrl: z.string().nullable().optional(),
   logUrl: z.string().nullable().optional(),
@@ -137,7 +137,7 @@ export async function deletableProjectRepository(
   const response = await postRuntimeRoute(env, identity, 'runtime-projects/deletable', { orgProjectId });
   if (response.status === 401 || response.status === 403 || response.status === 404) {
     throw new ProjectAccessError(
-      await failureMessage(response, 'Only the project’s owner, or one of its team’s admins, can delete it.'),
+      await failureMessage(response, 'Only the project’s owner, or an admin of its Cloudflare account, can delete it.'),
       response.status,
     );
   }
@@ -147,7 +147,8 @@ export async function deletableProjectRepository(
 const mainRewriteSchema = z.object({ repo: z.string().min(1), deploysWith: z.enum(['workers_builds', 'cloudchef']) });
 
 /** Said when someone who doesn't run the project asks to replace its main. */
-export const MAIN_REWRITE_OWNER_ONLY = 'Only the project’s owner, or one of its team’s admins, can rewrite its main.';
+export const MAIN_REWRITE_OWNER_ONLY =
+  'Only the project’s owner, or an admin of its Cloudflare account, can rewrite its main.';
 
 /**
  * The repository of a project whose main this runtime's person may replace (its owner, or one of its team's admins),

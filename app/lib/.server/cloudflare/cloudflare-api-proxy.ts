@@ -100,8 +100,8 @@ export function cloudflareApiErrorBody(message: string): string {
 
 /** In a team's account only its admins read it directly: its authorization reaches every member's work. */
 const TEAM_READ_REFUSAL =
-  'In a team’s account only its admins read the account directly. Make the change itself: it goes to the ' +
-  'team’s admins to approve.';
+  'In someone else’s account only its admins read the account directly. Make the change itself: it goes to its ' +
+  'admins to approve.';
 
 /** One request `cf` (or anything else in the container) sends to the Cloudflare API address. */
 export async function handleCloudflareApiProxyRequest(

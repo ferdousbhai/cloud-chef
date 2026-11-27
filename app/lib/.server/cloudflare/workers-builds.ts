@@ -103,7 +103,8 @@ export async function findProjectWorker(
 
 /** What Workers Builds reports for one commit of a project. */
 export type ProjectBuildStatus = {
-  state: 'none' | 'queued' | 'building' | 'succeeded' | 'failed';
+  /** `cancelled`: stopped before it finished, as a newer push of main does to an older build's (cancelSupersededMainBuilds). */
+  state: 'none' | 'queued' | 'building' | 'succeeded' | 'failed' | 'cancelled';
   /** The production site, for a build of main that succeeded. */
   url?: string;
   /** The branch's Preview, for a build of another branch that succeeded. */
@@ -154,7 +155,13 @@ export async function mainBuilds(
       return {
         commit: build.commit!,
         outcome:
-          state === 'succeeded' ? 'succeeded' : state === 'failed' ? 'failed' : state === 'none' ? 'none' : 'running',
+          state === 'succeeded'
+            ? 'succeeded'
+            : state === 'failed'
+              ? 'failed'
+              : state === 'none' || state === 'cancelled'
+                ? 'none'
+                : 'running',
       };
     });
 }
@@ -196,8 +203,15 @@ function buildState(build: WorkersBuild): ProjectBuildStatus['state'] {
     case 'running':
       return 'building';
     case 'stopped':
-      // A skipped build built nothing for this commit; any other end but success is a failure.
-      return build.outcome === 'success' ? 'succeeded' : build.outcome === 'skipped' ? 'none' : 'failed';
+      // A skipped build built nothing for this commit; a cancelled one was stopped, usually by a newer push of main
+      // (cancelSupersededMainBuilds); any other end but success is a failure.
+      return build.outcome === 'success'
+        ? 'succeeded'
+        : build.outcome === 'skipped'
+          ? 'none'
+          : build.outcome === 'cancelled'
+            ? 'cancelled'
+            : 'failed';
     default:
       return 'building';
   }

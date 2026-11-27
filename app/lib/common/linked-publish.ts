@@ -20,6 +20,8 @@ const linkedBuildStateSchema = z.enum([
   'success',
   'failure',
   'none',
+  /** Stopped before it finished, usually because a newer version was pushed after it. */
+  'cancelled',
   'timed_out',
   /** CloudChef could not follow the pipeline (its watch could not start or read the build's status). */
   'unfollowed',
@@ -140,6 +142,18 @@ function builtView(data: LinkedPublishData, now: number): LinkedPublishView {
           "Whoever runs the project's Cloudflare account can check in its dashboard.",
         links,
       );
+    case 'cancelled':
+      return {
+        kind: 'built',
+        title: data.live ? 'Replaced by a newer version' : 'Preview replaced',
+        detail: data.live
+          ? 'Your change is saved. A newer version was published right after it, and that one includes your change, ' +
+            'so only the newer one is put live.'
+          : 'Your change is saved. Its preview was stopped, usually because a newer version was pushed after it.',
+        building: false,
+        followDeadline: null,
+        ...links,
+      };
     case 'timed_out':
       return unknown(
         committed,

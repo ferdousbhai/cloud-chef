@@ -49,12 +49,13 @@ export async function commitsInHistory(
   env: Env,
   publish: { projectId: string; connectionId: string; commit: string; reportedBy: string },
   candidates: readonly string[],
+  timeoutMs = ANCESTORS_TIMEOUT_MS,
 ): Promise<string[]> {
   const url = new URL('/api/threads/went-live', request.url);
   url.search = new URLSearchParams({ commit: publish.commit, of: candidates.join(',') }).toString();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), ANCESTORS_TIMEOUT_MS);
+    timer = setTimeout(() => resolve(null), timeoutMs);
   });
   const asked = forwardToProjectAccount(new Request(url, { method: 'GET' }), env, {
     project: { id: publish.projectId, connectionId: publish.connectionId },

@@ -78,9 +78,21 @@ beforeEach(() => {
   }
 });
 
-afterEach(() => {
-  // A save still running in the background gives up once its folders are gone.
-  rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+afterEach(async () => {
+  // A save still running in the background can write into the folder while it is removed: remove it again until
+  // it is gone, since the save gives up once its folders are.
+  const deadline = Date.now() + 15_000;
+  for (;;) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (Date.now() > deadline) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 });
 
 /** Copies the in-memory bare repository at `from` in `volume` to `to` on disk, byte for byte. */

@@ -486,24 +486,33 @@ export async function runtimeMainPushedAction(args: {
     pushedAt: Date.now(),
   });
   if (project.deploysWith === 'workers_builds') {
-    await cancelOlderPublishes(args, connection, project, body.newCommit, identity.userId);
+    await cancelOlderPublishes(args, project, body.newCommit, identity.userId, connection);
   }
   return json({ recorded: true }, 200);
 }
 
+/** How long the push report gives the project's history, which decides what is older, to answer. */
+const SUPERSEDE_HISTORY_TIMEOUT_MS = 8_000;
+
 /**
- * Workers Builds may build two pushes of main at once, and whichever finishes last goes live: the builds still going
- * for older commits are cancelled, so the newest push wins (`cancelSupersededMainBuilds`). CloudChef's own deploys
- * already stop once a newer commit exists. Never fails the report: at worst an older build still finishes.
+ * Workers Builds skips a queued build a newer one supersedes, but may run two pushes of main at once (on a paid plan),
+ * and whichever finishes last goes live: the builds still going for older commits are cancelled, so the newest push
+ * wins (`cancelSupersededMainBuilds`). CloudChef's own deploys already stop once a newer commit exists. Never fails
+ * the report: at worst an older build still finishes. Kept well inside the runtime's wait for the report, so it is
+ * never sent again for want of an answer (which would record the push twice).
  */
-async function cancelOlderPublishes(
+export async function cancelOlderPublishes(
   args: { request: Request; env: Env; openAccount?: OpenWorkersBuildsAccountApi },
-  connection: CloudflareConnection,
   project: Project,
   newCommit: string,
   userId: string,
+  known?: CloudflareConnection,
 ): Promise<void> {
   try {
+    const connection = known ?? (await findActiveCloudflareConnection(args.env.DB, project.connectionId));
+    if (!connection) {
+      return;
+    }
     const api = await (args.openAccount ?? openWorkersBuildsAccountApi)(args.env, connection);
     const worker = await recordProjectWorker(args.env.DB, api, project, (found) => productionOrigins(api, found));
     if (!worker) {
@@ -515,6 +524,7 @@ async function cancelOlderPublishes(
         args.env,
         { projectId: project.id, connectionId: project.connectionId, commit: newCommit, reportedBy: userId },
         commits,
+        SUPERSEDE_HISTORY_TIMEOUT_MS,
       ),
     );
     if (cancelled.length > 0) {

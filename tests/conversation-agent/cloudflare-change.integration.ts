@@ -355,7 +355,7 @@ describe("a team member's changes in the team's account", () => {
     for (const request of [DELETE_SCRIPT, older]) {
       const answer = await harness.agent.proposeWorkspaceCloudflareChange({ toolCallId: COMMAND, request });
       expect(answer).toMatchObject({ kind: 'answer', status: 202 });
-      expect(errorMessage(answer)).toContain('sent to the team’s admins');
+      expect(errorMessage(answer)).toContain('sent to the account’s admins');
     }
 
     expect(filed).toEqual([

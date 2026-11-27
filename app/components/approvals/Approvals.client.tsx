@@ -41,8 +41,8 @@ export function Approvals() {
       <div className="grid gap-1">
         <h1 className="text-lg font-semibold text-content-primary">Approvals</h1>
         <p className="text-sm text-content-secondary">
-          What your teams’ members asked an admin for. Approving a change has CloudChef make it in the team’s Cloudflare
-          account, exactly as shown, once.
+          What people working in your Cloudflare account asked an admin for. Approving a change has CloudChef make it in
+          that account, exactly as shown, once.
         </p>
       </div>
       {error !== null ? (
@@ -58,7 +58,7 @@ export function Approvals() {
         </p>
       ) : !approvals.admin ? (
         <p className="text-sm text-content-secondary">
-          You’re not an admin of any team, so nothing waits for you here.
+          Nobody else works in a Cloudflare account you’re an admin of, so nothing waits for you here.
         </p>
       ) : (
         <>
@@ -146,7 +146,7 @@ function WaitingChange({ approval, onDecided }: { approval: Approval; onDecided:
         {approval.source === 'terminal'
           ? `${who} typed this in their workspace’s terminal.`
           : `${who}’s agent asked for this.`}{' '}
-        It may change, delete or add costs to things in the team’s account.
+        It may change, delete or add costs to things in the account.
       </p>
       <RequestDetails request={approval.request} />
       <div className="flex flex-wrap items-center gap-2">

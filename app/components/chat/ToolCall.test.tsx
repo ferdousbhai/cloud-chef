@@ -199,7 +199,7 @@ describe('ToolCall', () => {
     );
     await act(async () => container.querySelector('button')?.click());
 
-    expect(container.textContent).toContain('Waiting for a team admin to approve it.');
+    expect(container.textContent).toContain('Waiting for the account’s admin to approve it.');
     expect(container.textContent).toContain('POST https://api.cloudflare.com/client/v4/accounts/a/workers/domains');
     expect([...container.querySelectorAll('button')].some((button) => button.textContent?.includes('Approve'))).toBe(
       false,

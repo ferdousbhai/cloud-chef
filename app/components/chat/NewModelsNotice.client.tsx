@@ -33,7 +33,7 @@ export function NewModelsNotice({ placement = 'above' }: { placement?: NoticePla
         <Notice placement={placement} onDismiss={dismissUnavailableBuilderModel}>
           <span className="font-semibold text-content-warning">Model changed:</span> {unavailable.label} isn’t offered
           in this account any more, so new messages use {unavailable.replacementLabel}. The models are chosen in
-          Settings, under Models, by the team&apos;s admins, or by you in Personal.
+          Settings, under Models, by the account&apos;s admins.
         </Notice>
       ) : null}
       {newModels.length > 0 ? (

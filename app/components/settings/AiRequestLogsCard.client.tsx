@@ -72,8 +72,7 @@ export function AiRequestLogsCard() {
         Log my model requests in AI Gateway
       </label>
       <p className="mt-2 text-xs text-content-tertiary">
-        Anyone with access to that account can read them, a team&apos;s admins included. CloudChef&apos;s operator gets
-        no copy.
+        Anyone with access to that account can read them, its admins included. CloudChef&apos;s operator gets no copy.
       </p>
       <FeedbackLine feedback={feedback} />
     </SettingsCard>

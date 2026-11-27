@@ -18,7 +18,7 @@ import { runtimeMainPushedAction } from './runtime-projects';
 const SITE = '55555555-5555-4555-8555-555555555555';
 const MAIN = 'a'.repeat(40);
 const SLIM = 'b'.repeat(40);
-const OWNER_ONLY = 'Only the project’s owner, or one of its team’s admins, can rewrite its main.';
+const OWNER_ONLY = 'Only the project’s owner, or an admin of its Cloudflare account, can rewrite its main.';
 
 afterEach(() => {
   vi.useRealTimers();

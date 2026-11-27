@@ -17,9 +17,9 @@ import { LINKED_BUILD_WATCH_MS, type LinkedPublishData } from '~/lib/common/link
 /** Workers Builds reports in minutes, so a status read every 10 s shows the link within seconds of it. */
 export const LINKED_BUILD_POLL_MS = 10_000;
 
-/** A build as the watch follows it: still going, built, failed, or none for the commit (yet). */
+/** A build as the watch follows it: still going, built, failed, cancelled, or none for the commit (yet). */
 export type LinkedBuildStatus = {
-  state: 'pending' | 'success' | 'failure' | 'none';
+  state: 'pending' | 'success' | 'failure' | 'cancelled' | 'none';
   /** The commit's own address: production's for a live publish, the branch's preview otherwise. */
   previewUrl: string | null;
   /** The build's log in the Cloudflare dashboard. */
@@ -33,9 +33,11 @@ export function linkedBuildStatus(status: ProjectBuildStatus, live: boolean): Li
       ? 'success'
       : status.state === 'failed'
         ? 'failure'
-        : status.state === 'none'
-          ? 'none'
-          : 'pending';
+        : status.state === 'cancelled'
+          ? 'cancelled'
+          : status.state === 'none'
+            ? 'none'
+            : 'pending';
   const link = live ? (status.url ?? status.previewUrl) : (status.previewUrl ?? status.url);
   return { state, previewUrl: link ?? null, detailsUrl: status.logUrl ?? null };
 }
@@ -103,6 +105,13 @@ export function linkedBuildSettledResult(
       linkedBuildData(watch, 'failure', build),
     );
   }
+  if (build.state === 'cancelled') {
+    return toolSuccess(
+      `Committed ${watch.where}, but its build was cancelled before it finished, usually because a newer version of ` +
+        `${watch.live ? 'main was published after it and includes this change' : 'the branch was pushed after it'}.`,
+      linkedBuildData(watch, 'cancelled', build),
+    );
+  }
   if (build.state === 'pending') {
     return toolSuccess(
       `Committed ${watch.where}; the pipeline was still building it after ${LINKED_BUILD_WATCH_MS / 60_000} minutes. Its result is in Workers Builds.`,
@@ -139,7 +148,7 @@ export async function watchLinkedBuild(args: {
     // One unreadable status says nothing about the build: the last one known stands until the next read.
     status = await args.poll().catch(() => status);
     polled = true;
-    if (status?.state === 'success' || status?.state === 'failure') {
+    if (status?.state === 'success' || status?.state === 'failure' || status?.state === 'cancelled') {
       return status;
     }
   }
