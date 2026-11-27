@@ -3,7 +3,7 @@
 Kept current and committed; only the plan ahead. The repository is public: no names of people, their projects or
 spaces, no billing figures, and no unfixed security weaknesses here.
 
-Production: `8e73b79c` (2026-11-26), confirmed at `/api/version`.
+Production: `13c28d60` (2026-11-27), confirmed at `/api/version`.
 
 Goal: making your own software and sharing it is easy. Several people build one project together as easily as they edit
 a shared document, and each person has a public page of what they made. Each person keeps their own workspace; the
@@ -56,10 +56,18 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
    provider's keys are tried named-first then `default`, then Workers AI, remembered per chat for an hour
    (`ef8d9cce`). Not tried: a real refusal of a named key.
 
-4. **Image check for showcase pictures**, deferred by the owner as issue #154; needed before sign-up is promoted, and
+4. **How a GitHub import publishes** (owner's decision, open since 2026-11-27). An import is made with
+   `deploys_with = 'workers_builds'` and nothing changes it; CloudChef can't move a Worker's trigger to Artifacts
+   itself, so until someone follows the dashboard steps in the Imported dialog, the Worker keeps building from GitHub
+   (or nothing builds it), and pushes of main made in CloudChef never go live. The owner says building from GitHub is
+   not the intended workflow. Either imports publish with CloudChef's own builder, as uploads and pushes do, or the
+   project shows plainly that it isn't publishing until switched. The dialog also says "still goes live from GitHub"
+   when no Worker exists.
+
+5. **Image check for showcase pictures**, deferred by the owner as issue #154; needed before sign-up is promoted, and
    reports cover it for now. Goes in `classifyMedia`: CloudChef's own Workers AI, a per-person daily cap.
 
-5. **Container cost.** Most of a month's Cloudflare bill was containers held awake at under 1% CPU use; the idle
+6. **Container cost.** Most of a month's Cloudflare bill was containers held awake at under 1% CPU use; the idle
    stops of `da524030` and `22dcccac` should fix that. Check the billable usage page again after a week of real use.
    Open choice: a custom size with 4 vCPU and less than `standard-4`'s 12 GiB, which would cut what awake time costs;
    not tried, and whether Cloudflare accepts that ratio is unverified. Measured on a laptop, a starter app's checks
@@ -74,6 +82,9 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
 - `cf` read and change through the proxy with the real CLI; WebMCP in a real browser.
 - "Someone you follow posted" (`announcePost`, from `projectPublished`): watch the first real public post by someone
   with followers; a new account's first-day post is announced only by a later publish.
+- Two publishes of a Workers Builds project close together: the older build is cancelled and its chat card says
+  "Replaced by a newer version" (`cancelSupersededMainBuilds`); and a commit whose save failed, saved before the
+  idle stop (`workspace_git_save_failed` in the account's own Workers Logs when it can't be).
 - CloudChef's long thread replies: the next `@cloudchef` answer over 1,000 characters should show whole.
 
 ## Known gaps
