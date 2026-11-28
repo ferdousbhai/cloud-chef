@@ -78,5 +78,5 @@ projects with a Wrangler it installs in the build container (`WRANGLER_VERSION` 
 `user-workspace-runtime/src/project-builder.ts`), a `cf` project's settings converted for it by `@cloudflare/config`
 (`cf-project-build.ts`, which reads Build Output `v1` and `v0`). It publishes an app and a `cf` project with its own
 `cf` instead (`cf-deploy.ts`) for the runtimes and projects `PROJECT_BUILDER_DEPLOYS_WITH_CF` names
-(`cloudflare.config.ts`; empty, so nobody, until the owner turns it on); what is left of the move is HANDOFF.md's
+(`cloudflare.config.ts`; one project, until the owner turns it on); what is left of the move is HANDOFF.md's
 item 4. Projects that carry a Wrangler config of their own are still published, by Wrangler.
