@@ -4,7 +4,7 @@ import { extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_ASSET_DIRECTORY = fileURLToPath(
-  new URL('../.cloudflare/output/v0/workers/default/assets/assets', import.meta.url),
+  new URL('../.cloudflare/output/v1/workers/default/assets/assets', import.meta.url),
 );
 const REPORTABLE_EXTENSIONS = new Set(['.css', '.js', '.wasm']);
 const SOURCE_MAP_EXTENSION = '.map';

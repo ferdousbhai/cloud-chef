@@ -27,7 +27,7 @@ export function cfBuildOutput(version) {
   };
 }
 /** What this project's own pinned `cf` and Vite plugin write. */
-const CF_OWN_BUILD_OUTPUT = cfBuildOutput("v0");
+const CF_OWN_BUILD_OUTPUT = cfBuildOutput("v1");
 export const CF_BUILT_WORKER_MODULE = CF_OWN_BUILD_OUTPUT.workerModule;
 export const CF_BUILT_ASSETS_DIR = CF_OWN_BUILD_OUTPUT.assetsDir;
 /** Deployment policy the rendered config carries; the control plane's runtime policy must match it. */

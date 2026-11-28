@@ -12,7 +12,10 @@ import { shellQuote } from './shell-quote';
  * CloudChef's Wrangler deploys the built Worker as it is, as it does every other project.
  */
 
-/** The converter, the version the `cf` CloudChef's own starter pins is built on. */
+/**
+ * The converter. `cf` 1.0.0-rc carries a later one (1.0.0-rc.4), which no longer exports the schema this reads Build
+ * Output with (`OutputWorkerSchema`); this one reads what the release candidates build as it is.
+ */
 export const CF_CONFIG_VERSION = '0.28.1';
 const CF_CONFIG_ROOT = '/opt/cloudchef/cf-config';
 const CF_CONFIG_MODULE = `${CF_CONFIG_ROOT}/node_modules/@cloudflare/config/dist/index.mjs`;

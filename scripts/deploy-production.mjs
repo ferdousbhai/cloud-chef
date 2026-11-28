@@ -12,7 +12,7 @@ const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/;
 const WORKERS_BUILD_UUID_PATTERN = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const WORKERS_BUILD_GENERATED_OUTPUTS = new Set(['app/routeTree.gen.ts']);
 /** The Build Output config `vite build` writes and `cf deploy --prebuilt` ships. */
-export const BUILT_WORKER_CONFIG_PATH = '.cloudflare/output/v0/workers/default/worker.config.json';
+export const BUILT_WORKER_CONFIG_PATH = '.cloudflare/output/v1/workers/default/worker.config.json';
 
 /**
  * @typedef {(command: string, args: readonly string[], options: {stdio: 'inherit'}) => {

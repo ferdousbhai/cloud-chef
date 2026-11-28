@@ -16,8 +16,9 @@ const DERIVED_WRANGLER_CONFIG_PATH = resolve(rootDir, '.cloudflare/wrangler.json
 
 /**
  * Evaluate cloudflare.config.ts as a production build does, with the deploy-injected values absent so callers see
- * exactly what is committed, and convert it with the same converter `cf deploy` uses. Verifiers can therefore keep
- * checking the Wrangler-format fields (`d1_databases`, `routes`, `vars`, ...) that are actually uploaded.
+ * exactly what is committed, and convert it with Cloudflare's converter (`@cloudflare/config`, the release the
+ * builder pins too). Verifiers can therefore keep checking the Wrangler-format fields (`d1_databases`, `routes`,
+ * `vars`, ...) of what is uploaded.
  * @param {{ path?: string }} [options]
  * @returns {Promise<Record<string, any>>}
  */

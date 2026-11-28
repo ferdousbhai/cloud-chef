@@ -346,7 +346,7 @@ describe('Cloudflare API proxy', () => {
 });
 
 /**
- * How `cf` 1.0.0-beta.24 sends a request (its API client in `dist/api-*.mjs`): `timeoutInSeconds ?? 60`, with no
+ * How `cf` 1.0.0-rc.6 sends a request (its API client in `dist/api-*.mjs`): `timeoutInSeconds ?? 60`, with no
  * setting for it and `maxRetries: 0`, aborts the request when its response headers haven't arrived in 60 s; the timer
  * is cleared once they have, and the body is then read with no timer, as text, then parsed as JSON.
  */

@@ -6,7 +6,7 @@ import { runVerifierIfMain } from './run-verifier.mjs';
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /** `vite build` writes the Worker as Build Output: `cf deploy --prebuilt` uploads `assets/` publicly and `bundle/`
  * (with every `.map` in it, as private Worker source maps) as the Worker. */
-const builtWorkerDirectory = resolve(rootDir, '.cloudflare/output/v0/workers/default');
+const builtWorkerDirectory = resolve(rootDir, '.cloudflare/output/v1/workers/default');
 const builtWorkerConfigPath = join(builtWorkerDirectory, 'worker.config.json');
 const sourceLicenseArtifactPath = resolve(rootDir, 'public/THIRD_PARTY_LICENSES.txt');
 

@@ -335,7 +335,7 @@ function runProductionBuild(untrustedHelperSource: string, expectSuccess: boolea
     // The bundle has to be read before the finally deletes the project tree.
     return {
       output,
-      files: expectSuccess ? readTextFiles(join(projectDir, '.cloudflare/output/v0/workers/default/bundle')) : [],
+      files: expectSuccess ? readTextFiles(join(projectDir, '.cloudflare/output/v1/workers/default/bundle')) : [],
     };
   } finally {
     rmSync(projectDir, { recursive: true, force: true });

@@ -23,7 +23,7 @@ registerHooks({
 });
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const builtServerPath = resolve(rootDir, '.cloudflare/output/v0/workers/default/bundle/index.js');
+const builtServerPath = resolve(rootDir, '.cloudflare/output/v1/workers/default/bundle/index.js');
 
 const routeCases = [
   { path: '/', status: 200, content: 'What do you want to make?' },
@@ -37,7 +37,7 @@ const routeCases = [
 async function verifyBuiltSsr() {
   if (!existsSync(builtServerPath)) {
     throw new Error(
-      '.cloudflare/output/v0/workers/default/bundle/index.js is missing; run pnpm run build before built SSR verification.',
+      '.cloudflare/output/v1/workers/default/bundle/index.js is missing; run pnpm run build before built SSR verification.',
     );
   }
 
