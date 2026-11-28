@@ -4,6 +4,7 @@ import {
   type DeploymentProjectProfile,
 } from '../../app/lib/.server/cloudflare/deployment-project-profile';
 import {
+  APP_AGENT_DECLARATIVE_EXPORT,
   DEPLOYMENT_ASSETS_RUN_WORKER_FIRST,
   DEPLOYMENT_COMPATIBILITY_DATE,
   DEPLOYMENT_COMPATIBILITY_FLAGS,
@@ -159,6 +160,7 @@ type AppWranglerConfig = {
   ai?: { binding: 'AI' };
   durable_objects?: { bindings: { name: string; class_name: string }[] };
   migrations?: { tag: string; new_sqlite_classes: string[] }[];
+  exports?: Record<string, typeof APP_AGENT_DECLARATIVE_EXPORT>;
   triggers: { crons: string[] };
 };
 
@@ -174,6 +176,11 @@ export function trustedAppWranglerConfig(args: {
   resources: AppResources;
   /** The Build Output version the app's build left its Worker in. */
   buildOutput: BuildOutputVersion;
+  /**
+   * The Worker's Durable Objects are declared by `exports` already (a publish with `cf` declared them so), and
+   * Cloudflare then refuses an upload that lists them as migrations: this one declares them the same way.
+   */
+  declaredExports?: boolean;
 }): AppWranglerConfig {
   const { profile, resources } = args;
   const built = cfBuildOutput(args.buildOutput);
@@ -219,8 +226,105 @@ export function trustedAppWranglerConfig(args: {
   }
   if (profile.bindings.appAgent) {
     config.durable_objects = { bindings: [{ name: APP_AGENT_CLASS_NAME, class_name: APP_AGENT_CLASS_NAME }] };
-    config.migrations = [{ tag: 'v1', new_sqlite_classes: [APP_AGENT_CLASS_NAME] }];
+    if (args.declaredExports) {
+      config.exports = { [APP_AGENT_CLASS_NAME]: APP_AGENT_DECLARATIVE_EXPORT };
+    } else {
+      config.migrations = [{ tag: 'v1', new_sqlite_classes: [APP_AGENT_CLASS_NAME] }];
+    }
     config.triggers = { crons: [DEPLOYMENT_SECURITY_CLEANUP_CRON] };
+  }
+  return config;
+}
+
+const versionExportsSchema = z.object({
+  result: z.object({
+    resources: z.object({ script_runtime: z.looseObject({ exports: z.record(z.string(), z.unknown()) }) }),
+  }),
+});
+
+/** Whether a Worker version, in Cloudflare's answer describing it, declares its Durable Objects by `exports`. */
+export function versionDeclaresExports(answer: string): boolean {
+  try {
+    const read = versionExportsSchema.safeParse(JSON.parse(answer));
+    return read.success && Object.keys(read.data.result.resources.script_runtime.exports).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The settings of an app's Worker as `cf` reads them from Build Output (`worker.config.json`). */
+type AppWorkerConfig = {
+  name: string;
+  compatibilityDate: string;
+  compatibilityFlags: string[];
+  workersDev: true;
+  previewUrls: true;
+  observability: {
+    enabled: boolean;
+    logs: { enabled: boolean; headSamplingRate: number };
+    traces: { enabled: boolean; headSamplingRate: number };
+  };
+  assets?: { runWorkerFirst: string[] };
+  env: Record<string, { type: string; name?: string; id?: string; worker?: string; exportName?: string }>;
+  exports?: Record<string, typeof APP_AGENT_DECLARATIVE_EXPORT>;
+  triggers?: { type: 'scheduled'; schedule: string }[];
+  manifest: { type: 'partial'; mainModule: string; modules: Record<string, never> };
+};
+
+/**
+ * The settings an app is published with by `cf` (`cf-deploy.ts`), written by CloudChef in place of the ones its build
+ * left: what `trustedAppWranglerConfig` says, in `cf`'s own form. The built Worker is the bundle's `index.js`, as the
+ * starter's build leaves it, and its Durable Objects are declared by `exports`, which is how `cf` declares them.
+ */
+export function trustedAppWorkerConfig(args: {
+  workerName: string;
+  profile: DeploymentProjectProfile;
+  resources: AppResources;
+}): AppWorkerConfig {
+  const { profile, resources, workerName } = args;
+  const config: AppWorkerConfig = {
+    name: workerName,
+    compatibilityDate: DEPLOYMENT_COMPATIBILITY_DATE,
+    compatibilityFlags: [...DEPLOYMENT_COMPATIBILITY_FLAGS],
+    workersDev: true,
+    previewUrls: true,
+    observability: {
+      enabled: DEPLOYMENT_OBSERVABILITY.enabled,
+      logs: {
+        enabled: DEPLOYMENT_OBSERVABILITY.logs.enabled,
+        headSamplingRate: DEPLOYMENT_OBSERVABILITY.logs.head_sampling_rate,
+      },
+      traces: {
+        enabled: DEPLOYMENT_OBSERVABILITY.traces.enabled,
+        headSamplingRate: DEPLOYMENT_OBSERVABILITY.traces.head_sampling_rate,
+      },
+    },
+    env: {},
+    manifest: { type: 'partial', mainModule: 'index.js', modules: {} },
+  };
+  if (profile.type === 'web_app' && profile.bindings.assets) {
+    config.assets = { runWorkerFirst: [...DEPLOYMENT_ASSETS_RUN_WORKER_FIRST] };
+    config.env.ASSETS = { type: 'assets' };
+  }
+  for (const binding of ['DB', 'AGENT_SECURITY_DB'] as const) {
+    const database = resources[binding];
+    if (database) {
+      config.env[binding] = { type: 'd1', name: database.name, id: database.id };
+    }
+  }
+  if (resources.APP_STORAGE) {
+    config.env.APP_STORAGE = { type: 'r2', name: resources.APP_STORAGE.name };
+  }
+  if (resources.APP_CACHE) {
+    config.env.APP_CACHE = { type: 'kv', id: resources.APP_CACHE.id };
+  }
+  if (profile.bindings.ai) {
+    config.env.AI = { type: 'ai' };
+  }
+  if (profile.bindings.appAgent) {
+    config.env[APP_AGENT_CLASS_NAME] = { type: 'durable-object', worker: workerName, exportName: APP_AGENT_CLASS_NAME };
+    config.exports = { [APP_AGENT_CLASS_NAME]: APP_AGENT_DECLARATIVE_EXPORT };
+    config.triggers = [{ type: 'scheduled', schedule: DEPLOYMENT_SECURITY_CLEANUP_CRON }];
   }
   return config;
 }

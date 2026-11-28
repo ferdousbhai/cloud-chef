@@ -47,8 +47,11 @@ export type BuildPlan =
        * until its build is done: its config is code, read only as the settings its build leaves.
        */
       workerName: string;
-      /** The D1 bindings with migrations, applied with Wrangler before the new code goes live. */
-      migrations: { binding: string; databaseName: string }[];
+      /**
+       * The D1 bindings with migrations, applied before the new code goes live: by Wrangler from the config, or by
+       * `cf` by the database's id.
+       */
+      migrations: { binding: string; databaseName: string; databaseId?: string }[];
       /**
        * A CloudChef app (made from CloudChef's starter): the capabilities its `cloudflare.project.json` declares,
        * whose resources, migrations and Wrangler config CloudChef makes itself (`app-build.ts`).
@@ -65,6 +68,11 @@ export type BuildPlan =
        * sealed before CloudChef read `v1` has none, and left `v0`.
        */
       buildOutput?: 'v0' | 'v1';
+      /**
+       * Set once the build is sealed for `cf`: its Worker waits in the publish folder as Build Output `v1`, and
+       * CloudChef's `cf` applies its migrations and publishes it, not Wrangler (`cf-deploy.ts`).
+       */
+      deployWith?: 'cf';
     }
   | { deployable: false; reason: string };
 

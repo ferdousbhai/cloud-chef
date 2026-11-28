@@ -616,6 +616,24 @@ the site's address (`recordProductionPublish`). Each step runs in a scheduled ca
 the step over a few times at most, and the runtime counts as busy while a step runs, so an upgrade never cuts a deploy
 off.
 
+A runtime can publish with the `cf` CLI instead of Wrangler. `PROJECT_BUILDER_DEPLOYS_WITH_CF` in
+`cloudflare.config.ts` is empty, which publishes everything with Wrangler, or a comma-separated list of CloudChef user
+ids (the publishes those people's runtimes build) and project ids, or `*` for everyone
+(`app/lib/.server/cloudflare/project-builder-rollout.ts`); the control plane answers it on the claim (`deployWith`),
+so a publish finishes with what it started with, and the variable is changed by a release, never in the dashboard.
+With `cf` (`user-workspace-runtime/src/cf-deploy.ts`), an app's or a `cf` project's built Worker is moved out of the
+project, once its build's processes are stopped, into a folder of its own as Build Output `v1` (`cf` run inside the
+project would hand over to the project's own copy of `cf`), with the settings CloudChef wrote (an app) or the build's
+own under the Worker's name and without its domains and routes (a `cf` project), and CloudChef's own `cf` runs
+`cf d1 migrations apply <database id>`, then `cf deploy --prebuilt --provision=false` or, for a branch,
+`cf workers versions create --prebuilt --preview-alias <alias>`, through the same proxy. `cf` sends the requests
+Wrangler sends (both recorded in `deploy-api-recorded-requests.json` and replayed in `deploy-api-policy.test.ts`), so
+the proxy allows nothing more for it; the site's address is asked of Cloudflare afterwards, since `cf` writes no
+record of it. A project with a Wrangler config of its own is published by Wrangler either way: Wrangler bundles its
+Worker when it deploys, which `cf` does not do. `cf` declares an app's Agent by `exports`, after which Cloudflare
+refuses an upload that lists it as migrations, so Wrangler's config for an app declares it the same way once the
+Worker's newest version does.
+
 A CloudChef app (a commit with the starter's `cloudflare.project.json` and no Wrangler config) is deployed in app mode
 (`user-workspace-runtime/src/app-build.ts`): the builder makes the resources its project file declares (`DB`,
 `AGENT_SECURITY_DB`, `APP_STORAGE`, `APP_CACHE`), named after the project, applies its databases' migrations, and

@@ -13,7 +13,9 @@ import {
   appProfile,
   appResourceNames,
   migrationChangedMessage,
+  trustedAppWorkerConfig,
   trustedAppWranglerConfig,
+  versionDeclaresExports,
 } from './app-build';
 
 const STARTER = JSON.stringify({
@@ -119,6 +121,84 @@ describe('a CloudChef app built in app mode', () => {
       triggers: { crons: ['0 3 * * *'] },
     });
     expect(config).not.toHaveProperty('assets');
+  });
+
+  it('declares the Agent by exports once a publish with cf has, since Cloudflare then refuses migrations', () => {
+    const read = appProfile({ projectFile: AGENT, packageJson: PACKAGE });
+    if (!('profile' in read)) {
+      throw new Error(read.reason);
+    }
+    const config = trustedAppWranglerConfig({
+      workerName: 'helper',
+      profile: read.profile,
+      resources: {},
+      buildOutput: 'v1',
+      declaredExports: true,
+    });
+    expect(config.exports).toEqual({ AppAgent: { type: 'durable-object', storage: 'sqlite' } });
+    expect(config).not.toHaveProperty('migrations');
+    expect(config.durable_objects).toEqual({ bindings: [{ name: 'AppAgent', class_name: 'AppAgent' }] });
+    const version = (runtime: { exports?: { AppAgent?: { type: string } }; migration_tag?: string }) =>
+      JSON.stringify({ result: { resources: { script_runtime: runtime } } });
+    expect(versionDeclaresExports(version({ exports: { AppAgent: { type: 'durable-object' } } }))).toBe(true);
+    expect(versionDeclaresExports(version({ migration_tag: 'v1' }))).toBe(false);
+    expect(versionDeclaresExports(version({ exports: {} }))).toBe(false);
+    expect(versionDeclaresExports('{ not json')).toBe(false);
+  });
+
+  it('writes the settings cf publishes an app with: its resources by id, in cf’s own form', () => {
+    const starter = appProfile({ projectFile: STARTER, packageJson: PACKAGE });
+    const agent = appProfile({ projectFile: AGENT, packageJson: PACKAGE });
+    if (!('profile' in starter) || !('profile' in agent)) {
+      throw new Error('unreadable');
+    }
+    expect(
+      trustedAppWorkerConfig({
+        workerName: 'tip-calc',
+        profile: starter.profile,
+        resources: {
+          DB: { id: '11111111-1111-1111-1111-111111111111', name: 'tip-calc-db-abc123' },
+          APP_STORAGE: { name: 'tip-calc-files-abc123' },
+          APP_CACHE: { id: '22222222222222222222222222222222' },
+        },
+      }),
+    ).toEqual({
+      name: 'tip-calc',
+      compatibilityDate: '2026-07-21',
+      compatibilityFlags: ['nodejs_compat'],
+      workersDev: true,
+      previewUrls: true,
+      observability: {
+        enabled: true,
+        logs: { enabled: true, headSamplingRate: 0.6 },
+        traces: { enabled: true, headSamplingRate: 0.05 },
+      },
+      assets: { runWorkerFirst: ['/*', '!/assets/*'] },
+      env: {
+        ASSETS: { type: 'assets' },
+        DB: { type: 'd1', name: 'tip-calc-db-abc123', id: '11111111-1111-1111-1111-111111111111' },
+        APP_STORAGE: { type: 'r2', name: 'tip-calc-files-abc123' },
+        APP_CACHE: { type: 'kv', id: '22222222222222222222222222222222' },
+      },
+      manifest: { type: 'partial', mainModule: 'index.js', modules: {} },
+    });
+    const helper = trustedAppWorkerConfig({
+      workerName: 'helper',
+      profile: agent.profile,
+      resources: { AGENT_SECURITY_DB: { id: '11111111-1111-1111-1111-111111111111', name: 'helper-agent-abc123' } },
+    });
+    expect(helper).toMatchObject({
+      name: 'helper',
+      env: {
+        AGENT_SECURITY_DB: { type: 'd1', name: 'helper-agent-abc123', id: '11111111-1111-1111-1111-111111111111' },
+        AI: { type: 'ai' },
+        // The Agent is the Worker's own class, under the name it is published as.
+        AppAgent: { type: 'durable-object', worker: 'helper', exportName: 'AppAgent' },
+      },
+      exports: { AppAgent: { type: 'durable-object', storage: 'sqlite' } },
+      triggers: [{ type: 'scheduled', schedule: '0 3 * * *' }],
+    });
+    expect(helper).not.toHaveProperty('domains');
   });
 
   it('deploys the Worker from the Build Output version its build left, v1 or v0', () => {

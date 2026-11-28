@@ -1,0 +1,687 @@
+[
+  {
+    "client": "cf",
+    "what": "first production deploy",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/subdomain"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "keep_bindings": ["secret_text", "secret_key"],
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          },
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/subdomain",
+        "settings": {
+          "enabled": true,
+          "previews_enabled": true
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/schedules",
+        "settings": [
+          {
+            "cron": "0 3 * * *"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "client": "cf",
+    "what": "production deploy of a Worker already there",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/versions",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "keep_bindings": ["secret_text", "secret_key"],
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          },
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments",
+        "settings": {
+          "strategy": "percentage",
+          "versions": [
+            {
+              "version_id": "22222222-2222-4222-8222-222222222222",
+              "percentage": 100
+            }
+          ],
+          "annotations": {}
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/script-settings",
+        "settings": {
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          },
+          "tags": []
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/subdomain",
+        "settings": {
+          "enabled": true,
+          "previews_enabled": true
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/schedules",
+        "settings": [
+          {
+            "cron": "0 3 * * *"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "client": "cf",
+    "what": "production deploy of a Worker with a Durable Object",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "AppAgent",
+              "type": "durable_object_namespace",
+              "class_name": "AppAgent",
+              "script_name": "glossary"
+            },
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "AI",
+              "type": "ai"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "exports": {
+            "AppAgent": {
+              "type": "durable-object",
+              "storage": "sqlite"
+            }
+          },
+          "keep_bindings": ["secret_text", "secret_key"],
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          },
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/subdomain",
+        "settings": {
+          "enabled": true,
+          "previews_enabled": true
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/schedules",
+        "settings": [
+          {
+            "cron": "0 3 * * *"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "client": "cf",
+    "what": "preview version with an alias",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/settings"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/versions",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "keep_bindings": ["secret_text", "secret_key"],
+          "annotations": {
+            "workers/alias": "my-branch"
+          },
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      }
+    ]
+  },
+  {
+    "client": "cf",
+    "what": "D1 migrations by database id",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query"
+      }
+    ]
+  },
+  {
+    "client": "wrangler",
+    "what": "first production deploy",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/subdomain"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/settings"
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "code_update_strategy": {
+            "mode": "deferred",
+            "max_delay": 300
+          },
+          "keep_bindings": ["secret_text", "secret_key"],
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          },
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/subdomain",
+        "settings": {
+          "enabled": true,
+          "previews_enabled": true
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/schedules",
+        "settings": [
+          {
+            "cron": "0 3 * * *"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "client": "wrangler",
+    "what": "production deploy of a Worker already there",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/settings"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/versions",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "keep_bindings": ["secret_text", "secret_key"],
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          },
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/deployments",
+        "settings": {
+          "strategy": "percentage",
+          "versions": [
+            {
+              "version_id": "22222222-2222-4222-8222-222222222222",
+              "percentage": 100
+            }
+          ],
+          "annotations": {},
+          "code_update_strategy": {
+            "mode": "deferred",
+            "max_delay": 300
+          }
+        }
+      },
+      {
+        "method": "PATCH",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/script-settings",
+        "settings": {
+          "observability": {
+            "enabled": true,
+            "logs": {
+              "enabled": true,
+              "head_sampling_rate": 0.6
+            },
+            "traces": {
+              "enabled": true,
+              "head_sampling_rate": 0.05
+            }
+          },
+          "tags": []
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/subdomain",
+        "settings": {
+          "enabled": true,
+          "previews_enabled": true
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/schedules",
+        "settings": [
+          {
+            "cron": "0 3 * * *"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "client": "wrangler",
+    "what": "preview version with an alias",
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/services/glossary"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/secrets"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/assets-upload-session"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/assets/upload"
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/settings"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/workers/scripts/glossary/versions",
+        "settings": {
+          "main_module": "index.js",
+          "bindings": [
+            {
+              "name": "DB",
+              "type": "d1",
+              "id": "11111111-1111-4111-8111-111111111111"
+            },
+            {
+              "name": "ASSETS",
+              "type": "assets"
+            }
+          ],
+          "compatibility_date": "2026-07-21",
+          "compatibility_flags": ["nodejs_compat"],
+          "keep_bindings": ["secret_text", "secret_key"],
+          "annotations": {
+            "workers/alias": "wr-branch"
+          },
+          "assets": {
+            "jwt": "jwt",
+            "config": {
+              "run_worker_first": ["/api"]
+            }
+          }
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/client/v4/accounts/acc/workers/workers/glossary"
+      }
+    ]
+  },
+  {
+    "client": "wrangler",
+    "what": "D1 migrations by database name",
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query"
+      },
+      {
+        "method": "POST",
+        "path": "/client/v4/accounts/acc/d1/database/11111111-1111-4111-8111-111111111111/query"
+      }
+    ]
+  }
+]

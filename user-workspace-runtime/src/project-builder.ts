@@ -41,7 +41,9 @@ import {
   appProfile,
   appResourceNames,
   migrationChangedMessage,
+  trustedAppWorkerConfig,
   trustedAppWranglerConfig,
+  versionDeclaresExports,
   type AppResources,
 } from './app-build';
 import {
@@ -62,6 +64,21 @@ import {
   forgetBuildOutputMarker,
   type BuildOutputVersion,
 } from './cf-project-build';
+import {
+  CF,
+  cfBuiltCommand,
+  cfBuiltWorker,
+  cfInstallLine,
+  cfMigrationsArgs,
+  cfPublishArgs,
+  namedWorkerConfig,
+  PUBLISH_DIR,
+  PUBLISH_WORKER_CONFIG,
+  publishedAddress,
+  publishedAddressReads,
+  publishFolderCommand,
+  writeWorkerConfigCommand,
+} from './cf-deploy';
 import { CF_BUILD_OUTPUT_VERSIONS } from '../../template/scripts/lib/cloudflare-project.mjs';
 import { lookedUpField, sentPastRefusals } from './resource-lookup';
 import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
@@ -97,6 +114,11 @@ const BUILDER_CONTAINER_IDLE_TIMEOUT_MS = 5 * 60_000;
  * applies its databases' migrations (each recorded in the database, so an applied one never runs again and a
  * changed one is refused), and writes the Wrangler config from CloudChef's own settings; Wrangler then deploys the
  * built Worker with it as for any project.
+ *
+ * A runtime the control plane says publishes with `cf` (`deployWith` on the claim, `project-builder-rollout.ts`)
+ * publishes an app and a `cf` project with CloudChef's own `cf` instead (`cf-deploy.ts`): in step 3 the built Worker
+ * is moved out of the project as Build Output, and in step 4 `cf` applies the migrations and publishes it, through
+ * the same proxy and the same rules. A project with a Wrangler config of its own is published by Wrangler either way.
  *
  * Each step runs in a scheduled call of its own, so none outlasts the time one may run; between them the job's
  * step is kept here, and a job whose container was lost starts over, a few times at most. While a step runs, a
@@ -182,6 +204,8 @@ type Job = {
    * account, and adds nothing.
    */
   restricted: boolean;
+  /** `cf` publishes this job's app or `cf` project, as the control plane said when it was claimed; else Wrangler. */
+  deployWith: 'cf' | null;
 };
 
 /** A job as the deploy gate and the token are asked about it. */
@@ -206,6 +230,7 @@ type JobRow = {
   migrated: number;
   project_slug: string | null;
   restricted: number;
+  deploy_with: string | null;
 };
 
 const jobSchema = z.object({
@@ -227,9 +252,10 @@ const planSchema = z.looseObject({
   configBuild: z.string().nullable(),
   configFile: z.enum(['wrangler.json', 'wrangler.jsonc', 'wrangler.toml']).nullable(),
   workerName: z.string(),
-  migrations: z.array(z.object({ binding: z.string(), databaseName: z.string() })),
+  migrations: z.array(z.object({ binding: z.string(), databaseName: z.string(), databaseId: z.string().optional() })),
   cfProject: z.literal(true).optional(),
   buildOutput: z.enum(CF_BUILD_OUTPUT_VERSIONS).optional(),
+  deployWith: z.literal('cf').optional(),
   app: z
     .object({
       type: z.enum(['web_app', 'worker']),
@@ -312,7 +338,8 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       migrated INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       project_slug TEXT,
-      restricted INTEGER NOT NULL DEFAULT 0
+      restricted INTEGER NOT NULL DEFAULT 0,
+      deploy_with TEXT
     )`);
     // A table from before CloudChef apps were built here lacks the slug.
     const columns = ctx.storage.sql.exec<{ name: string }>('PRAGMA table_info(builder_jobs)').toArray();
@@ -322,6 +349,10 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     // And one from before a collaborator's publish was held to the project's own resources.
     if (!columns.some((column) => column.name === 'restricted')) {
       ctx.storage.sql.exec('ALTER TABLE builder_jobs ADD COLUMN restricted INTEGER NOT NULL DEFAULT 0');
+    }
+    // And one from before a runtime could publish with cf: its jobs publish with Wrangler.
+    if (!columns.some((column) => column.name === 'deploy_with')) {
+      ctx.storage.sql.exec('ALTER TABLE builder_jobs ADD COLUMN deploy_with TEXT');
     }
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS builder_logs (
       deployment_id TEXT PRIMARY KEY,
@@ -435,6 +466,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       recordedWorker: claimed.workerName,
       slug: claimed.slug,
       restricted: claimed.restricted === true,
+      deployWith: claimed.deployWith ?? null,
     });
     return { queued: true };
   }
@@ -462,6 +494,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       recordedWorker: claimed.workerName,
       slug: claimed.slug,
       restricted: claimed.restricted === true,
+      deployWith: claimed.deployWith ?? null,
     });
     return { deploymentId: retried.deploymentId };
   }
@@ -482,17 +515,27 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
   private async addJob(
     job: Pick<
       Job,
-      'deploymentId' | 'orgProjectId' | 'repo' | 'branch' | 'commit' | 'kind' | 'recordedWorker' | 'slug' | 'restricted'
+      | 'deploymentId'
+      | 'orgProjectId'
+      | 'repo'
+      | 'branch'
+      | 'commit'
+      | 'kind'
+      | 'recordedWorker'
+      | 'slug'
+      | 'restricted'
+      | 'deployWith'
     >,
   ): Promise<void> {
     this.ctx.storage.sql.exec(
       `INSERT INTO builder_jobs (deployment_id, org_project_id, repo, branch, commit_sha, kind, recorded_worker, status,
-         created_at, project_slug, restricted)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+         created_at, project_slug, restricted, deploy_with)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
        ON CONFLICT(deployment_id) DO UPDATE SET repo = excluded.repo, recorded_worker = excluded.recorded_worker,
          status = 'pending', step = 'prepare', restarts = 0, waits = 0, plan = NULL, worker_name = NULL,
          name_taken = 0, deploy_config = NULL, migrated = 0, created_at = excluded.created_at,
-         project_slug = excluded.project_slug, restricted = excluded.restricted`,
+         project_slug = excluded.project_slug, restricted = excluded.restricted,
+         deploy_with = excluded.deploy_with`,
       job.deploymentId,
       job.orgProjectId,
       job.repo,
@@ -503,6 +546,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       Date.now(),
       job.slug,
       job.restricted ? 1 : 0,
+      job.deployWith,
     );
     await this.schedule(0, 'runNext', {});
   }
@@ -657,7 +701,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     );
     await this.whileReporting(job, 'building', async () => {
       const started = Date.now();
-      await this.prepareContainer();
+      await this.prepareContainer(publishesWithCf(job, plan));
       this.appendLog(job, `[build machine set up: ${seconds(Date.now() - started)}]\n`);
       await this.asBuildUser(job, 'install', fetchCommand(job), SHORT_TIMEOUT_MS);
       await this.command(`touch ${jobMarker(job)}`, SHORT_TIMEOUT_MS);
@@ -672,14 +716,21 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
    */
   private async seal(job: Job, plan: DeployablePlan): Promise<void> {
     await this.root(job, 'build', endBuildPhase(), SHORT_TIMEOUT_MS);
+    const cf = publishesWithCf(job, plan);
     if (plan.app) {
-      // An app's Wrangler config is CloudChef's, written once its resources are made; the build left only the Worker.
-      await this.command(`rm -rf ${WORK_DIR}/.wrangler/deploy && ${forgetBuildOutputMarker()}`, SHORT_TIMEOUT_MS);
+      // An app's settings are CloudChef's, written once its resources are made; the build left only the Worker.
+      if (!cf) {
+        await this.command(`rm -rf ${WORK_DIR}/.wrangler/deploy && ${forgetBuildOutputMarker()}`, SHORT_TIMEOUT_MS);
+      }
       const built = appBuiltVersion((await this.command(appBuiltVersionCommand(), SHORT_TIMEOUT_MS)).stdout);
       if ('reason' in built) {
         throw new StepFailure('build', built.reason);
       }
       const settled: DeployablePlan = { ...plan, buildOutput: built.version };
+      if (cf) {
+        await this.command(publishFolderCommand(built.version), SHORT_TIMEOUT_MS);
+        settled.deployWith = 'cf';
+      }
       this.ctx.storage.sql.exec(
         'UPDATE builder_jobs SET plan = ? WHERE deployment_id = ?',
         JSON.stringify(settled),
@@ -688,7 +739,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       return;
     }
     if (plan.cfProject) {
-      await this.sealCfProject(job, plan);
+      await (cf ? this.sealCfProjectForCf(job, plan) : this.sealCfProject(job, plan));
       return;
     }
     const source = await this.effectiveConfigPath(plan);
@@ -740,6 +791,39 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       'UPDATE builder_jobs SET plan = ?, deploy_config = ? WHERE deployment_id = ?',
       JSON.stringify(settled),
       target,
+      job.deploymentId,
+    );
+  }
+
+  /**
+   * A `cf` project's build, sealed for `cf`: the Worker and the settings the build left are moved to the publish
+   * folder without the addresses a publish never changes (`cfBuiltWorker`), and the plan learns the Worker's name and
+   * the database its migrations apply to.
+   */
+  private async sealCfProjectForCf(job: Job, plan: DeployablePlan): Promise<void> {
+    const read = await this.command(cfBuiltCommand(), SHORT_TIMEOUT_MS).catch((error: Error) => {
+      this.appendLog(job, failedCommandLog(error));
+      throw new StepFailure('config', 'CloudChef couldn’t read the settings the build left for its Worker.');
+    });
+    const built = cfBuiltWorker(read.stdout);
+    if ('reason' in built) {
+      throw new StepFailure(built.stage, built.reason);
+    }
+    await this.command(publishFolderCommand(built.version, built.config), SHORT_TIMEOUT_MS);
+    for (const note of built.notes) {
+      this.appendLog(job, `\n${note}\n`);
+    }
+    const settled: DeployablePlan = {
+      ...plan,
+      workerName: built.workerName,
+      migrations: built.migrations,
+      buildOutput: built.version,
+      deployWith: 'cf',
+    };
+    this.ctx.storage.sql.exec(
+      'UPDATE builder_jobs SET plan = ?, deploy_config = ? WHERE deployment_id = ?',
+      JSON.stringify(settled),
+      PUBLISH_WORKER_CONFIG,
       job.deploymentId,
     );
   }
@@ -825,7 +909,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       return { next: 'migrate' };
     }
     if (plan.app) {
-      await this.provisionApp(job, plan.app, job.workerName, plan.buildOutput ?? 'v0');
+      await this.provisionApp(job, plan.app, job.workerName, plan.buildOutput ?? 'v0', plan.deployWith === 'cf');
       return { next: 'deploy' };
     }
     const database = job.kind === 'production' ? plan.migrations[job.migrated] : undefined;
@@ -835,6 +919,14 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     await this.expectRecorded(this.report(job, { state: 'deploying', workerName: job.workerName, step: 'migrating' }));
     this.openGate(job, job.workerName);
     await this.whileReporting(job, 'deploying', async () => {
+      if (plan.deployWith === 'cf') {
+        if (!database.databaseId) {
+          throw new StepFailure('interrupted', 'Publishing lost its place.');
+        }
+        this.appendLog(job, `\n$ cf d1 migrations apply ${database.databaseId} --dir migrations\n`);
+        await this.runCf(job, 'migrations', cfMigrationsArgs(database.databaseId));
+        return;
+      }
       this.appendLog(job, `\n$ wrangler d1 migrations apply ${database.databaseName} --remote\n`);
       await this.runWrangler(
         job,
@@ -851,14 +943,16 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
 
   /**
    * App mode: makes the resources the app's project file asks for (found again by name at later deploys), applies
-   * its databases' migrations for a deploy of main, and writes CloudChef's Wrangler config for the deploy. A deploy
-   * that would remove the Agent from a Worker holding its data is refused before anything changes.
+   * its databases' migrations for a deploy of main, and writes CloudChef's settings for the deploy: a Wrangler config,
+   * or with `cf` the built Worker's settings in the publish folder. A deploy that would remove the Agent from a Worker
+   * holding its data is refused before anything changes.
    */
   private async provisionApp(
     job: Job,
     profile: NonNullable<DeployablePlan['app']>,
     workerName: string,
     buildOutput: BuildOutputVersion,
+    cf: boolean,
   ): Promise<void> {
     await this.expectRecorded(this.report(job, { state: 'deploying', workerName, step: 'migrating' }));
     await this.whileReporting(job, 'deploying', async () => {
@@ -972,10 +1066,22 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
           await step(`apply the migrations of ${database.name}`, () => api.applyD1Migrations(database.id, read));
         }
       }
-      const target = `${WORK_DIR}/${DEPLOY_CONFIG_NAME}`;
-      const config = trustedAppWranglerConfig({ workerName, profile, resources, buildOutput });
-      const encoded = base64(new TextEncoder().encode(JSON.stringify(config)));
-      await this.command(`printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)}`, SHORT_TIMEOUT_MS);
+      let target = `${WORK_DIR}/${DEPLOY_CONFIG_NAME}`;
+      if (cf) {
+        target = PUBLISH_WORKER_CONFIG;
+        const config = trustedAppWorkerConfig({ workerName, profile, resources });
+        await this.command(writeWorkerConfigCommand(config), SHORT_TIMEOUT_MS);
+      } else {
+        const config = trustedAppWranglerConfig({
+          workerName,
+          profile,
+          resources,
+          buildOutput,
+          declaredExports: profile.bindings.appAgent && (await this.declaresExports(job, workerName)),
+        });
+        const encoded = base64(new TextEncoder().encode(JSON.stringify(config)));
+        await this.command(`printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)}`, SHORT_TIMEOUT_MS);
+      }
       this.ctx.storage.sql.exec(
         'UPDATE builder_jobs SET deploy_config = ? WHERE deployment_id = ?',
         target,
@@ -992,12 +1098,22 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     }
     await this.expectRecorded(this.report(job, { state: 'deploying', workerName, step: 'publishing' }));
     this.openGate(job, workerName);
+    const alias = previewAlias(job.branch);
     const config = ` --config ${shellQuote(job.deployConfig)}`;
     const command =
       job.kind === 'production'
         ? `deploy --name ${workerName}${config}`
-        : `versions upload --name ${workerName} --preview-alias ${previewAlias(job.branch)}${config}`;
+        : `versions upload --name ${workerName} --preview-alias ${alias}${config}`;
     const url = await this.whileReporting(job, 'deploying', async () => {
+      if (plan.deployWith === 'cf') {
+        if (!plan.app) {
+          await this.nameSealedWorker(workerName);
+        }
+        const args = cfPublishArgs(job.kind, alias);
+        this.appendLog(job, `\n$ cf ${args}\n`);
+        await this.runCf(job, 'deploy', args);
+        return this.readPublishedAddress(job, workerName, alias);
+      }
       this.appendLog(job, `\n$ wrangler ${command}\n`);
       await this.runWrangler(job, 'deploy', command);
       const output = await this.command(`cat ${WRANGLER_OUTPUT} 2>/dev/null || true`, SHORT_TIMEOUT_MS);
@@ -1023,6 +1139,59 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     }
     await reportProjectDeployment(this.env, this.identity(), succeeded);
     return 'done';
+  }
+
+  /** Writes the Worker CloudChef publishes to into a `cf` project's sealed settings, which carry the config's name. */
+  private async nameSealedWorker(workerName: string): Promise<void> {
+    const sealed = await this.command(`cat ${shellQuote(PUBLISH_WORKER_CONFIG)}`, SHORT_TIMEOUT_MS);
+    const config = namedWorkerConfig(sealed.stdout, workerName);
+    if (!config) {
+      throw new StepFailure('config', 'CloudChef couldn’t read the settings the build left for its Worker.');
+    }
+    await this.command(writeWorkerConfigCommand(config), SHORT_TIMEOUT_MS);
+  }
+
+  /** Where a publish `cf` made is served, asked of Cloudflare (`publishedAddress`); null when it can't be read. */
+  private async readPublishedAddress(job: Job, workerName: string, alias: string): Promise<string | null> {
+    const reads = publishedAddressReads(job.kind, workerName);
+    const read = async (path: string | undefined) =>
+      path === undefined
+        ? undefined
+        : this.cloudflare(job, path)
+            .then((response) => response.json())
+            .catch(() => undefined);
+    const [subdomain, workerSubdomain, domains, versions] = await Promise.all([
+      read(reads.subdomain),
+      read(reads.workerSubdomain),
+      read(reads.domains),
+      read(reads.versions),
+    ]);
+    return publishedAddress({
+      kind: job.kind,
+      workerName,
+      alias,
+      answers: { subdomain, workerSubdomain, domains, versions },
+    });
+  }
+
+  /**
+   * Whether the Worker's Durable Objects are declared by `exports` already, as a publish with `cf` leaves them: its
+   * newest version says. False for a Worker that isn't there, and when Cloudflare can't be asked.
+   */
+  private async declaresExports(job: JobRef, workerName: string): Promise<boolean> {
+    try {
+      const listed = z
+        .object({ result: z.object({ items: z.array(z.object({ id: z.string().uuid() })) }) })
+        .safeParse(await (await this.cloudflare(job, `/workers/scripts/${workerName}/versions?per_page=1`)).json());
+      const newest = listed.success ? listed.data.result.items[0]?.id : undefined;
+      return newest
+        ? versionDeclaresExports(
+            await (await this.cloudflare(job, `/workers/scripts/${workerName}/versions/${newest}`)).text(),
+          )
+        : false;
+    } catch {
+      return false;
+    }
   }
 
   /** Records how a job ended that didn't succeed: quietly when it was superseded, else with its stage and reason. */
@@ -1143,7 +1312,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
    * managers downloaded carries over; nothing of the last publish's own is left running or in the work folder.
    * Anyone who can publish a branch of the project can publish its main too, so this lets no one do anything new.
    */
-  private async prepareContainer(): Promise<void> {
+  private async prepareContainer(cf: boolean): Promise<void> {
     if (!this.ctx.container?.running) {
       await this.destroy().catch(() => undefined);
       await this.start();
@@ -1165,9 +1334,11 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
         'set -eu',
         `id -u ${BUILD_USER} >/dev/null 2>&1 || useradd --uid ${BUILD_UID} --create-home ${BUILD_USER}`,
         `pkill -KILL -u ${BUILD_USER} || true`,
-        `rm -rf ${WORK_DIR} ${WRANGLER_OUTPUT} ${WRANGLER_LOG_DIR} /opt/cloudchef/job-*`,
+        `rm -rf ${WORK_DIR} ${PUBLISH_DIR} ${WRANGLER_OUTPUT} ${WRANGLER_LOG_DIR} /opt/cloudchef/job-*`,
         `mkdir -p ${WORK_DIR} && chown ${BUILD_USER}:${BUILD_USER} ${WORK_DIR}`,
-        `[ -x ${WRANGLER} ] || npm install --prefix ${WRANGLER_ROOT} wrangler@${WRANGLER_VERSION} --ignore-scripts --no-audit --no-fund --loglevel=error`,
+        cf
+          ? cfInstallLine()
+          : `[ -x ${WRANGLER} ] || npm install --prefix ${WRANGLER_ROOT} wrangler@${WRANGLER_VERSION} --ignore-scripts --no-audit --no-fund --loglevel=error`,
         'command -v pnpm >/dev/null 2>&1 || npm install --global pnpm --ignore-scripts --no-audit --no-fund --loglevel=error',
         'corepack enable >/dev/null 2>&1 || true',
       ].join('\n'),
@@ -1283,6 +1454,42 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       if (details?.stdout.trim()) {
         this.appendLog(job, `\nWhat Wrangler recorded:\n${details.stdout.trim()}\n`);
       }
+      throw new StepFailure(stage, this.#collaboratorRefusal ?? failureSentence(stage));
+    }
+  }
+
+  /**
+   * Runs CloudChef's `cf` from the publish folder, where nothing of the project is but its built Worker, with the
+   * deploy proxy as Cloudflare's API: `cf` holds no token, as Wrangler holds none.
+   */
+  private async runCf(job: Job, stage: 'deploy' | 'migrations', args: string): Promise<void> {
+    const env = {
+      CLOUDFLARE_API_BASE_URL: `http://${DEPLOY_API_HOST}/client/v4`,
+      // cf needs a token to run unattended; this builder puts the real one in place of this.
+      CLOUDFLARE_API_TOKEN: 'cloudchef-deploy-proxy',
+      // With the account named, cf never lists the accounts the token reaches.
+      CLOUDFLARE_ACCOUNT_ID: this.env.CLOUDFLARE_ACCOUNT_ID,
+      CF_SEND_TELEMETRY: 'false',
+      WRANGLER_SEND_METRICS: 'false',
+      DO_NOT_TRACK: '1',
+      GIT_DIR: '/nonexistent',
+      GIT_CEILING_DIRECTORIES: '/',
+      CI: '1',
+    };
+    this.#requests = emptyRequestTally();
+    this.#collaboratorRefusal = null;
+    try {
+      const output = await this.command(
+        `cd ${PUBLISH_DIR} && ${CF} ${args}`,
+        DEPLOY_TIMEOUT_MS,
+        env,
+        LOGGED_OUTPUT_BYTES,
+      );
+      this.appendLog(job, `${output.stdout}${output.stderr}`);
+      this.appendLog(job, requestTallyLine(this.#requests));
+    } catch (error) {
+      this.appendLog(job, requestTallyLine(this.#requests));
+      this.appendLog(job, failedCommandLog(error instanceof Error ? error : new Error(String(error))));
       throw new StepFailure(stage, this.#collaboratorRefusal ?? failureSentence(stage));
     }
   }
@@ -1658,7 +1865,17 @@ function toJob(row: JobRow): Job {
     migrated: row.migrated,
     slug: row.project_slug,
     restricted: row.restricted === 1,
+    deployWith: row.deploy_with === 'cf' ? 'cf' : null,
   };
+}
+
+/**
+ * Whether `cf` publishes this job: its runtime publishes with `cf`, and its build leaves Build Output (a CloudChef app
+ * or a `cf` project). A project with a Wrangler config of its own is bundled by Wrangler when it deploys, which `cf`
+ * doesn't do, so Wrangler publishes it.
+ */
+function publishesWithCf(job: Pick<Job, 'deployWith'>, plan: DeployablePlan): boolean {
+  return job.deployWith === 'cf' && (plan.app !== undefined || plan.cfProject === true);
 }
 
 function base64(bytes: Uint8Array): string {

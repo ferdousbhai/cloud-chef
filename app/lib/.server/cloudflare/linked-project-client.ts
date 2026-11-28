@@ -449,6 +449,8 @@ const claimedDeploymentSchema = z.object({
   workerName: z.string().nullable(),
   /** The project's name in addresses, which a CloudChef app's Worker is named after. */
   slug: z.string().nullable(),
+  /** This runtime publishes apps and `cf` projects with `cf`; without it, with Wrangler. */
+  deployWith: z.literal('cf').optional(),
 });
 type ClaimedDeployment = z.infer<typeof claimedDeploymentSchema>;
 

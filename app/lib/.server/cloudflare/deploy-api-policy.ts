@@ -2,8 +2,10 @@ import { z } from 'zod';
 
 /**
  * What may go to Cloudflare's API, with the account's authorization, while CloudChef deploys a project it deploys
- * itself. It must hold even when the project's own code sends the requests (the deploy runs the project's build
- * output and Wrangler config), so it allows what deploying one Worker takes and nothing that reaches CloudChef's own
+ * itself, with Wrangler or with `cf`: the two send the same requests, which the recorded sets in
+ * `deploy-api-recorded-requests.json` are replayed against in the tests. It must hold even when the project's own
+ * code sends the requests (the deploy runs the project's build output and its settings), so it allows what deploying
+ * one Worker takes and nothing that reaches CloudChef's own
  * Workers and resources in the account or reads stored data: reading the account's Workers settings for that one
  * Worker, and its D1 databases, KV namespaces and R2 buckets by name; writing that one Worker, with bindings that
  * never reach CloudChef's own (`deployBindingsCheck`); making the D1, KV and R2 resources its config asks for; and
@@ -144,6 +146,22 @@ const bindingSchema = z.looseObject({
 const consumersSchema = z.array(z.looseObject({ service: z.string().optional() })).optional();
 const transfersSchema = z.array(z.looseObject({ from_script: z.string().optional() })).optional();
 const migrationSchema = z.looseObject({ transferred_classes: transfersSchema });
+/**
+ * What a Worker declares of its own classes, which is how `cf` (and a Wrangler config with `exports`) makes its
+ * Durable Objects and Workflows: a Workflow by its name in the account, a Durable Object that may be taken over from
+ * another Worker.
+ */
+const exportsSchema = z
+  .record(
+    z.string(),
+    z.looseObject({
+      name: z.string().optional(),
+      state: z.string().optional(),
+      transferFrom: z.string().optional(),
+      transfer_from: z.string().optional(),
+    }),
+  )
+  .optional();
 
 /** The parts of a Worker upload's `metadata` or `settings` that could reach beyond the Worker itself. */
 export const workerSettingsSchema = z.looseObject({
@@ -153,10 +171,11 @@ export const workerSettingsSchema = z.looseObject({
   migrations: z
     .union([migrationSchema.extend({ steps: z.array(migrationSchema).optional() }), z.array(migrationSchema)])
     .optional(),
+  exports: exportsSchema,
 });
 
 /**
- * Whether the settings a Worker upload carries (its bindings, Durable Object migrations, tail consumers) stay clear
+ * Whether the settings a Worker upload carries (its bindings, Durable Object migrations and exports, tail consumers) stay clear
  * of CloudChef's own Workers and resources: a refusal to show, or the ids to look up.
  */
 export function deployBindingsCheck(
@@ -201,6 +220,15 @@ export function deployBindingsCheck(
   const transfers = migrations.flatMap((migration) => migration.transferred_classes ?? []);
   if (transfers.some((transfer) => transfer.from_script !== undefined && transfer.from_script !== workerName)) {
     return refuse('Durable Objects moved from another Worker');
+  }
+  for (const declared of Object.values(settings.exports ?? {})) {
+    if (isCloudChefResourceName(declared.name ?? '')) {
+      return refuse('CloudChef’s own Workers or resources');
+    }
+    const from = declared.transferFrom ?? declared.transfer_from;
+    if (from !== undefined && from !== workerName) {
+      return refuse('Durable Objects moved from another Worker');
+    }
   }
   return { lookups };
 }

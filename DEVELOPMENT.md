@@ -131,6 +131,15 @@ The base snapshot is kept in each runtime's own D1 (`base_container_snapshots`);
 (`base_setup_completed`, `base_snapshot_taken`, `base_snapshot_restore_failed`, and `workspace_container_launched` or
 `builder_container_started` with its `source`) say which a start used.
 
+## Publishing With cf
+
+The ProjectBuilder publishes with Wrangler unless `PROJECT_BUILDER_DEPLOYS_WITH_CF` (`cloudflare.config.ts`) names
+the publish (ARCHITECTURE.md, Deployment Boundary). To try `cf` on one project or one runtime, release with the
+project's id, or the person's CloudChef user id (`pnpm run ops:session -- <their email> --json`), in the variable;
+comma-separate several; `*` is everyone. The next publish that runtime claims uses `cf` (its log shows `$ cf deploy
+--prebuilt --provision=false`); one already running finishes with Wrangler. Release with the variable empty to go
+back. A runtime on a release from before the variable ignores it and publishes with Wrangler.
+
 ## Upgrading Workspace Runtimes
 
 A release that changes the runtime build, or moves its container applications to another scheduling policy, makes

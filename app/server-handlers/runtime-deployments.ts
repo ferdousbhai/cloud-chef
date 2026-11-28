@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { D1CloudflareCredentialVault } from '~/lib/.server/cloudflare/cloudflare-credential-vault';
 import { isCloudChefWorkerName } from '~/lib/.server/cloudflare/project-build-plan';
+import { projectBuilderDeploysWithCf } from '~/lib/.server/cloudflare/project-builder-rollout';
 import { CANONICAL_ORIGIN } from '~/lib/.server/public-origin';
 import { siteAllowsFraming } from '~/lib/.server/site-framing';
 import { publishesAsCollaborator, recordProductionPublish } from '~/lib/cloudflare/data/org-projects.server';
@@ -117,6 +118,10 @@ export async function runtimeDeploymentClaimAction(args: { request: Request; env
       repo: project.repo,
       workerName: project.deployWorkerName,
       slug: project.fullName?.split('/')[1] ?? null,
+      // Left out of the answer when Wrangler publishes, which is all a runtime from before `cf` knows.
+      deployWith: projectBuilderDeploysWithCf(args.env, { userId: identity.userId, projectId: project.id })
+        ? 'cf'
+        : undefined,
     },
     200,
   );

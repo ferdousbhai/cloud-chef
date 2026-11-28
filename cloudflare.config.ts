@@ -49,6 +49,10 @@ export default defineConfig({
       // for a canary (app/lib/.server/cloudflare/user-workspace-runtime-rollout.ts). Changed by a release, never
       // in the dashboard.
       WORKSPACE_RUNTIME_UPGRADE_CANARY: bindings.text(''),
+      // Whose projects the builder publishes with the cf CLI instead of Wrangler: empty for nobody, comma-separated
+      // CloudChef user ids (a runtime) and project ids for a canary, or * for everyone
+      // (app/lib/.server/cloudflare/project-builder-rollout.ts). Changed by a release, never in the dashboard.
+      PROJECT_BUILDER_DEPLOYS_WITH_CF: bindings.text(''),
       ...deployVar('COMMIT_SHA'),
       ...deployVar('CLOUDFLARE_OAUTH_CLIENT_ID'),
       // Migrations live in migrations/; scripts/apply-d1-migrations.mjs applies them to this database id.
