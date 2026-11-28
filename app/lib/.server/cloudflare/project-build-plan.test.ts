@@ -6,7 +6,7 @@ import {
   deployApiDecision,
   deployBindingsCheck,
 } from './deploy-api-policy';
-import { buildPlan, deployWorkerName, withoutJsonComments } from './project-build-plan';
+import { buildPlan, deployWorkerName, unpublishedPreviewRefusal, withoutJsonComments } from './project-build-plan';
 
 const PACKAGE = JSON.stringify({ scripts: { build: 'vite build' } });
 
@@ -126,6 +126,20 @@ describe('the Worker an uploaded project deploys as', () => {
       deployWorkerName({ recorded: 'glossary-eb65', configName: 'glossary', projectId: project, configNameTaken: true })
         .name,
     ).toBe('glossary-eb65');
+  });
+});
+
+describe('a preview of a project that was never published', () => {
+  it('is refused with what to do, only when Cloudflare says the Worker is not there', () => {
+    expect(unpublishedPreviewRefusal('preview', 404)).toContain('Publish main, then push this branch again.');
+    expect(unpublishedPreviewRefusal('preview', 200)).toBeNull();
+    // An answer that says nothing of the Worker decides nothing: the upload goes ahead.
+    expect(unpublishedPreviewRefusal('preview', 500)).toBeNull();
+    expect(unpublishedPreviewRefusal('preview', 0)).toBeNull();
+  });
+
+  it('never stops a publish of main, which is what makes the Worker', () => {
+    expect(unpublishedPreviewRefusal('production', 404)).toBeNull();
   });
 });
 

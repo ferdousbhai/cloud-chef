@@ -589,7 +589,9 @@ result in that command's card, and the model reads it in that command's output a
 
 A project has one production site: its Worker in the person's account, at its `workers.dev` address or the domains
 attached to it, and for an app made from CloudChef's starter the project's D1 databases, R2 bucket and KV namespace.
-A push of another branch makes a preview version of that Worker, at its own address. The workspace frames the live
+A push of another branch makes a preview version of that Worker, at its own address, once main has been published:
+Cloudflare uploads a version only of a Worker that exists, so a preview before then ends saying to publish main
+first, with nothing made for it (`unpublishedPreviewRefusal`). The workspace frames the live
 site or the newest preview beside the chat, which every starter app's `application-response.ts` lets cloudchef.build
 (and only it) do.
 

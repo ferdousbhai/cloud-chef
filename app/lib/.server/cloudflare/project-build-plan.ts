@@ -329,6 +329,19 @@ export function isCloudChefWorkerName(name: string): boolean {
 type DeployWorker = { name: string; nameTaken: boolean };
 
 /**
+ * Why a branch can't be previewed yet: Cloudflare uploads a version only of a Worker that exists (Wrangler and `cf`
+ * are both refused), and a project's Worker is made by its first publish of main, which a preview must never be.
+ * Null for a publish of main, and unless Cloudflare answered that the Worker is not there (`workerStatus` is the
+ * status of its answer to a read of the Worker).
+ */
+export function unpublishedPreviewRefusal(kind: 'production' | 'preview', workerStatus: number): string | null {
+  return kind === 'preview' && workerStatus === 404
+    ? 'This project hasn’t been published yet, and a preview needs its Worker, which the first publish of main ' +
+        'makes. Publish main, then push this branch again.'
+    : null;
+}
+
+/**
  * The Worker a project deploys as: the one it deployed as before, else the name its config gives while no Worker of
  * that name is in the account, else a free name made from it and the project's id. A name CloudChef's own Workers
  * use is never taken.

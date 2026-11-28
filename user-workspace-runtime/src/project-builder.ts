@@ -28,6 +28,7 @@ import {
   deployWorkerName,
   isAppCommit,
   isCloudChefWorkerName,
+  unpublishedPreviewRefusal,
   withoutJsonComments,
   type BuildPlan,
 } from '../../app/lib/.server/cloudflare/project-build-plan';
@@ -894,6 +895,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       }
       await this.expectRecorded(Promise.resolve(started.outcome));
       const worker = await this.chooseWorker(job, plan, started.workerName ?? job.recordedWorker);
+      await this.refuseUnpublishedPreview(job, worker.name);
       const held = await this.reportWithWorker(job, { state: 'deploying', workerName: worker.name });
       if (held.outcome === 'worker_taken') {
         this.appendLog(job, `\nAnother project publishes to the Worker named ${worker.name}.\n`);
@@ -1410,6 +1412,26 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       projectId: job.orgProjectId,
       configNameTaken: response.status === 200,
     });
+  }
+
+  /**
+   * Ends a preview of a project whose Worker isn't there yet with the reason, before anything is made for it. A
+   * read that fails otherwise decides nothing: the upload then says what Cloudflare does.
+   */
+  private async refuseUnpublishedPreview(job: Job, workerName: string): Promise<void> {
+    if (job.kind !== 'preview') {
+      return;
+    }
+    const status = await this.cloudflare(job, `/workers/services/${workerName}`)
+      .then(async (response) => {
+        await response.body?.cancel().catch(() => undefined);
+        return response.status;
+      })
+      .catch(() => 0);
+    const refusal = unpublishedPreviewRefusal(job.kind, status);
+    if (refusal) {
+      throw new StepFailure('deploy', refusal);
+    }
   }
 
   private async runWrangler(job: Job, stage: 'deploy' | 'migrations', args: string): Promise<void> {
