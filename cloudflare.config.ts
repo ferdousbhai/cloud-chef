@@ -52,7 +52,9 @@ export default defineConfig({
       // Whose projects the builder publishes with the cf CLI instead of Wrangler: empty for nobody, comma-separated
       // CloudChef user ids (a runtime) and project ids for a canary, or * for everyone
       // (app/lib/.server/cloudflare/project-builder-rollout.ts). Changed by a release, never in the dashboard.
-      PROJECT_BUILDER_DEPLOYS_WITH_CF: bindings.text(''),
+      PROJECT_BUILDER_DEPLOYS_WITH_CF: bindings.text(
+        'ebcfda65-f5af-4a7e-a21f-507b1df8e895,27b41a73-75d1-43f3-a576-5aae9ffe11b4',
+      ),
       ...deployVar('COMMIT_SHA'),
       ...deployVar('CLOUDFLARE_OAUTH_CLIENT_ID'),
       // Migrations live in migrations/; scripts/apply-d1-migrations.mjs applies them to this database id.
