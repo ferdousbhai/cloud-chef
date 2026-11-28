@@ -59,9 +59,6 @@ const rootRequiredPackages = [
   'react-dom',
   '@cloudflare/vite-plugin',
   'cf',
-  // Only for local D1 migrations (scripts/apply-d1-migrations.mjs --local), since `cf d1 migrations apply --local`
-  // never exits; @cloudflare/vitest-plugin brings its own. Production reads and writes go through cf.
-  'wrangler',
 ];
 const forbiddenLockfiles = ['package-lock.json'];
 const blockedRootBuildEntries = new Map([

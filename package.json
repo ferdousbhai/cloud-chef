@@ -131,7 +131,7 @@
     "@babel/plugin-proposal-decorators": "^8.0.2",
     "@cloudflare/config": "0.28.1",
     "@cloudflare/vite-plugin": "2.0.0-rc.6",
-    "@cloudflare/vitest-plugin": "1.4.9",
+    "@cloudflare/vitest-plugin": "1.10.0",
     "@cloudflare/workers-types": "5.20261028.1",
     "@oxlint/plugins": "1.90.0",
     "@tailwindcss/postcss": "^4.3.3",
@@ -157,8 +157,7 @@
     "unified": "^11.0.5",
     "vite": "^8.3.5",
     "vite-plugin-optimize-css-modules": "^1.4.0",
-    "vitest": "^5.0.5",
-    "wrangler": "4.154.0"
+    "vitest": "^5.0.5"
   },
   "packageManager": "pnpm@11.14.0"
 }

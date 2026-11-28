@@ -1,15 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { dirname, relative, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  controlPlaneDatabaseId,
-  loadCommittedWranglerConfig,
-  writeDerivedWranglerConfig,
-} from './lib/cloudflare-config.mjs';
+import { controlPlaneDatabaseId, loadCommittedWranglerConfig } from './lib/cloudflare-config.mjs';
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-/** `vite dev` and `vite preview` keep local state here (the Vite plugin's default `persistState`). */
-const LOCAL_STATE_DIRECTORY = '.cloudflare/state';
 
 /** @param {Record<string, any>} config Wrangler-format view of cloudflare.config.ts. */
 export function remoteD1MigrationArgs(config) {
@@ -17,23 +11,21 @@ export function remoteD1MigrationArgs(config) {
 }
 
 /**
- * `cf d1 migrations apply --local` applies every migration but then never exits, so the local database is migrated
- * with Wrangler against the derived config, into the state directory the Vite plugin serves from.
- * @param {string} configPath
+ * The local database, in `.cloudflare/state` beside cloudflare.config.ts, which is where `vite dev` and
+ * `vite preview` keep theirs (the Vite plugin's default `persistState`) and where `cf --local` writes.
+ * @param {Record<string, any>} config Wrangler-format view of cloudflare.config.ts.
  */
-export function localD1MigrationArgs(configPath) {
+export function localD1MigrationArgs(config) {
   return [
     'exec',
-    'wrangler',
+    'cf',
     'd1',
     'migrations',
     'apply',
-    'DB',
+    controlPlaneDatabaseId(config, { local: true }),
+    '--dir',
+    'migrations',
     '--local',
-    '--config',
-    relative(rootDir, configPath),
-    '--persist-to',
-    LOCAL_STATE_DIRECTORY,
   ];
 }
 
@@ -43,10 +35,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     console.error('Usage: node scripts/apply-d1-migrations.mjs --local|--remote');
     process.exit(1);
   }
-  const pnpmArgs =
-    args[0] === '--local'
-      ? localD1MigrationArgs(await writeDerivedWranglerConfig())
-      : remoteD1MigrationArgs(await loadCommittedWranglerConfig());
+  const config = await loadCommittedWranglerConfig();
+  const pnpmArgs = args[0] === '--local' ? localD1MigrationArgs(config) : remoteD1MigrationArgs(config);
   const result = spawnSync('pnpm', pnpmArgs, { cwd: rootDir, stdio: 'inherit' });
   if (result.error) {
     throw result.error;

@@ -16,8 +16,9 @@
         "tests/workerd/**/*.integration.ts",
         "tests/conversation-agent/**/*.integration.ts",
         "tests/workerd/server-dependencies.stub.ts",
-        // The Worker of the pi-durable workerd test, read by its wrangler.jsonc.
+        // The Worker of the pi-durable workerd test and its config, which vitest.workerd.config.ts names by path.
         "tests/workerd/pi/worker.ts",
+        "tests/workerd/pi/cloudflare.config.ts",
         // Child processes invoked by the canonical generated-artifact command.
         "make-bootstrap-snapshot.js",
         "scripts/build-user-workspace-runtime.mjs",
@@ -56,8 +57,5 @@
 
     // virtual module provided by the Cloudflare Workers runtime
     "cloudflare",
-
-    // run as `pnpm exec wrangler` only by local D1 migrations (scripts/apply-d1-migrations.mjs --local)
-    "wrangler",
   ],
 }

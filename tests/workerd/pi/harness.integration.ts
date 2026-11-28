@@ -13,7 +13,7 @@ import type { BuilderPiTestObject } from './worker';
 declare global {
   namespace Cloudflare {
     interface Env {
-      /** Bound only in this test's Worker (`wrangler.jsonc`). */
+      /** Bound only in this test's Worker (`cloudflare.config.ts`). */
       BUILDER?: DurableObjectNamespace<BuilderPiTestObject>;
     }
   }

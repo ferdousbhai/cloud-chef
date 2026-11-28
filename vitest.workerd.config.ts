@@ -4,7 +4,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
-import { writeDerivedWranglerConfig } from './scripts/lib/cloudflare-config.mjs';
 
 const rootDirectory = dirname(fileURLToPath(import.meta.url));
 const fromRoot = (path: string) => resolve(rootDirectory, path);
@@ -57,8 +56,7 @@ export default defineConfig({
             },
           }),
           cloudflareTest(async () => ({
-            // The pool reads only Wrangler config files, so it runs against a Wrangler-format copy of cloudflare.config.ts.
-            wrangler: { configPath: await writeDerivedWranglerConfig() },
+            config: fromRoot('./cloudflare.config.ts'),
             miniflare: {
               bindings: {
                 // Production secrets are never needed by local integration tests.
@@ -79,7 +77,7 @@ export default defineConfig({
       },
       {
         // The builder's pi-durable setup in a Durable Object of its own, on real Durable Object SQLite.
-        plugins: [cloudflareTest({ wrangler: { configPath: fromRoot('./tests/workerd/pi/wrangler.jsonc') } })],
+        plugins: [cloudflareTest({ config: fromRoot('./tests/workerd/pi/cloudflare.config.ts') })],
         resolve: { tsconfigPaths: true },
         test: { name: 'pi-harness', include: ['tests/workerd/pi/**/*.integration.ts'] },
       },
