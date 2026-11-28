@@ -63,15 +63,27 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
    `deploys_with = 'cloudchef'`. No project has `deploys_with = 'workers_builds'` any more. CloudChef itself and its
    starter are on `cf` 1.0.0-rc.6 with no Wrangler anywhere in the repository's own tooling, and the builder reads
    Build Output `v1` as well as `v0`. Left:
-   - **The builder deploys with `cf`, not Wrangler** (owner, 2026-11-28: cf alone). Today it converts a `cf`
-     project's settings to a Wrangler config and runs its own Wrangler for `d1 migrations apply`, `deploy` and
-     `versions upload`. To do: `cf d1 migrations apply <database id> --dir <dir>`, `cf deploy --prebuilt
---provision=false` and `cf workers versions create --prebuilt --preview-alias <alias>` over Build Output `v1`
-     that the builder seals itself (the Worker's name written into `worker.config.json`, its `domains` taken out;
-     an app's and a Wrangler project's output written by the builder), the request allow-list
-     (`deploy-api-policy.ts`) widened only by the paths a recorded `cf` deploy is seen to make, and a first release
-     to the runtime canary alone. Not done until a preview and a production publish of each kind of project (app,
-     `cf`, Wrangler) are checked live on the canary;
+   - **The builder deploys with `cf`, not Wrangler** (owner, 2026-11-28: cf alone). Built behind
+     `PROJECT_BUILDER_DEPLOYS_WITH_CF` (`cloudflare.config.ts`; empty, so Wrangler publishes everything; CloudChef
+     user ids for a runtime, project ids, or `*`; DEVELOPMENT.md, Publishing With cf) and tried on 2026-11-28 with
+     the variable naming two throwaway projects: a starter app and a `cf` project (assets, one D1 with a migration,
+     a domain in its config), each published to production and as a branch preview by `cf` 1.0.0-rc.6 and served at
+     the addresses reported. **Turning it on for everyone (`*`) is the owner's decision.** Known before deciding:
+     `cf` sends the requests Wrangler sends, so the allow-list is unchanged (recorded and replayed in
+     `deploy-api-policy.test.ts`); with no domains in the settings `cf` neither reads nor writes a Worker's domains
+     (recorded, and so its code reads), but a publish over a Worker that has a custom domain was not tried live;
+     `cf` leaves cron triggers alone when the settings name none, where Wrangler's app config cleared them; an app
+     with the Agent was not published through the builder with `cf` (on throwaway Workers, `cf` took over a
+     Durable Object that Wrangler made with a migration, after which Wrangler must declare it by `exports`, which
+     the app's Wrangler config now does once the Worker's newest version does). Left on Wrangler: a project with a
+     Wrangler config of its own, because Wrangler bundles its Worker at deploy and `cf` has no bundler for it
+     (`cf migrate` itself keeps Wrangler as the bundler). To remove Wrangler from the builder: turn the variable to
+     `*`; move each Wrangler-config project to `cloudflare.config.ts` with a build that leaves Build Output (the
+     Cloudflare Vite plugin 2.0), or have the builder do so; then delete the Wrangler path (`WRANGLER_VERSION`,
+     `runWrangler`, `sealCfProject` and the converter in `cf-project-build.ts`, `trustedAppWranglerConfig`). The two
+     throwaway projects `ferdous/cf-swap-test-app` and `ferdous/cf-swap-test-cfp` are still listed (their Workers,
+     databases, bucket and namespace are deleted): delete them from the projects page, which the command line
+     can't;
    - Workers Builds is removed from the code and the schema (0084 drops `org_projects.deploys_with` and
      `workers_builds_script_tag`). The `workers-ci` scopes stay listed until grants are renewed without them (a scope
      a grant reports that isn't listed is refused as unknown);
