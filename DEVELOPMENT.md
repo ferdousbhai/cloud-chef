@@ -20,7 +20,7 @@ pnpm exec vite dev
 ```
 
 This generates the route tree, Worker types, and bundled artifacts, applies the control-plane D1 migrations to a local
-database, and serves the app at http://localhost:5173 with Vite and the Cloudflare Workers runtime. The home page, UI,
+database (`cf d1 migrations apply --local`, into `.cloudflare/state`, which Vite serves from), and serves the app at http://localhost:5173 with Vite and the Cloudflare Workers runtime. The home page, UI,
 and `/api/health` work without any credentials. There is intentionally no `dev` package script: the production-config
 verifier rejects scripts that start a local server.
 
@@ -59,7 +59,8 @@ license diligence but do not replace legal review.
 ## Configuration
 
 `cloudflare.config.ts` is the source of truth for the control-plane Worker, built by `vite build` with the Cloudflare
-Vite plugin and deployed with the `cf` CLI. It contains one D1 binding (`DB`, schema in `migrations/`) holding:
+Vite plugin and deployed with the `cf` CLI; `@cloudflare/vitest-plugin` reads the same file for `test:workerd`, so
+there is no Wrangler config and no Wrangler in the dependency tree. It contains one D1 binding (`DB`, schema in `migrations/`) holding:
 
 - people, sign-in sessions, and sign-in state (Cloudflare OAuth, Google, and emailed-link tokens);
 - Cloudflare connections, one per space (a person's own, or a team's), with its generation, default builder model
@@ -103,9 +104,7 @@ pnpm run generate:artifacts
 
 This bundles `user-workspace-runtime/` with its migrations and rebuilds the generated application template snapshot in
 one deterministic step. Do not edit generated files directly: the route trees, Worker binding types,
-`app/generated/user-workspace-runtime.generated.ts`, the generated Builder template module, and
-`.cloudflare/wrangler.json` (the Wrangler-format copy of `cloudflare.config.ts` that `@cloudflare/vitest-plugin` and
-local D1 migrations read).
+`app/generated/user-workspace-runtime.generated.ts`, and the generated Builder template module.
 
 ## Workspace Containers
 

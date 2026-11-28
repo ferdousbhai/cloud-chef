@@ -602,7 +602,9 @@ push it is, with a container of its own. A pushed branch claims a deploy of its 
 `project_deployments`), and a newer commit of the branch supersedes an older one. The builder reads how the commit
 builds from its own files (`app/lib/.server/cloudflare/project-build-plan.ts`), fetches it through a read-only git
 proxy, installs and builds it as an unprivileged user holding no credential, stops that user's processes, and deploys
-with CloudChef's own Wrangler, whose every request to Cloudflare it sends on itself with the account's authorization,
+with CloudChef's own Wrangler (a `cf` project's build leaves Build Output, `.cloudflare/output/v1` from `cf` 1.0.0-rc
+on and `v0` before it, whose settings Cloudflare's converter turns into the config that Wrangler deploys with:
+`cf-project-build.ts`), whose every request to Cloudflare it sends on itself with the account's authorization,
 only while the control plane says the deploy runs and only if it is one a deploy of that Worker may make
 (`app/lib/.server/cloudflare/deploy-api-policy.ts`): the token never leaves the builder. A publish that runs for
 someone who neither made the project nor is an admin of its space is a collaborator's (`restricted`): it may use only

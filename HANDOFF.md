@@ -60,7 +60,18 @@ whenever `next` has an unreleased runtime change: use `ops:json`'s per-runtime v
    (`cf-project-build.ts`: the build's settings converted by Cloudflare's `@cloudflare/config`, deployed by
    CloudChef's Wrangler); the two projects Workers Builds published were moved over (each onto its existing Worker,
    a preview first, then production, both checked live), and their Workers Builds triggers deleted; a new GitHub import is made with
-   `deploys_with = 'cloudchef'`. No project has `deploys_with = 'workers_builds'` any more. Left:
+   `deploys_with = 'cloudchef'`. No project has `deploys_with = 'workers_builds'` any more. CloudChef itself and its
+   starter are on `cf` 1.0.0-rc.6 with no Wrangler anywhere in the repository's own tooling, and the builder reads
+   Build Output `v1` as well as `v0`. Left:
+   - **The builder deploys with `cf`, not Wrangler** (owner, 2026-11-28: cf alone). Today it converts a `cf`
+     project's settings to a Wrangler config and runs its own Wrangler for `d1 migrations apply`, `deploy` and
+     `versions upload`. To do: `cf d1 migrations apply <database id> --dir <dir>`, `cf deploy --prebuilt
+--provision=false` and `cf workers versions create --prebuilt --preview-alias <alias>` over Build Output `v1`
+     that the builder seals itself (the Worker's name written into `worker.config.json`, its `domains` taken out;
+     an app's and a Wrangler project's output written by the builder), the request allow-list
+     (`deploy-api-policy.ts`) widened only by the paths a recorded `cf` deploy is seen to make, and a first release
+     to the runtime canary alone. Not done until a preview and a production publish of each kind of project (app,
+     `cf`, Wrangler) are checked live on the canary;
    - Workers Builds is removed from the code and the schema (0084 drops `org_projects.deploys_with` and
      `workers_builds_script_tag`). The `workers-ci` scopes stay listed until grants are renewed without them (a scope
      a grant reports that isn't listed is refused as unknown);

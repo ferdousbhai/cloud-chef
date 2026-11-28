@@ -65,7 +65,16 @@ DEVELOPMENT.md.
 
 ## Cloudflare CLI
 
-Use the `cf` CLI for Cloudflare work in this repository: deploys, builds and their
-logs, secrets, D1, R2, Tunnels and network routes. Use Wrangler or the dashboard
-only where `cf` has no command for the task. Find commands with
-`cf cli search "<what you want to do>"`, then check `<command> --help`.
+Cloudflare work in this repository goes through the `cf` CLI alone (pinned in package.json; `pnpm exec cf`):
+builds, deploys and their logs, secrets, D1 (local migrations too), R2, Tunnels and network routes. Wrangler is not
+a command, a config file or a dependency here: the Worker's settings are `cloudflare.config.ts`, the build is
+`vite build` with `@cloudflare/vite-plugin` (Build Output in `.cloudflare/output/v1`), the deploy is
+`cf deploy --prebuilt`, and `@cloudflare/vitest-plugin` reads `cloudflare.config.ts` itself. Find commands with
+`cf cli search "<what you want to do>"`, then check `<command> --help`; use the dashboard only where `cf` has no
+command.
+
+One exception, in the product and not in this repository's tooling: the ProjectBuilder still deploys people's
+projects with a Wrangler it installs in the build container (`WRANGLER_VERSION` in
+`user-workspace-runtime/src/project-builder.ts`), a `cf` project's settings converted for it by `@cloudflare/config`
+(`cf-project-build.ts`, which reads Build Output `v1` and `v0`). Moving those steps to `cf` is HANDOFF.md's item 4.
+Projects that carry a Wrangler config of their own are still published, whatever CloudChef deploys them with.
