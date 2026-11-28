@@ -60,6 +60,11 @@ export type BuildPlan =
        * (`cf-project-build.ts`).
        */
       cfProject?: true;
+      /**
+       * The Build Output version a CloudChef app's build left its Worker in, known once the build is sealed. A build
+       * sealed before CloudChef read `v1` has none, and left `v0`.
+       */
+      buildOutput?: 'v0' | 'v1';
     }
   | { deployable: false; reason: string };
 

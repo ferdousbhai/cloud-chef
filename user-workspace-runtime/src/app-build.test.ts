@@ -1,9 +1,15 @@
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { D1MigrationChangedError } from '../../app/lib/.server/cloudflare/user-account-api';
 import { appBuildPlan, appWorkerName, isAppCommit } from '../../app/lib/.server/cloudflare/project-build-plan';
 import {
   agentRemovalRefusal,
   appMigrationFiles,
+  appBuiltVersion,
+  appBuiltVersionCommand,
   appProfile,
   appResourceNames,
   migrationChangedMessage,
@@ -92,6 +98,7 @@ describe('a CloudChef app built in app mode', () => {
       workerName: 'helper',
       profile: read.profile,
       resources: { AGENT_SECURITY_DB: { id: '11111111-1111-1111-1111-111111111111', name: 'helper-agent-abc123' } },
+      buildOutput: 'v0',
     });
     expect(config).toMatchObject({
       name: 'helper',
@@ -112,6 +119,60 @@ describe('a CloudChef app built in app mode', () => {
       triggers: { crons: ['0 3 * * *'] },
     });
     expect(config).not.toHaveProperty('assets');
+  });
+
+  it('deploys the Worker from the Build Output version its build left, v1 or v0', () => {
+    const read = appProfile({ projectFile: STARTER, packageJson: PACKAGE });
+    if (!('profile' in read)) {
+      throw new Error(read.reason);
+    }
+    const built = (buildOutput: 'v0' | 'v1') => {
+      const { main, base_dir, assets, ...rest } = trustedAppWranglerConfig({
+        workerName: 'tip-calc',
+        profile: read.profile,
+        resources: {},
+        buildOutput,
+      });
+      return { main, base_dir, directory: assets?.directory, rest: { ...rest, assetsBinding: assets?.binding } };
+    };
+    expect(built('v1')).toMatchObject({
+      main: '.cloudflare/output/v1/workers/default/bundle/index.js',
+      base_dir: '.cloudflare/output/v1/workers/default/bundle',
+      directory: '.cloudflare/output/v1/workers/default/assets',
+    });
+    expect(built('v0')).toMatchObject({
+      main: '.cloudflare/output/v0/workers/default/bundle/index.js',
+      base_dir: '.cloudflare/output/v0/workers/default/bundle',
+      directory: '.cloudflare/output/v0/workers/default/assets',
+    });
+    // Nothing but the folder differs.
+    expect(built('v1').rest).toEqual(built('v0').rest);
+  });
+
+  it('finds which version the build left its Worker in, and refuses none or both', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cloudchef-app-build-'));
+    const find = () => {
+      const ran = spawnSync('bash', ['-c', appBuiltVersionCommand().replaceAll("'/work/", `'${root}/`)], {
+        encoding: 'utf8',
+      });
+      expect(ran.status).toBe(0);
+      return appBuiltVersion(ran.stdout);
+    };
+    const leave = (version: string) => {
+      mkdirSync(join(root, `.cloudflare/output/${version}/workers/default/bundle`), { recursive: true });
+      writeFileSync(join(root, `.cloudflare/output/${version}/workers/default/bundle/index.js`), '');
+    };
+    try {
+      expect(find()).toMatchObject({ reason: expect.stringContaining('didn’t leave the app’s Worker') });
+      leave('v1');
+      expect(find()).toEqual({ version: 'v1' });
+      leave('v0');
+      expect(find()).toMatchObject({ reason: expect.stringContaining('more than one version') });
+      rmSync(join(root, '.cloudflare/output/v1'), { recursive: true });
+      expect(find()).toEqual({ version: 'v0' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('applies each database’s NNNN_name.sql migrations in order, only for the databases it has', () => {

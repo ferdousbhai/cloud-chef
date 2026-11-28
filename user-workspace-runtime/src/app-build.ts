@@ -14,11 +14,12 @@ import { isCloudChefResourceName } from '../../app/lib/.server/cloudflare/deploy
 import type { D1MigrationChangedError } from '../../app/lib/.server/cloudflare/user-account-api';
 import { sha256Hex } from '../../app/lib/hex-digest';
 import {
-  CF_BUILT_ASSETS_DIR,
-  CF_BUILT_WORKER_MODULE,
+  CF_BUILD_OUTPUT_VERSIONS,
+  cfBuildOutput,
   CLOUDFLARE_PROJECT_FILE,
   parseCloudflareProjectText,
 } from '../../template/scripts/lib/cloudflare-project.mjs';
+import { builtVersionLines, SEVERAL_VERSIONS_REASON, type BuildOutputVersion } from './cf-project-build';
 
 /**
  * A CloudChef app (a project made from CloudChef's starter, with a `cloudflare.project.json`) built and deployed by
@@ -28,10 +29,27 @@ import {
  * the project's configuration decides what is deployed or how.
  */
 
-/** Where the starter's build (`pnpm run build`, the Cloudflare Vite plugin) leaves the Worker and its assets. */
-export const APP_BUILT_WORKER_MODULE = CF_BUILT_WORKER_MODULE;
-const APP_BUILT_BUNDLE_DIR = CF_BUILT_WORKER_MODULE.slice(0, CF_BUILT_WORKER_MODULE.lastIndexOf('/'));
-const APP_BUILT_ASSETS_DIR = CF_BUILT_ASSETS_DIR;
+/**
+ * Finds where the starter's build (`pnpm run build`, the Cloudflare Vite plugin) left the Worker: prints the Build
+ * Output version it is in (the app's own pinned plugin decides which), `no-worker`, or `several-versions`.
+ */
+export function appBuiltVersionCommand(): string {
+  return ['set -eu', ...builtVersionLines('workerModule'), 'echo "$version"'].join('\n');
+}
+
+/** The version `appBuiltVersionCommand` found, or why the app can't be deployed. */
+export function appBuiltVersion(output: string): { version: BuildOutputVersion } | { reason: string } {
+  const answer = output.trim();
+  const version = CF_BUILD_OUTPUT_VERSIONS.find((candidate) => candidate === answer);
+  if (version) {
+    return { version };
+  }
+  if (answer === 'several-versions') {
+    return { reason: SEVERAL_VERSIONS_REASON };
+  }
+  const looked = CF_BUILD_OUTPUT_VERSIONS.map((candidate) => cfBuildOutput(candidate).workerModule).join(' or ');
+  return { reason: `The build didn’t leave the app’s Worker (${looked}).` };
+}
 
 /** The folders whose `NNNN_name.sql` files are the app's D1 migrations, by binding. */
 const APP_MIGRATION_DIRECTORIES = { DB: 'migrations', AGENT_SECURITY_DB: 'agent-security-migrations' } as const;
@@ -154,12 +172,15 @@ export function trustedAppWranglerConfig(args: {
   workerName: string;
   profile: DeploymentProjectProfile;
   resources: AppResources;
+  /** The Build Output version the app's build left its Worker in. */
+  buildOutput: BuildOutputVersion;
 }): AppWranglerConfig {
   const { profile, resources } = args;
+  const built = cfBuildOutput(args.buildOutput);
   const config: AppWranglerConfig = {
     name: args.workerName,
-    main: APP_BUILT_WORKER_MODULE,
-    base_dir: APP_BUILT_BUNDLE_DIR,
+    main: built.workerModule,
+    base_dir: built.bundleDir,
     no_bundle: true,
     find_additional_modules: true,
     rules: [
@@ -175,7 +196,7 @@ export function trustedAppWranglerConfig(args: {
   };
   if (profile.type === 'web_app' && profile.bindings.assets) {
     config.assets = {
-      directory: APP_BUILT_ASSETS_DIR,
+      directory: built.assetsDir,
       binding: 'ASSETS',
       run_worker_first: [...DEPLOYMENT_ASSETS_RUN_WORKER_FIRST],
     };

@@ -12,7 +12,7 @@ import { CF_CONFIG_VERSION, cfConvertCommand, cfProjectDeploy, forgetBuildOutput
  * converter, against a folder standing in for the build container's work folder.
  */
 const CONVERTER = fileURLToPath(import.meta.resolve('@cloudflare/config'));
-const WORKER_DIR = '.cloudflare/output/v0/workers/default';
+const workerDir = (version: string) => `.cloudflare/output/${version}/workers/default`;
 
 /** What `cf build` leaves for a site with a database, sessions, files, email, a rate limit and two domains. */
 const BUILT = {
@@ -50,7 +50,7 @@ function write(path: string, content: string): void {
 
 /** Runs the convert step with `root` as the work folder, and reads what it comes to. */
 function convert() {
-  const command = cfConvertCommand(CONVERTER, null).replaceAll("'/work/", `'${root}/`);
+  const command = cfConvertCommand(CONVERTER, null).replaceAll(/(['"])\/work\//g, `$1${root}/`);
   const ran = spawnSync('bash', ['-c', command], { encoding: 'utf8' });
   expect(ran.stderr).toBe('');
   expect(ran.status).toBe(0);
@@ -63,93 +63,105 @@ describe("a cf project's deploy", () => {
     expect(manifest).toMatchObject({ version: CF_CONFIG_VERSION });
   });
 
-  it('deploys the built Worker as it is, with its settings and assets, and leaves its domains alone', () => {
-    write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
-    write(`${WORKER_DIR}/bundle/index.js`, 'export default {}');
-    write(`${WORKER_DIR}/assets/favicon.ico`, '');
-    write('migrations/0001_content.sql', '');
-    expect(convert()).toEqual({
-      workerName: 'example-site',
-      migrations: [{ binding: 'DB', databaseName: 'example' }],
-      notes: [expect.stringContaining('domains and routes in cloudflare.config.ts are not changed by publishing')],
-      config: {
-        name: 'example-site',
-        main: `${WORKER_DIR}/bundle/index.js`,
-        base_dir: `${WORKER_DIR}/bundle`,
-        no_bundle: true,
-        find_additional_modules: true,
-        rules: [
-          { type: 'ESModule', globs: ['**/*.js', '**/*.mjs'] },
-          { type: 'CompiledWasm', globs: ['**/*.wasm'] },
-        ],
-        assets: { directory: `${WORKER_DIR}/assets` },
-        compatibility_date: '2026-10-01',
-        compatibility_flags: ['nodejs_compat'],
-        workers_dev: false,
-        preview_urls: false,
-        observability: { enabled: true, redact_query_string: true },
-        d1_databases: [
-          { binding: 'DB', database_id: 'e6481118-99df-4baa-8e6b-10076e04679b', database_name: 'example' },
-        ],
-        kv_namespaces: [{ binding: 'AUTH_KV', id: '3f6b7c901c994f849defc8b9a068e77c' }],
-        r2_buckets: [{ binding: 'CONTENT_BUCKET', bucket_name: 'example-content' }],
-        send_email: [{ name: 'EMAIL', allowed_sender_addresses: ['contact@example.com'] }],
-        ratelimits: [{ name: 'CONTACT_LIMIT', namespace_id: '1001', simple: { limit: 3, period: 60 } }],
-      },
+  it('refuses a build that left Build Output of two versions, as cf does', () => {
+    for (const version of ['v0', 'v1']) {
+      write(`${workerDir(version)}/worker.config.json`, JSON.stringify(BUILT));
+    }
+    expect(convert()).toMatchObject({ stage: 'config', reason: expect.stringContaining('more than one version') });
+  });
+
+  // cf 1.0.0-rc and @cloudflare/vite-plugin 2.0.0-rc write v1, the betas before them v0, with the same Worker files.
+  describe.each(['v0', 'v1'])('from Build Output %s', (version) => {
+    const WORKER_DIR = workerDir(version);
+
+    it('deploys the built Worker as it is, with its settings and assets, and leaves its domains alone', () => {
+      write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
+      write(`${WORKER_DIR}/bundle/index.js`, 'export default {}');
+      write(`${WORKER_DIR}/assets/favicon.ico`, '');
+      write('migrations/0001_content.sql', '');
+      expect(convert()).toEqual({
+        workerName: 'example-site',
+        migrations: [{ binding: 'DB', databaseName: 'example' }],
+        notes: [expect.stringContaining('domains and routes in cloudflare.config.ts are not changed by publishing')],
+        config: {
+          name: 'example-site',
+          main: `${WORKER_DIR}/bundle/index.js`,
+          base_dir: `${WORKER_DIR}/bundle`,
+          no_bundle: true,
+          find_additional_modules: true,
+          rules: [
+            { type: 'ESModule', globs: ['**/*.js', '**/*.mjs'] },
+            { type: 'CompiledWasm', globs: ['**/*.wasm'] },
+          ],
+          assets: { directory: `${WORKER_DIR}/assets` },
+          compatibility_date: '2026-10-01',
+          compatibility_flags: ['nodejs_compat'],
+          workers_dev: false,
+          preview_urls: false,
+          observability: { enabled: true, redact_query_string: true },
+          d1_databases: [
+            { binding: 'DB', database_id: 'e6481118-99df-4baa-8e6b-10076e04679b', database_name: 'example' },
+          ],
+          kv_namespaces: [{ binding: 'AUTH_KV', id: '3f6b7c901c994f849defc8b9a068e77c' }],
+          r2_buckets: [{ binding: 'CONTENT_BUCKET', bucket_name: 'example-content' }],
+          send_email: [{ name: 'EMAIL', allowed_sender_addresses: ['contact@example.com'] }],
+          ratelimits: [{ name: 'CONTACT_LIMIT', namespace_id: '1001', simple: { limit: 3, period: 60 } }],
+        },
+      });
     });
-  });
 
-  it('applies no migrations without a migrations folder, and keeps the assets settings of a Worker that has them', () => {
-    const { domains: _domains, ...withoutDomains } = BUILT;
-    write(
-      `${WORKER_DIR}/worker.config.json`,
-      JSON.stringify({
-        ...withoutDomains,
-        assets: { runWorkerFirst: ['/api/*'] },
-        env: { ASSETS: { type: 'assets' } },
-      }),
-    );
-    write(`${WORKER_DIR}/assets/index.html`, '');
-    const deploy = convert();
-    expect(deploy).toMatchObject({
-      migrations: [],
-      notes: [],
-      config: { assets: { binding: 'ASSETS', run_worker_first: ['/api/*'], directory: `${WORKER_DIR}/assets` } },
+    it('applies no migrations without a migrations folder, and keeps the assets settings of a Worker that has them', () => {
+      const { domains: _domains, ...withoutDomains } = BUILT;
+      write(
+        `${WORKER_DIR}/worker.config.json`,
+        JSON.stringify({
+          ...withoutDomains,
+          assets: { runWorkerFirst: ['/api/*'] },
+          env: { ASSETS: { type: 'assets' } },
+        }),
+      );
+      write(`${WORKER_DIR}/assets/index.html`, '');
+      const deploy = convert();
+      expect(deploy).toMatchObject({
+        migrations: [],
+        notes: [],
+        config: { assets: { binding: 'ASSETS', run_worker_first: ['/api/*'], directory: `${WORKER_DIR}/assets` } },
+      });
     });
-  });
 
-  it('says why a build that left no Worker, several, a container, or settings it cannot read is not published', () => {
-    expect(convert()).toMatchObject({ stage: 'build', reason: expect.stringContaining('must run cf build') });
-    write(`${WORKER_DIR}/worker.config.json`, JSON.stringify({ ...BUILT, name: 'Not A Name' }));
-    expect(convert()).toMatchObject({ stage: 'config' });
-    write(`${WORKER_DIR}/worker.config.json`, '{');
-    expect(convert()).toMatchObject({ stage: 'config', reason: expect.stringContaining('it is not JSON') });
-    write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
-    write('.cloudflare/output/v0/workers/other/worker.config.json', '{}');
-    expect(convert()).toMatchObject({ stage: 'config', reason: expect.stringContaining('more than one Worker') });
-  });
+    it('says why a build that left no Worker, several, a container, or settings it cannot read is not published', () => {
+      expect(convert()).toMatchObject({ stage: 'build', reason: expect.stringContaining('must run cf build') });
+      write(`${WORKER_DIR}/worker.config.json`, JSON.stringify({ ...BUILT, name: 'Not A Name' }));
+      expect(convert()).toMatchObject({ stage: 'config' });
+      write(`${WORKER_DIR}/worker.config.json`, '{');
+      expect(convert()).toMatchObject({ stage: 'config', reason: expect.stringContaining('it is not JSON') });
+      write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
+      write(`.cloudflare/output/${version}/workers/other/worker.config.json`, '{}');
+      expect(convert()).toMatchObject({ stage: 'config', reason: expect.stringContaining('more than one Worker') });
+    });
 
-  it("removes the marker Wrangler refuses to deploy beside, and nothing else of the build's", () => {
-    write('.cloudflare/output/v0/config.json', '{}');
-    write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
-    const ran = spawnSync('bash', ['-c', forgetBuildOutputMarker().replaceAll("'/work/", `'${root}/`)]);
-    expect(ran.status).toBe(0);
-    expect(existsSync(join(root, '.cloudflare/output/v0/config.json'))).toBe(false);
-    expect(existsSync(join(root, `${WORKER_DIR}/worker.config.json`))).toBe(true);
-  });
+    it("removes the marker Wrangler refuses to deploy beside, and nothing else of the build's", () => {
+      write(`.cloudflare/output/${version}/config.json`, '{}');
+      write(`${WORKER_DIR}/worker.config.json`, JSON.stringify(BUILT));
+      const ran = spawnSync('bash', ['-c', forgetBuildOutputMarker().replaceAll("'/work/", `'${root}/`)]);
+      expect(ran.status).toBe(0);
+      expect(existsSync(join(root, `.cloudflare/output/${version}/config.json`))).toBe(false);
+      expect(existsSync(join(root, `${WORKER_DIR}/worker.config.json`))).toBe(true);
+    });
 
-  it('leaves a folder of migrations unapplied when the project has several databases', () => {
-    write(
-      `${WORKER_DIR}/worker.config.json`,
-      JSON.stringify({
-        ...BUILT,
-        env: { DB: BUILT.env.DB, OTHER: { type: 'd1', name: 'other', id: 'ef4b5c1f-aac5-4bee-8e97-82dd4e605c98' } },
-      }),
-    );
-    write('migrations/0001_content.sql', '');
-    expect(convert()).toMatchObject({
-      migrations: [],
-      notes: [expect.anything(), expect.stringContaining('exactly one D1 database')],
+    it('leaves a folder of migrations unapplied when the project has several databases', () => {
+      write(
+        `${WORKER_DIR}/worker.config.json`,
+        JSON.stringify({
+          ...BUILT,
+          env: { DB: BUILT.env.DB, OTHER: { type: 'd1', name: 'other', id: 'ef4b5c1f-aac5-4bee-8e97-82dd4e605c98' } },
+        }),
+      );
+      write('migrations/0001_content.sql', '');
+      expect(convert()).toMatchObject({
+        migrations: [],
+        notes: [expect.anything(), expect.stringContaining('exactly one D1 database')],
+      });
     });
   });
 });

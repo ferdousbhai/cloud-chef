@@ -1,16 +1,13 @@
 import { z } from 'zod';
-import {
-  CF_BUILD_OUTPUT_WORKER_CONFIG,
-  CF_BUILT_ASSETS_DIR,
-  CF_BUILT_WORKER_MODULE,
-} from '../../template/scripts/lib/cloudflare-project.mjs';
+import { CF_BUILD_OUTPUT_VERSIONS, cfBuildOutput } from '../../template/scripts/lib/cloudflare-project.mjs';
 import { WORK_DIR } from './project-builder-scripts';
 import { shellQuote } from './shell-quote';
 
 /**
  * A project configured for the `cf` CLI (a `cloudflare.config.ts` and no Wrangler config), built and deployed by the
  * ProjectBuilder. Its own `build` script runs `cf build`, which leaves the Worker, its assets and its settings as
- * Build Output (`.cloudflare/output/v0/workers/default/`). Nothing of the project runs after that: Cloudflare's own
+ * Build Output (`.cloudflare/output/<version>/workers/default/`, `v1` from `cf` 1.0.0-rc on and `v0` before it; the
+ * Worker's settings are written the same in both). Nothing of the project runs after that: Cloudflare's own
  * converter (`@cloudflare/config`, CloudChef's pinned copy) turns those settings into a Wrangler config, and
  * CloudChef's Wrangler deploys the built Worker as it is, as it does every other project.
  */
@@ -20,18 +17,33 @@ export const CF_CONFIG_VERSION = '0.28.1';
 const CF_CONFIG_ROOT = '/opt/cloudchef/cf-config';
 const CF_CONFIG_MODULE = `${CF_CONFIG_ROOT}/node_modules/@cloudflare/config/dist/index.mjs`;
 
-const BUILT_WORKER_DIR = CF_BUILD_OUTPUT_WORKER_CONFIG.slice(0, CF_BUILD_OUTPUT_WORKER_CONFIG.lastIndexOf('/'));
-const BUILT_WORKERS_DIR = BUILT_WORKER_DIR.slice(0, BUILT_WORKER_DIR.lastIndexOf('/'));
-const BUILT_OUTPUT_DIR = BUILT_WORKERS_DIR.slice(0, BUILT_WORKERS_DIR.lastIndexOf('/'));
-const BUILT_BUNDLE_DIR = CF_BUILT_WORKER_MODULE.slice(0, CF_BUILT_WORKER_MODULE.lastIndexOf('/'));
+export type BuildOutputVersion = (typeof CF_BUILD_OUTPUT_VERSIONS)[number];
+/** Where a Worker is looked for, as a build that left none is told: either version's folder. */
+const BUILT_WORKER_CONFIG_PATTERN = cfBuildOutput(`{${CF_BUILD_OUTPUT_VERSIONS.join(',')}}`).workerConfig;
 
 /**
- * Removes the file that marks a folder as Build Output. Wrangler refuses to deploy beside it, lest its own config
- * name another Worker than the one `cf` built; the config CloudChef's Wrangler deploys with is made from that very
- * output (or, for a CloudChef app, by CloudChef), so there is no other to disagree with.
+ * Removes the file that marks a folder as Build Output, of either version. Wrangler refuses to deploy beside it,
+ * lest its own config name another Worker than the one `cf` built; the config CloudChef's Wrangler deploys with is
+ * made from that very output (or, for a CloudChef app, by CloudChef), so there is no other to disagree with.
  */
 export function forgetBuildOutputMarker(): string {
-  return `rm -f ${shellQuote(`${WORK_DIR}/${BUILT_OUTPUT_DIR}/config.json`)}`;
+  return `rm -f ${CF_BUILD_OUTPUT_VERSIONS.map((version) => shellQuote(`${WORK_DIR}/${cfBuildOutput(version).marker}`)).join(' ')}`;
+}
+
+/**
+ * Bash that sets `$version` to the one Build Output version in which the build left `file` (a key of
+ * `cfBuildOutput`), and otherwise prints `no-worker` or `several-versions` and ends: output of two versions side
+ * by side doesn't say which is the build's, and `cf` refuses it too.
+ */
+export function builtVersionLines(file: 'workerConfig' | 'workerModule'): string[] {
+  return [
+    'version=',
+    ...CF_BUILD_OUTPUT_VERSIONS.map(
+      (version) =>
+        `if [ -f ${shellQuote(`${WORK_DIR}/${cfBuildOutput(version)[file]}`)} ]; then [ -z "$version" ] || { echo several-versions; exit 0; }; version=${version}; fi`,
+    ),
+    '[ -n "$version" ] || { echo no-worker; exit 0; }',
+  ];
 }
 
 /**
@@ -77,30 +89,37 @@ say({ config: convertToWranglerConfig(parsed.data), mainModule });
 /**
  * Checks the build left one Worker and nothing else to deploy, then converts its settings. Run by bash as root, once
  * the build's processes are stopped; prints `CF_CONVERT_SCRIPT`'s answer and, on a last line, whether the build left
- * static assets and a `migrations` folder.
+ * static assets and a `migrations` folder, and which Build Output version it is.
  */
 export function cfConvertCommand(modulePath = CF_CONFIG_MODULE, installRoot: string | null = CF_CONFIG_ROOT): string {
-  const output = `${WORK_DIR}/${BUILT_OUTPUT_DIR}`;
+  // The paths of the version found, with `$version` left for bash to fill in.
+  const built = cfBuildOutput('$version');
+  const inWorkFolder = (path: string) => `"${WORK_DIR}/${path}"`;
   return [
     'set -eu',
-    `[ -f ${shellQuote(`${WORK_DIR}/${CF_BUILD_OUTPUT_WORKER_CONFIG}`)} ] || { echo no-worker; exit 0; }`,
-    `others="$(ls -A ${shellQuote(`${WORK_DIR}/${BUILT_WORKERS_DIR}`)} | grep -vx default || true)"`,
-    `containers="$(ls -A ${shellQuote(`${output}/containers`)} 2>/dev/null || true)"`,
+    ...builtVersionLines('workerConfig'),
+    `others="$(ls -A ${inWorkFolder(built.workersDir)} | grep -vx default || true)"`,
+    `containers="$(ls -A ${inWorkFolder(built.containersDir)} 2>/dev/null || true)"`,
     '[ -z "$others$containers" ] || { echo several; exit 0; }',
     ...(installRoot
       ? [
           `[ -f ${shellQuote(modulePath)} ] || npm install --prefix ${shellQuote(installRoot)} @cloudflare/config@${CF_CONFIG_VERSION} --ignore-scripts --no-audit --no-fund --loglevel=error >&2`,
         ]
       : []),
-    `node --input-type=module -e ${shellQuote(CF_CONVERT_SCRIPT)} ${shellQuote(modulePath)} ${shellQuote(`${WORK_DIR}/${CF_BUILD_OUTPUT_WORKER_CONFIG}`)}`,
+    `node --input-type=module -e ${shellQuote(CF_CONVERT_SCRIPT)} ${shellQuote(modulePath)} ${inWorkFolder(built.workerConfig)}`,
     'echo',
-    `assets=no; [ -n "$(ls -A ${shellQuote(`${WORK_DIR}/${CF_BUILT_ASSETS_DIR}`)} 2>/dev/null || true)" ] && assets=yes`,
+    `assets=no; [ -n "$(ls -A ${inWorkFolder(built.assetsDir)} 2>/dev/null || true)" ] && assets=yes`,
     `migrations=no; [ -d ${shellQuote(`${WORK_DIR}/migrations`)} ] && migrations=yes`,
-    'echo "assets=$assets migrations=$migrations"',
+    'echo "assets=$assets migrations=$migrations version=$version"',
   ].join('\n');
 }
 
 const WORKER_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+/** Why a build that left Build Output of two versions is not published. */
+export const SEVERAL_VERSIONS_REASON =
+  `The build left Build Output of more than one version (${CF_BUILD_OUTPUT_VERSIONS.map((version) => cfBuildOutput(version).root).join(', ')}), ` +
+  'so CloudChef can’t tell which is the build’s. Remove the one the project’s cf doesn’t write.';
 
 const convertedSchema = z.union([
   z.object({ error: z.string() }),
@@ -149,8 +168,11 @@ export function cfProjectDeploy(output: string): CfProjectDeploy {
   if (lines[0] === 'no-worker') {
     return {
       stage: 'build',
-      reason: `The build didn’t leave a Worker (${CF_BUILD_OUTPUT_WORKER_CONFIG}). Its build script must run cf build.`,
+      reason: `The build didn’t leave a Worker (${BUILT_WORKER_CONFIG_PATTERN}). Its build script must run cf build.`,
     };
+  }
+  if (lines[0] === 'several-versions') {
+    return { stage: 'config', reason: SEVERAL_VERSIONS_REASON };
   }
   if (lines[0] === 'several') {
     return {
@@ -159,6 +181,11 @@ export function cfProjectDeploy(output: string): CfProjectDeploy {
     };
   }
   const facts = lines.at(-1) ?? '';
+  const version = CF_BUILD_OUTPUT_VERSIONS.find((candidate) => facts.endsWith(` version=${candidate}`));
+  if (!version) {
+    return { stage: 'config', reason: 'CloudChef couldn’t read the settings the build left for its Worker.' };
+  }
+  const built = cfBuildOutput(version);
   let converted: z.infer<typeof convertedSchema>;
   try {
     converted = convertedSchema.parse(JSON.parse(lines.slice(0, -1).join('\n')));
@@ -182,8 +209,8 @@ export function cfProjectDeploy(output: string): CfProjectDeploy {
   const config: CfDeployConfig = {
     ...settings,
     name: workerName,
-    main: `${BUILT_BUNDLE_DIR}/${converted.mainModule}`,
-    base_dir: BUILT_BUNDLE_DIR,
+    main: `${built.bundleDir}/${converted.mainModule}`,
+    base_dir: built.bundleDir,
     no_bundle: true,
     find_additional_modules: true,
     rules: [
@@ -192,7 +219,7 @@ export function cfProjectDeploy(output: string): CfProjectDeploy {
     ],
   };
   if (facts.includes('assets=yes')) {
-    config.assets = { ...assets, directory: CF_BUILT_ASSETS_DIR };
+    config.assets = { ...assets, directory: built.assetsDir };
   }
   const notes: string[] = [];
   if (routes && routes.length > 0) {

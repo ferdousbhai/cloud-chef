@@ -35,7 +35,8 @@ import { ProjectRepositories } from '../../app/lib/.server/cloudflare/project-re
 import { D1MigrationChangedError, UserCloudflareAccountApi } from '../../app/lib/.server/cloudflare/user-account-api';
 import {
   agentRemovalRefusal,
-  APP_BUILT_WORKER_MODULE,
+  appBuiltVersion,
+  appBuiltVersionCommand,
   appMigrationFiles,
   appProfile,
   appResourceNames,
@@ -55,7 +56,13 @@ import {
   fetchCommand,
   WORK_DIR,
 } from './project-builder-scripts';
-import { cfConvertCommand, cfProjectDeploy, forgetBuildOutputMarker } from './cf-project-build';
+import {
+  cfConvertCommand,
+  cfProjectDeploy,
+  forgetBuildOutputMarker,
+  type BuildOutputVersion,
+} from './cf-project-build';
+import { CF_BUILD_OUTPUT_VERSIONS } from '../../template/scripts/lib/cloudflare-project.mjs';
 import { lookedUpField, sentPastRefusals } from './resource-lookup';
 import { failedCommandLog, runTrackedSandboxCommand, type SandboxCommand } from './tracked-command';
 import { shellQuote } from './shell-quote';
@@ -222,6 +229,7 @@ const planSchema = z.looseObject({
   workerName: z.string(),
   migrations: z.array(z.object({ binding: z.string(), databaseName: z.string() })),
   cfProject: z.literal(true).optional(),
+  buildOutput: z.enum(CF_BUILD_OUTPUT_VERSIONS).optional(),
   app: z
     .object({
       type: z.enum(['web_app', 'worker']),
@@ -666,16 +674,17 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
     await this.root(job, 'build', endBuildPhase(), SHORT_TIMEOUT_MS);
     if (plan.app) {
       // An app's Wrangler config is CloudChef's, written once its resources are made; the build left only the Worker.
-      const built = await this.command(
-        `rm -rf ${WORK_DIR}/.wrangler/deploy && ${forgetBuildOutputMarker()} && test -f ${shellQuote(`${WORK_DIR}/${APP_BUILT_WORKER_MODULE}`)}`,
-        SHORT_TIMEOUT_MS,
-      ).then(
-        () => true,
-        () => false,
-      );
-      if (!built) {
-        throw new StepFailure('build', `The build didn’t leave the app’s Worker (${APP_BUILT_WORKER_MODULE}).`);
+      await this.command(`rm -rf ${WORK_DIR}/.wrangler/deploy && ${forgetBuildOutputMarker()}`, SHORT_TIMEOUT_MS);
+      const built = appBuiltVersion((await this.command(appBuiltVersionCommand(), SHORT_TIMEOUT_MS)).stdout);
+      if ('reason' in built) {
+        throw new StepFailure('build', built.reason);
       }
+      const settled: DeployablePlan = { ...plan, buildOutput: built.version };
+      this.ctx.storage.sql.exec(
+        'UPDATE builder_jobs SET plan = ? WHERE deployment_id = ?',
+        JSON.stringify(settled),
+        job.deploymentId,
+      );
       return;
     }
     if (plan.cfProject) {
@@ -816,7 +825,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
       return { next: 'migrate' };
     }
     if (plan.app) {
-      await this.provisionApp(job, plan.app, job.workerName);
+      await this.provisionApp(job, plan.app, job.workerName, plan.buildOutput ?? 'v0');
       return { next: 'deploy' };
     }
     const database = job.kind === 'production' ? plan.migrations[job.migrated] : undefined;
@@ -845,7 +854,12 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
    * its databases' migrations for a deploy of main, and writes CloudChef's Wrangler config for the deploy. A deploy
    * that would remove the Agent from a Worker holding its data is refused before anything changes.
    */
-  private async provisionApp(job: Job, profile: NonNullable<DeployablePlan['app']>, workerName: string): Promise<void> {
+  private async provisionApp(
+    job: Job,
+    profile: NonNullable<DeployablePlan['app']>,
+    workerName: string,
+    buildOutput: BuildOutputVersion,
+  ): Promise<void> {
     await this.expectRecorded(this.report(job, { state: 'deploying', workerName, step: 'migrating' }));
     await this.whileReporting(job, 'deploying', async () => {
       const api = new UserCloudflareAccountApi(this.env.CLOUDFLARE_ACCOUNT_ID, await this.deployToken(job));
@@ -959,7 +973,7 @@ export class ProjectBuilder extends DurableObject<BuilderEnv> {
         }
       }
       const target = `${WORK_DIR}/${DEPLOY_CONFIG_NAME}`;
-      const config = trustedAppWranglerConfig({ workerName, profile, resources });
+      const config = trustedAppWranglerConfig({ workerName, profile, resources, buildOutput });
       const encoded = base64(new TextEncoder().encode(JSON.stringify(config)));
       await this.command(`printf %s ${shellQuote(encoded)} | base64 -d > ${shellQuote(target)}`, SHORT_TIMEOUT_MS);
       this.ctx.storage.sql.exec(

@@ -3,10 +3,33 @@ export const CLOUDFLARE_CONFIG_FILE = "cloudflare.config.ts";
 /** Where `cf workers types` and `cf build` (the Cloudflare Vite plugin) write, relative to the project. */
 export const CF_OUTPUT_DIR = ".cloudflare";
 export const CF_GENERATED_BINDING_TYPES = `${CF_OUTPUT_DIR}/types/index.d.ts`;
-const CF_BUILD_OUTPUT_WORKER_ROOT = `${CF_OUTPUT_DIR}/output/v0/workers/default`;
-export const CF_BUILT_WORKER_MODULE = `${CF_BUILD_OUTPUT_WORKER_ROOT}/bundle/index.js`;
-export const CF_BUILT_ASSETS_DIR = `${CF_BUILD_OUTPUT_WORKER_ROOT}/assets`;
-export const CF_BUILD_OUTPUT_WORKER_CONFIG = `${CF_BUILD_OUTPUT_WORKER_ROOT}/worker.config.json`;
+/**
+ * The Build Output versions CloudChef publishes, newest first. `cf` 1.0.0-rc and `@cloudflare/vite-plugin` 2.0.0-rc
+ * write `v1`, the betas before them `v0`; the two differ in the folder's name and in `config.json`, which names
+ * its producer in `v1`. A Worker's `worker.config.json`, bundle and assets are the same in both.
+ */
+export const CF_BUILD_OUTPUT_VERSIONS = /** @type {const} */ (["v1", "v0"]);
+/** Where a build leaves its one Worker in Build Output of `version`, relative to the project. */
+export function cfBuildOutput(version) {
+  const root = `${CF_OUTPUT_DIR}/output/${version}`;
+  const workersDir = `${root}/workers`;
+  const bundleDir = `${workersDir}/default/bundle`;
+  return {
+    root,
+    /** The file that marks the folder as Build Output. */
+    marker: `${root}/config.json`,
+    workersDir,
+    containersDir: `${root}/containers`,
+    bundleDir,
+    workerModule: `${bundleDir}/index.js`,
+    assetsDir: `${workersDir}/default/assets`,
+    workerConfig: `${workersDir}/default/worker.config.json`,
+  };
+}
+/** What this project's own pinned `cf` and Vite plugin write. */
+const CF_OWN_BUILD_OUTPUT = cfBuildOutput("v0");
+export const CF_BUILT_WORKER_MODULE = CF_OWN_BUILD_OUTPUT.workerModule;
+export const CF_BUILT_ASSETS_DIR = CF_OWN_BUILD_OUTPUT.assetsDir;
 /** Deployment policy the rendered config carries; the control plane's runtime policy must match it. */
 export const CF_COMPATIBILITY_DATE = "2026-07-21";
 export const CF_LOGS_HEAD_SAMPLING_RATE = 0.6;
